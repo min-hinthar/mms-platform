@@ -76,9 +76,11 @@ function sel(table: string, cols: string) {
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
 vi.mock("./staff", () => ({ getStaffAuth: () => Promise.resolve(null) }));
 vi.mock("./rate", () => ({ withinMutationRate: () => Promise.resolve(true) }));
+/** What `auth.getUser()` answers; reset to the signed-in caller in `beforeEach`. */
+let authAnswer: { data: { user: { id: string } | null }; error: unknown };
 vi.mock("@mms/db/server", () => ({
   serverClient: () => ({
-    auth: { getUser: () => Promise.resolve({ data: { user: { id: "uid-1" } } }) },
+    auth: { getUser: () => Promise.resolve(authAnswer) },
   }),
   serviceClient: () => ({
     from: (table: string) => ({ select: (cols: string) => sel(table, cols) }),
@@ -91,6 +93,7 @@ const { getMyOrderFallback, didIPayForCart } = await import("./orders");
 const { getOrderHistory } = await import("./rewards");
 
 beforeEach(() => {
+  authAnswer = { data: { user: { id: "uid-1" } }, error: null };
   counterRow = null;
   memberRow = null;
   queries = [];
@@ -115,6 +118,33 @@ describe("getMyOrderFallback — the payers probe is the authorization", () => {
   it("stays not_found when no payers row exists (and no share row)", async () => {
     const r = await getMyOrderFallback({ orderId: ORDER });
     expect(r).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+describe("getMyOrderFallback — an auth outage is not 'not yours' (second blind pass on #330)", () => {
+  it("an auth TRANSPORT failure is `error` and reads no order; a decided no-session stays `not_found`", async () => {
+    // /track withdraws its "this page catches up" foot on a decided `not_found`, so a glitch must
+    // not read as one. MUTATION: drop the transport arm — the outage answers `not_found`.
+    authAnswer = {
+      data: { user: null },
+      error: { name: "AuthRetryableFetchError", message: "fetch failed", status: 0 },
+    };
+    expect(await getMyOrderFallback({ orderId: ORDER })).toEqual({ ok: false, reason: "error" });
+    expect(queries).toHaveLength(0);
+    // A real verdict (no session, a rejected token) is still the decided answer.
+    authAnswer = {
+      data: { user: null },
+      error: { name: "AuthApiError", message: "invalid JWT", status: 403 },
+    };
+    expect(await getMyOrderFallback({ orderId: ORDER })).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
+    authAnswer = { data: { user: null }, error: null };
+    expect(await getMyOrderFallback({ orderId: ORDER })).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
   });
 });
 
