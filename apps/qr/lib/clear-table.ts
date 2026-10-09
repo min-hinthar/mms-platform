@@ -1,7 +1,7 @@
 /**
  * PD7 · M182 · P2hf — clearing a table, the PURE half (ruling #6: Clear never waits; every SENT dish
  * goes on the owner's loss list as not approved). The authority is `mms_clear_table`
- * (supabase/migrations/20261009120000_m182_table_clear.sql): it derives the SENT set under its row
+ * (supabase/migrations/20261009120400_m182_table_clear.sql): it derives the SENT set under its row
  * locks and refuses `changed` when it is not the set this module showed the staff member. So this
  * module decides only what the PANE shows before anyone commits — the slip's dishes and its one
  * figure — and how the RPC's answer reads. Pure, so a value falsifies every rule.

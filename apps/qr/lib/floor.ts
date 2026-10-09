@@ -1286,8 +1286,7 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
     // the audit row (`qr_table_clears`: who, when, the dishes, the loss). It refuses — writing nothing
     // — a join or a change after the look the staff member saw (`expect`), money in flight, or a live
     // card attempt. No look, no clear: the client never asserts a loss, it names the one it was shown.
-    if (!expect)
-      return { ok: false, error: "The order changed — check it and try again.", code: "changed" };
+    if (!expect) return { ok: false, error: STAFF["table.noshow.err.changed"].en, code: "changed" };
     const { data: answerRaw, error: clearErr } = await db.rpc("mms_clear_table", {
       p_session: sessionId,
       p_initiator: caller.staffId,
@@ -1295,8 +1294,9 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
       p_expected_line_ids: expect.lineIds,
       p_loss_cents: expect.lossCents,
     });
-    // An RPC error is the function's own failure, and the function is ONE transaction: it rolled
-    // back, so nothing was cleared — said as the outage line (the pane offers the retry).
+    // An RPC error: a refusal by the database rolled the ONE transaction back; a response lost on
+    // the way may hide a commit. Either way the retry is safe — a cleared table answers `closed`, and
+    // a moved one `changed` — so it is the outage line (the pane offers the retry).
     if (clearErr) {
       console.error("[floor] mms_clear_table failed", { sessionId, message: clearErr.message });
       return { ok: false, error: STAFF_WRITE_OUTAGE };

@@ -1,6 +1,6 @@
 -- supabase/tests/m182_table_clear_test.sql  (M182 · P2hf · M198 · PD7 — the table-clear RPC)
 --
--- Pins supabase/migrations/20261009120000_m182_table_clear.sql: privileges; every refusal (a counter
+-- Pins supabase/migrations/20261009120400_m182_table_clear.sql: privileges; every refusal (a counter
 -- order, a closed table, money in flight, a live card attempt, a join after the look, a dish added
 -- after it, a SENT set or a figure that is not the one shown, the PIN seam's three refusals) AND, for
 -- each, the legitimate clear it must NOT over-block; ruling #6's loss rows (every SENT dish, void /

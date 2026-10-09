@@ -174,7 +174,7 @@ const SUITES = {
   // M182 · P2hf · PD7 — `mms_clear_table` and `mms_ack_table_clear_stop`, two NEW functions (no
   // earlier definition), so the chain only grows by its own file.
   m182: {
-    migration: path.join(ROOT, "supabase/migrations/20261009120000_m182_table_clear.sql"),
+    migration: path.join(ROOT, "supabase/migrations/20261009120400_m182_table_clear.sql"),
     test: path.join(ROOT, "supabase/tests/m182_table_clear_test.sql"),
   },
 };
