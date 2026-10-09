@@ -2551,6 +2551,9 @@ html[data-fx="off"] .pa-mid {
   --t3: var(--pass-ink-3);
   --bd: var(--pass-edge);
   --sf: var(--pass-unlit);
+  /* The dish thumbs' decorative placeholder glyph mixes the accent (`.photo-ph`): on the paper it is
+     the pass's own accent too (the blind pass on #331 — Night fidelity of the hosted images). */
+  --ac: var(--pass-ac);
   padding-bottom: var(--s3);
   text-align: left;
   color: var(--pass-ink);
