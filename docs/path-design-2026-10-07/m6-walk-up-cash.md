@@ -1076,3 +1076,102 @@ The round-3 consistency pass gave this moment these changes:
    `tenderedCents` is null, so the seal shows the paid total and "Paid · ရှင်းပြီး" with no Change and
    no Cash received (the server card already omits both when tender is null). Change becomes the hero
    only when a tender was entered. A component case pins both seals.
+
+### H · Build notes (2026-10-09, claude/feat/pd6-till-tray)
+
+Built by the counter-floor stream in one PR, with PD2's pane half and PD1's ring half (K39, K44 and
+P2do ride along). Sections D–F above won wherever they disagreed with the spec; where the code
+disproved a claim, the design changed and the reason is below.
+
+**What was built, by section.**
+
+- **Screen 1 — the tray.** `CashSettleButton` stays the ONE cash sheet with one host contract; every
+  door (the counter pad's dock, the table page and its pane) opens it. The till layout (OWE → TIP →
+  GAVE in `.till-body`, the band row `.till-band-row` with its alert / reload / actions and the inert
+  readout under them) comes from the viewport alone (`useMediaQuery(TILL_MEDIA)`), never the host
+  (B3). The due is set at `--fs-pass`; the Change at `--till-fs-hand` stepping down by
+  `tillHeroTier` (≤ 7 glyphs at the hand tier). The slip is `tillSlipFrom(lines, lang)` (voided lines
+  dropped) and freezes with the quote; a diverged cart (`tillSlipDiverged`) marks it "The order
+  changed — tap to update" and holds Take until the tap re-quotes (E1). The tab-close keys and the
+  Exact tile's echo follow C. The pad host's door (`TillDoor`) carries the pad's gate as
+  `beforeOpen`, its held and busy states, and routes the held tap and the clean-cancel line through
+  the pad's ONE region, so CX3's own alert never mounts there (B7).
+- **Screen 2 — the seal.** `HandoffCard` speaks the paid card's grammar: the solid ✓ disc, Change (or
+  the Total, with no tender — F1) as the hero (`sealHeroTier`), the count-back rows, and on a counter
+  order the #CODE on the CounterPass (landscape with the callout in its stub at the till width;
+  portrait, the callout in its body, below it). "Back to the counter" is the one hero action; on the
+  pad Walk-up (`SealWalkUp`) is the quiet secondary with B5's note (`table.detail.handoff.walkupNote`,
+  the constant `SEAL_OFFERS_WALKUP` the switch to drop it). The wash and the one bloom play only on
+  the landing or a matching same-tab stash (B6, D3); every other render is the calm seal. A dine-in
+  seal at pane width has no stub, no #CODE and no Walk-up (B4, D2).
+- **The pad never leaves (K39).** A landed sale writes `stashHandoff` FIRST (correction 4), pauses
+  the poll, and replaces the pad with the seal (the pad shell unmounts; the pad's Toast survives as
+  the ONE region). A read already in the air when the seal goes up is dropped. A settle whose answer
+  is unknown and whose session then closes shows the closed-unknown section, never a silent bounce.
+  `/add` on a closed counter session lands on its table page, whose card adopts the stash for the
+  SAME order only — the server's total, the stash's tender (C2 · `sealAdopt`).
+
+**Appendix C — taken / not.**
+
+| Suggestion                                     | Taken? | How / why                                                                                                                                        |
+| ---------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| fixed px grid vs the 64em bound                | taken  | the bound is computed from the grid instead (below); a 1024px tablet keeps the narrow sheet                                                      |
+| the pad writes the stash; adopt the tender     | taken  | `stashHandoff` before the seal; `sealAdopt` keeps the server's total and takes only the stash's tender (and `sentEarly`)                         |
+| "Nothing was taken" only after doubt           | taken  | `tillCancelSays(attempt)` is true only for a refused or stalled attempt from this opening                                                        |
+| freeze the slip                                | taken  | superseded by E1, built as E1 says                                                                                                               |
+| tab-close keys into `STAFF_K15_HIGH`           | taken  | `settle.cash.triggerTab` / `.titleTab` with trigger / title                                                                                      |
+| the Exact tile's echo                          | taken  | `echo="inline"` in the till layout only                                                                                                          |
+| the band-growth case in the double-tap measure | taken  | `tillBandsAt` / `tillDoorLandsInert` include the alert + Reload band; the CSS tracks are parsed and pinned to it (no headless browser: see risk) |
+| Back vs the lane's Undo pill                   | not    | a device measure — left to the sitting (ruling #12)                                                                                              |
+| `--till-fs-hand` beside `--fs-pass`            | n/a    | landed in tokens.css by guards-style's token PR (D1); read, never edited here                                                                    |
+| why the due shares the pass tier               | taken  | the due is the figure SAID across the counter, so it reads the same token; it is not a CounterPass and is not rendered by one                    |
+
+**The breakpoint, computed (correction 8).** `lib/till.ts` derives it from the grid it guards: the
+columns 460 | 32 | 300 | 32 | 438 = 1262px, + 2 × 32 tray padding = 1326px, + 2 × 20 page gutters =
+1366px → `TILL_MEDIA` = `(min-width: 85.375em) and (min-height: 44em)`. `till.test.ts` parses
+`globals.css` and pins the till block's media query and track list to those constants, so a widened
+column without a raised bound reddens. B3's "64em" is superseded: at 1024px the grid does not fit.
+
+**Decided under the owner's delegation (decided by: the counter-floor stream).**
+
+1. The pad's door says "Opening payment…" only while it waits for a read that started after its
+   last write (an add that landed unread, a line write, the name just saved); with nothing to wait
+   for, the tray simply opens.
+2. A read that has not priced the order (`settleTotalCents` null with nothing pending) refuses the
+   door with `pad.reason.unpriced`, ranked after every other hold — the tray never opens on a null.
+3. The narrow seal's hero is set at `--fs-pass` and steps down to `--fs-display` past 6 glyphs
+   (`SEAL_NARROW_MAX_CHARS`); the wide seal starts at `--till-fs-hand` and steps down past 7, like
+   the tray.
+4. A dine-in seal offers "Back to the counter" only in the counter's pane; a server's phone page
+   keeps the quiet card (no promise of a counter it is not beside).
+5. The slip is drawn only in the till layout (the narrow sheet has no room for it); the hold it
+   drives works in both.
+6. The seal's actions sit outside the pass, on the till's track 5 at the wide width, so the pass
+   hosts no control and the money corner stays inert under a double-tap.
+7. The Change and the #CODE do not share a baseline (round 3's geometry wins over the spec's
+   shared-baseline line): the stub sits beside the green body.
+8. PD2's ask pass is the figureless arm (the ask's own words as its identity, `floor.table.label` its
+   required label), the ask's age plain text in its head; the table's number stays the pane's
+   heading, printed once.
+9. When PD8 merges, its `totalPending` ("Updating the total…") must join the pass's total and the
+   trigger — one binding (`tillDue`) already feeds both.
+10. The Team tile (K39's remainder) is not in this PR.
+
+**Money / authority modules touched, and their mutants.** `lib/till.ts` (new) · `lib/order-pad.ts` ·
+`lib/staff-send-view.ts` · `lib/floor-kitchen.ts` · `lib/floor.ts` · `components/staff/CashSettleButton.tsx` ·
+`HandoffCard.tsx` · `OrderPad.tsx` · `usePadDetailLive.ts` · `SealWalkUp.tsx` · `FloorDetailLive.tsx` ·
+`ReceiptStack.tsx` (new) · `StaffTicket.tsx` · `app/staff/table/[id]/add/page.tsx`. New mutants (45):
+`till/*` (10), `till-ui/*` (7), `seal/*` (5), `pad-seal/*` (6), `pad-door/*` (2), `pad-route/*` (1),
+`pad/unpriced-*` (2), `send-view/asked-table-counts-only-staff`, `p2do/*` (2), `pd1/*` (4), `pd2/*` (2),
+`k44/*` (2); re-anchored: nine cash-sheet mutants, `p2f-ui/handoff/sent-early-unsaid`,
+`p2g-code/closed-page-landed-loses-to-server`, two `pad-ui/unsent-tap-*`, two
+`staff-send-view/unsent-chip-*`, `p2d-floor/kitchen-host-table-owes-the-diners-round`,
+`p2d-floor/strip-owed-send-unmarked` and three `p3d-receipt/ticket-*` (now in `ReceiptStack.tsx`).
+Every one was run with `--no-gate --only=` and CAUGHT; the verdicts are in the PR.
+
+**Risks left open.** The double-tap geometry is proved by pure functions and parsed CSS, not by
+`elementFromPoint` in a browser — the agent environment has none (K43 is unmeasured for the same
+reason); the device sitting (ruling #12) is the measure. The loss slip's (m7) and the flag door's
+(m8) Take cash doors do not exist yet; when they land they open this same tray and their door
+centres join `tillDoorLandsInert`'s cases. Take carrying m8's acknowledged ids is PD8's change to
+this component.
