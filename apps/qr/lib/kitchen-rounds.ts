@@ -14,8 +14,9 @@ import { staffClockSeconds } from "./staff-clock";
  *     accessible name add to "Table 4" so two cards of one table are always told apart;
  *   · `sessionStillOn` — "Table 4 still has a card on the board", from the snapshot alone.
  *
- * Shared with the TV board's shaper (m9: `board-tables.ts` reads `ticketKey` and `roundOrdinals`),
- * so the wall and Mom's board give one card one number. Pure: no React, no I/O.
+ * Written to be shared: the TV board's shaper (PD9, m9 — a `board-tables.ts` that does not exist
+ * yet) is to read `ticketKey` and `roundOrdinals` from here, so the wall and Mom's board give one
+ * card one number. Today only the kitchen read and the board import it. Pure: no React, no I/O.
  */
 
 // ── the card key ──────────────────────────────────────────────────────────────────────────────────
@@ -26,13 +27,20 @@ export type RawCardKey = { cart_id: string; fire_batch: string | null; fire_at: 
 
 /**
  * One Send is one card. A batched line keys by its `fire_batch` ALONE: every Send stamps one
- * (`gen_random_uuid()` or the call's own uuid), so the batch is already unique across carts, and a
- * merge (`mms_merge_table_orders`) re-parents a cooking batch to the target cart by rewriting only
- * `cart_id` — keyed on the cart too, that batch would land as a NEW arrival (a flash, a chime, "N
- * new") and lose its decided round, for food that has been cooking for minutes (the blind pass on
- * #328). A batchless line (the pre-batch legacy edge) keys by its cart and raw fire time; a line
- * with neither keys to ONE bucket per cart, so its card never remounts, flashes or chimes on a poll
- * (correction 3). The three kinds never collide: the marker names the kind.
+ * (`gen_random_uuid()` or the call's own uuid), so the batch is already unique across carts. A
+ * merge (`mms_merge_table_orders`, `p2f_counter_cook_before_paid.sql`) moves each source line one of
+ * two ways. When no target line matches it, it RE-PARENTS the line (`cart_id` rewritten, batch and
+ * state kept), and a batch-only key keeps that card, its clock and its decided round — keyed on the
+ * cart too, it would land as a NEW arrival (a flash, a chime, "N new") for food cooking for minutes
+ * (the blind pass on #328). When a target line matches it (the same dish, modifiers, state, price,
+ * fulfillment and adder, no note, no seat — the batch is NOT compared), it FOLDS the source line into
+ * that line (the source row deleted, its qty added), fired and in-progress lines included: that
+ * portion then cooks on the card of the TARGET line's Send, and the source card shrinks, or leaves
+ * the board, with no bump. That is a known limit of "one Send, one card" (m5 §H.3); the kitchen
+ * cannot see a fold after it happens. A batchless line (the pre-batch legacy edge) keys by its cart
+ * and raw fire time; a line with neither keys to ONE bucket per cart, so its card never remounts,
+ * flashes or chimes on a poll (correction 3). The three kinds never collide: the marker names the
+ * kind.
  */
 export function ticketKey(l: RawCardKey): string {
   if (l.fire_batch !== null) return `b|${l.fire_batch}`;
@@ -113,8 +121,10 @@ export type { KitchenRound };
  * `none` (a card that is never numbered: a pickup card, a to-go-only or settlement batch). Two
  * kinds are PROVISIONAL, held while the advisory read has not answered: `next` (the guest's own
  * "next round" word — drawn only while an OLDER card of the same session is live, decision 10) and
- * `undecided` (nothing drawn). A provisional kind sharpens to a definite one on the first read that
- * answers and never goes the other way; "decided once" means the DEFINITE decision is made once.
+ * `undecided` (nothing drawn). `undecided` takes whatever the first answering read says. `next`
+ * is a DRAWN stub, so it only sharpens: to a number of 2 or more (the stub keeps its row and gains
+ * its digit), and never to round 1 or `none`, which would take a stub Mom has read off the card
+ * (the blind pass on #328). "Decided once" means the DEFINITE decision is made once.
  */
 export type RoundDecision =
   | { kind: "n"; n: number }
@@ -141,23 +151,37 @@ export function decideRound(
 ): RoundDecision {
   if (prior?.kind === "n" || prior?.kind === "none") return prior;
   if (card.channel !== "dinein") return { kind: "none" };
+  if (prior?.kind === "next") return sharpenNext(card.round);
   if (card.round.kind === "n") return { kind: "n", n: card.round.n };
   if (card.round.kind === "none") return { kind: "none" };
-  if (prior?.kind === "next") return prior;
   const older = board.some(
     (o) => o.key !== card.key && o.sessionId === card.sessionId && o.stampIso < card.stampIso,
   );
   return older ? { kind: "next" } : { kind: "undecided" };
 }
 
-/** The decisions after a snapshot: each card's carried forward through `decideRound`, and the cards
- *  that left the board forgotten (a card that returns lands fresh, as decision 5's STATES say). */
+/** A drawn "next round" sharpens only to a number that keeps a stub (2 or more); a read that says
+ *  round 1, `none` or nothing at all keeps the word Mom has already read. */
+function sharpenNext(round: KitchenRound): RoundDecision {
+  return round.kind === "n" && round.n >= 2 ? { kind: "n", n: round.n } : { kind: "next" };
+}
+
+/**
+ * The decisions after a snapshot: each card's carried forward through `decideRound`. A card that
+ * left the board is forgotten here, but a card that comes BACK — Undo on the pill, or Bring back on
+ * the rail — takes the decision it left with from `returning` (the board records it at the recall
+ * and drops it once the card is back on the board), never a fresh one from the live read: after a
+ * merge re-ranks the session, that read would hand the card Mom read a different number (the blind
+ * pass on #328).
+ */
 export function decideRounds(
   prev: ReadonlyMap<string, RoundDecision>,
   board: readonly DecisionCard[],
+  returning: ReadonlyMap<string, RoundDecision> = new Map(),
 ): ReadonlyMap<string, RoundDecision> {
   const out = new Map<string, RoundDecision>();
-  for (const c of board) out.set(c.key, decideRound(prev.get(c.key), c, board));
+  for (const c of board)
+    out.set(c.key, decideRound(prev.get(c.key) ?? returning.get(c.key), c, board));
   return out;
 }
 
@@ -265,13 +289,17 @@ function discriminators(group: readonly TagCard[]): string[] | null {
 }
 
 /**
- * The tag of every card on the board, in one pass over the snapshot. A dine-in card is tagged only
- * when it has a twin — another card of the same session on the board (held cards included), or a
- * Bring-back chip of the same session still on the rail — so a lone ticket's label is today's, byte
- * for byte (decision 5). A pickup or scan-and-go card is never tagged: its identity is a name and a
- * code. The round comes from the card's DECISION — the same frozen number its face draws — never
- * from the live read, so a merge that re-ranks the session's batches cannot make the pill, the chip
- * and the bump's name say "Round 3" over a face that says "Round 2" (the blind pass on #328). The
+ * The tag of every card on the board, in one pass over the snapshot. A card is tagged only when it
+ * has a twin — another card of the same session on the board (held cards included), or a Bring-back
+ * chip of the same session still on the rail — so a lone ticket's label is today's, byte for byte
+ * (decision 5). That holds for EVERY channel: a counter order that sends twice is two Sends, two
+ * cards (decision 1), with no number to tell them apart (round 3 D4), so its cards, pills and chips
+ * take the fallback label m5 §E/§F draws for a card with no number — the stamp to the second, plus a
+ * discriminator only while two still tie ("Min · 7:42:05"); before the blind pass on #328 both read
+ * "Min", and Bring back was a coin toss. A dine-in round comes from the card's DECISION — the same
+ * frozen number its face draws — never from the live read, so a merge that re-ranks the session's
+ * batches cannot make the pill, the chip and the bump's name say "Round 3" over a face that says
+ * "Round 2"; a rail chip's number is its decision too (`decisions` carries the rail's). The
  * rail's cards take part in the ties (never in the output): a live card ties against the chip of
  * its bumped twin, so a card bumped, then its twin, then brought back can never read exactly like
  * the chip that stays (Codex on #328). The discriminator is extended one character at a time while
@@ -286,10 +314,6 @@ export function cardTags(
   const out = new Map<string, RoundTag | null>();
   const timed: TagCard[] = [];
   for (const c of board) {
-    if (c.channel !== "dinein") {
-      out.set(c.key, null);
-      continue;
-    }
     const twin =
       board.some((o) => o.key !== c.key && o.sessionId === c.sessionId) ||
       rail.some((r) => r.key !== c.key && r.sessionId === c.sessionId);
@@ -334,8 +358,9 @@ export function cardTags(
     byRound.set(roundKey(c, t.n), [...(byRound.get(roundKey(c, t.n)) ?? []), c]);
   }
   for (const r of rail) {
-    if (live.has(r.key) || r.round.kind !== "n") continue;
-    const k = roundKey(r, r.round.n);
+    const railRound = decisions.get(r.key);
+    if (live.has(r.key) || railRound?.kind !== "n") continue;
+    const k = roundKey(r, railRound.n);
     if (byRound.has(k)) byRound.set(k, [...byRound.get(k)!, r]);
   }
   for (const group of byRound.values()) {

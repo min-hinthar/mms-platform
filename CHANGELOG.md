@@ -8,7 +8,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **The path design** (`docs/path-design-2026-10-07/m5-kitchen-round-two.md`, PATH_DESIGN moment 5,
   the owner's pick: staff moments glanceable). **One Send is one card.** `getKitchenQueue` assembles
-  cards by `ticketKey` — `cart_id` + `fire_batch`; a batchless line by its raw `fire_at`; a line with
+  cards by `ticketKey` — the `fire_batch` alone; a batchless line by its cart and raw `fire_at`; a line with
   neither to ONE bucket per cart, always from the raw row and never the shaped `firedAt` (correction 3)
   — so a table's second round lands as its own card with its own clock, arrival flash, chime and an
   All done that serves only its own lines. The bump and recall RPCs are unchanged (the cart plus the
@@ -22,7 +22,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   because another arrived or left (decision 5). The round is counted per SESSION over Sends that carry
   a dine-in line (`roundOrdinals`, `lib/kitchen-rounds.ts`; one ADVISORY read, bounded and capped — a
   failure makes every round `unknown`, never `outage`). The stub is decided once at the card's first
-  landing (`stubFor` / `nextStubs`): "next round" sharpens to the number, a number is frozen, and an
+  landing (`decideRound` / `decideRounds`): "next round" sharpens to the number, a number is frozen, and an
   unknown number is never drawn as a number (decision 10).
 - **Told apart.** The composed id (`ticketId`) carries the round when a sibling is live (or its chip
   is on the rail); with no number it carries the card's raw stamp to the second ("Table 4 · 7:42:05",
@@ -33,8 +33,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   decision 12), said once with the bump sentence in the one live region; the line is captured at the
   bump so the Undo never slides under a finger mid-window (appendix C, decided under the delegation).
 - **`KDS_UNDO_MS`** (`lib/kds-undo.ts`, 6 000 ms) replaces `KdsBoard.tsx`'s `UNDO_MS`: the ONE settle
-  constant for the undo pill, the TV's TURN (PD9) and the phone's pay door (PD10); pinned by a test
-  and a mutant.
+  constant — read today by the undo pill and `lib/kitchen-track.ts`; the TV's TURN (PD9) and the
+  phone's pay door (PD10) are to read it; pinned by a test and a mutant.
 - **`lib/kitchen-track.ts`** — ONE KITCHEN TRACK: `KitchenStage` (`unsent | sending | sent | cooking |
 served`, the union post-pay's `@mms/ui` `KitchenTrack` declares identically), `trackStage` (a line
   counts as served only once its `bumped_at` is `KDS_UNDO_MS` old on the DB clock; no stamp is not up;
@@ -59,8 +59,17 @@ served`, the union post-pay's `@mms/ui` `KitchenTrack` declares identically), `t
   exact count refuses any silently truncated answer; settlement food is told apart only on a cart its
   guest paid (a staff-settled cart carries none); decided round numbers that collide after a merge
   take the same discriminator as time tags; the Undo pill and the Bring-back chip start at the tap,
-  so Undo is never offered over a line the server counts as served. m5 §H.2 has the record.
-- **Gates:** 44 new mutants (`kds-undo/*`, `kitchen-track/*`, `kitchen-rounds/*`, `kitchen/*`,
+  so the pill's deadline falls before the server counts the line served. m5 §H.2 has the record.
+- **The second blind pass on #328:** a counter order that sends twice is two cards told apart by the
+  stamp to the second in their names, pills and chips (`cardTags` tags every channel; `ticketId`
+  draws the tag after the name); a card carries its round DECISION onto the rail, the rail's round
+  ties read it, and a recall re-seeds it, so a card brought back after a merge re-ranked its session
+  keeps the number Mom read; "next round" sharpens only to 2 or more; the round read runs only when a
+  dine-in session is on the board (its carts leg included) and a batch it did not see under the
+  card's session reads `unknown`, never a frozen `none`; the pill and the chips leave on timers set
+  to their deadlines and a tap at or past one sends nothing. The secure-tab close (no `settled_by`)
+  and a merge that FOLDS a line are recorded limits. m5 §H.3 has the record.
+- **Gates:** 70 new mutants (`kds-undo/*`, `kitchen-track/*`, `kitchen-rounds/*`, `kitchen/*`,
   `kds-rounds/*`, `staff-clock/seconds-stamp-in-the-process-zone`); `KdsBoard.test.tsx` gains the
   two-cards cases; `kitchen-queue-counter.test.ts` the dine-in cases; `KdsStopCard.test.tsx` the shape.
 

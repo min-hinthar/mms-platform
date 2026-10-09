@@ -105,6 +105,10 @@ type RecallEntry = {
   /** The card as `cardTags` reads it, so a chip on the rail keeps taking part in the ties: a live
    *  card is told apart from the chip of its bumped twin, not only from the cards beside it. */
   card: TagCard;
+  /** The card's round DECISION at the tap — the frozen number its face drew and its `label` says.
+   *  The rail's ties read it (never the live read), and a recall re-seeds it, so a card that comes
+   *  back after a merge re-ranked its session wears the number Mom read (the blind pass on #328). */
+  decision: RoundDecision | undefined;
   label: string;
   lineIds: string[];
   /** The device instant of the All done TAP (Codex round 2 on #328). The server stamps `bumped_at`
@@ -159,20 +163,21 @@ function ticketId(
   t: KitchenTicket,
   tag: RoundTag | null = null,
 ): { main: string; node: ReactNode; sub: string | null } {
+  // The time tag prints the stamp as the restaurant's clock reads it and, only while two labels
+  // would tie (or the stamp cannot be printed), the card's discriminator — never an empty part. A
+  // counter order that sends twice takes it too ("Min · 7:42:05"): its cards carry no number.
+  const tail =
+    tag === null
+      ? ""
+      : tag.kind === "round"
+        ? ` · ${tf(lang, "kds.round", { id: tag.n })}${tag.disc === null ? "" : ` · ${tag.disc}`}`
+        : [stampLabel(tag.stampIso), tag.disc ?? ""]
+            .filter((part) => part !== "")
+            .map((part) => ` · ${part}`)
+            .join("");
   if (t.channel === "dinein") {
     const vars = { id: t.tableNumber ?? t.label };
     const table = tf(lang, "kds.table", vars);
-    // The time tag prints the stamp as the restaurant's clock reads it and, only while two labels
-    // would tie (or the stamp cannot be printed), the card's discriminator — never an empty part.
-    const tail =
-      tag === null
-        ? ""
-        : tag.kind === "round"
-          ? ` · ${tf(lang, "kds.round", { id: tag.n })}${tag.disc === null ? "" : ` · ${tag.disc}`}`
-          : [stampLabel(tag.stampIso), tag.disc ?? ""]
-              .filter((part) => part !== "")
-              .map((part) => ` · ${part}`)
-              .join("");
     return {
       main: `${table}${tail}`,
       node: <Chrome lang={lang} k="kds.table" vars={vars} />,
@@ -184,7 +189,8 @@ function ticketId(
   // never be printed: the name, or "Walk-up", is its whole handle.
   const code = t.shortCode ? `#${t.shortCode}` : t.unpaid ? null : t.label;
   const main = t.customerName ?? code ?? ts(lang, "reg.row.walkup");
-  return { main, node: main, sub: t.customerName ? code : null };
+  // The strip's node stays the bare handle (the stamp is the name's, like a dine-in round).
+  return { main: `${main}${tail}`, node: main, sub: t.customerName ? code : null };
 }
 
 /** Phase 2f — the Unpaid line's words exactly as it draws them (`echo="stack"`, the device's `shown`),
@@ -402,6 +408,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [rounds, setRounds] = useState<ReadonlyMap<string, RoundDecision>>(() =>
     decideRounds(new Map(), initial.tickets),
   );
+  // A bumped card leaves `rounds` with the next snapshot; its decision rides its rail entry. A
+  // recall puts it HERE, and the snapshot that brings the card back seeds `rounds` from it — the
+  // number its face drew before the bump, never a fresh read a merge may have re-ranked.
+  const returning = useRef(new Map<string, RoundDecision>());
 
   // W3d recall/undo state (client mirrors of the SQL 2-minute window).
   const [recall, setRecall] = useState<RecallEntry[]>([]);
@@ -459,21 +469,35 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   useEffect(() => {
     clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
     const id = setInterval(() => {
-      const localNow = Date.now();
-      setNowMs(localNow + (clockOffset.current ?? 0));
-      // Expire undo/recall entries on the LOCAL clock in the same tick callback (entries are minted
-      // with Date.now(); the SQL 2-minute window is the real authority — this keeps the UI honest).
-      setRecall((prev) =>
-        prev.some((r) => r.expiresAt <= localNow)
-          ? prev.filter((r) => r.expiresAt > localNow)
-          : prev,
-      );
-      setUndo((prev) => (prev && prev.expiresAt <= localNow ? null : prev));
+      setNowMs(Date.now() + (clockOffset.current ?? 0));
     }, 1000);
     return () => clearInterval(id);
     // initial.serverNow is a mount-time snapshot (the prop never changes identity meaningfully).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // The undo pill and the recall chips leave AT their deadlines (the blind pass on #328) — a timer
+  // set to `expiresAt` on the LOCAL clock the entries are minted with, never the next 1 s tick, so
+  // the pill is never offered past the six seconds `trackStage` keeps (the SQL's two minutes stay
+  // the chips' real authority; this keeps the UI honest). The handler refuses a tap that lands
+  // between a deadline and its timer (`doRecall`).
+  useEffect(() => {
+    if (undo === null) return;
+    const deadline = undo.expiresAt;
+    const id = setTimeout(
+      () => setUndo((u) => (u !== null && u.expiresAt <= deadline ? null : u)),
+      Math.max(0, deadline - Date.now()),
+    );
+    return () => clearTimeout(id);
+  }, [undo]);
+  useEffect(() => {
+    if (recall.length === 0) return;
+    const deadline = Math.min(...recall.map((r) => r.expiresAt));
+    const id = setTimeout(
+      () => setRecall((prev) => prev.filter((r) => r.expiresAt > deadline)),
+      Math.max(0, deadline - Date.now()),
+    );
+    return () => clearTimeout(id);
+  }, [recall]);
 
   useWakeLock(); // O-F: a kitchen display that sleeps mid-rush is a downed station
 
@@ -596,8 +620,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       }
 
       setSnap(queue);
-      // PD5 — in the same batch: each card's round decision, carried forward and only sharpened.
-      setRounds((prev) => decideRounds(prev, queue.tickets));
+      // PD5 — in the same batch: each card's round decision, carried forward and only sharpened; a
+      // recalled card takes back the decision it was bumped with. The priors are a SNAPSHOT for the
+      // updater (pure), and a card back on the board needs its prior no longer.
+      const priors = new Map(returning.current);
+      for (const t of queue.tickets) returning.current.delete(t.key);
+      setRounds((prev) => decideRounds(prev, queue.tickets, priors));
       // Phase 2b — in the same batch as the snapshot: every override this fetch supersedes drops.
       setSoldOverrides((prev) => pruneSoldOut(prev, seq));
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
@@ -712,7 +740,16 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // table — or a card and its bumped twin's chip — are never called the same thing; the round comes
   // from the frozen decision the face draws.
   const railCards = useMemo(() => recall.map((r) => r.card), [recall]);
-  const tags = useMemo(() => cardTags(tickets, railCards, rounds), [tickets, railCards, rounds]);
+  // A chip's round is the decision its card was bumped with (the rail's tie check reads it too).
+  const tagDecisions = useMemo(() => {
+    const out = new Map(rounds);
+    for (const r of recall) if (!out.has(r.key) && r.decision) out.set(r.key, r.decision);
+    return out;
+  }, [rounds, recall]);
+  const tags = useMemo(
+    () => cardTags(tickets, railCards, tagDecisions),
+    [tickets, railCards, tagDecisions],
+  );
 
   const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
   const pageSize = kdsPageSize(size);
@@ -1133,7 +1170,23 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // Phase 2h (9b) — state busy cleared in `finally`, the ref the tap-time guard (see the 86 undo).
   const [recallBusy, setRecallBusy] = useState(false);
   const recallBusyRef = useRef(false);
-  const doRecall = async (entry: RecallEntry) => {
+  // Has an entry's window closed? Read on the device clock its deadline was minted on, AT the tap —
+  // a callback like `stampNow`, so the clock is never read during render.
+  const windowClosed = useCallback((expiresAt: number) => Date.now() >= expiresAt, []);
+  const doRecall = async (entry: RecallEntry, from: "pill" | "chip") => {
+    // Refused at the TAP once its window has closed (the blind pass on #328): a tap landing between
+    // the deadline and the timer that unmounts it sends nothing. Past the pill's six seconds
+    // `trackStage` already counts the line served, so the pill just leaves (the rail's chip still
+    // brings the card back inside its own window); past the chip's two minutes the SQL refuses too,
+    // so the chip leaves and the region says why.
+    if (windowClosed(entry.expiresAt)) {
+      if (from === "pill") setUndo((u) => (u?.kind === "bump" && u.key === entry.key ? null : u));
+      else {
+        setRecall((prev) => prev.filter((r) => r.key !== entry.key));
+        showErr({ k: "kds.err.recall.window", vars: { x: entry.label } });
+      }
+      return;
+    }
     if (recallBusyRef.current) return; // §17 — refuse re-entry in the handler, never via `disabled`
     // Critic B1 — this card's last write is still out past the bound: said again, nothing sent
     // (a second recall queued behind it would answer "too late" over a recall that landed).
@@ -1153,6 +1206,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             return;
           }
           setNotice(tf(lang, "kds.live.restored", { x: entry.label }));
+          // The card comes back wearing the round it was bumped with (the blind pass on #328).
+          if (entry.decision) returning.current.set(entry.key, entry.decision);
           // Filter by the CARD key, not object identity — the undo toast holds a spread COPY of the
           // rail's entry, so an identity filter would leave a dead rail button behind (adversarial
           // LOW-1) — and never by the cart: recalling round 1 must leave round 2's chip (PD5).
@@ -1413,6 +1468,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 ticket={t}
                 tag={tags.get(t.key) ?? null}
                 stub={stubOf(rounds.get(t.key))}
+                decision={rounds.get(t.key)}
                 // Decision 12: the table's OTHER card is on the board — the whole snapshot, held
                 // cards included, never the station-filtered view (m5 risk 9).
                 stillOn={t.channel === "dinein" && sessionStillOn(t, tickets)}
@@ -1589,7 +1645,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                   key={`${r.key}-${r.expiresAt}`}
                   type="button"
                   className="kds-recall-btn"
-                  onClick={() => void doRecall(r)}
+                  onClick={() => void doRecall(r, "chip")}
                   aria-disabled={recallBusy || held.has(cardKey(r.key)) || undefined}
                   aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
@@ -1656,7 +1712,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           </span>
           <button
             type="button"
-            onClick={() => void (undo.kind === "bump" ? doRecall(undo) : undoEightySix(undo))}
+            onClick={() =>
+              void (undo.kind === "bump" ? doRecall(undo, "pill") : undoEightySix(undo))
+            }
             // §17: the attribute is a STATEMENT about the handler behind it — exactly the write this
             // entry's handler refuses on, never both (a rail recall in flight must not dim the 86's
             // only undo while the tap still acts, or the reverse).
@@ -1675,6 +1733,7 @@ function TicketCard({
   ticket,
   tag,
   stub,
+  decision,
   stillOn,
   nowMs,
   thresholds,
@@ -1692,6 +1751,8 @@ function TicketCard({
   tag: RoundTag | null;
   /** PD5 — the round stub this card wears, decided at its first landing; null = no row B. */
   stub: RoundStub | null;
+  /** PD5 — the card's round decision (what `stub` and `tag` were drawn from), for its rail entry. */
+  decision: RoundDecision | undefined;
   /** PD5 — the table's OTHER card is on the board right now (decision 12). */
   stillOn: boolean;
   nowMs: number;
@@ -1775,6 +1836,7 @@ function TicketCard({
                   tableNumber: ticket.tableNumber,
                   label: ticket.label,
                 },
+                decision,
                 label,
                 lineIds,
                 tappedAt,

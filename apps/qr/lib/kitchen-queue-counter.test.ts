@@ -43,6 +43,12 @@ let failRoundRead: "carts" | "lines" | null = null;
 let serverMaxRows = 1_000;
 /** Codex r4 — every column list `qr_cart_items` was read with, in order. */
 let itemReads: string[] = [];
+/** PD5 (the blind pass on #328) — every column list `qr_carts` was read with, in order: the board's
+ *  own read, then the round read's carts leg only when a dine-in session is on the board. */
+let cartReads: string[] = [];
+/** PD5 (the blind pass on #328) — runs once, right after the board's own line read answers: a write
+ *  landing between that read and the round read (a merge moving a line to another table). */
+let afterBoardRead: (() => void) | null = null;
 const OWING_COLS = "cart_id,state,comped,qty";
 const ROUND_LINE_COLS = "cart_id,fire_batch,fire_at,fulfillment";
 const ROUND_CART_COLS = "id,session_id,status";
@@ -57,6 +63,7 @@ function query(name: string) {
       cols = c;
       wantCount = opts?.count === "exact";
       if (name === "qr_cart_items") itemReads.push(c);
+      if (name === "qr_carts") cartReads.push(c);
       return api;
     },
     eq(col: string, v: unknown) {
@@ -115,11 +122,17 @@ function query(name: string) {
       // PD5 (G1) — the cap is REAL in the fake, and so is the server's ceiling below it; an exact
       // count is the number that MATCHED, which is how a read learns it was cut short.
       const rows = all.slice(0, Math.min(lim ?? Infinity, serverMaxRows));
-      return Promise.resolve({
+      const answer = Promise.resolve({
         data: rows,
         error: null,
         count: wantCount ? all.length : null,
       }).then(res);
+      if (name === "qr_cart_items" && cols.includes("modifiers") && afterBoardRead) {
+        const write = afterBoardRead;
+        afterBoardRead = null;
+        write(); // the board already holds its rows; the table changes under every later read
+      }
+      return answer;
     },
   };
   return api;
@@ -197,6 +210,8 @@ beforeEach(() => {
   failRoundRead = null;
   serverMaxRows = 1_000;
   itemReads = [];
+  cartReads = [];
+  afterBoardRead = null;
 });
 
 describe("getKitchenQueue — pay-first, with ONE staff-only exception", () => {
@@ -414,7 +429,7 @@ function setupTable(o: { carts?: Row[]; lines: Row[]; sessionStatus?: string; mo
 }
 const dine = (over: Row = {}): Row => line({ fulfillment: "dinein", cart_id: "cart-1", ...over });
 
-describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch", () => {
+describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", () => {
   it("two Sends on one open dine-in cart are two cards, rounds 1 and 2, each with its own lines and clock (`kitchen/keyed-by-cart`, `kitchen/round-unread`)", async () => {
     setupTable({
       lines: [
@@ -452,6 +467,8 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(t[1]!.lines.map((l) => l.id)).toEqual(["l3"]);
     // The board's own read, then the round read's batched lines: two item reads, no owing read.
     expect(itemReads).toEqual([expect.stringContaining("modifiers"), ROUND_LINE_COLS]);
+    // A dine-in session is on the board, so the round read's carts leg runs after the board's own.
+    expect(cartReads).toEqual([expect.stringContaining("customer_name"), ROUND_CART_COLS]);
   });
 
   it("a failed CARTS leg leaves every round UNKNOWN and still answers the board (`kitchen/round-read-failure-is-outage`)", async () => {
@@ -634,14 +651,44 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(t.map((x) => x.stampIso)).toEqual([at(-300), at(-30)]);
   });
 
-  it("a pickup session's card is never a round, and no round read runs for it (`kitchen/round-read-for-every-session`)", async () => {
-    setupTable({ mode: "pickup", lines: [] });
+  it("a pickup session's card is never a round, and no round read runs for it — neither leg (the blind pass on #328; `kitchen/round-read-for-every-session`)", async () => {
     setup({ code: "reg-ab12", lines: [line({ fire_batch: B1 })] });
     const t = await tickets();
     expect(t).toHaveLength(1);
     expect(t[0]).toMatchObject({ round: { kind: "none" }, fireBatch: B1 });
-    expect(itemReads).toHaveLength(2); // the board read, then the OWING read — no round read
-    expect(itemReads[1]).toBe(OWING_COLS);
+    // The board's own carts read and nothing after it: no round CARTS leg …
+    expect(cartReads).toEqual([expect.stringContaining("customer_name")]);
+    expect(cartReads).not.toContain(ROUND_CART_COLS);
+    // … and no round LINES leg: the board read, then the OWING read.
+    expect(itemReads).toEqual([expect.stringContaining("modifiers"), OWING_COLS]);
+  });
+
+  it("a batch the round read does not see under the card's session — a merge moved it between the two reads — is UNKNOWN, never a definite none (the blind pass on #328; `kitchen/raced-batch-frozen-none`)", async () => {
+    setupTable({
+      lines: [
+        dine({ id: "l1", fire_batch: B1, fire_at: at(-552) }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
+      ],
+    });
+    // Table 4's round 2 is merged onto Table 9's cart after the board read it, before the round read.
+    tables.qr_carts!.push({
+      id: "cart-9",
+      session_id: "s9",
+      status: "open",
+      customer_name: null,
+      pickup_slot: null,
+    });
+    afterBoardRead = () => {
+      tables.qr_cart_items = tables.qr_cart_items!.map((r) =>
+        r.id === "l3" ? { ...r, cart_id: "cart-9" } : r,
+      );
+    };
+    const t = await tickets();
+    // The board still draws the card under Table 4 (its own read); the round read has no say on it.
+    expect(t.map((x) => [x.fireBatch, x.sessionId, x.round])).toEqual([
+      [B1, "s4", { kind: "n", n: 1 }],
+      [B2, "s4", { kind: "unknown" }],
+    ]);
   });
 
   it("settlement food on a paid dine-in cart — fired at or after its order — is never a numbered round (Codex on #328)", async () => {
@@ -782,6 +829,61 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
       [BT, { kind: "n", n: 2 }],
       [B2, { kind: "n", n: 3 }],
+    ]);
+  });
+
+  it("a staff SECURE-TAB close stamps no `settled_by`, so its cart reads as guest-paid: a Send inside the 10 s before the close loses its number — the pinned residual (m5 §H.3, an owner item)", async () => {
+    // The same sequence as the cash case above, closed on the secure card screen instead: the
+    // webhook records that order with `settled_by` null, exactly like a guest's own payment, and
+    // nothing else on the order tells the two apart. The batch after the order reads as settlement
+    // food: round 2 loses its number and the next Send says "Round 2". Pinned so a change to either
+    // side of it is a decision, not a drift.
+    tables = {
+      qr_cart_items: [
+        dine({
+          id: "p1",
+          cart_id: "cart-paid",
+          fire_batch: B1,
+          fire_at: at(-3_000),
+          state: "served",
+        }),
+        dine({
+          id: "p2",
+          cart_id: "cart-paid",
+          fire_batch: BT,
+          fire_at: at(-2_597),
+          state: "in_progress",
+        }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
+      ],
+      qr_carts: [
+        {
+          id: "cart-paid",
+          session_id: "s4",
+          status: "paid",
+          customer_name: null,
+          pickup_slot: null,
+        },
+        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+      ],
+      table_sessions: [
+        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
+      ],
+      qr_orders: [
+        {
+          id: "order-00abcdef",
+          cart_id: "cart-paid",
+          status: "paid",
+          tender: "card",
+          created_at: at(-2_600),
+          settled_by: null,
+        },
+      ],
+    };
+    const t = await tickets();
+    expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
+      [BT, { kind: "none" }],
+      [B2, { kind: "n", n: 2 }],
     ]);
   });
 

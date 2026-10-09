@@ -1031,3 +1031,79 @@ Four P2s, each verified against the source and fixed in one commit.
   and the chip before `mms_recall_ticket`'s two minutes run out. The cost is the round trip, taken off
   the visible window. An answer that lands after the whole window opens no pill; the rail still
   brings the bump back. This closes §H.1's open question with no migration.
+
+#### H.3 · The second blind pass on #328 (`1f35ba3..753b741`, 2026-10-09)
+
+REJECT on three CRITICALs and seven findings. Each mechanism was checked against the source before
+the fix, each fix was watched red on the old code, and each rule has a mutant. Where this section and
+the lines above disagree, this section wins: §H's "a card that leaves and returns lands fresh",
+§H's "batched lines ≤ 500", §H.1's "the carts leg joins the `Promise.all`", §H.2's "every staff tender
+… stamps `settled_by`" and §H.2's "the pill always closes before `trackStage` counts the line
+served" are each corrected below.
+
+- **C1 · A counter order that sends twice is two cards told apart, not one card.** Re-merging a
+  counter cart's Sends into one card would make the counter "one cart, one card": that breaks
+  decision 1 ("One Send makes one card", each with its own clock and All done) and §H's decision 4
+  (a counter order's Sends are not numbered, but each is still its own card, round 3 D4). So the
+  cards stay apart and take the label m5 draws for a card with no number (§E/§F). `cardTags` now tags
+  every channel when the card has a twin, so the name, the pill and the chip read "Min · 7:42:05",
+  with a discriminator only while two still tie. `ticketId` draws the tag after the name, and the
+  strip keeps the bare handle and its code. A lone counter card is unchanged.
+- **C2 · The frozen round rides the rail and comes back with the card.** `RecallEntry` carries the
+  card's DECISION from the tap, the one its label was composed from. The rail's round ties read it
+  (`cardTags`'s `decisions` now include the rail's), never the chip's live read. A recall stores it,
+  and the snapshot that brings the card back seeds `decideRounds` from it (its `returning` argument;
+  the board's own carried decision still outranks it). So bump, merge, recall keeps the stub.
+- **C3 · The secure-tab close is not staff-settled to this read, and that is recorded, not
+  patched.** Only cash and the reader stamp `settled_by`. The secure-tab close is recorded by the
+  webhook with `settled_by` null, the same as a guest's own payment. `settled_by` drives /staff/tips
+  attribution, so stamping it there would change a pay statement; that is an owner decision. No
+  positive kitchen-local trace of real settlement food exists without a migration. The order rows
+  are identical, and the tab's `mms_tab_events` row is a best-effort audit write in `after()`, not a
+  contract to read. The comment now says only this. A Send landing in the 10 s before a staff
+  secure-tab close reads as settlement food: it loses its number, and the visit's later Sends count
+  one fewer. A test pins that sequence. It sits in the PD5 row as an owner item beside the
+  guest-pay grace race (§H.2). Both close if `mms_fire_pending_food` stamps its batch (a migration).
+- **Item 4 · The pill and the chips leave AT their deadlines; a late tap sends nothing.** The 1 s
+  tick no longer expires them. Each sits on a timer set to its `expiresAt`, and `doRecall` refuses a
+  tap at or past it. A late pill tap just leaves the pill; the rail's chip still brings the card back
+  inside its own window. A late chip tap leaves the chip and says the shipped "Too late to bring back
+  {x}." The tests run on fake timers at millisecond resolution, with the tap 0.4 s into the tick's
+  phase so a tick-bound deadline would show. `servedSettled`'s claim now says what the code keeps: an
+  Undo is never SENT once the line reads served. Two cases are outside it: one sent just inside the
+  window can land just after it, and a device clock stepped mid-window moves its deadline.
+  `kds-undo.ts` now says what reads it TODAY (the board, and `kitchen-track.ts`, which nothing imports
+  yet). PD9 and PD10 come next.
+- **Item 5 · No dine-in session, no round read.** The carts leg left the `Promise.all`. The round
+  read is called with the board's dine-in session ids only. It starts before the owing read and is
+  awaited after it, so the two run concurrently and gating costs no extra round trip. It never
+  rejects: a thrown leg answers `null`, so an `outage` return abandons nothing unhandled. The suite
+  records `qr_carts` reads, and the pickup case asserts the round's carts leg is absent. The mutant
+  now drops the call-site filter, so it is caught for the right reason.
+- **Item 6.** `bySession` pushes into its arrays.
+- **Item 7 · "Next round" only sharpens.** A drawn `next` becomes a number only at 2 or more. A read
+  that says round 1 or `none`, for example after a merge re-ranked the session, keeps the word Mom
+  has read. There is a mutant for each direction.
+- **Item 8 · A merge FOLDS as well as re-parents (a known limit).** `mms_merge_table_orders` folds a
+  source line into a target line when dish, modifiers, state, price, fulfillment and adder match and
+  both have no note or seat. Fired and in-progress lines are included, and the batch is not
+  compared. The source row is deleted and its quantity is added to the target. That portion then
+  cooks on the TARGET line's card, and the source card shrinks, or leaves the board, with no bump.
+  The kitchen cannot see a fold after it happens. Comparing `fire_batch` in the match would keep
+  each Send whole, but that is a SQL change (owner-gated) and is left with the merge's owner. The
+  `ticketKey` docblock and the suite now say re-parent OR fold.
+- **Item 9 · Stale names.** The `nextStubs` / `freshStub` / "cart + batch" wording is gone from the
+  mutant `why`s, the suites, `kitchen-types.ts`, SPEC-KDS and the CHANGELOG. Fixture keys are minted by
+  `ticketKey()`.
+- **Item 10 · One `KitchenStage`.** `kitchen-track.ts` imports the type from `@mms/ui` (type-only,
+  erased at build, so the module stays free of React) and re-exports it.
+- **Open 1 · A merge racing the poll.** The round read now also returns every batch it SAW per
+  session. A dine-in card whose batch it did not see under the card's session was moved between the
+  board's read and this one, so it reads `unknown` (provisional, decided by the next poll), never a
+  frozen `none`.
+- **Open 2 · The to-go-only / settlement card keeps the Dine-in badge (justified).** The badge names
+  the card's channel, which is the table's session, and the card's identity is "Table 4". Each to-go
+  line already wears the shipped "Bag it", and settlement food is the table's own eat-here food. A
+  card-level "To-go" would claim a counter order on a table's card. A mixed Send would need a third
+  badge state that the path design never drew. Round 3 D4's "their channel tag" is kept as the
+  session's.

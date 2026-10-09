@@ -25,10 +25,14 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
   code** (privacy + duplicate-name safe). Channel = a small fixed badge (dine-in / to-go / grocery) —
   the SYMBOLIC dimension. Group-cart seats shown as a suffix when present.
 - **One Send, one card (PD5, 2026-10-08 — `docs/path-design-2026-10-07/m5-kitchen-round-two.md`).**
-  A ticket is one SEND, not one cart: keyed by `cart_id` + `fire_batch` (`ticketKey`,
-  `lib/kitchen-rounds.ts`; a batchless line keys by its raw `fire_at`, a line with neither to one
-  bucket per cart — always from the RAW row, never the shaped `firedAt`, which is the poll clock for
-  a line with no fire time). Each card has its own clock, arrival flash, chime and All done, scoped to
+  A ticket is one SEND, not one cart: keyed by its `fire_batch` (`ticketKey`,
+  `lib/kitchen-rounds.ts` — a merge that re-parents the line keeps the card; a HELD card keys by its
+  cart, since Cook now fires the cart; a batchless line keys by its cart and raw `fire_at`, a line
+  with neither to one bucket per cart — always from the RAW row, never the shaped `firedAt`, which
+  is the poll clock for a line with no fire time). Two cards of one session — a table's rounds, or a
+  counter order that sent twice — are told apart in their names, pills and chips: by the round when
+  it is decided, else by the stamp to the second (“Min · 7:42:05”) plus a discriminator while two
+  still tie. Each card has its own clock, arrival flash, chime and All done, scoped to
   its own lines; the bump and recall RPCs still take the cart plus the ids the card displays. A
   table's second (and later) Send wears the **round stub** "အလှည့် 2 / Round 2" (`kds.round`, a Latin
   digit) in a second strip row: an outline with a dotted perforation and 12px coupon notches, at the

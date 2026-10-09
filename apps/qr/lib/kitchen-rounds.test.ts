@@ -34,7 +34,8 @@ describe("ticketKey — one Send is one card, from the RAW row", () => {
     expect(a).toContain(B1);
     // The same batch is the same card on every poll, whatever its fire time reads …
     expect(ticketKey({ cart_id: "c1", fire_batch: B1, fire_at: at(-61_000) })).toBe(a);
-    // … and whichever cart it sits on: `mms_merge_table_orders` rewrites only `cart_id`.
+    // … and whichever cart it sits on: when `mms_merge_table_orders` RE-PARENTS a line it rewrites
+    // only `cart_id` (a line it FOLDS into a matching target line is deleted instead — m5 §H.3).
     expect(ticketKey({ cart_id: "c9", fire_batch: B1, fire_at: at(-60_000) })).toBe(a);
   });
 
@@ -259,6 +260,23 @@ describe("decideRound — the ONE round a card carries; definite once, provision
     expect(decideRound(next, r2card({ round: { kind: "unknown" } }), [r2])).toEqual(next);
   });
 
+  it("'next round' is a DRAWN stub: it sharpens only to 2 or more, never to round 1 or none, which would take a stub Mom has read off the card (the blind pass on #328; `kitchen-rounds/next-blurs-to-round-one`, `kitchen-rounds/next-blurs-to-none`)", () => {
+    const next: RoundDecision = { kind: "next" };
+    // A merge re-ranked the session under the provisional card: the read now calls it round 1.
+    const one = decideRound(next, r2card({ round: { kind: "n", n: 1 } }), [r2]);
+    expect(one).toEqual(next);
+    expect(stubOf(one)).toEqual({ kind: "next" });
+    // The read now calls it unnumbered (its batch left the dine-in count).
+    const none = decideRound(next, r2card({ round: { kind: "none" } }), [r2]);
+    expect(none).toEqual(next);
+    expect(stubOf(none)).toEqual({ kind: "next" });
+    // A number that keeps a stub is the sharpening the word was waiting for.
+    expect(decideRound(next, r2card({ round: { kind: "n", n: 3 } }), [r2])).toEqual({
+      kind: "n",
+      n: 3,
+    });
+  });
+
   it("stubOf — round 2 and up wear the number; round 1, none and undecided wear nothing (`kitchen-rounds/round-one-wears-a-stub`)", () => {
     expect(stubOf({ kind: "n", n: 2 })).toEqual({ kind: "n", n: 2 });
     expect(stubOf({ kind: "n", n: 3 })).toEqual({ kind: "n", n: 3 });
@@ -266,6 +284,20 @@ describe("decideRound — the ONE round a card carries; definite once, provision
     expect(stubOf({ kind: "none" })).toBeNull();
     expect(stubOf({ kind: "undecided" })).toBeNull();
     expect(stubOf(undefined)).toBeNull();
+  });
+
+  it("a card that comes BACK takes the decision it was bumped with, never a fresh one from a re-ranked read (the blind pass on #328; `kitchen-rounds/returning-card-re-decided`)", () => {
+    const first = decideRounds(new Map(), [r1, r2]);
+    // Round 2 is bumped: the next snapshot forgets it.
+    const bumped = decideRounds(first, [r1]);
+    expect(bumped.has(r2.key)).toBe(false);
+    // A merge re-ranks the session, then round 2 is brought back: the read now says 4.
+    const back = decideRounds(bumped, [r1, r2card({ round: { kind: "n", n: 4 } })], first);
+    expect(back.get(r2.key)).toEqual({ kind: "n", n: 2 });
+    expect(stubOf(back.get(r2.key))).toEqual({ kind: "n", n: 2 });
+    // The board's own carried decision outranks a returning one.
+    const carried = decideRounds(first, [r2], new Map([[r2.key, { kind: "n", n: 7 }]]));
+    expect(carried.get(r2.key)).toEqual({ kind: "n", n: 2 });
   });
 
   it("decideRounds carries every decision forward and forgets cards that left the board", () => {
@@ -410,12 +442,19 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
     expect(tags.get(togo.key)).toEqual({ kind: "time", stampIso: togo.stampIso, disc: null });
   });
 
-  it("a pickup or scan-and-go card is never tagged — its identity is a name and a code", () => {
-    const p = card({ channel: "pickup", sessionId: "s1" });
-    const q = card({ channel: "pickup", key: "b|" + B2, fireBatch: B2, sessionId: "s1" });
+  it("a counter order that sends twice is two cards with no number, so each takes the fallback stamp — never two cards called 'Min' (the blind pass on #328; `kitchen-rounds/counter-twins-untagged`)", () => {
+    const counter = { channel: "pickup" as const, tableNumber: null, label: "reg-ab12" };
+    const p = card({ ...counter, round: { kind: "none" }, stampIso: at(-600_000) });
+    const q = r2card({ ...counter, round: { kind: "none" }, stampIso: at(-4_000) });
     const tags = cardTags([p, q], noRail, decided([p, q]));
-    expect(tags.get(p.key)).toBeNull();
-    expect(tags.get(q.key)).toBeNull();
+    expect(tags.get(p.key)).toEqual({ kind: "time", stampIso: at(-600_000), disc: null });
+    expect(tags.get(q.key)).toEqual({ kind: "time", stampIso: at(-4_000), disc: null });
+    // Sent in the same second: the discriminator, exactly as a dine-in tie.
+    const tied = cardTags([p, { ...q, stampIso: at(-600_000 + 400) }], noRail, decided([p, q]));
+    expect(tied.get(p.key)).toEqual({ kind: "time", stampIso: at(-600_000), disc: "3f2a" });
+    expect(tied.get(q.key)).toEqual({ kind: "time", stampIso: at(-600_000 + 400), disc: "7d0e" });
+    // A lone counter card is today's: its name and its code alone.
+    expect(cardTags([p], noRail, decided([p])).get(p.key)).toBeNull();
   });
 });
 
@@ -442,7 +481,28 @@ describe("cardTags — two DECIDED numbers that collide are told apart (Codex ro
       disc: null,
     });
     const chip = card({ key: "b|" + B2, fireBatch: B2 });
-    expect(cardTags([own], [chip], decided([own])).get(own.key)).toEqual({
+    const withChip = (d: RoundDecision) => new Map([...decided([own]), [chip.key, d]]);
+    expect(cardTags([own], [chip], withChip({ kind: "n", n: 1 })).get(own.key)).toEqual({
+      kind: "round",
+      n: 1,
+      disc: "3f2a",
+    });
+  });
+
+  it("a chip's number is the DECISION it was bumped with, never its live read (the blind pass on #328; `kitchen-rounds/rail-round-read-live`)", () => {
+    const own = card();
+    // The chip's card was decided round 2; a merge since re-ranked it, and its live read says 1.
+    const reranked = card({ key: "b|" + B2, fireBatch: B2, round: { kind: "n", n: 1 } });
+    const two = new Map([...decided([own]), [reranked.key, { kind: "n", n: 2 } as RoundDecision]]);
+    expect(cardTags([own], [reranked], two).get(own.key)).toEqual({
+      kind: "round",
+      n: 1,
+      disc: null,
+    });
+    // The other way round: decided 1 — the chip reads "Table 4 · Round 1" — while its read says 2.
+    const drifted = card({ key: "b|" + B2, fireBatch: B2, round: { kind: "n", n: 2 } });
+    const one = new Map([...decided([own]), [drifted.key, { kind: "n", n: 1 } as RoundDecision]]);
+    expect(cardTags([own], [drifted], one).get(own.key)).toEqual({
       kind: "round",
       n: 1,
       disc: "3f2a",

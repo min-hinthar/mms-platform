@@ -59,8 +59,8 @@ const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound 
 /** Codex r4 on #308 — the owing read's bound: every line of the board's OPEN counter carts (a handful
  *  of carts, tens of lines). Past it the read did not answer, and the board refuses (`outage`). */
 const OWING_LINE_CAP = 500;
-/** PD5 — the round read's bounds: the non-cancelled carts of the board's sessions (a table visit is
- *  one open cart plus its paid ones), then every batched line of the dine-in ones. Past either cap
+/** PD5 — the round read's bounds: the non-cancelled carts of the board's DINE-IN sessions (a table
+ *  visit is one open cart plus its paid ones), then every batched line on them. Past either cap
  *  the read did not answer, and every round is `unknown` — ADVISORY, never `outage` (m5 decision 9).
  *  The lines cap is 1 000 — PostgREST's `max_rows` (`supabase/config.toml`), which truncates
  *  SILENTLY: a cap above it never saturates, and the rank is read off a partial history (Codex
@@ -239,7 +239,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // Menu-station lookup: kitchen lines are always restaurant items (grocery never fires), but filter to
   // uuid-shaped ids defensively — menu_item_id is a soft ref that also carries grocery barcodes.
   const menuIds = [...new Set(lines.map((l) => l.menu_item_id).filter((id) => UUID_RE.test(id)))];
-  const [sessRes, orderRes, menuRes, names, roundCartsRes] = await Promise.all([
+  const [sessRes, orderRes, menuRes, names] = await Promise.all([
     // No mode/status filter (W3a): dine-in enforces active below; pickup/scango outlive their session.
     db.from("table_sessions").select("id,qr_code,table_number,mode,status").in("id", sessionIds),
     // The order anchors the pickup/scango identity: its uuid tail IS the short code the diner's
@@ -265,15 +265,6 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // board over a label would be the over-blocking direction. `menu: "skip"` because the menu read
     // above is THIS function's — it carries stations and sold-out and gates on `outage`.
     loadLineNames(db, lines, { tag: "kitchen", menu: "skip" }),
-    // PD5 — the round read's FIRST leg, in parallel (it needs only the board's session ids): the
-    // sessions' non-cancelled carts. ADVISORY — its failure is read below, never `outage`. The
-    // second leg (the dine-in carts' batched lines and orders) follows once the modes are known.
-    db
-      .from("qr_carts")
-      .select("id,session_id,status")
-      .in("session_id", sessionIds)
-      .neq("status", "cancelled")
-      .limit(ROUND_CART_CAP),
   ]);
   // Same rule as the anchor reads: a failed session read skips every ticket (false-empty); a failed
   // order/menu read strips pickup call-out codes / station routing — misidentity, not degradation.
@@ -296,6 +287,23 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     if (m.is_sold_out) soldOutItems.add(m.id);
     nameMyByItem.set(m.id, m.name_my);
   }
+
+  // ── PD5 — the session's round numbers (m5 decision 9), one ADVISORY read ──────────────────────
+  // The ordinal is the rank, by first fire time, of a card's `fire_batch` among its session's Sends
+  // that have cleared the grace and carry a dine-in line, on the session's non-cancelled carts (a
+  // table that paid and kept ordering still says round 3). Voided lines keep their batch and still
+  // count, so a number Mom has read never shifts down; an undone Send has no batch and never counts.
+  // Bounded to the DINE-IN sessions on the board (the only numbered ones, round 3 D4; m9 data 3): a
+  // board with none runs no round read at all. A failure or saturation makes every dine-in card's
+  // round `unknown` (the stub's fallback rules), never `outage` — a round is a label, and freezing
+  // a working kitchen over a label would be the over-blocking direction. Started HERE and awaited
+  // after the owing read, so the two run concurrently; `readRounds` never rejects (any failure,
+  // a thrown one included, answers `null`), so an `outage` return below abandons nothing unhandled.
+  const roundsRead = readRounds(
+    db,
+    [...sessById.values()].filter((s) => s.mode === "dinein").map((s) => s.id),
+    nowIso,
+  );
 
   // ── Codex round 4 on #308 (P2) — an open counter order's Unpaid is the CART's ──
   // Does taking payment still collect anything (`counterOwes`, the settle section's own rule over ALL
@@ -333,15 +341,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     for (const [cartId, ls] of linesByCart) if (counterOwes(ls)) owingCarts.add(cartId);
   }
 
-  // ── PD5 — the session's round numbers (m5 decision 9), one ADVISORY read ──────────────────────
-  // The ordinal is the rank, by first fire time, of a card's `fire_batch` among its session's Sends
-  // that have cleared the grace and carry a dine-in line, on the session's non-cancelled carts (a
-  // table that paid and kept ordering still says round 3). Voided lines keep their batch and still
-  // count, so a number Mom has read never shifts down; an undone Send has no batch and never counts.
-  // Bounded to the dine-in sessions on the board and capped; a failure or saturation makes every
-  // dine-in card's round `unknown` (the stub's fallback rules), never `outage` — a round is a label,
-  // and freezing a working kitchen over a label would be the over-blocking direction.
-  const rounds = await readRounds(roundCartsRes, sessById, db, nowIso);
+  const rounds = await roundsRead;
 
   // Assemble cards, preserving the oldest-first line order (lines is already sorted by fire_at).
   // Keyed by `ticketKey` from the RAW row — never the shaped `firedAt`, which is the poll clock for
@@ -404,19 +404,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // the first line's answer — a comp's included — is the ticket's.
     } else {
       const orderId = orderByCart.get(l.cart_id);
-      // The card's round (round 3 D4): only a dine-in table's batched Send can be numbered; the
-      // read answering nothing is `unknown` (never a guessed "1"); a batch the ordinal map does not
-      // hold carried no dine-in line, so it is a to-go or settlement card with its channel tag.
-      const ordinal =
-        l.fire_batch === null ? undefined : rounds?.get(cart.session_id)?.get(l.fire_batch);
+      // The card's round (round 3 D4): only a dine-in table's batched Send can be numbered.
       const round: KitchenRound =
-        channel !== "dinein"
-          ? { kind: "none" }
-          : rounds === null || l.fire_batch === null
-            ? { kind: "unknown" }
-            : ordinal === undefined
-              ? { kind: "none" }
-              : { kind: "n", n: ordinal };
+        channel !== "dinein" ? { kind: "none" } : roundFor(rounds, cart.session_id, l.fire_batch);
       ticketByKey.set(key, {
         key,
         cartId: l.cart_id,
@@ -453,32 +443,66 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
 }
 
-/** PD5 — session id → (`fire_batch` → ordinal); `null` when the advisory read did not answer. */
-type RoundsRead = ReadonlyMap<string, ReadonlyMap<string, number>> | null;
-
-/** The first leg's answer, as the `Promise.all` hands it over. */
-type RoundCartsRes = {
-  data: { id: string; session_id: string; status: string }[] | null;
-  error: { message: string } | null;
-};
+/** PD5 — per dine-in session on the board: its batches' ordinals, and every batch the read SAW
+ *  (numbered or not); `null` when the advisory read did not answer. */
+type RoundsRead = ReadonlyMap<
+  string,
+  { ordinals: ReadonlyMap<string, number>; seen: ReadonlySet<string> }
+> | null;
 
 /**
- * PD5 — the round read (m5 decision 9, risk 5). The first leg — the board's sessions' non-cancelled
- * carts — rode the `Promise.all` above; this reads its answer, keeps the DINE-IN carts (the only
- * numbered ones, round 3 D4; m9 data 3), and runs the second leg once, in parallel: every batched
- * line on them (any state — a void keeps its batch) and their orders (the paid moment, so
- * settlement food is never numbered — Codex on #328). One sequential round trip after the owing
- * read, only when a dine-in table is on the board. Any failure or saturation answers `null`: every
- * dine-in card then reads `unknown` and the board keeps rendering; a round is never worth a frozen
- * kitchen.
+ * PD5 — a dine-in card's round from the read. The read answering nothing is `unknown` (never a
+ * guessed "1"), and so is a batch the read did not SEE under the card's session: a merge moved it
+ * between the board's read and this one (re-parented to another table, or folded into a line
+ * there), and a definite `none` would freeze an unnumbered face on a real round — `unknown` is
+ * provisional, so the next poll decides it (the blind pass on #328). A batch the read saw and did
+ * not number carried no dine-in line, or is settlement food: a `none` card with its channel tag.
+ */
+function roundFor(rounds: RoundsRead, sessionId: string, batch: string | null): KitchenRound {
+  if (rounds === null || batch === null) return { kind: "unknown" };
+  const read = rounds.get(sessionId);
+  if (read === undefined || !read.seen.has(batch)) return { kind: "unknown" };
+  const n = read.ordinals.get(batch);
+  return n === undefined ? { kind: "none" } : { kind: "n", n };
+}
+
+/**
+ * PD5 — the round read (m5 decision 9, risk 5), over the board's DINE-IN sessions only (the caller
+ * filters them; none → no read at all). ADVISORY all the way down: any failure or saturation answers
+ * `null` (every dine-in card then reads `unknown` and the board keeps rendering — a round is never
+ * worth a frozen kitchen), and so does a THROWN read, so the caller can start it early and abandon
+ * it on an outage with nothing left unhandled.
  */
 async function readRounds(
-  cartsRes: RoundCartsRes,
-  sessById: ReadonlyMap<string, { mode: string }>,
   db: ReturnType<typeof serviceClient>,
+  sessionIds: readonly string[],
   nowIso: string,
 ): Promise<RoundsRead> {
-  const { data: carts, error: cartsError } = cartsRes;
+  if (sessionIds.length === 0) return new Map();
+  return readRoundLegs(db, sessionIds, nowIso).catch((e: unknown) => {
+    console.error("[kitchen] round read threw — rounds unknown this poll", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  });
+}
+
+/**
+ * The legs: the sessions' non-cancelled carts (a table visit is one open cart plus its paid ones),
+ * then, in parallel, every batched line on them (any state — a void keeps its batch) and their
+ * orders (the paid moment, so settlement food is never numbered — Codex on #328).
+ */
+async function readRoundLegs(
+  db: ReturnType<typeof serviceClient>,
+  sessionIds: readonly string[],
+  nowIso: string,
+): Promise<RoundsRead> {
+  const { data: carts, error: cartsError } = await db
+    .from("qr_carts")
+    .select("id,session_id,status")
+    .in("session_id", [...sessionIds])
+    .neq("status", "cancelled")
+    .limit(ROUND_CART_CAP);
   if (cartsError || !carts) {
     console.error("[kitchen] round read (carts) failed — rounds unknown this poll", {
       message: cartsError?.message,
@@ -491,9 +515,8 @@ async function readRounds(
     });
     return null;
   }
-  const dinein = carts.filter((c) => sessById.get(c.session_id)?.mode === "dinein");
-  if (dinein.length === 0) return new Map();
-  const sessionByCart = new Map(dinein.map((c) => [c.id, c.session_id]));
+  if (carts.length === 0) return new Map();
+  const sessionByCart = new Map(carts.map((c) => [c.id, c.session_id]));
   const cartIds = [...sessionByCart.keys()];
   const [linesRes, ordersRes] = await Promise.all([
     db
@@ -502,9 +525,12 @@ async function readRounds(
       .in("cart_id", cartIds)
       .not("fire_batch", "is", null)
       .limit(ROUND_LINE_CAP),
-    // The paid moment, and who took it: settlement food exists only on a cart its GUEST paid —
-    // every staff tender refuses unsent dine-in drafts (`staffSettleUnsentVerdict`: cash and the
-    // secure tab, `staff-cart.ts`; the reader, `terminal.ts`) and stamps `settled_by`.
+    // The paid moment, and who took it. Settlement food (`mms_fire_pending_food`) fires only on a
+    // cart paid with unsent drafts, and every staff tender refuses unsent dine-in drafts
+    // (`staffSettleUnsentVerdict`: cash and the secure tab, `staff-cart.ts`; the reader,
+    // `terminal.ts`) — but only cash and the reader stamp `settled_by`. The secure-tab close is
+    // recorded by the webhook with `settled_by` null, exactly like a guest's own payment, so this
+    // read cannot tell the two apart (the residual below).
     db
       .from("qr_orders")
       .select("cart_id,created_at,settled_by")
@@ -548,12 +574,15 @@ async function readRounds(
     });
     return null;
   }
-  // Settlement food is told apart by the paid moment ONLY on a cart its guest paid (Codex round 2
-  // on #328): a staff-settled cart cannot carry it, so every batch there is a Send — including one
-  // fired inside the 10-second grace that the settle landed in (its `fire_at`, the grace deadline,
-  // is after the order). On a guest-paid cart a batch whose `fire_at` is at or after the order is
-  // settlement food; the one case no stamp decides — a Send landing inside the 10 s before a GUEST's
-  // own card payment is recorded — is read as settlement food (m5 §H.2).
+  // Settlement food is told apart by the paid moment, except on a cart a STAMPED staff tender
+  // settled (cash or the reader: `settled_by` set). Such a cart cannot carry it, so every batch there
+  // is a Send — including one fired inside the 10-second grace the settle landed in (its `fire_at`,
+  // the grace deadline, is after the order). Every other cart is read as guest-paid: a batch whose
+  // `fire_at` is at or after its order is settlement food. Two sequences no stamp decides read a
+  // real Send that way, and it loses its number (the table's later rounds count one fewer): a Send
+  // landing inside the 10 s before a GUEST's own card payment is recorded (m5 §H.2), and one inside
+  // the 10 s before a staff SECURE-TAB close, which carries no `settled_by` (m5 §H.3). Both are
+  // owner items; stamping `settled_by` on the secure tab would move /staff/tips attribution.
   const staffSettled = new Set<string>();
   const paidAtByCart = new Map<string, string>();
   for (const o of ordersRes.data) {
@@ -567,9 +596,19 @@ async function readRounds(
   for (const r of batched) {
     const sid = sessionByCart.get(r.cart_id);
     if (sid === undefined) continue;
-    bySession.set(sid, [...(bySession.get(sid) ?? []), r]);
+    const ls = bySession.get(sid);
+    if (ls === undefined) bySession.set(sid, [r]);
+    else ls.push(r);
   }
-  return new Map([...bySession].map(([sid, ls]) => [sid, roundOrdinals(ls, nowIso, paidAtByCart)]));
+  return new Map(
+    [...bySession].map(([sid, ls]) => [
+      sid,
+      {
+        ordinals: roundOrdinals(ls, nowIso, paidAtByCart),
+        seen: new Set(ls.flatMap((l) => (l.fire_batch === null ? [] : [l.fire_batch]))),
+      },
+    ]),
+  );
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };
