@@ -59,6 +59,8 @@ import { Languages } from "lucide-react";
 // ── PD8 · m8 ── the raised flag: a decision waits on a manager, drawn only on the request card and
 // at Take payment (the shared vocabulary; present in lucide-react@0.562.0)
 import { Flag } from "lucide-react";
+// ── PD3 · the pickup promise ── the late ticket's one door, the restaurant's phone (lucide-react@0.562.0)
+import { Phone } from "lucide-react";
 
 /**
  * The brand icon set (W2b) — retires functional emoji-as-chrome (🔍🗑🧾🪑♥💳🔥🥡🎁🛒📍…) with a
@@ -136,6 +138,9 @@ const ICONS = {
   // script of its own, so it reads the same to a Burmese and an English reader.
   language: Languages,
   flag: Flag,
+  // ── PD3 · the pickup promise ── the tel door beside "I’m here" once a pickup runs late; the glyph is
+  // decorative (the control's name is "Call (626) 665-5317") and reads the same in both tongues.
+  phone: Phone,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;
