@@ -54,7 +54,6 @@ const dbAgo = (sec: number) => new Date(DB_NOW_MS - sec * 1000).toISOString();
 const TABLE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const REG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const L1 = "11111111-1111-4111-8111-111111111111";
-const L2 = "22222222-2222-4222-8222-222222222222";
 
 let sessions: Record<string, Row | null> = {};
 let sessionError: { message: string } | null = null;
