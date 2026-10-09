@@ -22,7 +22,7 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the fifteen orderings below, on one cart (two, for the merge). The
+ * WHAT THIS PROVES, and no more: the seventeen orderings below, on one cart (two, for the merge). The
  * no-show, the undo and a settle claim take the same cart-row lock, but no scenario here interleaves
  * THEM — those orderings are argued from construction and pinned single-session (P2F.15e, P2F.18),
  * not proven here. The no-show IS interleaved with a void, a request (h, h2) and a kitchen Start (j).
@@ -88,12 +88,15 @@
  *       supersede the request is left pending on a cancelled cart; without the whole change A waits
  *       only on the Clear's LINE lock and resumes reading the cart 'open' — an approved void (a loss)
  *       on the cancelled cart.
- *   (i2) resolve-mid-clear — A takes the request's row FOR UPDATE (`mms_resolve_approval`'s first
- *       lock) in an open transaction; B's Clear must BLOCK on A; then A runs the resolve itself (its
- *       second lock is the LINE) and must answer 'ok' without waiting, and once A commits B must answer
- *       'ok' (the request resolved first, the order then cleared). Without the Clear's approvals lock
- *       B holds the lines when it reaches the supersede, A's resolve then waits on B's line — a cycle,
- *       and one of them dies 40P01 (both are wrapped so a deadlock comes back as DATA, 'deadlock').
+ *   (i2) resolve-mid-clear — A takes an approve's first two locks in M269's order (the cart FOR
+ *       SHARE, then the request's row FOR UPDATE) in an open transaction; B's Clear must BLOCK on A (at
+ *       the cart); then A runs the resolve itself (its next lock is the LINE) and must answer 'ok'
+ *       without waiting, and once A commits B must answer 'ok' (the request resolved first, the order
+ *       then cleared). Both are wrapped so a deadlock comes back as DATA, 'deadlock'. Until M269 A took
+ *       the request alone (the resolve's first lock then), and without the Clear's approvals lock B
+ *       held the lines at the supersede while A's resolve waited on one — 40P01. M269 put the cart
+ *       first, so the Clear and the approve meet at the cart and that mutant is now a DOCUMENTED
+ *       SURVIVOR (below); A holding the request without the cart models no resolve that locks a line.
  *   (j) kitchen-start-before-no-show — A starts the SENT line (`mms_line_transition` → in_progress,
  *       the LINE lock only) in an open transaction; B's no-show (no approver) must BLOCK on A and,
  *       once A commits, answer 'needs_approval' (the dish is now cooked) with the line untouched.
@@ -113,12 +116,28 @@
  *       lock the freeze lands first, the read sees nothing, and B's request then commits behind it.
  *   In both, every request pending at the end is one the door's read saw.
  *
+ *   M269 gives `mms_resolve_approval`'s approve the line's cart FOR SHARE before the request and the
+ *   line, and reads the cart's freshness after it. The cash door is the freeze (as above), its totals
+ *   read and `mms_fulfill_cash_order`, which derives the subtotal and copies the lines with no line
+ *   lock. Two orders:
+ *   (k) approve-before-settle — A approves the void inside an open transaction; B's freeze must BLOCK
+ *       on A and, once A commits, land; the door's totals then omit the voided dish and the cash order
+ *       charges only what is on the bill (its subtotal equals its items, the dish absent). Without the
+ *       lock the freeze lands past A's uncommitted void, the door charges the dish, and A then records
+ *       it as an approved loss.
+ *   (k2) settle-before-approve — B's freeze, totals read and cash fulfillment held open in one
+ *       transaction (so A arrives mid-write, the freeze not yet visible); A's approve must BLOCK on B and,
+ *       once B commits, answer 'not_open' with the line still charged and the request still pending.
+ *       Without the lock, or with the cart read before it, A voids a dish B is charging.
+ *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
  *
  * ── `--mutants` ─────────────────────────────────────────────────────────────────────────────────
  *
- * For each function, re-create it from THIS migration's text with its cart-row lock deleted. Each
+ * For each function, re-create it from THIS migration's text (or its `LATER` file) with a lock deleted
+ * or moved. A mutant marked `survives` must stay green on every order — the claim that no interleaving
+ * here needs it, checked rather than left as a comment. Each
  * mutant asserts the pattern matched exactly once, the apply succeeded and `md5(prosrc)` changed,
  * and that EXACTLY its expected scenarios went red; the restore re-applies the whole migration file
  * (plus each function a later migration restates, from that file — `LATER`)
@@ -161,6 +180,12 @@ const LATER = {
   mms_request_approval: path.join(
     ROOT,
     "supabase/migrations/20261008120000_m184_approval_refuses_when_changed.sql",
+  ),
+  // M269 restates M184's `mms_resolve_approval` with the cart lock before the line; p2f never defined
+  // it, so it is compared and restored from this file alone.
+  mms_resolve_approval: path.join(
+    ROOT,
+    "supabase/migrations/20261009120100_m269_approve_cart_lock.sql",
   ),
 };
 const TAG = "P2FR";
@@ -589,6 +614,26 @@ const pendingOn = (f) =>
     `select count(*) from public.mms_approvals where cart_id = '${f.cart}' and status = 'pending';`,
   );
 
+/** The cash door's totals read after its freeze (`getCartTotals`' subtotal, tip 0): subtotal|tax. */
+const doorTotals = (f) =>
+  `select coalesce(sum(unit_price_cents * qty), 0) || '|' || coalesce(sum(tax_cents), 0)
+     from public.qr_cart_items
+    where cart_id = '${f.cart}' and state <> 'voided' and not comped;`;
+/** The cash door's write — `mms_fulfill_cash_order` at the totals it just read ('t' once it lands). */
+const fulfillCash = (f, totals) => {
+  const [sub, tax] = totals.split("|");
+  return `select public.mms_fulfill_cash_order('${f.cart}'::uuid, '${MGR}'::uuid, ${sub}, 0, 0, ${tax}, 0, null) is not null;`;
+};
+/** What the cash order charged: its subtotal · the sum of its items · how many items are the
+ *  request's dish (the requestFixture's 'Feast platter'). */
+const orderCheck = (f) =>
+  q(`select o.subtotal_cents
+            || '|' || coalesce((select sum(oi.unit_price_cents * oi.qty) from public.qr_order_items oi
+                                 where oi.order_id = o.id), 0)
+            || '|' || (select count(*) from public.qr_order_items oi
+                        where oi.order_id = o.id and oi.name = 'Feast platter')
+       from public.qr_orders o where o.cart_id = '${f.cart}' and o.tender = 'cash';`);
+
 /** Each scenario returns [label, got, want] triples; any mismatch reddens it. */
 const SCENARIOS = {
   async a() {
@@ -890,14 +935,18 @@ const SCENARIOS = {
     try {
       await a.run(DEADLOCK_SAFE);
       await b.run(DEADLOCK_SAFE);
-      // `mms_resolve_approval`'s first lock, taken on its own so the Clear starts MID-resolve.
+      // An approve's first two locks, in M269's order (the cart FOR SHARE, then the request), taken
+      // on their own so the Clear starts MID-resolve. Before M269 the request came first; holding it
+      // without the cart now models no resolve that then locks a line, and the Clear (holding the
+      // cart, waiting on the request) and the approve (waiting on the cart) would deadlock.
       await a.run("begin;");
+      await a.run(`select 1 from public.qr_carts where id = '${f.cart}' for share;`);
       const held = await a.run(
         `select status from public.mms_approvals where id = '${f.approval}' for update;`,
       );
       b.fire(`select pg_temp.p2fr_clear('${f.cart}'::uuid);`);
       const how = await blockedOrDone(b, a);
-      // …then the rest of the resolve: its LINE lock must be free (the Clear waits before its lines).
+      // …then the rest of the resolve: its LINE lock must be free (the Clear waits at the cart).
       const resolved = await a.run(resolve(f.approval));
       await a.run("commit;");
       const cleared = await b.collect();
@@ -1015,6 +1064,87 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  async k() {
+    const f = requestFixture("k");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run(DEADLOCK_SAFE);
+      // A approves the void inside an open transaction: the cart, the request and the line held.
+      await a.run("begin;");
+      const resolved = await a.run(resolve(f.approval));
+      b.fire(freeze(f));
+      const how = await blockedOrDone(b, a);
+      if (how === "blocked") await a.run("commit;");
+      const froze = await b.collect();
+      // The door: its totals read, then the cash fulfillment. A freeze that did NOT wait landed past
+      // A's uncommitted void — the real race — so A commits only after the door has written.
+      const totals = await b.run(doorTotals(f));
+      b.fire(fulfillCash(f, totals));
+      const paidHow = await blockedOrDone(b, a);
+      if (paidHow === "blocked") await a.run("commit;");
+      const paid = await b.collect();
+      if (how === "done" && paidHow === "done") await a.run("commit;");
+      return [
+        ["A approved the void", resolved, "ok"],
+        ["the door's freeze waited for the approve", how, "blocked"],
+        ["the freeze landed once the approve committed", froze, "1"],
+        ["the cash order landed", paid, "t"],
+        [
+          "the order charged only what is on the bill (subtotal|items|the voided dish)",
+          orderCheck(f),
+          "1400|1400|0",
+        ],
+        [
+          "the approved void stands",
+          `${approvalStatus(f.approval)}|${lineState(f.big)}`,
+          "approved|voided",
+        ],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async k2() {
+    const f = requestFixture("k2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run(DEADLOCK_SAFE);
+      // The door's freeze, its totals read and its cash fulfillment, held open in one transaction so
+      // A's approve arrives while the door is mid-write (and the freeze is not yet visible to it).
+      await b.run("begin;");
+      const froze = await b.run(freeze(f));
+      const totals = await b.run(doorTotals(f));
+      const paid = await b.run(fulfillCash(f, totals));
+      a.fire(resolve(f.approval));
+      const how = await blockedOrDone(a, b);
+      // An approve that did NOT wait decided against B's uncommitted settle — the real race — so B
+      // commits only after it. An approve that waited cannot finish until B commits.
+      if (how === "blocked") await b.run("commit;");
+      const resolved = await a.collect();
+      if (how === "done") await b.run("commit;");
+      return [
+        ["B froze the cart and took the cash", `${froze}|${paid}`, "1|t"],
+        ["A's approve waited for the settle", how, "blocked"],
+        ["A refused: the table is paid", resolved, "not_open"],
+        [
+          "the charged dish was not written off",
+          `${lineState(f.big)}|${approvalStatus(f.approval)}`,
+          "draft|pending",
+        ],
+        [
+          "the order charged the dish it kept (subtotal|items|the dish)",
+          orderCheck(f),
+          "3900|3900|1",
+        ],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
 /** Run every scenario; returns the ids that went red (printing when `loud`). */
@@ -1043,6 +1173,8 @@ async function battery(loud) {
         j: "kitchen-start-before-no-show",
         r1: "freeze-before-request",
         r2: "request-before-freeze",
+        k: "approve-before-settle",
+        k2: "settle-before-approve",
       }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
@@ -1062,6 +1194,12 @@ function setupManager() {
 }
 function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
+  // (k, k2) write cash orders, settled by MGR; their items (and every row keyed on an order) cascade
+  // with them. First: an order still names MGR (`settled_by`) and its session.
+  for (const prefix of [CODE_PREFIX, TGT_PREFIX]) {
+    q(`delete from public.qr_orders o using public.table_sessions s
+         where o.session_id = s.id and s.qr_code like '${prefix}%';`);
+  }
   q(`delete from public.staff where user_id = '${MGR}';
      delete from auth.users where id = '${MGR}';`);
   for (const prefix of [CODE_PREFIX, TGT_PREFIX]) {
@@ -1080,7 +1218,8 @@ const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
 const LATER_TEXT = Object.fromEntries(
   Object.entries(LATER).map(([fn, file]) => [fn, readFileSync(file, "utf8")]),
 );
-/** Every function this migration defines — the restore re-applies them all, so all are compared. */
+/** Every function this migration defines, plus each `LATER` one — the restore re-applies them all,
+ *  so all are compared. */
 const FNS = [
   "mms_bump_ticket",
   "mms_clear_cart_name",
@@ -1090,6 +1229,7 @@ const FNS = [
   "mms_line_transition",
   "mms_merge_table_orders",
   "mms_request_approval",
+  "mms_resolve_approval",
   "mms_sweep_expired_sessions",
   "mms_undo_counter_fire",
   "mms_void_line",
@@ -1274,6 +1414,36 @@ const MUTANTS = [
     why: "a request that reads the cart before it waits on a settle's freeze asks a manager about a bill already being charged",
   },
   {
+    // M269 — the approve's cart lock deleted. (k): the freeze lands past A's uncommitted void and the
+    // door charges the dish A then writes off. (k2): A reads B's cart as open and unfrozen and voids
+    // a dish B is charging.
+    id: "m269/approve-cart-lock-dropped",
+    fn: "mms_resolve_approval",
+    find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+    replace: "",
+    expect: ["k", "k2"],
+    why: "an approve racing a settle records an approved void on a dish the order charged",
+  },
+  {
+    // M269 — the lock kept, but taken AFTER the read that decides `not_open` / `in_flight`, so it orders
+    // nothing: (k2) A waits on B's settle, then acts on the cart it read before waiting.
+    id: "m269/approve-reads-the-cart-before-the-lock",
+    fn: "mms_resolve_approval",
+    edits: [
+      {
+        find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+        replace: "",
+      },
+      {
+        find: "    where ci.id = v_line for update of ci;\n",
+        replace:
+          "    where ci.id = v_line for update of ci;\n  perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+      },
+    ],
+    expect: ["k2"],
+    why: "an approve that reads the cart before it waits on a settle voids a dish the table just paid for",
+  },
+  {
     id: "p2f/clear-counter-supersede-dropped",
     fn: "mms_clear_counter_cart",
     find: "  update public.mms_approvals a set status = 'superseded', resolved_at = now()\n    where a.cart_id = p_cart_id and a.status = 'pending';\n",
@@ -1289,10 +1459,14 @@ const MUTANTS = [
     fn: "mms_clear_counter_cart",
     find: "  perform 1 from public.mms_approvals where cart_id = p_cart_id and status = 'pending' order by id for update;\n",
     replace: "",
-    // (i2): the Clear takes the lines first and meets the resolve's approval lock only at the
-    // supersede, while the resolve waits on a line the Clear holds — 40P01. (i) stays green: the
-    // supersede's own row lock still makes a later resolve wait and read 'superseded'.
-    expect: ["i2"],
+    // Killed by (i2) until M269: the Clear took the lines first and met the resolve's approval lock only
+    // at the supersede, while the resolve (request, then line) waited on a line the Clear held — 40P01.
+    // M269 gave the approve the cart FOR SHARE before the request, so the Clear and every resolve arm
+    // that locks a line now meet at the cart; deny and close lock no line. Measured 2026-10-09: no
+    // order goes red without this lock. It stays as defence in depth, a documented survivor here.
+    expect: [],
+    survives:
+      "equivalent since M269 — the approve meets the Clear at the cart row, so no resolve can hold a request the Clear then waits on",
     why: "a Clear racing a resolve deadlocks (lines → approval against the resolve's approval → line)",
   },
   {
@@ -1338,16 +1512,21 @@ async function runMutants() {
   );
 
   let bad = 0;
+  let survivors = 0;
   for (const m of MUTANTS) {
     const stmt = statementFor(m.fn);
-    const hits = stmt ? stmt.split(m.find).length - 1 : 0;
-    if (hits !== 1) {
-      console.log(`  ${red("STALE")} ${m.id} — the lock matched ${hits}× (want exactly 1)`);
+    // One edit, or several (a lock MOVED is a delete plus an insert); each must match exactly once.
+    const edits = m.edits ?? [{ find: m.find, replace: m.replace }];
+    const hits = edits.map((e) => (stmt ? stmt.split(e.find).length - 1 : 0));
+    if (hits.some((h) => h !== 1)) {
+      console.log(
+        `  ${red("STALE")} ${m.id} — the edits matched ${hits.join("/")}× (want exactly 1 each)`,
+      );
       bad++;
       continue;
     }
     // A function replacement, never a string: `$'`/`$&` in a replacement string are patterns.
-    const mutated = stmt.replace(m.find, () => m.replace);
+    const mutated = edits.reduce((t, e) => t.replace(e.find, () => e.replace), stmt);
     let live_ = true;
     const restoreNow = () => {
       if (!live_) return;
@@ -1367,7 +1546,12 @@ async function runMutants() {
       const reds = await battery(false);
       const missed = m.expect.filter((e) => !reds.includes(e));
       const leaked = reds.filter((r) => !m.expect.includes(r));
-      if (!reds.length) {
+      if (!reds.length && m.survives) {
+        // A DOCUMENTED survivor: applied, every order still green — the claim that no interleaving
+        // here needs it, checked on every run rather than left as a comment.
+        console.log(`  ${dim("survivor")} ${m.id} ${dim(`— ${m.survives}`)}`);
+        survivors++;
+      } else if (!reds.length) {
         console.log(`  ${red("SURVIVED")} ${m.id} — ${m.why}`);
         bad++;
       } else if (missed.length || leaked.length) {
@@ -1393,7 +1577,11 @@ async function runMutants() {
     console.log(red(`\n✗ verify:counter-race --mutants — ${bad} mutant(s) not caught cleanly\n`));
   } else {
     console.log(
-      green(`\n✓ all ${MUTANTS.length} mutants caught; bodies restored byte-identical\n`),
+      green(
+        `\n✓ all ${MUTANTS.length - survivors} mutants caught` +
+          (survivors ? `, ${survivors} documented survivor` : "") +
+          `; bodies restored byte-identical\n`,
+      ),
     );
   }
   return bad;
@@ -1441,7 +1629,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show · freeze-before-request · request-before-freeze\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show · freeze-before-request · request-before-freeze · approve-before-settle · settle-before-approve\n`,
       ),
     );
   }

@@ -64,7 +64,8 @@
  * requests (P2F.31a, and P2F.31b — a 'sent' refusal must not supersede), the merge's in-grace revert to
  * draft (P2F.28e), and the sweeper's exemption now counting a COMPED kitchen line (P2F.19f — the
  * mutant re-adds `not ci.comped`). The Clear's approvals LOCK and the no-show's LINES lock are killed
- * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead. `mms_line_transition` and
+ * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead — the first until M269, which
+ * made it a documented survivor THERE (the approve now meets the Clear at the cart row). `mms_line_transition` and
  * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
  * Phase 3c-ii · M258 (D29) adds suite `p3c2`: `mms_undo_fire` restated with the two freshness legs
@@ -103,6 +104,13 @@
  * 'superseded' only once the cart left 'open' or the line changed. Fifteen killed mutants, each
  * beside its legitimate half (deny unchanged, the self rule kept for approve, the role check kept
  * for close), and NO new survivor: the approve's line lock is the shipped s2 lock, unchanged here.
+ *
+ * M269 adds suite `m269`: `mms_resolve_approval` restated again — the approve takes the line's cart
+ * FOR SHARE before the request and the line, then reads the cart's freshness. M184's resolve mutants
+ * now patch M269's text (`src: "m269"`, still judged by `m184`). Three killed mutants (the settle
+ * term, its age, the pay-lock term — each beside its legitimate half) and TWO documented survivors:
+ * the lock dropped, and the lock taken after the read. Both are KILLED by
+ * `scripts/verify-counter-fire-race.mjs --mutants` (orders k and k2). Twenty survivors in all.
  *
  * USAGE
  * -----
@@ -188,9 +196,16 @@ const SUITES = {
     ),
     test: path.join(ROOT, "supabase/tests/m184_approval_refuses_when_changed_test.sql"),
   },
+  // M269 — `mms_resolve_approval` restated AGAIN: the approve takes the line's cart FOR SHARE before
+  // the request and the line. Its LAST definition now, so M184's resolve mutants patch THIS text
+  // (`src: "m269"`) and are still judged by the m184 suite.
+  m269: {
+    migration: path.join(ROOT, "supabase/migrations/20261009120100_m269_approve_cart_lock.sql"),
+    test: path.join(ROOT, "supabase/tests/m269_approve_cart_lock_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "m184"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "m184", "m269"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2491,7 +2506,63 @@ const MUTANTS = [
       replace:
         "     or (v_settle_at is not null) then\n    return 'in_flight';\n  end if;\n  if v_state",
     },
-  ].map((m) => ({ fn: "mms_resolve_approval", ...m, src: "m184", suite: "m184" })),
+  ].map((m) => {
+    // M269 restates `mms_resolve_approval`, so its mutants patch M269's text (the LAST definition);
+    // `mms_request_approval`'s stay on M184's. Both are judged by the m184 suite.
+    const fn = m.fn ?? "mms_resolve_approval";
+    return { ...m, fn, src: fn === "mms_resolve_approval" ? "m269" : "m184", suite: "m184" };
+  }),
+  // M269 — the approve reads the cart only after its lock. Three killed mutants on the freshness the
+  // lock exists to make current (each beside its legitimate half), and TWO documented survivors: the
+  // lock itself, and the lock taken after the read. No single session can see either (the fixture's
+  // line insert already stamps the cart's `xmax`); both are KILLED by
+  // `scripts/verify-counter-fire-race.mjs --mutants` (orders k and k2).
+  ...[
+    {
+      id: "m269/approve-ignores-settle",
+      expect: "M269.1 · approve on a settling cart is refused in_flight",
+      why: "an approve on a cart a settle door has frozen voids a dish the door is charging",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
+      replace: "     or false then\n    return 'in_flight';",
+    },
+    {
+      id: "m269/approve-freeze-never-ages",
+      expect: "M269.2 · approve after a stale settle freeze lands",
+      why: "over-block: an abandoned settle's stamp refuses every approve on that table for good",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
+      replace: "     or (v_settle_at is not null) then\n    return 'in_flight';",
+    },
+    {
+      id: "m269/approve-ignores-pay-lock",
+      expect: "M269.3 · approve on a pay-locked cart is refused in_flight",
+      why: "an approve under a guest's live card payment drops a line from the amount being captured",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at",
+      replace: "  if false\n     or (v_settle_at",
+    },
+    {
+      id: "m269/approve-cart-lock-dropped",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR HERE — the approve's cart FOR SHARE orders it against a settle door's freeze and its cash fulfillment; only TWO sessions can interleave them, and the fixture's line insert already stamps the cart's xmax. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (approve-before-settle and settle-before-approve)",
+      find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+      replace: "",
+    },
+    {
+      id: "m269/approve-reads-the-cart-before-the-lock",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR HERE — the lock kept but taken after the read that decides not_open / in_flight orders nothing; single-session the answers are identical. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (settle-before-approve)",
+      edits: [
+        {
+          find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+          replace: "",
+        },
+        {
+          find: "    where ci.id = v_line for update of ci;\n",
+          replace:
+            "    where ci.id = v_line for update of ci;\n  perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+        },
+      ],
+    },
+  ].map((m) => ({ fn: "mms_resolve_approval", ...m, src: "m269", suite: "m269" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
