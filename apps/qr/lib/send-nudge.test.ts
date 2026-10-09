@@ -94,6 +94,19 @@ describe("nudgeHost", () => {
     });
     expect(rpc).not.toHaveBeenCalled();
   });
+  it("a payment holding the cart refuses the nudge before the RPC — nobody can send under it", async () => {
+    // MUTATION (send-nudge/nudge-ignores-the-pay-lock): the refusal dropped — a stamp lands naming a
+    // wait nobody can end, while the Bill hides the button; red by the reason and the call count.
+    for (const freeze of [{ locked: true }, { settling: true }]) {
+      rpc.mockClear();
+      authz = { ...GUEST, ...freeze };
+      expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({
+        ok: false,
+        reason: "locked",
+      });
+      expect(rpc).not.toHaveBeenCalled();
+    }
+  });
   it("`recent` is a SUCCESS carrying the standing stamp — the guest's line keeps showing", async () => {
     rpcAnswer = {
       data: [{ ok: false, reason: "recent", nudged_at: "2026-10-08T09:59:30.000Z" }],

@@ -23,7 +23,7 @@ export type NudgeHostResult =
   | { ok: true; nudgedAt: string }
   | {
       ok: false;
-      reason: "is_host" | "no_host" | "not_member" | "closed" | "rate_limited" | "error";
+      reason: "is_host" | "no_host" | "not_member" | "closed" | "locked" | "rate_limited" | "error";
       error: string;
     };
 
@@ -45,6 +45,13 @@ export async function nudgeHost(raw: unknown): Promise<NudgeHostResult> {
   }
   // The host waits on nobody: said here for the sentence, decided again in the SQL.
   if (authz.role === "host") return { ok: false, reason: "is_host", error: FAILED };
+  // Nobody can send while a payment holds the cart — the host, the staff Send and the fire all
+  // refuse it — so a stamp saying someone waits on that send names a wait nobody can end. The Bill
+  // hides the button under the same freeze (`nudgeOffered`'s `frozen`, m1 decision 18); this is the
+  // server half `cartFreeze` mirrors (scripts/check-freeze-parity.mjs), read at authz time: the
+  // stamp moves no line and no price, so the freeze-atomic write `applyPromo` needs (M70) buys
+  // nothing here. A tap that raced the lock gets the shipped raced-lock sentence.
+  if (authz.locked || authz.settling) return { ok: false, reason: "locked", error: FAILED };
   // Per-seat flood guard, like every cart write; the SQL's own minute is the real cadence.
   if (!(await withinMutationRate(authz.uid)))
     return { ok: false, reason: "rate_limited", error: FAILED };

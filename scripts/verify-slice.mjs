@@ -25502,6 +25502,22 @@ const MUTANTS = [
     replace: '  if (false) return { ok: false, reason: "is_host", error: FAILED };',
   },
   {
+    id: "send-nudge/nudge-ignores-the-pay-lock",
+    file: "apps/qr/lib/send-nudge.ts",
+    suite: "lib/send-nudge.test.ts",
+    why: "PD1 (m1 decision 18) — nobody can send while a payment holds the cart; without the server's refusal a raced tap stamps 'X is waiting on this send' on the host's phone for a send the lock forbids (the server half cartFreeze mirrors)",
+    find: '  if (authz.locked || authz.settling) return { ok: false, reason: "locked", error: FAILED };',
+    replace: '  if (false) return { ok: false, reason: "locked", error: FAILED };',
+  },
+  {
+    id: "send-nudge/nudge-ignores-the-settle-freeze",
+    file: "apps/qr/lib/send-nudge.ts",
+    suite: "lib/send-nudge.test.ts",
+    why: "PD1 — the table-wide settle freeze holds the Send exactly as a card lock does; a refusal narrowed to `locked` stamps a wait under a split settle",
+    find: '  if (authz.locked || authz.settling) return { ok: false, reason: "locked", error: FAILED };',
+    replace: '  if (authz.locked) return { ok: false, reason: "locked", error: FAILED };',
+  },
+  {
     id: "send-nudge/seat-not-the-callers",
     file: "apps/qr/lib/send-nudge.ts",
     suite: "lib/send-nudge.test.ts",
