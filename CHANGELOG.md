@@ -41,6 +41,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Mutants:** 40 new (`approvers/` · `approvals-count/` · `approval-state/` · `settle-approvals/` ·
   `approvals-read/` · `resolve/` · `approval-ack/` · `floor/`) and 10 re-anchored; the battery is 3310.
 
+### The pass tokens: `--fs-pass`, `--till-fs-hand` and the constant `--pass-*` inks (2026-10-08)
+
+- **guards-style's token-only PR, the first step of PATH_DESIGN's Sequencing (D1(c)).** Two
+  counter-figure tiers join the type scale in `packages/ui/src/tokens.css`: `--fs-pass` (5.5rem, the
+  identity figure read across the counter or the room, and the till's due said aloud — m6's
+  `--till-fs-say` folded into it, reconciliation 2) and `--till-fs-hand` (8rem, the Change handed
+  back). The nine constant pass inks (`--pass-paper`, `-ink`, `-ink-2`, `-ink-3`, `-ac`, `-ok`, `-okb`,
+  `-seam`, `-unlit`) are declared once at `:root` and never redefined in `.dark`, so every pass is
+  constant paper in Night like a wallet pass: seven are the light palette's own values bound to their
+  own names, `--pass-seam` is m10's perforation rule and `--pass-unlit` is m11's measured unlit
+  segment; `--pass-hole` defaults to `--pg` (now also in the print re-pin) and a host overrides it
+  with its own ground. `contrast-audit.test.ts` pins the constancy, the seven equalities and AA for
+  every ink the primitive may put on the paper or the stamped stub (the blind pass's one CRITICAL:
+  a contrast invariant with no guard). No component reads them yet: post-pay's CounterPass and
+  kitchen-track primitives are the next step.
+
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 
 - **The owner's request:** _"merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR"_,
