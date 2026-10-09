@@ -17,7 +17,12 @@
  *     `var(--pass-ink, var(--tx))` included). A custom-property DEFINITION is checked the same way:
  *     remapping `--tx: var(--pass-ink)` for a hosted subtree is the sanctioned shape.
  *
- * Red-first, induced and watched: the shipped PD2 rules (`--tx` on `.counter-pass-amount`, `--t2` /
+ * ⚠️ AND THE FOCUS RING (the blind pass on #331). A GLOBAL `:focus-visible` rule reaches inside the
+ * pass with no in-pass selector at all — Night's `--ac` #e7a53a on the paper is ≈2.1:1, under the
+ * 3:1 non-text bar. So: when any rule outside the pass draws a focus outline from a theme token, an
+ * in-pass `:focus-visible` rule must draw it on a `--pass-*` ink (it out-specifies the global one).
+ *
+ * Red-first, induced and watched: the global ring with no in-pass override; the shipped PD2 rules (`--tx` on `.counter-pass-amount`, `--t2` /
  * `--t3` / `--bd` on the label, the dot and the disclosure); a theme token inside a nested `@media`;
  * one inside a selector LIST where only one selector is in the pass; a fallback chain. A theme token
  * in a COMMENT stays clean.
@@ -73,12 +78,32 @@ if (themed.size === 0) {
 
 const bad = [];
 let inPass = 0;
+const focusLeaks = [];
+let passFocus = 0;
+const UNIVERSAL_FOCUS = /^(\*|:where\([^)]*\)\s*)?:focus(-visible)?$/;
+const OUTLINE = /^\s*outline(-color)?\s*:/;
+const readsThemed = (value) =>
+  [...value.matchAll(/var\(\s*(--[\w-]+)/g)].some((m) => themed.has(m[1]));
 for (const file of SHEETS) {
   const css = stripComments(readFileSync(join(ROOT, file), "utf8"));
   for (const r of rules(css)) {
     if (r.selector.startsWith("@")) continue;
-    if (!r.selector.split(",").some((sel) => IN_PASS.test(sel))) continue;
+    const sels = r.selector.split(",");
+    const outlines = r.body.split(";").filter((d) => OUTLINE.test(d));
+    // A ring that reaches EVERY element — a bare `:focus-visible` (or `*:focus-visible`) — reaches
+    // inside the pass; a class-scoped one reaches only its own class.
+    if (sels.some((sel) => UNIVERSAL_FOCUS.test(sel.trim()))) {
+      for (const d of outlines)
+        if (readsThemed(d.slice(d.indexOf(":") + 1)))
+          focusLeaks.push(`${file}:${r.line} \`${r.selector.replace(/\s+/g, " ")}\` — ${d.trim()}`);
+    }
+    if (!sels.some((sel) => IN_PASS.test(sel))) continue;
     inPass++;
+    if (
+      sels.some((sel) => IN_PASS.test(sel) && /:focus-visible/.test(sel)) &&
+      outlines.some((d) => /var\(\s*--pass-/.test(d) && !readsThemed(d.slice(d.indexOf(":") + 1)))
+    )
+      passFocus++;
     for (const decl of r.body.split(";")) {
       const value = decl.slice(decl.indexOf(":") + 1);
       if (decl.indexOf(":") < 0) continue;
@@ -97,6 +122,13 @@ if (inPass === 0) {
   );
   process.exit(1);
 }
+if (focusLeaks.length && passFocus === 0)
+  bad.push(
+    ...focusLeaks.map(
+      (l) =>
+        `${l}\n      reaches inside the pass, and no in-pass \`:focus-visible\` rule draws the ring on a --pass-* ink`,
+    ),
+  );
 if (bad.length) {
   console.error(
     `pass inks — content on the constant paper reads the pass's inks … \x1b[31m✗\x1b[0m\n\n  ` +
