@@ -25705,6 +25705,23 @@ const MUTANTS = [
       'paddingBottom: showPayControls && isDineIn && phonePayOff ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)" : undefined,',
   },
   {
+    id: "checkout/pass-total-reads-the-subtotal",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (guard 5) — the pass's total is the number the register reads: `getCartTotals`' total, never a pre-tax figure",
+    find: "                tableCode={splitContext?.qrCode ?? null}\n                totalCents={totals.totalCents}",
+    replace:
+      "                tableCode={splitContext?.qrCode ?? null}\n                totalCents={totals.subtotalCents}",
+  },
+  {
+    id: "checkout/parked-foot-reads-the-subtotal",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (guard 5) — while phone pay is parked the slip's own foot is the total; reading the subtotal shows the table a figure the register will not charge",
+    find: '{phonePayOff && <Row k="rowTotal" cents={totals.totalCents} strong roll />}',
+    replace: '{phonePayOff && <Row k="rowTotal" cents={totals.subtotalCents} strong roll />}',
+  },
+  {
     id: "checkout/door-ignores-the-parked-door",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",

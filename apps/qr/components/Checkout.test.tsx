@@ -2581,6 +2581,25 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(document.querySelector("main")!.style.paddingBottom).toContain("--cta-dock-h");
   });
 
+  it("the amount the register reads is the SERVER's total — on the parked slip's foot and on the pass (blind pass, guard 5)", async () => {
+    // Total ≠ subtotal (tax), so a binding that reads the wrong figure separates.
+    const TAXED: CartTotals = { ...TOTALS, taxCents: 126, totalCents: 1326 };
+    mount({ splitContext: HOST, initialItems: [FIRED], initialTotals: TAXED });
+    // MUTATION (checkout/parked-foot-reads-the-subtotal): the slip's foot reads `subtotalCents`; red.
+    const slip = document.querySelector(".checkout-receipt")!;
+    expect(slip.textContent).toContain("13.26");
+    cleanup();
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED],
+      initialTotals: TAXED,
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    expect(counterCards()).toBe(1);
+    // MUTATION (checkout/pass-total-reads-the-subtotal): the pass reads `subtotalCents`; red.
+    expect(document.querySelector(".counter-pass-amount")!.textContent).toBe("13.26");
+  });
+
   // ── Codex round 2 on #331 (head 5c074e1) ──
 
   it("a missed split read cannot un-park the door: the cart view's mode answers it (comment 4226408727)", async () => {
