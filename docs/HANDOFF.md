@@ -26,27 +26,24 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
   `codex-review` with Codex having reviewed that head — never a red `codex-review` head, G3) and the
   blind pass's findings are fixed or justified on the PR. The per-SHA merge-window line is not needed
   for these PRs; everything else in WORKFLOW §Review step 5 still runs.
-- **Merged:** #326 `feat(ui): the pass tokens` → `1e9f554` (`--fs-pass`, `--till-fs-hand`, the nine
+- **Merged:** #327 `feat(ui): CounterPass and KitchenTrack` → `1b5e7e9` (2026-10-09 03:50Z, head
+  `4c18bef`: the blind pass's items fixed, three Codex rounds, the last with no findings); #326
+  `feat(ui): the pass tokens` → `1e9f554` (`--fs-pass`, `--till-fs-hand`, the nine
   constant `--pass-*` inks + `--pass-hole`, pinned by `contrast-audit.test.ts`'s "the pass — constant
   paper" block; the blind pass's REJECT on its first head was the missing guard).
 - **Open PRs** — each runs the full ritual (blind-pass verdict posted on the PR, every Codex round
   answered on its threads, `codex-review` green on the merge head):
-  - **#327** post-pay's primitives — `CounterPass` + `KitchenTrack` in `@mms/ui`
-    (`packages/ui/src/counter-pass.tsx`, `packages/ui/src/kitchen-track.tsx`,
-    `packages/ui/src/pass.css`); the prop surface is `docs/path-design-2026-10-07/m10-live-pass-pay.md`
-    §H. Head `4c18bef`: the blind pass (APPROVE with real items) fixed in `c78ebe8`, Codex round 3's
-    two findings (no ✓ on the TV tier, `KitchenTrackName` in the barrel) in `4c18bef`. **Merges first.**
   - **#328** kitchen-ops' PD5 — one Send = one card. Head `f498d33`: the blind pass's REJECT (the frozen
     stub vs the live-ordinal name) and Codex round 1 fixed in `a870aaf`; the verdict and its
-    fix-or-justify table are posted. Based on the old `main` (`f26cc8f`): after #327 merges, merge
-    `main` in, refresh the counts, and take one more Codex round on that final head.
+    fix-or-justify table are posted. Based on the old `main` (`f26cc8f`): merge `main` in after its Codex
+    round-2 fixes, refresh the counts, and take one more Codex round on that final head.
   - **#329** grocery's PD4 — the paper tag in the lens, the Name sheet, the Sheet's `initialFocus`.
     Head `27081ce`: the blind pass's REJECT and Codex round 1 fixed in `75ec322`, one follow-up (the
     asking sheet compared by identity) in `27081ce`. Same `main` merge after #328.
   - **#330** post-pay's PD3 (draft) — head `d2a3d76`, Codex round 1's ten findings fixed. **#331**
     diner-cart's PD2 (draft, money path) — head `5c074e1`, Codex round 1's three findings fixed. Both
-    are based on `claude/feat/pd-tokens-pass` with #327's branch merged in: retarget each to `main` once
-    #327 lands, merge `main` in, mark ready, then the blind pass and Codex on the final head.
+    were retargeted to `main` when #327 merged: merge `main` in after their Codex round-2 fixes, mark
+    ready, then the blind pass and Codex on the final head.
   - **#332** — this handoff.
 - **Built, PR not yet open:** staff-authority's PD8 (`claude/feat/pd8-manager-approval`: the server
   half + the M184 migration with its `close` arm, then the UI half; finishing its gate);
@@ -65,9 +62,11 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
   `close` arm (PD8). Planned, not written yet — PD1's nudge stamp (PD1's PR) and M182 (PD7's PR).
 - **Two quota stops, no work lost either time** (commits held, uncommitted trees intact): a rate limit
   ~13:20Z on 2026-10-08 (resumed 17:25Z); then the agents' usage credits ran out ~18:35Z, with Codex
-  out of quota from 18:26Z, and the container restarted. Resumed 2026-10-09 03:10Z; Codex reviewed
-  again from 03:11Z, so the quota rule (G3) no longer applies to these PRs. Lesson kept: commit after
-  every coherent step.
+  out of quota from 18:26Z, and the container restarted. Resumed 2026-10-09 03:10Z. Codex reviewed
+  again from 03:11Z to 03:46Z (#327's final head among them), then answered with its usage-limit
+  message again: while it does, a head Codex has not reviewed goes the G3 way — the capped blind pass
+  of that exact head, then the OWNER's admin-bypass merge — and an `.md`-only PR may take ruling #1's
+  waiver under WORKFLOW step 5 (f). Lesson kept: commit after every coherent step.
 
 ## The owner's items (not code)
 
@@ -105,9 +104,9 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
 
 ## Next tasks — finish the wave, in the record's order
 
-1. **Merge on CI green, in this order:** #327 → #328 → #329, each once Codex has reviewed its final
-   head and every finding is fixed or justified. After #327: retarget #330, #331 and PD6's PR to
-   `main` and merge `main` into each.
+1. **Merge on CI green, in this order:** #328 → #329, each once Codex has reviewed its final head and
+   every finding is fixed or justified (#327 merged; #330 and #331 already target `main`; PD6's PR
+   opens against `main`).
 2. **Open the draft PRs still owed:** PD8 (money/authority path: its body carries the mutant table and
    "recommend: wait for Codex", ruling #1), PD6 (money path), PD1 (stacked on #331). Then each of
    #330 · #331 · PD8 · PD6 · PD1: mark ready → blind pass → Codex on the final head → merge on green.
@@ -144,7 +143,7 @@ owner's delegation; read them before building a dependent moment.
 One bullet per stream; a stream edits only its own bullet.
 
 - **guards-style:** #326 merged (the tokens); the Sheet's `initialFocus` rode PD4's #329 as its own commit.
-- **post-pay:** #327 (CounterPass + KitchenTrack, merges first); #330 (PD3, draft; retarget to `main` after #327).
+- **post-pay:** #327 (CounterPass + KitchenTrack, merged as `1b5e7e9`); #330 (PD3, draft; retarget to `main` after #327).
 - **kitchen-ops:** #328 (PD5); PD9 next.
 - **grocery:** #329 (PD4 + G20).
 - **staff-authority:** PD8 on `claude/feat/pd8-manager-approval` (M184 + the `close` arm).
