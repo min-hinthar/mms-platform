@@ -51,7 +51,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ten minutes, and only the route's own answers retire it; a live page re-reads on its tick, so a
   lapsed session is noticed, and a wake is one read; "I'm here" is offered and accepted **from 30
   minutes before the slot** (decision 5's whole-day default narrowed under delegation, for the owner to
-  confirm); every caller is throttled before any read; the route's status mapping has a contract test.
+  confirm); a verified caller is throttled before any order read, and a caller with no session is
+  refused before either; the route's status mapping has a contract test.
+- **The second blind pass on #330, every finding** (§H5): a FAILED live read no longer marks the row
+  stale, and a stale row yields only to a snapshot strictly further along, so the page can never fall
+  back from Ready (`lib/pickup-view.ts`, with the paid gate and the foot rule lifted beside it); no
+  session answers the decided `unauthorized` (a 200, not a 500), an identity outage `failed`; only the
+  route's own 400 retires a pending arrival; a decided `too_early` names the clock the counter takes it
+  from; an auth outage in the snapshot read is `error`, never `not_found`.
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 

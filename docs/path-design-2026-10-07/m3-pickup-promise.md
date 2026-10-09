@@ -1278,3 +1278,57 @@ Verified against the source first; fixed in `fddcc57`, `6b05172`, `1274802`, `7b
   `/unthrottled-caller`, `/unverified-caller-reads-as-refusal`, `/classification-error-swallowed`;
   `pickup-promise/arrival-offered-too-early`; `track-arrival-route/rate-answers-200`,
   `/failed-answers-200`, `/throw-answers-200`.
+
+### H5 · The second blind pass on #330 (2026-10-09, reviewed `d073100..7536c55`, REJECT) — every finding; these win over H4
+
+Verified against the source first; fixed in `af7c0bb` and `0a288a1`. No agent round follows: the
+fix commits stand on their own and on the author's hand-read.
+
+- **Critical — an errored live read moved the page backwards.** A FAILED read in `useOrderStatus`
+  fell through to `stale`, and the host then showed any snapshot, whatever its age: snapshot at
+  "preparing", live reaches Ready, one tick errors, the ticket turned back to the time and the live
+  region re-announced the earlier stage. Fixed at the root and at the pick. Only a read that
+  SUCCEEDED with no row means the session lapsed; a failed one keeps the row and stays live. A stale
+  live row yields only to a snapshot strictly FURTHER ALONG (`orderOnScreen`: refund, then the bag's
+  stage, then the arrival, then the cents refunded). The paid gate (`pickupPageShown`) and the foot's
+  withdrawal (`pickupFootPromised`) moved into the same pure module, `lib/pickup-view.ts`, with a
+  suite and mutants: inline in the tracker, deleting either left every suite green.
+- **No session is a decided refusal again.** H4 made every unverified caller `failed`, which answered
+  a bot or a cookie-less cross-site POST with a 500. Now NO session is `unauthorized` (a 200, before
+  the flood guard and any order read), and only an identity service that is DOWN is `failed`. A token
+  mid-rotation is neither: the server client refreshes an expired session from the cookie's refresh
+  token inside `getUser()` before it answers (auth-js `__loadSession`). The residual, a refresh token
+  the browser already rotated past its reuse interval, reads `unauthorized`: the record retires and
+  the question returns for one more tap, never a false "here". The route's CSRF note says this again.
+- **Only the route's own 400 is an answer.** A 400 retires the pending arrival only when it carries
+  the route's refusal body (`ok: false`); an edge or platform 400 (no body, an HTML page) keeps it
+  for the next visit inside its window.
+- **`too_early` speaks honestly.** The page offers the question from the device's clock and the
+  server refuses by its own; when the device runs ahead, the guest heard "try again", which would fail
+  the same way. A decided `too_early` now reads "It’s a little early — you can tell the counter
+  you’re here from {t}." (`arrivalRefusal`; {t} is the slot less `ARRIVAL_LEAD_MIN`, and the server
+  answers `not_today` first, so the clock alone is the honest label). The house's own words under
+  delegation (J29); the Burmese line is a K15 draft.
+- **The snapshot read keeps an outage an outage.** `getMyOrderFallback` dropped `getUser`'s error and
+  answered `not_found`, which withdrew the foot on an auth glitch; a transport failure is now `error`.
+- **Guards.** The lead bound's test reads `ARRIVAL_LEAD_MIN` (no transcribed 30). The one deliberate
+  `30` is the policy pin, and its message says so. The route's answer table is exhaustive by type
+  (`satisfies Record<…>`): a new reason without a row, or a row for a gone reason, fails typecheck.
+- **Comments.** The tick, wake and host notes now say what the code does: one re-read per clock
+  change, live or not, and a stale row yields only to a snapshot further along.
+- **Open questions.** More than one member on a pickup session, corrected: it CAN happen. `?j=<code>`
+  reaches `findActive` (`app/api/session/route.ts:169-179`), which filters on the code, `active` and
+  expiry, not the mode. The member insert (`:559-575`) checks only `MAX_PARTY_SIZE`. The code is never
+  offered on a pickup: the only invite surface mounts for `dinein` alone (`MenuBrowser.tsx:662`). And
+  a second member holds exactly the `is_member` read the live tracker uses, so the arrival write never
+  reaches past what that member can already read. Whether a pickup session should refuse a join at
+  all is the owner's call (OPEN-ITEMS PD3).
+- **Under delegation, for the owner to confirm:** the 30-minute lead (`ARRIVAL_LEAD_MIN`), the
+  10-minute replay window (`PENDING_ARRIVAL_MAX_AGE_MS`) and the `too_early` sentence.
+- **Cost, non-blocking.** The live page re-reads on its 30 s tick, roughly two selects a minute per
+  open tab.
+- Mutants: `use-order-status/errored-read-flips-stale`; `pickup-view/older-snapshot-wins`,
+  `/unpaid-row-gets-the-page`, `/foot-promised-when-unreadable`; `arrival/caller-outage-reads-as-refusal`
+  (H4's `/unverified-caller-reads-as-refusal`, re-aimed), `/no-session-reads-as-outage`;
+  `arrival-pending/any-400-clears-the-record`; `pickup-promise/too-early-reads-try-again`;
+  `orders/fallback-auth-outage-reads-as-not-found`.
