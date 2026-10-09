@@ -11,7 +11,7 @@ import { MsgText } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import type { PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2g · reader ──
 import {
   readerAlertKey,
@@ -187,6 +187,9 @@ export function TerminalSettleButton({
   // said only while its surface is here). Re-armed at setup: Strict Mode runs the cleanup once on
   // mount, and a cleanup-only latch would read "gone" forever (the CLAUDE.md gotcha).
   const alive = useRef(true);
+  // The blind pass on #333 — what THIS door's own re-warning named, acknowledged by its next tap even
+  // where no page re-draws the flag (`ackForTap`): a re-warning, never a block.
+  const warned = useRef<string[]>([]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -212,14 +215,17 @@ export function TerminalSettleButton({
             : res.code === "unreadable"
               ? { kind: "unreadable" }
               : res.code === "approval_pending"
-                ? { kind: "approvalPending", dish: res.pending[0]?.lineName ?? "" }
+                ? { kind: "approvalPending", dish: warnedDishes(res.pending) }
                 : res.code === "approval_unreadable"
                   ? { kind: "approvalUnreadable" }
                   : { kind: "server", text: res.error },
       );
       // PD8 — a request this tap did not display: the page re-draws the flag card naming it and
       // says so in its one region; the next tap acknowledges what it shows.
-      if (res.code === "approval_pending") onApprovalPending?.(res.pending);
+      if (res.code === "approval_pending") {
+        warned.current = res.pending.map((p) => p.id);
+        onApprovalPending?.(res.pending);
+      }
       // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
       // the page says it in its one region and takes the cashier to the Send.
       if (res.code === "unsent") {
@@ -299,7 +305,7 @@ export function TerminalSettleButton({
         settleCard({
           sessionId,
           startId: pending,
-          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],
+          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),
         }),
       );
       if (out.kind === "answer") {

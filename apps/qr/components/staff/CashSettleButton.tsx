@@ -36,7 +36,7 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import type { PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -354,6 +354,9 @@ export function CashSettleButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   // PD8 — the pending request ids the trigger displayed at the tap that opened the sheet.
   const ackedAtTap = useRef<string[]>([]);
+  // The blind pass on #333 — what THIS door's own re-warning named (its alert lists every dish), so
+  // the next tap passes even where no page re-draws the flag (`ackForTap`): never a block.
+  const warned = useRef<string[]>([]);
   const settleRef = useRef<HTMLButtonElement>(null);
   // "Keep the change" unmounts under its own tap (the readout then says Exact) — focus goes to
   // Settle, the next thing to do (§7). Moved in an effect, after the commit that removed the action.
@@ -427,13 +430,15 @@ export function CashSettleButton({
       if (res.code === "approval_pending") {
         // PD8 — a request this tap did not display: nothing recorded. A re-warning, never a block:
         // the page re-draws the flag card naming the dish (its one region says so) and the next
-        // tap acknowledges what it shows. With no page, the sheet says it and Take stays armed.
+        // tap acknowledges what it shows. With no page, the sheet names every dish it carried and
+        // Take stays armed — the next Take acknowledges exactly those (`warned`).
+        warned.current = res.pending.map((p) => p.id);
         if (onApprovalPending) {
           setConfirming(false);
           onApprovalPending(res.pending);
           return;
         }
-        setError({ kind: "approvalPending", dish: res.pending[0]?.lineName ?? "" });
+        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });
         return;
       }
       if (res.code === "approval_unreadable") {
@@ -518,7 +523,7 @@ export function CashSettleButton({
           sessionId,
           tipCents,
           quotedCents: at.quoted,
-          acknowledgedApprovalIds: at.acked,
+          acknowledgedApprovalIds: ackForTap(at.acked, warned.current),
         }),
       );
       if (out.kind === "answer") {

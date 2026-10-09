@@ -30,10 +30,15 @@ afterEach(() => {
 });
 
 const onChanged = vi.fn();
-function mount() {
+function mount(acknowledgedApprovalIds?: readonly string[]) {
   const view = (totalCents: number) => (
     <StaffLangProvider lang="en">
-      <CloseSecureTabButton sessionId="s1" totalCents={totalCents} onChanged={onChanged} />
+      <CloseSecureTabButton
+        sessionId="s1"
+        totalCents={totalCents}
+        onChanged={onChanged}
+        acknowledgedApprovalIds={acknowledgedApprovalIds}
+      />
     </StaffLangProvider>
   );
   const r = render(view(4210));
@@ -671,5 +676,49 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     // MUTATION (p2h-rev-a/close/resay-unkeyed): equal text rendered in place — no DOM change; red.
     expect(said()).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+  });
+});
+
+const ackFlag = (id: string, lineName: string) => ({
+  id,
+  kind: "void" as const,
+  lineId: null,
+  lineName,
+  nameMy: null,
+  qty: 1,
+  amountCents: 1200,
+  cooked: true,
+  initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
+  createdAt: "2026-10-08T10:00:00Z",
+  lineNow: "unknown" as const,
+});
+
+describe("CloseSecureTabButton — the acknowledgement reaches the action (the blind pass on #333)", () => {
+  it("the ids this door displays ride the close — exactly those, non-empty", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210 });
+    const { charge } = mount(["r-1"]);
+    await charge();
+    // MUTATION (approval-ack/tab-door-sends-nothing): [] reaches the close; red.
+    expect(closeSecureTab).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-1"] }),
+    );
+  });
+  it("its own re-warning is acknowledged by the next confirm, every dish named", async () => {
+    closeSecureTab.mockResolvedValueOnce({
+      ok: false,
+      error: "x",
+      code: "approval_pending",
+      pending: [ackFlag("r-3", "Mohinga"), ackFlag("r-4", "Tea leaf salad")],
+    });
+    const { charge } = mount([]);
+    await charge();
+    expect(screen.getByRole("alert").textContent).toContain("Mohinga · Tea leaf salad");
+    closeSecureTab.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210 });
+    await charge();
+    // MUTATION (approval-ack/tab-door-forgets-its-warning): the next confirm re-sends []; red.
+    expect(closeSecureTab).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-3", "r-4"] }),
+    );
   });
 });

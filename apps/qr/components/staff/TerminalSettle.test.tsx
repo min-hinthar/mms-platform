@@ -1211,3 +1211,71 @@ describe("TerminalSettleButton — the settle gate (refused while dishes are uns
     expect(document.body.textContent).toContain(said(true));
   });
 });
+
+const ackFlag = (id: string, lineName: string) => ({
+  id,
+  kind: "void" as const,
+  lineId: null,
+  lineName,
+  nameMy: null,
+  qty: 1,
+  amountCents: 1200,
+  cooked: true,
+  initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
+  createdAt: "2026-10-08T10:00:00Z",
+  lineNow: "unknown" as const,
+});
+
+describe("TerminalSettleButton — the acknowledgement reaches the action (the blind pass on #333)", () => {
+  // A landed start hands the collect to the provider, which polls the reader: keep that poll quiet.
+  beforeEach(() => {
+    terminalStatus.mockImplementation(() => new Promise(() => {}));
+    terminalResume.mockImplementation(() => Promise.resolve({ ok: true, collect: null }));
+  });
+  const view = (ids: readonly string[]) => (
+    <StaffLangProvider lang="en">
+      <ReaderCollectProvider>
+        <TerminalSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          tap={TAP}
+          onStarted={vi.fn()}
+          acknowledgedApprovalIds={ids}
+        />
+      </ReaderCollectProvider>
+    </StaffLangProvider>
+  );
+  it("the ids this door displays ride the start — exactly those, non-empty", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_now", totalCents: 4210 });
+    render(view(["r-1", "r-2"]));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    // MUTATION (approval-ack/reader-door-sends-nothing): [] reaches the start; red.
+    expect(settleCard).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-1", "r-2"] }),
+    );
+  });
+  it("its own re-warning is acknowledged by the next tap, every dish named", async () => {
+    settleCard.mockResolvedValueOnce({
+      ok: false,
+      error: "x",
+      code: "approval_pending",
+      pending: [ackFlag("r-3", "Mohinga"), ackFlag("r-4", "Tea leaf salad")],
+    });
+    render(view([]));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Mohinga · Tea leaf salad");
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_now", totalCents: 4210 });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    // MUTATION (approval-ack/reader-door-forgets-its-warning): the next tap re-sends []; red.
+    expect(settleCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-3", "r-4"] }),
+    );
+  });
+});

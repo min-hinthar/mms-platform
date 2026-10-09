@@ -11,7 +11,7 @@ import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import type { PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
@@ -143,6 +143,9 @@ export function CloseSecureTabButton({
   const alertMsg: CloseError | null = drift ? { kind: "moved", ...drift } : error;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
+  // The blind pass on #333 — what THIS door's own re-warning named, acknowledged by its next confirm
+  // even where no page re-draws the flag (`ackForTap`): a re-warning, never a block.
+  const warned = useRef<string[]>([]);
 
   // Move focus into the confirm group when it opens and back to the trigger when it closes (parity with
   // CashSettleButton, S1-audit S6). The guard skips first mount.
@@ -217,7 +220,8 @@ export function CloseSecureTabButton({
       if (res.code === "approval_pending") {
         // PD8 — a request this confirm did not display: nothing charged, the freeze released. The
         // page re-draws the flag card naming it; the next confirm acknowledges what it shows.
-        setError({ kind: "approvalPending", dish: res.pending[0]?.lineName ?? "" });
+        warned.current = res.pending.map((p) => p.id);
+        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });
         onApprovalPending?.(res.pending);
         return false;
       }
@@ -270,7 +274,7 @@ export function CloseSecureTabButton({
         closeSecureTab({
           sessionId,
           quotedCents: quoted,
-          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],
+          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),
         }),
       );
       if (out.kind === "answer") {
