@@ -3842,7 +3842,18 @@ also reflows a long `find:` anchor written before the format pass (LEARNINGS #10
 anchors from the FORMATTED source, and run `check:mutant-anchors` after `pnpm format`, never only
 before it.
 
-## #251
+## #252
+
+**jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
+(2026-10-08, PD3).** A component suite for a window that HOLDS while a keyboard user sits on Undo
+(`matchesFocusVisible`) never committed under jsdom: the programmatic focus the swap moves onto Undo
+matched `:focus-visible` (a browser's heuristic says a touch tap's programmatic focus is not), so every
+case was the keyboard case and the window held to the 60 s cap. The suite must SAY which it is — mock
+`matchesFocusVisible` per case and pin both the touch (the window runs) and the keyboard (it holds, then
+runs on blur). And a `window.setInterval` in a component is jsdom's own timer, not the one
+`vi.useFakeTimers()` replaces; the lane's bare `setInterval` is the shape to copy.
+
+## #255
 
 **Two guards in series, each refusing the same output, need a fixture that trips ONLY the first
 (2026-10-09, PD9).** `/api/board` refuses its tables when the kitchen line read hits its cap, and
