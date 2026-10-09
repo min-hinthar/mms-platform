@@ -52,7 +52,12 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// `SCAN_REPEAT_ROOT` points the gate at a COPY of the tree — `apps/qr/lib/check-scan-repeat.test.ts`
+// runs it against committed mutations of the page and its sheets (each must turn it red). Unset, it
+// reads this checkout.
+const ROOT = process.env.SCAN_REPEAT_ROOT
+  ? path.resolve(process.env.SCAN_REPEAT_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "apps/qr/app/grocery/page.tsx";
 const CLASSIFIER = "classifyScan";
 const CHARGE = "scanAdd";
@@ -687,6 +692,219 @@ const EXEMPT_COVER = {
       fail(`\`${COVER}(${c.open})\` covers no sheet the page renders — a cover tied to nothing.`);
 }
 
+// ── (6) The add-Undo writes from the add's OWN confirmed qty and speaks from its follow-up read ──
+// Blind pass 2 on #329: `undoAdd` took its target from `linesRef` (the client view, which a read
+// issued after the add can leave a unit short — "one fewer" of THAT removed the unit the basket held
+// before the add) and said "Removed" on any ok read without reading its lines. The rules are pure
+// (`lib/scan-undo.ts`, mutant-pinned); this pins the page's WIRING, in the function bound to `undoAdd`:
+//   a. exactly ONE live `setQty(…)`, whose qty is `undoTargetQty(R)` (directly, or through a const
+//      bound to it), R being the Undo record (`undo`, or a const bound to it);
+//   b. no reference to the client view (`linesRef`, `lines`), and no hand-written "Removed…" text;
+//   c. a live `undoOutcome(R, …)` — the words come from what the follow-up read confirms;
+// and, file-wide, d. every `setUndo(…)` is `null`, a retiring updater, or a binding to `undoFromAdd(…)`
+// — the record is built only from the add's own confirmed view.
+{
+  const fnOf = (name) => {
+    const decls = [];
+    walk(src, (n) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
+        decls.push(n);
+    });
+    if (decls.length !== 1)
+      return { problem: `${decls.length} declarations of \`${name}\` (ambiguity is refused)` };
+    const init = decls[0].initializer;
+    const fn =
+      init &&
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === "useCallback"
+        ? init.arguments[0]
+        : init;
+    return fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+      ? { fn }
+      : { problem: `\`${name}\` is not a function` };
+  };
+  const { fn, problem } = fnOf("undoAdd");
+  if (problem) fail(`proposition 6: ${problem}.`);
+  else {
+    // R — the record: `undo`, or a const in the function bound to it.
+    const records = new Set(["undo"]);
+    const constInit = new Map();
+    walk(fn, (n) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+        constInit.set(n.name.text, n.initializer);
+        if (ts.isIdentifier(n.initializer) && n.initializer.text === "undo")
+          records.add(n.name.text);
+      }
+    });
+    const callsIn = (name) => {
+      const out = [];
+      walk(fn, (n) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === name &&
+          !isLiterallyDead(n)
+        )
+          out.push(n);
+      });
+      return out;
+    };
+    const isTargetOfRecord = (e) => {
+      if (e && ts.isIdentifier(e) && constInit.has(e.text)) e = constInit.get(e.text);
+      return (
+        !!e &&
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        e.expression.text === "undoTargetQty" &&
+        e.arguments.length === 1 &&
+        ts.isIdentifier(e.arguments[0]) &&
+        records.has(e.arguments[0].text)
+      );
+    };
+    const writes = callsIn("setQty");
+    if (writes.length !== 1 || !isTargetOfRecord(writes[0].arguments[1]))
+      fail(
+        "proposition 6: `undoAdd` must make exactly ONE live `setQty(lineId, undoTargetQty(<the Undo record>))`.\n" +
+          "  `setQty` is absolute: a qty from anywhere else — the client view above all — can remove the\n" +
+          "  unit the basket held before the add.",
+      );
+    // Names `undoAdd` declares itself (a `const { lines } = r` is the follow-up read's, not the view).
+    const ownNames = new Set();
+    walk(fn, (n) => {
+      if (
+        (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+        ts.isIdentifier(n.name)
+      )
+        ownNames.add(n.name.text);
+    });
+    /** A REFERENCE — not a member name (`r.lines`), a property key or a declaration's own name. */
+    const isReference = (n) => {
+      const p = n.parent;
+      if (ts.isPropertyAccessExpression(p) && p.name === n) return false;
+      if (ts.isPropertyAssignment(p) && p.name === n) return false;
+      if (ts.isBindingElement(p) && p.propertyName === n) return false;
+      if (
+        (ts.isVariableDeclaration(p) || ts.isBindingElement(p) || ts.isParameter(p)) &&
+        p.name === n
+      )
+        return false;
+      return true;
+    };
+    walk(fn, (n) => {
+      if (
+        ts.isIdentifier(n) &&
+        isReference(n) &&
+        (n.text === "linesRef" || (n.text === "lines" && !ownNames.has("lines")))
+      )
+        fail(
+          `proposition 6: \`undoAdd\` reads the client view (\`${n.text}\`).\n` +
+            "  The Undo's target and words come from the add's own confirmed view and the follow-up read.",
+        );
+      if (
+        (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateHead(n)) &&
+        /\bRemoved\b/.test(n.text)
+      )
+        fail(
+          'proposition 6: `undoAdd` hand-writes a "Removed…" — the past tense comes only from `undoSentence(undoOutcome(…))`.',
+        );
+    });
+    const outcomes = callsIn("undoOutcome").filter(
+      (c) => ts.isIdentifier(c.arguments[0]) && records.has(c.arguments[0].text),
+    );
+    if (!outcomes.length)
+      fail(
+        "proposition 6: `undoAdd` never calls `undoOutcome(<the Undo record>, …)` — its words are not the read's.",
+      );
+  }
+  // d. every setUndo(...) — null, a retiring updater, or a binding to undoFromAdd(...) over the
+  //    add's OWN response: `{ barcode: <scanAdd's code>, lines: <R>.lines }`, R assigned from the
+  //    `scanAdd(…)` call — never the client view handed to the same builder.
+  const charged = chargeCalls[0];
+  const chargedCode = charged?.arguments[1]?.getText(src);
+  /** Identifiers assigned (or initialised) from an expression holding the `scanAdd(…)` call. */
+  const responses = new Set();
+  walk(src, (n) => {
+    const target =
+      ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ? [n.left, n.right]
+        : ts.isVariableDeclaration(n) && n.initializer
+          ? [n.name, n.initializer]
+          : null;
+    if (!target || !ts.isIdentifier(target[0]) || !charged) return;
+    if (charged.pos >= target[1].pos && charged.end <= target[1].end) responses.add(target[0].text);
+  });
+  const fromAdd = new Set();
+  walk(src, (n) => {
+    if (
+      !ts.isVariableDeclaration(n) ||
+      !ts.isIdentifier(n.name) ||
+      !n.initializer ||
+      !ts.isCallExpression(n.initializer) ||
+      !ts.isIdentifier(n.initializer.expression) ||
+      n.initializer.expression.text !== "undoFromAdd"
+    )
+      return;
+    const obj = n.initializer.arguments[0];
+    const prop = (key) => {
+      if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
+      const p = obj.properties.find((q) => q.name && q.name.getText(src) === key);
+      if (!p) return null;
+      if (ts.isShorthandPropertyAssignment(p)) return p.name;
+      return ts.isPropertyAssignment(p) ? p.initializer : null;
+    };
+    const lines = prop("lines");
+    const code = prop("barcode");
+    const ownLines =
+      lines &&
+      ts.isPropertyAccessExpression(lines) &&
+      lines.name.text === "lines" &&
+      ts.isIdentifier(lines.expression) &&
+      responses.has(lines.expression.text);
+    const ownCode = code && ts.isIdentifier(code) && code.text === chargedCode;
+    if (ownLines && ownCode) fromAdd.add(n.name.text);
+    else
+      fail(
+        `proposition 6: \`${n.getText(src).slice(0, 80)}\` — undoFromAdd must take the add's OWN response\n` +
+          `  (\`lines: <the scanAdd result>.lines\`, \`barcode\` the code scanAdd charged), never the client view.`,
+      );
+  });
+  const isNull = (e) => e.kind === ts.SyntaxKind.NullKeyword;
+  /** `(u) => (cond ? null : u)` — an updater that can only retire the record or keep it. */
+  const retiring = (e) => {
+    if (
+      !ts.isArrowFunction(e) ||
+      e.parameters.length !== 1 ||
+      !ts.isIdentifier(e.parameters[0].name)
+    )
+      return false;
+    const p = e.parameters[0].name.text;
+    let body = e.body;
+    while (ts.isParenthesizedExpression(body)) body = body.expression;
+    return (
+      ts.isConditionalExpression(body) &&
+      [body.whenTrue, body.whenFalse].every(
+        (b) => isNull(b) || (ts.isIdentifier(b) && b.text === p),
+      )
+    );
+  };
+  walk(src, (n) => {
+    if (
+      !ts.isCallExpression(n) ||
+      !ts.isIdentifier(n.expression) ||
+      n.expression.text !== "setUndo"
+    )
+      return;
+    const a = n.arguments[0];
+    const ok = a && (isNull(a) || retiring(a) || (ts.isIdentifier(a) && fromAdd.has(a.text)));
+    if (!ok)
+      fail(
+        `proposition 6: \`setUndo(${a ? a.getText(src).slice(0, 50) : ""})\` — an Undo record may only be\n` +
+          "  built by `undoFromAdd(…)` from the add's own confirmed view (or retired with null).",
+      );
+  });
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -697,5 +915,6 @@ console.log(
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
     ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
-    ` each page-owned sheet's cover lifted only by its exit end (${Object.keys(EXEMPT_COVER).length} exempt, reason fired)\x1b[0m`,
+    ` each page-owned sheet's cover lifted only by its exit end (${Object.keys(EXEMPT_COVER).length} exempt, reason fired);` +
+    ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>)\x1b[0m`,
 );

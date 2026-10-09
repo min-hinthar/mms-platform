@@ -43,7 +43,16 @@ import {
 } from "@/lib/scan-pairing";
 import { useStageCover } from "@/lib/hooks/useStageCover";
 import { nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
-import { chipArmed, undoOpen, undoSecondsLeft, undoTargetQty, type AddUndo } from "@/lib/scan-undo";
+import {
+  chipArmed,
+  undoFromAdd,
+  undoOpen,
+  undoOutcome,
+  undoSecondsLeft,
+  undoSentence,
+  undoTargetQty,
+  type AddUndo,
+} from "@/lib/scan-undo";
 import { heldFor, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
 import { ADDED_MY } from "@/lib/add-feedback";
 import { SAME_GESTURE_MS } from "@mms/ui";
@@ -814,8 +823,9 @@ export default function Grocery() {
         const now = performance.now();
         if (sheet) {
           if (sheet.miss) pairingRef.current = pairMiss(sheet.miss, barcode);
-          const line = r.lines?.find((l) => l.barcode === barcode) ?? null;
-          const u = line ? { lineId: line.lineId, barcode, name: line.name, openedAt: now } : null;
+          // Built from the add's OWN confirmed view (`r.lines`), keeping its qty: the Undo writes
+          // exactly one fewer — never a qty from the client view (lib/scan-undo.ts).
+          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now });
           setUndo(u);
           setUndoLeft(u ? undoSecondsLeft(u, now) : 0);
           holdRef.current = NO_HOLD;
@@ -1181,17 +1191,14 @@ export default function Grocery() {
   const undoAdd = useCallback(async () => {
     const u = undo;
     if (!u || !cartId || busyLine || undoRemoving) return;
-    const line = linesRef.current.find((l) => l.lineId === u.lineId);
-    if (!line) {
-      setUndo(null); // the line already left by another path — nothing to undo
-      return;
-    }
-    const target = undoTargetQty(line.qty);
+    // The target is the add's OWN confirmed qty minus one (lib/scan-undo.ts) — never a qty from the
+    // client view, which a read issued after the add can leave a unit short (blind pass 2 on #329).
+    const target = undoTargetQty(u);
     setUndoRemoving(true);
-    setBusyLine(line.lineId);
+    setBusyLine(u.lineId);
     let wrote = false;
     try {
-      await ledger.track(setQty(line.lineId, target));
+      await ledger.track(setQty(u.lineId, target));
       wrote = true;
     } catch {
       flash("Couldn’t undo that — try again.");
@@ -1203,21 +1210,20 @@ export default function Grocery() {
     }
     if (wrote) {
       if (target === 0) {
-        billedRef.current.delete(line.barcode);
-        pairingRef.current = pairingWithout(pairingRef.current, line.barcode);
+        billedRef.current.delete(u.barcode);
+        pairingRef.current = pairingWithout(pairingRef.current, u.barcode);
       }
-      // The words follow the CONFIRMED READ (blind pass on #329; the record's "amounts never
-      // optimistic, past tense only after the confirmed write"): "Removed" only when the line is
-      // gone, "{name} × {qty}" when a line the basket already held stepped down (stepQty's words),
-      // and nothing past-tense at all when the read did not land — the next ticketed read owns it.
+      // The words follow what the FOLLOW-UP read confirms, from that read's own lines
+      // (`undoOutcome`): "Removed" only when the line is absent there, "{name} × {qty}" only when it
+      // shows exactly the target, the checking sentence otherwise — never the intended target.
       const seq = ++reqSeq.current; // the confirmed read — the figures move only on it
-      let confirmed = false;
+      let read: GroceryLine[] | null = null;
       let gone = false; // markCartGone spoke — nothing to add
       try {
         const r = await getGroceryLines(cartId);
         if (r.ok) {
           markCartAlive(seq, r.lines);
-          confirmed = true;
+          read = r.lines;
         } else if (isTerminal(r.reason)) {
           markCartGone(seq, r.reason);
           gone = true;
@@ -1225,8 +1231,7 @@ export default function Grocery() {
       } catch {
         syncNow(); // deliberate: the write is confirmed; the view follows on the next read
       }
-      if (confirmed) flash(target === 0 ? `Removed ${line.name}` : `${line.name} × ${target}`);
-      else if (!gone && cartIdRef.current === cartId) flash("Undo saved — checking your basket…");
+      if (!gone && cartIdRef.current === cartId) flash(undoSentence(undoOutcome(u, read), u.name));
       // The pill unmounts under focus — the post-commit effect above parks it (never <body>).
       undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
       setUndo(null);
@@ -1241,14 +1246,15 @@ export default function Grocery() {
     const id = window.setInterval(() => {
       const now = performance.now();
       const held = heldFor(holdRef.current, now);
-      if (undoOpen(undo, now, held)) setUndoLeft(undoSecondsLeft(undo, now, held));
+      // A write in flight never expires under the pill (`undoOpen`'s `removing`).
+      if (undoOpen(undo, now, held, undoRemoving)) setUndoLeft(undoSecondsLeft(undo, now, held));
       else {
         undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
         setUndo(null);
       }
     }, 250);
     return () => window.clearInterval(id);
-  }, [undo]);
+  }, [undo, undoRemoving]);
   const holdUndo = useCallback((held: boolean) => {
     holdRef.current = setHeld(holdRef.current, "slot", held, performance.now());
   }, []);
