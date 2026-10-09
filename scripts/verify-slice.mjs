@@ -27552,27 +27552,36 @@ const MUTANTS = [
     file: "apps/qr/lib/kitchen-rounds.ts",
     suite: "lib/kitchen-rounds.test.ts",
     why: "PD5b — the mark is the VERSION character, '8'; read as any version, every Send is settlement food and no round is ever numbered — the grace race's Send loses its number along with every other",
-    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
     replace:
-      "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+      "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
   },
   {
     id: "kitchen-rounds/settlement-mark-in-the-variant",
     file: "apps/qr/lib/kitchen-rounds.ts",
     suite: "lib/kitchen-rounds.test.ts",
     why: "PD5b — an 8 read one group over, in the variant, where every v4 Send may carry one: a Send whose variant is 8 reads as settlement food",
-    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
     replace:
       "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{12}$/i;",
+  },
+  {
+    id: "kitchen-rounds/settlement-mark-ignores-the-variant",
+    file: "apps/qr/lib/kitchen-rounds.ts",
+    suite: "lib/kitchen-rounds.test.ts",
+    why: "PD5b (Codex on #340) — the mint keeps the RFC variant (8–b), and the SQL suite asserts it; read without it, a version-8 shape the drain never mints (a hand-written or foreign id) suppresses a real round",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
+    replace:
+      "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
   },
   {
     id: "kitchen-rounds/settlement-mark-unanchored",
     file: "apps/qr/lib/kitchen-rounds.ts",
     suite: "lib/kitchen-rounds.test.ts",
     why: "PD5b — the mark read off any string that CONTAINS a v8 UUID: a padded or prefixed batch reads as settlement food — a classification that is positive only for the canonical batch the drain mints",
-    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
     replace:
-      "const SETTLEMENT_BATCH = /[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}/i;",
+      "const SETTLEMENT_BATCH = /[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;",
   },
   {
     id: "kitchen-rounds/tie-on-the-raw-second",

@@ -30,8 +30,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - `verify-counter-fire-race` gains the grace race as orders k and k2, with 2 mutants, and restores
     from the chain p2f → pd5b.
   - `verify-merge-race` and the M96/M97/M98/M109 fold tests are green and unchanged.
-  - `kitchen-rounds/*` gains 3 mark mutants and retargets 1. Two `kitchen/*` mutants retire with the
-    orders leg.
+  - `kitchen-rounds/*` gains 4 mark mutants (the version, its position, the anchors and — Codex on
+    #340 — the RFC variant) and retargets 1. Two `kitchen/*` mutants retire with the orders leg.
 - **Known effect:** batches fired before the migration carry no mark, so a table live across the
   deploy that had settlement food can read one round high until its session ends.
 

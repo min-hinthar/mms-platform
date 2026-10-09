@@ -77,9 +77,11 @@ export type RoundLine = {
  * mark is the batch and not a column). So the version character IS the classification, and it is
  * positive: no Send can wear it. The SQL half is pinned by `supabase/tests/pd5b_settlement_batch_and_fold_test.sql`
  * (PD5B.1–3), this half by `kitchen-rounds.test.ts` — two mirrors of one rule, as `tax.ts` and
- * `mms_line_tax` are. A string that is not a canonical UUID is not a settlement batch.
+ * `mms_line_tax` are — both read the version AND keep the RFC variant (`8`–`b`, the bits
+ * `gen_random_uuid()` sets and the mint leaves alone; Codex on #340). A string that is not a
+ * canonical UUID of that shape is not a settlement batch.
  */
-const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function isSettlementBatch(batch: string): boolean {
   return SETTLEMENT_BATCH.test(batch);

@@ -133,6 +133,11 @@ describe("roundOrdinals — the session's rounds, by first fire time", () => {
     expect(isSettlementBatch(B1)).toBe(false);
     // The 8 must be the VERSION: an 8 in the variant position is a v4 Send's ordinary variant.
     expect(isSettlementBatch("3f2a9c10-1111-4aaa-8bbb-000000000003")).toBe(false);
+    // The mint keeps the RFC variant (`8`–`b`); a version-8 shape with any other variant is not the
+    // drain's batch (Codex on #340; `kitchen-rounds/settlement-mark-ignores-the-variant`).
+    expect(isSettlementBatch("5c1d7e33-3333-8aaa-cbbb-000000000003")).toBe(false);
+    expect(isSettlementBatch("5c1d7e33-3333-8aaa-7bbb-000000000003")).toBe(false);
+    expect(isSettlementBatch("5c1d7e33-3333-8aaa-bbbb-000000000003")).toBe(true);
     // Not a UUID (a fixture id, a truncated or padded string) — never settlement food.
     expect(isSettlementBatch("bt")).toBe(false);
     expect(isSettlementBatch(` ${SETTLE}`)).toBe(false);
