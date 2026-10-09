@@ -15,12 +15,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   sequence on their ordinary path. `acquireSettlementSuperseding` releases the pin under the freeze
   it just took, awaited, before it answers `acquired`, through the ONE binding
   (`releasePromoGrantFor`, now holder-aware) and `mms_release_promo_grant_for_settlement` (migration
-  `20261009120000`: every guard in the WHERE, the row count checked, service_role only). A live link
+  `20261009120000`: every guard in the WHERE, the answer checked, service_role only). A live link
   is superseded first under the settlement rules; any other refusal answers `unavailable`. A promo
   applied at the register still discounts, re-derived live.
+- **The freeze must be FRESH (Codex on #338 @ 56a4fd1, P2):** `acquireCartLock` takes a cart under a
+  stale `settle_at` and leaves `settle_by`, so a settle stalled past the 10-minute TTL still matched
+  `settle_by` alone and could clear a successor diner's freshly pinned grant. The release now also
+  requires `settle_at > now() - interval '10 minutes'`, and answers which refusal it was: 0 when this
+  fresh freeze holds the cart and a live link is in the way (the one answer that may supersede), -1
+  when the request does not hold the cart. A stalled settle stands down instead of cancelling the
+  successor's checkout.
 - **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
-  the legitimate promo, four refusals, privileges, a mutant per guard built from the live
-  definition); `lib/settle-stale-pin.test.ts` on the real `settleCash`; eight `m268/…` mutants.
+  the legitimate promo, five refusals including the stale freeze at, past and one second inside the
+  TTL, privileges, a mutant per guard and per probe guard built from the live definition);
+  `lib/settle-stale-pin.test.ts` on the real `settleCash`; eleven `m268/…` mutants.
 
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 

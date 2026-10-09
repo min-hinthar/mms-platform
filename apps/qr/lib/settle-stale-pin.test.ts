@@ -62,11 +62,20 @@ vi.mock("./lock", () => ({
     events.push("freeze-released");
     return Promise.resolve({ released: true, error: null });
   },
-  // `mms_release_promo_grant_for_settlement`'s contract, in one place: THIS freeze, an unlinked cart.
+  // `mms_release_promo_grant_for_settlement`'s contract, in one place: THIS fresh freeze, an
+  // unlinked cart — and only a refusal under THIS freeze, blocked by a live link, is `linked`.
   releasePromoGrantFor: (_cart: string, holder: { settlement?: string }) => {
     events.push("pin-release");
-    if (releaseBlocked || holder.settlement !== row.settleBy || row.linked !== null)
-      return Promise.resolve({ message: "the settlement's promo-pin release matched 0 rows" });
+    const held = !releaseBlocked && holder.settlement === row.settleBy;
+    if (!held)
+      return Promise.resolve({
+        message: "this settlement does not hold the cart (the release answered -1)",
+      });
+    if (row.linked !== null)
+      return Promise.resolve({
+        message: "a live intent is linked under this settlement's freeze",
+        linked: true,
+      });
     row.pin = null;
     return Promise.resolve(null);
   },

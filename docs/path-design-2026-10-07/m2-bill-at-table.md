@@ -1112,9 +1112,12 @@ Terminal, the secure-tab close — runs create-intent's sequence on its ordinary
 `acquireSettlementSuperseding` releases the pin under the freeze it just took, awaited, before it
 answers `acquired`, through the ONE binding (`releasePromoGrantFor`, now taking a settlement owner as
 its proof) and a new RPC, `mms_release_promo_grant_for_settlement` (migration `20261009120000`), whose
-guards all sit in its WHERE (`status = 'open'`, `settle_by = p_owner`, `live_payment_intent_id is
-null`) and whose row count the caller checks. A refusal by a live link supersedes that intent under the
-settlement rules first; any other refusal answers `unavailable`, never a total priced from the pin. A
+guards all sit in its WHERE (`status = 'open'`, `settle_by = p_owner`, a FRESH `settle_at` — Codex on
+56a4fd1: `acquireCartLock` takes a cart under a stale freeze and leaves `settle_by`, so a stalled settle
+could clear a successor's fresh pin — and `live_payment_intent_id is null`) and whose answer the caller
+checks. Only a refusal under this fresh freeze by a live link (the RPC's 0) supersedes that intent under
+the settlement rules; any other refusal (-1) answers `unavailable`, never a total priced from the pin and
+never a successor's checkout cancelled. A
 promo applied at the register still discounts, re-derived live — the release touches the pin, never
 `promo_code`. The group table
 that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind

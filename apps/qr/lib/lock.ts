@@ -438,19 +438,32 @@ export async function releaseStaleSettlement(
  *   · a PAY attempt — the era its own `acquireCartLock` wrote (create-intent), through
  *     `mms_release_promo_grant`, whose predicate is the era;
  *   · a SETTLEMENT attempt — the request-unique owner its freeze wrote, through
- *     `mms_release_promo_grant_for_settlement`, whose predicate is `settle_by = owner` on an OPEN
- *     cart naming NO live intent. That freeze is what excludes every pay attempt (`acquireCartLock`
- *     refuses under a fresh `settle_at`), so under it a pin no intent names belongs to nobody.
+ *     `mms_release_promo_grant_for_settlement`, whose predicate is `settle_by = owner` with a FRESH
+ *     `settle_at`, on an OPEN cart naming NO live intent. Only a fresh freeze excludes pay attempts:
+ *     `acquireCartLock` takes the cart under a STALE `settle_at` and writes only the pay-lock
+ *     columns, leaving `settle_by` behind — so a settle stalled past the TTL still matched
+ *     `settle_by` alone, and in a successor's pin-before-link window cleared that successor's pin
+ *     (Codex on #338 @ 56a4fd1). Under a fresh freeze, a pin no intent names belongs to nobody.
  * The era RPC cannot serve the settlement: on an unlocked cart it would need an era nobody holds, and
  * a cart-wide clear is the successor-wiping hazard above.
  *
- * ⚠️ THE SETTLEMENT FORM CHECKS THE ROW COUNT. Its RPC returns how many rows it wrote, and only ONE
- * is a release: the freeze is ours, the cart is open and unlinked, and its pin is null now. Zero is
- * a BLOCKED write — another freeze, a closed cart, or a live link — and answering ok there would
- * hand the caller a total priced from the pin it failed to clear (CLAUDE.md: `.update()` returns no
- * row count; a blocked write reports success). Called from ONE place: `acquireSettlementSuperseding`,
- * before it answers `acquired` (lib/supersede.ts).
+ * ⚠️ THE SETTLEMENT FORM CHECKS THE ANSWER, AND A REFUSAL SAYS WHICH ONE. Its RPC answers 1 only
+ * for a release: the fresh freeze is ours, the cart is open and unlinked, and its pin is null now.
+ * Anything else is a BLOCKED write, and answering ok there would hand the caller a total priced from
+ * the pin it failed to clear (CLAUDE.md: `.update()` returns no row count; a blocked write reports
+ * success). The refusal carries `linked: true` ONLY for the RPC's 0 — this request's fresh freeze
+ * still holds the open cart and a live intent is what stood in the way — because that is the one
+ * refusal under which the caller may supersede the intent: it holds the mutex. A -1 (another
+ * freeze, none, a stale one, a closed cart), a transport error, or any other answer is a request
+ * that does NOT hold the cart, and the caller stands down; superseding there cancelled whatever the
+ * cart named, after a stall a successor's live checkout. Called from ONE place:
+ * `acquireSettlementSuperseding`, before it answers `acquired` (lib/supersede.ts).
  */
+export type PromoPinRefusal =
+  | ReleaseError
+  /** The settlement's fresh freeze holds the cart; a live intent is linked. Supersede, then retry. */
+  | { message: string; linked: true };
+
 export type PromoGrantHolder =
   /** A PAY attempt's era (create-intent). */
   | string
@@ -460,7 +473,7 @@ export type PromoGrantHolder =
 export async function releasePromoGrantFor(
   cartId: string,
   holder: PromoGrantHolder,
-): Promise<ReleaseError> {
+): Promise<PromoPinRefusal> {
   if (typeof holder === "object") {
     // No owner, no proof — and unlike the era form this is a REFUSAL, not a quiet no-op: the
     // settlement reads a total next, and a pin left on the row would price it.
@@ -471,9 +484,10 @@ export async function releasePromoGrantFor(
       p_owner: holder.settlement,
     });
     if (error) return error;
-    return data === 1
-      ? null
-      : { message: `the settlement's promo-pin release matched ${Number(data ?? 0)} rows` };
+    if (data === 1) return null;
+    if (data === 0)
+      return { message: "a live intent is linked under this settlement's freeze", linked: true };
+    return { message: `this settlement does not hold the cart (the release answered ${data})` };
   }
   const attempt = holder;
   // No era, no release. The caller passes the era ITS OWN acquisition wrote; an empty one means we

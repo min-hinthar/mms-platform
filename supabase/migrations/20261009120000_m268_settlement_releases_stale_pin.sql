@@ -18,15 +18,31 @@
 --
 -- ── Every guard is in the WHERE ───────────────────────────────────────────────────────────────
 --   · `status = 'open'`        — a paid or cancelled cart's pin is its order's history, not ours;
---   · `settle_by = p_owner`    — THIS request's freeze holds the cart. That freeze is what excludes
---                                every pay attempt (`acquireCartLock` refuses under a fresh
---                                `settle_at`), so under it no successor can be wiped;
+--   · `settle_by = p_owner`    — the freeze on the row is THIS request's;
+--   · `settle_at > now() - interval '10 minutes'` — and it is still FRESH (SETTLE_TTL_MS,
+--                                lib/lock-ttl.ts; the interval every `mms_split_*` guard uses). Only a
+--                                fresh freeze excludes pay attempts: `acquireCartLock` accepts a STALE
+--                                `settle_at` and writes only the pay-lock columns, leaving `settle_by`
+--                                in place. So `settle_by` alone is not ownership — a settle request
+--                                stalled past the TTL would still match it, and in a successor
+--                                diner's pin-before-link window clear that diner's freshly pinned
+--                                grant (Codex on #338 @ 56a4fd1, P2);
 --   · `live_payment_intent_id is null` — M151's rule, unchanged: a pin a live intent still
 --                                reconciles against is not this caller's to clear. The settle
 --                                supersedes that intent first (cancel at Stripe, `releaseByIntent`).
--- The pin is set to null whether or not it was set, so ONE row is the whole postcondition — "this
--- freeze holds the open, unlinked cart and its pin is null now" — and ZERO is a blocked write. The
--- function RETURNS that count and the caller refuses on anything but 1 (CLAUDE.md: a blocked write
+-- The pin is set to null whether or not it was set, so ONE written row is the whole postcondition —
+-- "this fresh freeze holds the open, unlinked cart and its pin is null now".
+--
+-- ── Three answers, because a refusal has two meanings ────────────────────────────────────────
+--    1 — released.
+--    0 — refused, and THIS fresh freeze still holds the open cart: only a live link stood in the
+--        way. The one answer under which the caller may supersede that link (it holds the mutex).
+--   -1 — refused, and this request does NOT hold the cart: another freeze, none, a stale one, or a
+--        cart no longer open. The caller stands down. Before this split a refusal was one number,
+--        and the caller's supersede branch would cancel whatever intent the cart named — after a
+--        stall, a SUCCESSOR's live checkout — and then answer `acquired` on a freeze it had lost.
+-- The UPDATE carries every guard and decides the write; the probe after it only says which refusal
+-- it was, and writes nothing. The caller refuses on anything but 1 (CLAUDE.md: a blocked write
 -- must not answer ok).
 --
 -- `promo_code` is untouched: a promo applied at the register still discounts, re-derived live by
@@ -49,9 +65,23 @@ begin
    where id = p_cart_id
      and status = 'open'
      and settle_by = p_owner
+     and settle_at > now() - interval '10 minutes'
      and live_payment_intent_id is null;
   get diagnostics v_rows = row_count;
-  return v_rows;
+  if v_rows = 1 then
+    return 1;
+  end if;
+  -- Refused. Which refusal: does THIS fresh freeze still hold the open cart (a live link in the way)?
+  perform 1
+     from public.qr_carts c
+    where c.id = p_cart_id
+      and c.status = 'open'
+      and c.settle_by = p_owner
+      and c.settle_at > now() - interval '10 minutes';
+  if found then
+    return 0;
+  end if;
+  return -1;
 end;
 $$;
 
@@ -61,6 +91,7 @@ grant execute on function public.mms_release_promo_grant_for_settlement(uuid, uu
   to service_role;
 
 comment on function public.mms_release_promo_grant_for_settlement(uuid, uuid) is
-  'M268 — the settlement doors'' release of a stale promo pin, under THIS request''s freeze '
-  '(settle_by = p_owner) on an OPEN cart naming NO live intent. Returns the rows written: 1 is the '
-  'release, 0 a blocked write the caller must refuse on.';
+  'M268 — the settlement doors'' release of a stale promo pin, under THIS request''s FRESH freeze '
+  '(settle_by = p_owner, settle_at inside the 10-minute settle TTL) on an OPEN cart naming NO live '
+  'intent. Returns 1 for the release; 0 when that freeze still holds the cart but a live intent is '
+  'linked; -1 when this request does not hold the cart. Anything but 1 is a refusal.';

@@ -54,7 +54,7 @@ let acquireOwners: string[] = [];
 let pinCleared: { cartId: string; intentId: string }[] = [];
 /** M268 — the ordinary path's stale-pin release: what it answers, whether it throws, and a gate so
  *  a case can hold it open and prove the acquire waits for it. */
-let stalePinRefused: { message: string } | null = null;
+let stalePinRefused: { message: string; linked?: true } | null = null;
 let stalePinThrows = false;
 let stalePinGate: Promise<void> | null = null;
 let stalePinReleases: { cartId: string; holder: unknown }[] = [];
@@ -590,6 +590,14 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
 });
 
 describe("acquireSettlementSuperseding — M268: the ordinary path releases a dead attempt's promo pin first", () => {
+  /** The RPC's 0: this request's FRESH freeze holds the open cart, and a live intent is linked. */
+  const LINKED = {
+    message: "a live intent is linked under this settlement's freeze",
+    linked: true,
+  } as const;
+  /** The RPC's -1: this request does not hold the cart — another freeze, none, or its own gone stale. */
+  const NOT_HELD = { message: "this settlement does not hold the cart (the release answered -1)" };
+
   it("`acquired` releases the pin under THIS freeze — keyed by its owner — and only then answers", async () => {
     // MUTATION: the ordinary path answers `acquired` without the release → `getCartTotals` reads a
     // pin an abandoned card attempt left, and the counter charges a discount another basket earned;
@@ -623,18 +631,34 @@ describe("acquireSettlementSuperseding — M268: the ordinary path releases a de
     // MUTATION: proceed on a refused release → the settle prices from the pin it failed to clear;
     // red.
     acquireResults = ["acquired"];
-    stalePinRefused = { message: "the settlement's promo-pin release matched 0 rows" };
+    stalePinRefused = NOT_HELD;
     liveIntent = null;
     expect(await takeover("c", "u")).toBe("unavailable");
     expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
     expect(supersedeCalls).toBe(0);
   });
 
+  it("a refusal that does NOT hold the cart never supersedes the cart's link — a stalled settle must not cancel a successor's checkout (Codex on 56a4fd1)", async () => {
+    // The settle stalled past the TTL; `acquireCartLock` took the cart under the stale `settle_at`
+    // and the successor diner linked a live checkout. The RPC answers -1 (not `linked`), and the
+    // link it would now read is that successor's.
+    // MUTATION: read the link on ANY refusal → the successor's PaymentIntent is cancelled at Stripe
+    // and this request answers `acquired` on a freeze it lost; red.
+    acquireResults = ["acquired"];
+    stalePinRefused = NOT_HELD;
+    liveIntent = "pi_successor";
+    supersedeResult = "cleared";
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(supersedeCalls).toBe(0);
+    expect(pinCleared).toEqual([]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+  });
+
   it("refused because a LINK remains: that intent is superseded under settlement rules, pin and link go together, then `acquired`", async () => {
     // MUTATION: skip the supersede → a linked intent that may still be confirmable is left in place
     // and its pin read; red.
     acquireResults = ["acquired"];
-    stalePinRefused = { message: "the settlement's promo-pin release matched 0 rows" };
+    stalePinRefused = LINKED;
     liveIntent = "pi_linked";
     supersedeResult = "cleared";
     expect(await takeover("c", "u")).toBe("acquired");
@@ -647,7 +671,7 @@ describe("acquireSettlementSuperseding — M268: the ordinary path releases a de
     // MUTATION: give the freeze back here → a tablemate's edit or the counter's clear lands before
     // the charging intent's webhook, and a captured payment meets an order it cannot fulfil; red.
     acquireResults = ["acquired"];
-    stalePinRefused = { message: "the settlement's promo-pin release matched 0 rows" };
+    stalePinRefused = LINKED;
     liveIntent = "pi_linked";
     supersedeResult = "captured";
     expect(await takeover("c", "u")).toBe("paying");
@@ -657,7 +681,7 @@ describe("acquireSettlementSuperseding — M268: the ordinary path releases a de
 
   it("a linked intent whose pin and link cannot be cleared refuses, and the freeze goes back (the intent is dead)", async () => {
     acquireResults = ["acquired"];
-    stalePinRefused = { message: "the settlement's promo-pin release matched 0 rows" };
+    stalePinRefused = LINKED;
     liveIntent = "pi_linked";
     pinClearFails = true;
     expect(await takeover("c", "u")).toBe("unavailable");

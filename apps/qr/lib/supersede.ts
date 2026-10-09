@@ -517,15 +517,20 @@ export async function acquireSettlementSuperseding(
  * table's only door.
  *
  * The release is `releasePromoGrantFor(cart, { settlement: owner })` — the ONE binding create-intent
- * uses, with this freeze as its proof (lib/lock.ts). It answers ok only when its row count proves the
- * postcondition: this freeze holds the open, unlinked cart and its pin is null.
+ * uses, with this freeze as its proof (lib/lock.ts). It answers ok only when the RPC proves the
+ * postcondition: this FRESH freeze holds the open, unlinked cart and its pin is null.
  *
- * A refused release has ONE expected cause under a freeze we hold: a LINK — an unlocked cart still
- * naming an intent (a lost link-write response, a cancel that never reached Stripe). That intent is
- * then superseded exactly as the takeover does (settlement rules: a manual hold or committed money
- * refuses, `captured` answers `paying` with the freeze HELD), and its pin and link go together
- * (`releaseByIntent`). Anything else refused gives the freeze back and answers `unavailable` —
- * never `acquired` over a pin we failed to clear (the `pin-clear-failed` rule above).
+ * A refused release may supersede ONLY when the refusal says `linked` — the RPC's own probe found
+ * this request's fresh freeze still holding the open cart, with a live intent in the way (a lost
+ * link-write response, a cancel that never reached Stripe). That intent is then superseded exactly
+ * as the takeover does (settlement rules: a manual hold or committed money refuses, `captured`
+ * answers `paying` with the freeze HELD), and its pin and link go together (`releaseByIntent`).
+ * ⚠️ ANY OTHER REFUSAL STANDS DOWN WITHOUT READING THE LINK (Codex on #338 @ 56a4fd1, P2). A
+ * settle stalled past the TTL no longer holds the cart — `acquireCartLock` took it under the stale
+ * `settle_at` — so the link it would read is a SUCCESSOR's live checkout, and superseding it would
+ * cancel that diner's payment and then answer `acquired` on a freeze this request lost. Every
+ * non-`linked` refusal gives the freeze back and answers `unavailable` — never `acquired` over a pin
+ * we failed to clear (the `pin-clear-failed` rule above).
  */
 async function releaseStalePin(
   cartId: string,
@@ -537,7 +542,8 @@ async function releaseStalePin(
   try {
     const refused = await releasePromoGrantFor(cartId, { settlement: owner });
     if (!refused) return "acquired";
-    const linked = await readLiveIntent(cartId);
+    // Only a `linked` refusal holds the cart; any other must never reach the supersede (docblock).
+    const linked = "linked" in refused ? await readLiveIntent(cartId) : null;
     if (!linked) {
       console.error("[settle] stale promo pin not released — refusing to settle", {
         cartId,

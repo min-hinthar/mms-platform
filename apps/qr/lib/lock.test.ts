@@ -370,15 +370,48 @@ describe("releasePromoGrantFor — M268: a SETTLEMENT holder, proved by its free
     ]);
   });
 
-  it("a BLOCKED write (0 rows) is a refusal, never ok — the settle would price from the pin it failed to clear", async () => {
-    // MUTATION: trust any answer without its row count → another freeze, a closed cart or a live
-    // link reads as released; red.
+  it("a BLOCKED write is a refusal, never ok — the settle would price from the pin it failed to clear", async () => {
+    // MUTATION: trust any answer but 1 → another freeze, a stale one, a closed cart or a live link
+    // reads as released; red.
     rpcData = 0;
-    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
-      message: "the settlement's promo-pin release matched 0 rows",
-    });
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+    rpcData = -1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
     rpcData = null;
     expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+  });
+
+  it("the RPC's 0 — THIS fresh freeze holds the cart, a live intent is linked — is the ONE refusal flagged `linked`", async () => {
+    // MUTATION: drop the flag → the settle can never supersede the link that blocks it, and every
+    // such table refuses at the counter until the link clears on its own; red.
+    rpcData = 0;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "a live intent is linked under this settlement's freeze",
+      linked: true,
+    });
+  });
+
+  it("a request that does NOT hold the cart is never flagged `linked` — -1, a null answer, an error, no owner (Codex on 56a4fd1)", async () => {
+    // -1 is another freeze, none, THIS request's freeze gone stale, or a closed cart. Flagged
+    // `linked`, the settle would supersede whatever the cart names — after a stall, a successor
+    // diner's live checkout.
+    // MUTATION: flag every refusal `linked` → a stalled settle cancels a successor's payment and
+    // answers `acquired` on a freeze it lost; red.
+    rpcData = -1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "this settlement does not hold the cart (the release answered -1)",
+    });
+    rpcData = null;
+    const nullAnswer = await releasePromoGrantFor("cart-1", { settlement: "owner-A" });
+    expect(nullAnswer).not.toBeNull();
+    expect(nullAnswer).not.toHaveProperty("linked");
+    rpcData = 0;
+    rpcError = { message: "boom" };
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toHaveProperty(
+      "linked",
+    );
+    rpcError = null;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "" })).not.toHaveProperty("linked");
   });
 
   it("no owner is no proof — a refusal, and nothing is called", async () => {
