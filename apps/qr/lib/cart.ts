@@ -662,9 +662,11 @@ export async function getCartView(cartId: string): Promise<{
    *  sticker or a to-go session. Read HERE, from the session row, so the card names the same table
    *  the floor does — never inferred client-side. */
   tableNumber: number | null;
+  /** The session's mode (`table_sessions.mode`), from the fail-closed authorization read. */
+  mode: string;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
+  const { uid, locked, lockedBy, settling, settleBy, mode } = await assertCartMember(id);
   const db = serviceClient();
   // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
   // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
@@ -792,6 +794,10 @@ export async function getCartView(cartId: string): Promise<{
     tabType: (cart?.tab_type ?? "none") as "none" | "trust" | "secure",
     counterRequestedAt: cart?.counter_requested_at ?? null,
     tableNumber: cart?.table_sessions?.table_number ?? null,
+    // Codex round 2 on #331 — the session's mode from the SAME fail-closed read that authorized this
+    // view (`assertCartMember`, M108), so the Bill's parked phone-pay door never hangs off the
+    // best-effort split context (`doorMode`, lib/checkout-stage).
+    mode,
   };
 }
 

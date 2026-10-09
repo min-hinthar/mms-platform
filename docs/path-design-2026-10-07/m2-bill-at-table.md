@@ -1011,3 +1011,102 @@ The round-3 consistency pass gave this moment these changes:
 
 7. D3: the Bill's undo-window control is 'Undo · ပြန်ယူ'. Withdraw fix 11's ပြန်ဖျက်. It is m1's SendToKitchenButton.
 8. Motion: suppress the one-shot .floor-card-pulse on the ask tone. A CALL is still and filled, and its fill is the signal. The guest pass's first-mount .mms-rise is the shared RISE.
+
+### H · Build notes (2026-10-08, claude/feat/pd2-pd1-diner-cart)
+
+What the diner-cart stream built from this spec, what it took from appendix C, what it did not, and
+the questions the build decided under the owner's delegation (decided by: the diner-cart stream).
+Precedence as read: D > the Codex corrections > the cross-spec reconciliations > B > A > the body.
+
+**Built, by section.**
+
+- Decision 2 · D1: `SURFACES.dineInPhonePay = false` (lib/surfaces.ts, its docblock naming where
+  it is drawn and answered and D5's flip conditions); the pure `phonePayParked(mode, open)` in
+  lib/checkout-stage.ts; `surfaces.test.ts` flips the constant; `surfaces/dine-in-phone-pay-reopened`
+  and `surfaces/create-intent-route-answers-open` mutants.
+- Screen 1 (A1 · B1): the rail plus ONE line in the dock's slot, directly above the one door
+  (`PayAtCounterDock`, in the CartBar's fixed geometry, `--tap-bump`, the paper fade as its
+  `::before`); the slip's own foot carries `totals.totalCents` (decision 5); no tip ask (decision 6),
+  no separate total row, no card hero, no card words, no "coming soon"; the Total door never "& pay"
+  (`billDoorLabel` takes `phonePayOpen`; m1 B9); the promo form and `RewardField` stay (Codex
+  correction 1); the dock hides while the promo field has focus; the page pads its bottom by the
+  dock's published height (`useCtaDock`).
+- Screen 1 held states (B1 · B11 · D7): the slot carries the hero's one reason — unsent
+  (`counterUnsentTapCopy`, host or guest), the undo window (`payOpensAfterUndo`), the register
+  mid-settle (`registerSettling`), a peer's lock — `aria-disabled` + `aria-describedby`, every
+  blocked tap re-said through the view's one region. The Undo above the slip is the shared form
+  (`.checkout-undo`: `--sf`, 1.5px dashed `--ac`), named "Undo" with the seconds as an aria-hidden
+  leaf and ပြန်ယူ (`table.send.undo`, D3), busy `table.send.undoing`, armed only after the 350 ms
+  `undoTapHeld` on both relabels (P2y).
+- Screen 1 unsent (A2 · B2, decision 11): the note is the shared mark — the hollow ring (`.mark-ring`,
+  `currentColor`) and `pad.group.unsent` on `--sf`, count-free, never warn or dashed — with the host's
+  "Back to send them" (`backToSendThem`, a K15 draft for its MY).
+- Screen 2 (decision 8 · 13 · 14 · 15, D4): after the ask every phone becomes the pass —
+  `counterTitle` as the h1, the rail's Pay current (`checkoutSteps.counterAsk`), no eyebrow, no back
+  link, the one sentence (`counterShowCash`; with a reader the shipped `counterBody`), the
+  "View bill" disclosure (`aria-expanded` / `aria-controls`, BillLines inside), the count-free unsent
+  mark under the total, "We're not done yet" last (named "… — cancel paying at the counter"),
+  answered with `noRushBill`; the settling sentence swaps in as static text. A tablemate's ask is a
+  view flip said once (`tableAskedCounter`), focus to the h1 only if lost; the own ask lands focus
+  on the h1 and plays the one RISE.
+- Decision 15: `counterPayRefusalCopy(refusal, selfServeSplitOpen)` — the register's sentence while
+  the split is parked, on the ask's refusal, the dock and the pass; mutant
+  `counter/settling-sentence-names-a-parked-split`.
+- Decision 7: `counterTakesCard(readerConfigured)` with the parked `COUNTER_CARD_OUTSIDE_APP`
+  constant (ruling #11); the RSC passes `readerConfigured` from the reader env the staff page reads.
+- D2 (create-intent): the parked refusal AFTER `supersedeCartIntent` and its exits, before the unsent
+  refusal, freeing the lock; `scripts/check-phone-pay-door.mjs` (parse-based) in CI's fast lane and
+  `verify:slice`'s pre-checks, red-first against seven evasions; the route's first suite.
+- PATH_DESIGN moment 2 ("two reads, one derivation"): `lib/totals.test.ts` pins `getCartTotals(id)`
+  equal to `getCartTotals(id, 0)` over a promo'd cart; mutant `totals/default-tip-not-zero`.
+- Codex correction 10 (needed by m1 too): `SplitContext.qrCode`.
+
+**Waits on another stream.**
+
+- D5 · A3: the pass PAPER is post-pay's `CounterPass` primitive (`claude/feat/pd-pass-primitives`,
+  merged into this branch once it reached the remote): `PayAtCounterPass` renders it at the
+  `counter` tier (one figure at `--fs-pass` under "Table · စားပွဲ", the dotted seam and notches with
+  `--pass-hole` set to the page ground, the torn foot) with the unsent mark as `KitchenTrack
+stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
+  body. A numberless table prints its session code at the holder's 40px tier, spelt for a screen
+  reader (reconciliation 6). The primitive's prop surface: m10's `### H`.
+- Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
+  text on the floor chip too.
+- Decision 12: the ask over unsent dishes stays refused (the Bill's door is held with its reason)
+  until counter-floor's P2do lands; the lifted state's line ("You can still ask — the counter will
+  check them with your table.") is not drawn yet.
+
+**Appendix C, taken / not.**
+
+- Taken: `RewardField` stays redeemable on the counter-only Bill (it rides `getCartTotals`, so the
+  settle total includes it); the saved-card note is gated by the flag (and by "held", D4); the
+  withdraw's "busy" is kept as a guard, not a drawn state (optimistic, so unreachable — C's note is
+  right and the code says so).
+- Not taken: a distinct label for the pass's disclosure (risk 9) — it keeps `viewBill`, the SAME act
+  (reading the bill) the Order door names, and one key is one K15 line; the `--fs-pass` three-digit
+  fallback belongs to the primitive; the floor-card pulse and the strip key are counter-floor's.
+
+**Decided under the owner's delegation (decided by: the diner-cart stream).**
+
+1. B1's "fixed height" slot is a `min-height` (one EN line + one MY line). Two shipped held reasons
+   (the unsent sentence; the register's settling line) wrap to a second line at 390px, so the dock
+   grows by one line in those two states rather than truncating a sentence the code must keep
+   verbatim or inventing a shorter Burmese draft. At rest and in the undo window it is one line each.
+2. The reader variant of the slot's line is "Ready for the bill?" (`readyForBill`, the body's own
+   draft): B1 asked for it to be re-specified for the slot, and the question fits one line per
+   language.
+3. The note above the slip names the STATE (the mark) and the dock names the NEXT STEP (the held
+   reason), so one fact is never marked twice; the host's way back stays with the mark.
+4. A tablemate's ask does not join `viewKey` (which would replay the step slide and always steal
+   focus): the pass renders in place, the edge effect says the sentence once and moves focus only if
+   it was lost — the spec's focus rule, kept exactly.
+5. The group table's `SplitSection` parked clause drops its first sentence (B10's second option): the
+   counter clause alone is true, English-only as shipped.
+6. The create-intent refusal's sentence is English-only and listed in `K15 · diner-cart`; a raw POST
+   never reaches a drawn surface.
+
+**Residuals filed.** A stale promo pin can reach the register's cash settle (`mms_promo_discount`
+honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**. The group table
+that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind
+passes on #331: the board shows only while the self-serve split door is open (`splitBoardShown`,
+lib/counter-pay-state — the same door the register's refusal sentence reads).
