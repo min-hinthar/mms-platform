@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD9 — the TV board shows every table's food, dish by dish, and never nags (2026-10-09, `claude/feat/pd9-tv-board`)
+
+- **The owner's reversal of the wall's privacy boundary** (2026-10-07; PATH_DESIGN decision 11;
+  `docs/path-design-2026-10-07/m9-tv-board.md`). Until now `/board` showed only pickup and scan-and-go
+  codes with a first name, and dine-in status stayed on the diner's phone (K32(b), P6a). Now every
+  dine-in table with food in the kitchen is a landscape `CounterPass` at the TV tier — the table number
+  once, under "စားပွဲ · Table" — with its dishes on the ONE KITCHEN TRACK (Sent · Cooking · Served),
+  beside the pickup codes. **The room now reads what each table ordered while it cooks.** SPEC-KDS §6
+  is amended to say so.
+- **A table number and dish names only.** `lib/board-tables.ts`'s output type is the boundary: per
+  Send its round, per dish row its name, its catalog Burmese, its stage and a to-go flag — no guest
+  name, id, quantity, modifier, note, price, time or age has a field. Same-name dishes in a Send are
+  one row (by name and fulfillment), so no count is published. A dish not yet sent, or inside its
+  Send's grace, never appears (the KDS's own `kdsLineGate`); a ghost session and an unnumbered sticker
+  never appear; a table leaves 5 minutes after its last dish is served, or at once when cleared.
+- **One source for every number and stage.** The stage, a row's least-advanced stage and the table's
+  roll-up are `lib/kitchen-track.ts`'s, so Served waits out Mom's 6-second Undo on the server's clock;
+  the round number is the KDS's own read, moved to `lib/kitchen-round-read.ts`, so the wall and Mom's
+  board give one card one number.
+- **Never a nag.** Sent and Cooking are marks, Served is calm green, and the pickup Ready pass is the
+  wall's only call. It moves only when food changes state, one thing at a time (`lib/board-motion.ts`):
+  a segment fills, a table turns once per visit when its last dish is served, a code arrives Ready with
+  a gold ring on the pass's edge and the shipped chime — never on a first read or after a frozen spell.
+  Tables are sorted by number, the first half down the left column, never re-sorted on status; past
+  the fit the step-down collapses the all-served, folds the served dishes, then cuts the highest
+  numbers behind "+N more".
+- **The pickup column loses the first name, the shelf wait and the collected bag** (m9 decision 19,
+  critic B4): the code is the one identity on the wall, and a wall shows no clock. The pulse band (its
+  count, oldest age and all-day rail) is retired with it.
+- **Honest when it cannot read.** A failed or saturated kitchen read is `tables: null`, drawn "Can't
+  read the kitchen right now." — never all-clear over a full wok; a frozen wall keeps codes and dish
+  names, drops every stage, and drops the tables too once the linger has passed.
+- **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
+- **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
+  `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
+  read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
+
 ### PD5 — round two lands on a ticket that's still cooking: one Send, one kitchen card (2026-10-08, `claude/feat/pd5-kitchen-round-two`)
 
 - **The path design** (`docs/path-design-2026-10-07/m5-kitchen-round-two.md`, PATH_DESIGN moment 5,

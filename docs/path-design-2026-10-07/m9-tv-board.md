@@ -1065,3 +1065,76 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    served long before its round finishes. So after the line read, a second bounded read fetches every
    line of each live `fire_batch` (any line not served) regardless of `bumped_at`, and the shaper sees
    the whole round until its last dish is up.
+
+### G · Build notes (2026-10-09, `claude/feat/pd9-tv-board`, stacked on PD5)
+
+What the kitchen-ops stream built from this record, what it decided where the record left room, and
+what it leaves open. Precedence as the record says: F > E > D > C/B/A > the body.
+
+**Built.**
+
+- **The boundary, `lib/board-tables.ts`.** `shapeBoardTables` gates, filters and shapes, and decides
+  nothing about a stage (B8): the KDS's own `kdsLineGate` (a cleared table and a Send inside its grace
+  never appear), the stage allowlist (Sent · Cooking · Served — a draft, a void and a grocery line
+  never appear), dine-in only (`PULSE_TABLE_MODES`, an allowlist), no ghost past its TTL and no
+  unnumbered sticker, the linger (a Send stays while anything on it is not served, or
+  `PULSE_PASS_LINGER_MS` after its last bump), one Send one round (`ticketKey`), and one row per
+  (snapshot name, fulfillment) inside a Send (F1). Stage, group stage and roll-up are
+  `lib/kitchen-track.ts`'s, so Served waits out `KDS_UNDO_MS` on the DB clock (B6). The output type
+  carries a table number, per Send `n`/`next`, per row `name`/`nameMy`/`stage`/`togo`, and `out` —
+  no field for anything else, so nothing else can leak from a later edit at a call site.
+- **One card, one number.** The KDS's round read moved verbatim from `lib/kitchen.ts` into
+  `lib/kitchen-round-read.ts` (`readRounds` · `roundFor`, its nine mutants re-pointed with it); the
+  route and the KDS both call it, so the wall and Mom's board number a Send the same way.
+- **The route** publishes `{ orders: { code, status }[], tables, serverNow }` and nothing else. The
+  pickup column loses the first name (decision 19), the shelf wait and the collected bag (B4). The
+  kitchen half is fail-DEGRADED: a failed or saturated line, cart or Send-completion read is
+  `tables: null` (drawn "Can't read the kitchen right now.", never all-clear); the round read and the
+  Burmese name read are advisory. The session-mode read stays fail-CLOSED (503). The Send-completion
+  read (F3) fetches every line of each dine-in batch on the wall, whenever bumped, at the same 500 cap.
+  No quantity, modifier, note or guest name is ever selected.
+- **Fit, columns, motion, frozen.** `lib/board-fit.ts`: the fixed step-down — collapse the all-served
+  to their roll-up, fold the served dishes to one line, then cut the highest numbers behind the KDS's
+  own "+N more" (tables, never dishes) — and the first ⌈n/2⌉ tables by number in the left column (F2;
+  a two-column multicol with a forced break at that index, so membership is the index and a status
+  change never moves a table). `lib/board-motion.ts`: FILL on an advance, one TURN per table visit
+  (a celebrated set keyed by number, pruned only when the table leaves), the Ready arrival, played one
+  at a time in a fixed order; a first read and the first read after a stale spell seed and play
+  nothing. `lib/board-poll.ts`: a frozen wall keeps its passes for `FROZEN_TABLES_MS`
+  (= `PULSE_PASS_LINGER_MS`) after the last good poll, then the kitchen half keeps only its sentence
+  (B7).
+- **The screen.** Every table is the `@mms/ui` CounterPass, landscape, TV tier, the figure pinned at
+  `--fs-pass` (D1) under "စားပွဲ · Table"; the rows carry `KitchenTrack` at the TV row size; the
+  heading key is `KitchenTrack`'s key, aria-hidden; round 2 and up wear m5's stub. Ready codes are the
+  same pass at the code row; Preparing codes are plain rows. The arrival is a gold ring on the pass's
+  edge (C: a gold wash over paper is nearly invisible); no table chimes; no ✓ anywhere.
+- **Retired.** The pulse band (count, oldest age, all-day rail) and its 21 `pulse/*` mutants with
+  `board-pulse.test.ts`; `board-pulse.ts` keeps the shared constants and the record of the rule it
+  replaced. The shelf wait (`shelfWait`, `SHELF_WAIT_CEILING_MIN`, `board.card.wait` · `.justNow` ·
+  `.waitLong`) and `board.pulse.oldest`. Five `board/*` mutants that pinned what the wall no longer
+  publishes. 43 mutants added: `board-tables/*` 14, `board/*` 8, `board-wall/*` 8, `board-fit/*` 6,
+  `board-motion/*` 6, `board-poll/*` 1.
+
+**Decided in the build.**
+
+- **The wall recomputes a Send's round every poll.** The KDS decides a card's stub once and carries it
+  (m5 §H); the wall holds no per-card memory, so a round read that fails leaves that poll's stubs
+  unnumbered ("next round" only beside an older round, decision 17) and the next good read restores
+  them. A number flickering back is a smaller wrong than a remembered number nobody re-checks.
+- **The frozen bound runs on the device clock.** `lastGoodAt` and the fold's `now` are the same
+  clock, so the bound is a duration, never a comparison across clocks.
+- **Same-name rows sort by first stamp, then name, then dine-in before to-go,** so a re-render never
+  swaps two rows.
+- **The kiosk (E1).** No kiosk code: the kiosk is parked (`SURFACES.kiosk = false`), and printing the
+  order's board code at the handoff is already C20's reopen prerequisite.
+- **`KitchenStage` stays one declaration** in `@mms/ui`; `BoardDishStage` is the wall's subset of it,
+  not a second vocabulary.
+
+**Open (owed to the device sitting or the first Friday).** Risk 3 — a station nobody bumps pins its
+table to the wall all night (no server-side ceiling was added; the linger is from the last bump).
+Risks 6–7 — OLED burn-in under the cream stubs and the TURN's frame rate on the TV's browser. Risk 8
+— the real density at 10 tables. Risk 13 — two live sessions on one number can show two "Round 2"s,
+accepted. Risk 14 — a poll now makes up to four more queries per TV than the pulse did (the
+Send-completion read and the round read's three); p95 on `pdx1` is unmeasured. Risk 2 — **old TV builds need ONE reload after the deploy**: the old client reads no
+`pulse` and no `name`, so until reloaded it shows its "can't read the kitchen" band and code-only
+cards. Risk 1 — the privacy reversal is real and has no per-table switch; the merge line names it.
