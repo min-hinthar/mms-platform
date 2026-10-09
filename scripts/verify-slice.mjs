@@ -27229,6 +27229,15 @@ const MUTANTS = [
     replace: "  return at >= Date.parse(start) && at <= Date.parse(end);",
   },
   {
+    id: "pickup-promise/tomorrow-by-24-hours",
+    file: "apps/qr/lib/pickup-promise.ts",
+    suite: "lib/pickup-promise.test.ts",
+    why: "Codex r1 on #330 (P3) — 'Tomorrow' is the next CALENDAR day; adding 86 400 000 ms lands two dates ahead in the last hour of the spring-forward day and on the same date in the first hour of the fall-back day, so a real next-day pickup lost its word",
+    find: "  if (within(slotIso, pickupDayBoundsAhead(nowMs, 1))) return `Tomorrow ${formatSlot(slotIso)}`;",
+    replace:
+      "  if (pickupIsToday(slotIso, nowMs + 86_400_000)) return `Tomorrow ${formatSlot(slotIso)}`;",
+  },
+  {
     id: "pickup-promise/countdown-says-zero",
     file: "apps/qr/lib/pickup-promise.ts",
     suite: "lib/pickup-promise.test.ts",
@@ -27251,6 +27260,14 @@ const MUTANTS = [
     why: "PD3 (m3 §G2) — a refused answer CLEARS the pending arrival: kept, it outlives the card's 'try again' and the guest who gave up, and the next visit rings Dad's bell for nobody",
     find: "  return outcome.answered;",
     replace: "  return outcome.answered && outcome.ok;",
+  },
+  {
+    id: "arrival-pending/failed-action-clears-the-record",
+    file: "apps/qr/lib/arrival-pending.ts",
+    suite: "lib/arrival-pending.test.ts",
+    why: "Codex r1 on #330 (P1) — the action RESOLVES `failed` for a failed UPDATE; reading every resolved refusal as an answer retired the pending record on a transient failure, and a guest who then closed the page never reached Dad",
+    find: '  return r.reason === "failed" || r.reason === "rate"',
+    replace: '  return r.reason === "rate"',
   },
   {
     id: "arrival-pending/no-answer-clears-the-record",
@@ -27301,12 +27318,44 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
+    id: "arrival/refunded-order-stamped",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r1 on #330 (P2) — the paid predicate rides the guarded UPDATE: a commit delayed past a refund, or a direct call by an authorized member, would otherwise stamp arrived_at on a terminal order and ring a false 'Here now' on Dad's lane for a bag that must not be handed out",
+    find: '    .eq("status", "paid") // a refunded or failed order never takes an arrival (Codex r1 on #330)\n',
+    replace: "",
+  },
+  {
+    id: "arrival/payer-arm-dropped",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r1 on #330 (P2) — a non-host split PAYER reads the pickup page through `qr_order_payers` once the session lapses (getMyOrderFallback); without the same proof on the write, their 'I’m here' refuses every tap",
+    find: "  if (payer) return { uid };\n",
+    replace: "",
+  },
+  {
+    id: "arrival/seat-arm-dropped",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r1 on #330 (P2) — a counter-paid diner reads the page through a seat in the order's session whatever its status; the write must accept that seat too",
+    find: "    if (seat) return { uid };\n",
+    replace: "",
+  },
+  {
+    id: "arrival/auth-outage-reads-as-refusal",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r1 on #330 (P2) — an identity service that is merely DOWN is `failed`, never `unauthorized`: a decided refusal is a 200 the client clears its pending record on, so an outage would retire the one repair for a committed arrival",
+    find: '    return { refused: unavailable(e) ? "failed" : "unauthorized" };',
+    replace: '    return { refused: "unauthorized" };',
+  },
+  {
     id: "arrival/earned-by-arm-dropped",
     file: "apps/qr/lib/arrival.ts",
     suite: "lib/arrival.test.ts",
     why: "PD3 (m3 risk 3, decision 22) — the 4-hour session lapses under a far-booked pickup; without the earned_by arm 'I’m here' refuses every tap on exactly the order M65 is about, and the new foot is false",
-    find: "    return earnedBy === uid ? uid : null;",
-    replace: "    return null;",
+    find: "  if (order.earned_by === uid) return { uid };\n",
+    replace: "",
   },
 ];
 
