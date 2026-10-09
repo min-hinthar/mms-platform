@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 6958 qr tests + 387 ui tests · 3340 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 7049 qr tests + 387 ui tests · 3410 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -161,7 +161,7 @@ pnpm verify:slice --list --only=<module>      # what a filter selects, without r
 
 **The full mutation battery runs in CI** as the `verify-slice` check: 12 cost-balanced shards on every non-draft PR head and every push to `main`, code lane only — about 10.5–11 min wall after the `changes` job, measured 2026-10-08. A full serial local run measured 164–180 min, so it is not the pre-PR step. Only CAUGHT passes: a SURVIVING mutant means the fixture is degenerate, not that the mutant is wrong — find inputs that separate the two code paths; a STALE mutant is a failure too, not a skip; a TIMEOUT or ERROR is never a kill. Never re-run a red `verify-slice` hoping for green: a mutant that SURVIVES on one run and is CAUGHT on another of the same tree is a suite defect — fix the read, red-first (LEARNINGS #248).
 
-⚠️ `verify:slice` rewrites the 275 money/authority modules it mutates IN PLACE (186 under `apps/qr/lib`) and restores them. It aborts on a dirty target; run ONE per checkout and **never commit while a run is live** (LEARNINGS #74). After a stalled or killed run: kill all runs; `git status --short` names the module left mutated — restore it with `git checkout -- <file>` and confirm clean. Check for a live run with `ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'` (not `pgrep -f` — LEARNINGS #92), and list the target files with `grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u` — that command, not a prose list, is the record of what a killed run may leave broken.
+⚠️ `verify:slice` rewrites the 278 money/authority modules it mutates IN PLACE (189 under `apps/qr/lib`) and restores them. It aborts on a dirty target; run ONE per checkout and **never commit while a run is live** (LEARNINGS #74). After a stalled or killed run: kill all runs; `git status --short` names the module left mutated — restore it with `git checkout -- <file>` and confirm clean. Check for a live run with `ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'` (not `pgrep -f` — LEARNINGS #92), and list the target files with `grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u` — that command, not a prose list, is the record of what a killed run may leave broken.
 
 ## 🔐 Environments (Supabase & Stripe)
 

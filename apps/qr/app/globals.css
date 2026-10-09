@@ -8469,19 +8469,23 @@ a .chrome-en {
   opacity: var(--kds-held-op);
   border-style: dashed;
 }
+/* PD5 — the strip's ground is named ONCE as `--kds-strip-bg` (the same three values as before), so
+   the round stub's coupon notches can be holes in the strip's OWN ground on every tint, and ride the
+   red pulse's brightness with it (they are inside the strip subtree the filter applies to). */
 .kds-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
   padding: 10px 14px;
-  background: var(--sf);
+  --kds-strip-bg: var(--sf);
+  background: var(--kds-strip-bg);
 }
 .kds-strip-amber {
-  background: color-mix(in srgb, var(--gold) 30%, var(--cd));
+  --kds-strip-bg: color-mix(in srgb, var(--gold) 30%, var(--cd));
 }
 .kds-strip-red {
-  background: color-mix(in srgb, var(--warn) 46%, var(--cd));
+  --kds-strip-bg: color-mix(in srgb, var(--warn) 46%, var(--cd));
 }
 .kds-strip-red.kds-strip-pulse {
   animation: kdsRedPulse 1.6s var(--ease-in-out) infinite;
@@ -8535,6 +8539,75 @@ a .chrome-en {
 .kds-strip-amber .kds-badge,
 .kds-strip-red .kds-badge {
   color: var(--tx);
+}
+
+/* ── PD5 — the round stub (m5 "One Send, One Sheet", refined; appendix B4/B5; round 3 D4) ──────────
+   A card that is a table's second (or later) Send carries row B under its strip's row A: the stub
+   "အလှည့် 2" / "Round 2". Row A is byte-identical to a card without one (a two-column grid draws
+   the same two ends the flex row did), and row B is 8px below it at the strip's 14px inset.
+   The stub is a LABEL (`<p>`), never a control, and it is MARK tier: an outline plus a word, no
+   fill (B4 dropped the wash — a wash sat brighter than the Late strip on an amber card), and no
+   motion of its own (it rides the card's arrival flash). It speaks at the clock's tier, the tier of
+   every card's own time, so it sits below the table number and the dish. The vocabulary's ONE stub
+   shape: a DOTTED perforation (dashed already means held, and a Bring-back chip) with 12px coupon
+   notches at the perforation's ends, holes in the host's ground — `--kds-strip-bg`, so they follow
+   the tint and the red pulse. On an amber or red strip the outline takes --tx, the same promotion
+   the badge and the sub-line take, so it keeps ≥3:1 at the pulse's peak. Nothing here is cream: the
+   board's one cream object is the undo pill. */
+.kds-strip-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--s2);
+  row-gap: var(--s2);
+  align-items: center;
+}
+.kds-round {
+  grid-column: 1 / -1;
+  justify-self: start;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  min-height: 44px;
+  padding: 0 16px 0 14px;
+  border: 2px solid var(--t2);
+  border-right: 4px dotted var(--t2);
+  border-radius: 10px 0 0 10px;
+  color: var(--tx);
+  font-size: var(--kfs-clock);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+}
+.kds-strip-amber .kds-round,
+.kds-strip-red .kds-round {
+  border-color: var(--tx);
+}
+.kds-round::before,
+.kds-round::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--kds-strip-bg);
+}
+.kds-round::before {
+  top: -8px;
+}
+.kds-round::after {
+  bottom: -8px;
+}
+/* The Burmese word at the stub's tier in Padauk's heaviest cut (700 — never 800, which would match
+   the same face; `.chrome-my` sets the face and the --lh-my leading, which the 44px row absorbs);
+   the Latin digit beside it, marked `lang="en"` by <Chrome>'s rule 3, keeps the stub's 800. */
+.kds-round > .chrome-my {
+  font-size: var(--kfs-clock);
+  font-weight: var(--fw-bold);
+}
+.kds-round > .chrome-my > [lang="en"] {
+  font-weight: var(--fw-heavy);
 }
 
 .kds-lines {
@@ -9074,6 +9147,70 @@ a .chrome-en {
   font-weight: var(--fw-heavy);
   font-size: var(--kfs-meta);
   cursor: pointer;
+}
+/* PD5 (m5 decision 12/14) — the pill's text column: line 1 the bump sentence as today; line 2, only
+   after a bump that left the table's other card on the board, "Table 4 still has a card on the
+   board." in Padauk's regular cut (400 — Padauk ships 400/700), the same ink. The Undo button
+   stays vertically centred beside both. */
+.kds-undo-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.kds-undo-sub {
+  font-weight: var(--fw-regular);
+}
+
+/* ── PD5 / m7 — "Table N left — stop cooking" (the shape, reserved; PATH_DESIGN reconciliation 1) ──
+   TODAY nothing draws it — a cleared table's cards leave the board on the next poll. Once PD7 mounts
+   it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
+   tier WITHOUT motion — the strip takes the Late tint but never the pulse — struck dish rows, the
+   one warn word in the strip, and "Got it" in the bump's slot, until the cook taps it. Never
+   dashed (held), never cream (the pill), never a stub (m5 B1): the board's four marks never
+   overlap. Its durable stop record lands with the table-clear migration (PD7); until then the
+   component (`KdsStopCard.tsx`) renders from props and nothing mounts it. */
+.kds-ticket-stop {
+  border-color: var(--warn);
+}
+.kds-strip-stop {
+  --kds-strip-bg: color-mix(in srgb, var(--warn) 46%, var(--cd));
+}
+.kds-strip-stop .kds-badge,
+.kds-strip-stop .kds-id small {
+  color: var(--tx);
+}
+.kds-stop-word {
+  margin: 0;
+  padding: 8px 14px 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--warn);
+  font-size: var(--kfs-mod);
+  font-weight: var(--fw-heavy);
+}
+/* A struck row keeps the line's layout (the qty chip, the stacked name) but is a <span>, not the
+   Start/Done button: nothing on a dish nobody will eat is tappable. */
+.kds-stop-line {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 56px;
+  text-decoration: line-through;
+  text-decoration-color: var(--warn);
+  text-decoration-thickness: 2px;
+  color: var(--t2);
+}
+.kds-stop-line .kds-qty {
+  opacity: var(--kds-held-op);
+}
+.kds-stop-ack {
+  background: var(--sf);
+  color: var(--tx);
+  border: 2px solid var(--warn);
 }
 
 /* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits
