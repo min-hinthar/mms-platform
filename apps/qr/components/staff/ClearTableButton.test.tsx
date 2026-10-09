@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
+import { handoffStashKey } from "@/lib/floor-pane";
 
 /**
  * The COUNTER ORDER's clear: the two-step confirm and its bounded commit (PD7 kept it — a table's
@@ -49,6 +50,22 @@ describe("ClearTableButton — a successful clear", () => {
     expect(clearTable).toHaveBeenCalledWith({ sessionId: "s1" });
     expect(replace).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
+  it("a cleared order's paid-card stash goes with it (this tab's)", async () => {
+    clearTable.mockResolvedValue({ ok: true });
+    sessionStorage.setItem(handoffStashKey("s1"), JSON.stringify({ orderId: "o-1" }));
+    render(
+      <StaffLangProvider lang="en">
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={false} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.confirm") }));
+    });
+    // MUTATION clear-table/counter-clear-keeps-the-card → red.
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).toBeNull();
   });
 
   it("a refused clear stays put — no navigation", async () => {
