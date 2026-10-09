@@ -1197,3 +1197,19 @@ never transcribed): `lib/approvers.ts` (`approvers/role-rule-dropped` · `active
 `error-reads-as-empty`), `lib/staff-cart.ts` (`approval-ack/cash-door-*` · `tab-door-*`),
 `lib/terminal.ts` (`approval-ack/reader-door-*`), `lib/floor.ts` (`floor/detail-drops-the-flags` ·
 `detail-flag-line-unmarked`); the SQL arm in `scripts/verify-mode-authority.mjs` (`m184/*`, 15).
+
+**The blind pass on #333 (2026-10-09, REJECT on `4bc9dea`).** Every finding was fixed, and the open
+questions were answered in the build:
+
+- Settle-gate atomicity: `mms_request_approval` now refuses `in_flight` while the cart is pay-locked or
+  settling (folded into M184's unapplied file). A door reads the pending set after taking the freeze,
+  so a request either commits first (the door's read sees it) or sees the freeze and refuses.
+- A line voided or comped after the ask: approve answers `changed` (no second loss row) and close
+  admits it; the card says "Already removed or made free after {x} asked — close this request".
+- `totalPending`: bounded at STAFF_HANG_MS. It stays on the cash door alone, the hero under the flag;
+  the reader and the tab close compare their own quotes, so a stale total is refused, never charged.
+- The "no page" arm: every door acknowledges what its own re-warning named (`ackForTap`), so the next
+  tap passes wherever the door is mounted.
+- `listApprovers` exposing `hasPin`: kept. It is a boolean per manager or owner, read only by a
+  `requireStaff()` caller, and it is exactly what the slip needs to list only who can sign
+  (decision 8); no PIN material leaves the server.

@@ -37,9 +37,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the `close` arm (admitted when the cart is no longer open, or the line changed on an open one);
   `self_approve` kept for approve and deny, not for a close. `supabase/tests/m184_approval_refuses_when_changed_test.sql`
   (15 cases) joins ci.yml's list; 15 `verify-mode-authority` mutants (`m184/*`).
-- **Copy:** 26 staff keys (15 HIGH), every MY value a draft for the native sitting (OPEN-ITEMS K46).
+- **Copy:** 27 staff keys (16 HIGH) and one re-worded shipped key, every MY value a draft for the
+  native sitting (OPEN-ITEMS K47).
 - **Mutants:** 40 new (`approvers/` · `approvals-count/` · `approval-state/` · `settle-approvals/` ·
   `approvals-read/` · `resolve/` · `approval-ack/` · `floor/`) and 10 re-anchored; the battery is 3310.
+- **The blind pass on #333 (REJECT on `4bc9dea`), fixed:** the pane's "Decide it here" decides the
+  request's real state (`flagCardState` over the flag's live line, `lineNowFromRow` — the queue's one
+  derivation), keeps a refusal in the sheet with its reason, and closes only on an applied decision
+  (focus to the settle heading after the sheet unmounts; only an approve says "Updating the total…",
+  bounded at STAFF_HANG_MS). The circle folds the board's reading into the server's seed
+  (`circleFromBoard`) — an unread queue never publishes 0. One changed sentence (`changedNote`) for the
+  card and its decision; `not_open` and the Take-payment consequence say what the code does. Each door
+  acknowledges its own re-warning (`ackForTap`). M184 widened in its one file: a line already off the
+  bill is `changed`, and a request never lands mid-settle (`mms_request_approval` refuses `in_flight`).
+  26 more mutants (the battery is 3336) and 7 more `m184/*`.
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
