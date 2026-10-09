@@ -41,6 +41,11 @@ const STAGE_RANK: Readonly<Record<KitchenStage, number>> = {
  * it out too), so a Bill that mounts inside those six seconds still reads held, and a mis-tap she
  * takes back never opened a door. A served line with NO bump stamp has nothing to settle and
  * nothing to recall; it is not up (m9: "up requires bumped_at").
+ *
+ * ONE start instant (Codex round 2 on #328): the board's Undo pill and Bring-back chip measure their
+ * windows from the All done TAP (`KdsBoard.tsx`, `RecallEntry.tappedAt`), and the server stamps
+ * `bumped_at` after the tap, so whenever this reads served the pill is already gone — Undo is never
+ * offered over a line the TV's TURN or the pay door counts as served.
  */
 export function servedSettled(bumpedAt: string | null, nowIso: string): boolean {
   if (bumpedAt === null) return false;

@@ -233,7 +233,7 @@ export type TagCard = {
  * discriminator from the card's own key (corrections 14 and 17). Null means today's bare label.
  */
 export type RoundTag =
-  | { kind: "round"; n: number }
+  | { kind: "round"; n: number; disc: string | null }
   | { kind: "time"; stampIso: string; disc: string | null };
 
 /** The stamp as the label PRINTS it ("7:42:05", the restaurant's clock), or "" when the stamp cannot
@@ -247,6 +247,21 @@ export function stampLabel(iso: string): string {
  *  off the printed label, never the raw string. */
 function timeBase(c: TagCard): string {
   return `${c.tableNumber ?? c.label}|${stampLabel(c.stampIso)}`;
+}
+
+/**
+ * The stable discriminator of each card in a tie group (corrections 14 and 17; Codex on #328): four
+ * hex characters of its own key, extended one character at a time while two cards still tie — the
+ * same length for every card in the group, never its position. Null for a group of one: nothing
+ * ties, nothing is added. ONE rule for the time ties and the decided-round ties.
+ */
+function discriminators(group: readonly TagCard[]): string[] | null {
+  if (group.length < 2) return null;
+  const hexes = group.map((c) => cardHex(c));
+  const longest = Math.max(...hexes.map((h) => h.length));
+  let len = 4;
+  while (len < longest && new Set(hexes.map((h) => h.slice(0, len))).size < hexes.length) len += 1;
+  return hexes.map((h) => h.slice(0, len));
 }
 
 /**
@@ -284,7 +299,7 @@ export function cardTags(
     }
     const decided = decisions.get(c.key);
     if (decided?.kind === "n") {
-      out.set(c.key, { kind: "round", n: decided.n });
+      out.set(c.key, { kind: "round", n: decided.n, disc: null });
       continue;
     }
     timed.push(c);
@@ -299,15 +314,36 @@ export function cardTags(
     byBase.set(base, [...(byBase.get(base) ?? []), c]);
   }
   for (const group of byBase.values()) {
-    if (group.length < 2) continue;
-    const hexes = group.map((c) => cardHex(c));
-    const longest = Math.max(...hexes.map((h) => h.length));
-    let len = 4;
-    while (len < longest && new Set(hexes.map((h) => h.slice(0, len))).size < hexes.length)
-      len += 1;
+    const discs = discriminators(group);
+    if (discs === null) continue;
     group.forEach((c, i) => {
       if (out.get(c.key)?.kind === "time")
-        out.set(c.key, { kind: "time", stampIso: c.stampIso, disc: hexes[i]!.slice(0, len) });
+        out.set(c.key, { kind: "time", stampIso: c.stampIso, disc: discs[i]! });
+    });
+  }
+  // Two DECIDED numbers can collide too (Codex round 2 on #328): a merge re-parents another table's
+  // round 1 into this session, and both frozen decisions read "Table 4 · Round 1" — their pills and
+  // chips with them. The same rule as the time ties: a card whose (table, round) another live card
+  // or rail chip shares takes its key's discriminator, extended while the tie holds.
+  const rounded = board.filter((c) => out.get(c.key)?.kind === "round");
+  const byRound = new Map<string, TagCard[]>();
+  const roundKey = (c: TagCard, n: number) => `${c.tableNumber ?? c.label}|${n}`;
+  for (const c of rounded) {
+    const t = out.get(c.key);
+    if (t?.kind !== "round") continue;
+    byRound.set(roundKey(c, t.n), [...(byRound.get(roundKey(c, t.n)) ?? []), c]);
+  }
+  for (const r of rail) {
+    if (live.has(r.key) || r.round.kind !== "n") continue;
+    const k = roundKey(r, r.round.n);
+    if (byRound.has(k)) byRound.set(k, [...byRound.get(k)!, r]);
+  }
+  for (const group of byRound.values()) {
+    const discs = discriminators(group);
+    if (discs === null) continue;
+    group.forEach((c, i) => {
+      const t = out.get(c.key);
+      if (t?.kind === "round") out.set(c.key, { ...t, disc: discs[i]! });
     });
   }
   // A stamp that cannot be printed leaves the label bare "Table 4" — the discriminator stands in.

@@ -37,6 +37,10 @@ let failOwingRead = false;
 /** PD5 — fail the ADVISORY round read (its carts leg, or its batched-lines leg) to prove it fails
  *  OPEN: every dine-in card reads `unknown`, and the board is still answered. */
 let failRoundRead: "carts" | "lines" | null = null;
+/** PD5 (Codex round 2 on #328) — PostgREST's `max_rows` (`supabase/config.toml`: 1000). Every read
+ *  answers at most this many rows whatever its `.limit()`, exactly as the API truncates SILENTLY;
+ *  a case lowers it to stand in for a deployed ceiling below the read's own cap. */
+let serverMaxRows = 1_000;
 /** Codex r4 — every column list `qr_cart_items` was read with, in order. */
 let itemReads: string[] = [];
 const OWING_COLS = "cart_id,state,comped,qty";
@@ -47,9 +51,11 @@ function query(name: string) {
   const filters: ((r: Row) => boolean)[] = [];
   let cols = "";
   let lim: number | null = null;
+  let wantCount = false;
   const api: Record<string, unknown> = {
-    select: (c: string) => {
+    select: (c: string, opts?: { count?: string }) => {
       cols = c;
+      wantCount = opts?.count === "exact";
       if (name === "qr_cart_items") itemReads.push(c);
       return api;
     },
@@ -106,9 +112,14 @@ function query(name: string) {
       if (failRoundRead === "lines" && name === "qr_cart_items" && cols === ROUND_LINE_COLS)
         return boom.then(res);
       const all = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
-      // PD5 (G1) — the cap is REAL in the fake, so a saturated read answers exactly `cap` rows.
-      const rows = lim === null ? all : all.slice(0, lim);
-      return Promise.resolve({ data: rows, error: null }).then(res);
+      // PD5 (G1) — the cap is REAL in the fake, and so is the server's ceiling below it; an exact
+      // count is the number that MATCHED, which is how a read learns it was cut short.
+      const rows = all.slice(0, Math.min(lim ?? Infinity, serverMaxRows));
+      return Promise.resolve({
+        data: rows,
+        error: null,
+        count: wantCount ? all.length : null,
+      }).then(res);
     },
   };
   return api;
@@ -184,6 +195,7 @@ beforeEach(() => {
   tables = {};
   failOwingRead = false;
   failRoundRead = null;
+  serverMaxRows = 1_000;
   itemReads = [];
 });
 
@@ -488,15 +500,36 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(t[0]!.round).toEqual({ kind: "unknown" });
   });
 
-  it("a SATURATED lines leg — the session's batched lines at the cap — leaves every round UNKNOWN (G1; `kitchen/round-lines-saturation-ignored`)", async () => {
-    // 2 000 served batched lines of the day (off the board) plus the live one: the read answers
-    // exactly its cap and cannot rank, so no number is guessed.
-    const served = Array.from({ length: 1_999 }, (_, i) =>
+  it("a lines leg that answers EXACTLY its cap — the API's own 1000-row ceiling — leaves every round UNKNOWN (G1; `kitchen/round-lines-saturation-ignored`)", async () => {
+    // 999 served batched lines of the day (off the board) plus the live one: 1000 match, the read
+    // answers 1000 with a count of 1000 — at the cap it cannot say, so no number is guessed.
+    const served = Array.from({ length: 999 }, (_, i) =>
       dine({ id: `s${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
     );
     setupTable({ lines: [...served, dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })] });
     const t = await tickets();
     expect(t).toHaveLength(1);
+    expect(t[0]!.round).toEqual({ kind: "unknown" });
+  });
+
+  it("past the ceiling the API truncates SILENTLY: 1200 matching lines answer 1000, and the rounds read UNKNOWN, never a rank of part of the history (Codex round 2 on #328)", async () => {
+    const served = Array.from({ length: 1_199 }, (_, i) =>
+      dine({ id: `s${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
+    );
+    setupTable({ lines: [...served, dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })] });
+    const t = await tickets();
+    expect(t[0]!.round).toEqual({ kind: "unknown" });
+  });
+
+  it("a deployed ceiling BELOW the read's own cap is caught by the exact count (`kitchen/round-lines-truncation-ignored`)", async () => {
+    // The dashboard's max_rows is not in this repo; at 300, 400 matching lines answer 300 — under
+    // the cap, so only the count can tell the read was cut short.
+    serverMaxRows = 300;
+    const served = Array.from({ length: 399 }, (_, i) =>
+      dine({ id: `s${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
+    );
+    setupTable({ lines: [...served, dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })] });
+    const t = await tickets();
     expect(t[0]!.round).toEqual({ kind: "unknown" });
   });
 
@@ -646,13 +679,109 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
         { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
       ],
       qr_orders: [
-        { id: "order-00abcdef", cart_id: "cart-paid", status: "paid", created_at: at(-2_600) },
+        {
+          id: "order-00abcdef",
+          cart_id: "cart-paid",
+          status: "paid",
+          created_at: at(-2_600),
+          settled_by: null,
+        },
       ],
     };
     const t = await tickets();
     expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
       [BT, { kind: "none" }],
       [B2, { kind: "n", n: 2 }],
+    ]);
+  });
+
+  it("an orders leg that answers its cap cannot tell settlement food apart: every round reads UNKNOWN (`kitchen/round-orders-saturation-ignored`)", async () => {
+    const orders = Array.from({ length: 200 }, (_, i) => ({
+      id: `order-${i}`,
+      cart_id: "cart-paid",
+      status: "paid",
+      created_at: at(-2_600 + i),
+      settled_by: null,
+    }));
+    tables = {
+      qr_cart_items: [
+        dine({
+          id: "p1",
+          cart_id: "cart-paid",
+          fire_batch: B1,
+          fire_at: at(-3_000),
+          state: "served",
+        }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
+      ],
+      qr_carts: [
+        {
+          id: "cart-paid",
+          session_id: "s4",
+          status: "paid",
+          customer_name: null,
+          pickup_slot: null,
+        },
+        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+      ],
+      table_sessions: [
+        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
+      ],
+      qr_orders: orders,
+    };
+    const t = await tickets();
+    expect(t.map((x) => x.round)).toEqual([{ kind: "unknown" }]);
+  });
+
+  it("a STAFF-settled cart carries no settlement food, so a Send that the settle landed inside its grace is still a numbered round (Codex round 2 on #328; `kitchen/settlement-on-a-staff-settled-cart`)", async () => {
+    // Round 2 sent at -2 607 s (fire_at = its 10 s grace deadline, -2 597 s); Dad took cash at
+    // -2 600 s, three seconds into that grace. Every staff tender refuses unsent dine-in drafts, so
+    // nothing on this cart can be settlement food — the batch after the order is the Send.
+    tables = {
+      qr_cart_items: [
+        dine({
+          id: "p1",
+          cart_id: "cart-paid",
+          fire_batch: B1,
+          fire_at: at(-3_000),
+          state: "served",
+        }),
+        dine({
+          id: "p2",
+          cart_id: "cart-paid",
+          fire_batch: BT,
+          fire_at: at(-2_597),
+          state: "in_progress",
+        }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
+      ],
+      qr_carts: [
+        {
+          id: "cart-paid",
+          session_id: "s4",
+          status: "paid",
+          customer_name: null,
+          pickup_slot: null,
+        },
+        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+      ],
+      table_sessions: [
+        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
+      ],
+      qr_orders: [
+        {
+          id: "order-00abcdef",
+          cart_id: "cart-paid",
+          status: "paid",
+          created_at: at(-2_600),
+          settled_by: "staff-dad",
+        },
+      ],
+    };
+    const t = await tickets();
+    expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
+      [BT, { kind: "n", n: 2 }],
+      [B2, { kind: "n", n: 3 }],
     ]);
   });
 

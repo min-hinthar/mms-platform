@@ -999,3 +999,35 @@ created_at`) and `roundOrdinals` excludes a batch whose first fire is at or afte
   (PD9) reads the same. A served line with no `bumped_at` (pre-W3 rows) reads cooking, never up —
   the honest direction for the pay door. A ticket whose stamp cannot be parsed no longer throws in
   `staffClockSeconds`: `stampLabel` prints "" and the label carries the discriminator alone.
+
+#### H.2 · Codex round 2 on #328 (`f498d33`, 2026-10-09)
+
+Four P2s, each verified against the source and fixed in one commit.
+
+- **The round read obeys the API's row ceiling.** `ROUND_LINE_CAP` 2 000 was above PostgREST's
+  `max_rows` (1 000, `supabase/config.toml`), which truncates SILENTLY: the saturation check could
+  never fire and a rank was read off part of a session's Sends. The cap is now 1 000. The deployed
+  ceiling is a dashboard setting this repo cannot read, so the read also asks for its exact count
+  and refuses any answer shorter than it (the expo comp read's posture). The orders leg gains its own
+  saturation refusal. The test fake now applies a server ceiling: one fixture hits the cap exactly,
+  one exceeds the ceiling, and one lowers the ceiling below the cap so only the count can tell.
+- **Settlement food, told apart by who paid.** `mms_fire_cart` stamps `fire_at = now() + 10 s` (the
+  grace deadline) on an open cart; `mms_fire_pending_food` stamps `fire_at = now()` on a paid one; no
+  column records which made a batch. So a staff settle inside a Send's grace made that Send look like
+  settlement food. Every staff tender refuses unsent dine-in drafts (`staffSettleUnsentVerdict`: cash
+  and the secure tab in `staff-cart.ts`, the reader in `terminal.ts`) and stamps `settled_by`, so a
+  staff-settled cart cannot carry settlement food: every batch on it is a Send. On a guest-paid cart a
+  batch whose `fire_at` is at or after the order is settlement food. **The one case no stamp decides**
+  is a Send landing in the 10 s before a GUEST's own card payment is recorded: it reads as settlement
+  food (no number; later Sends of that visit one lower). Closing it needs the drain to stamp its batch
+  (a migration, owner-gated); recorded in the PD5 row.
+- **Decided numbers are told apart too.** A merge re-parents another table's round 1 into this
+  session, and two frozen `n: 1` decisions named both "Table 4 · Round 1". Round tags now take the
+  same stable discriminator as time tags (one `discriminators` helper for both): four hex characters
+  of the card's key, extended while two live cards or a rail chip still tie.
+- **One start instant for Undo and "served".** The pill and the Bring-back chip now measure their
+  windows from the All done TAP (`RecallEntry.tappedAt`), not from the answer. The server stamps
+  `bumped_at` between the two, so the pill always closes before `trackStage` counts the line served,
+  and the chip before `mms_recall_ticket`'s two minutes run out. The cost is the round trip, taken off
+  the visible window. An answer that lands after the whole window opens no pill; the rail still
+  brings the bump back. This closes §H.1's open question with no migration.

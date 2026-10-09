@@ -62,12 +62,15 @@ const OWING_LINE_CAP = 500;
 /** PD5 — the round read's bounds: the non-cancelled carts of the board's sessions (a table visit is
  *  one open cart plus its paid ones), then every batched line of the dine-in ones. Past either cap
  *  the read did not answer, and every round is `unknown` — ADVISORY, never `outage` (m5 decision 9).
- *  The lines cap is 2 000 (the blind pass on #328): the ordinal is a rank over EVERY batched line of
- *  each live dine-in visit, served and voided included (a void keeps its batch, a served round is
- *  still round 1), so the read cannot be scoped by state — a visit is tens of lines and the board
- *  holds tens of tables at most, and the rows are four small columns. */
+ *  The lines cap is 1 000 — PostgREST's `max_rows` (`supabase/config.toml`), which truncates
+ *  SILENTLY: a cap above it never saturates, and the rank is read off a partial history (Codex
+ *  round 2 on #328). At the cap the read cannot say, and every round reads `unknown`; and because
+ *  the deployed ceiling is a dashboard setting this repo cannot read, the read also asks for its
+ *  exact count and refuses any answer shorter than it (the expo comp read's posture). The ordinal
+ *  ranks EVERY batched line of each live dine-in visit, served and voided included (a void keeps its
+ *  batch; a served round is still round 1), so the read cannot be scoped by state. */
 const ROUND_CART_CAP = 200;
-const ROUND_LINE_CAP = 2_000;
+const ROUND_LINE_CAP = 1_000;
 /**
  * M180 — the service window the queue reads, and why an unbounded cap was a lie waiting to happen.
  *
@@ -495,15 +498,20 @@ async function readRounds(
   const [linesRes, ordersRes] = await Promise.all([
     db
       .from("qr_cart_items")
-      .select("cart_id,fire_batch,fire_at,fulfillment")
+      .select("cart_id,fire_batch,fire_at,fulfillment", { count: "exact" })
       .in("cart_id", cartIds)
       .not("fire_batch", "is", null)
       .limit(ROUND_LINE_CAP),
-    // An order exists only once its cart is paid, and a Send can never fire on a paid cart: a
-    // batch fired at or after its cart's order is `mms_fire_pending_food`'s settlement food.
-    db.from("qr_orders").select("cart_id,created_at").in("cart_id", cartIds).limit(ROUND_CART_CAP),
+    // The paid moment, and who took it: settlement food exists only on a cart its GUEST paid —
+    // every staff tender refuses unsent dine-in drafts (`staffSettleUnsentVerdict`: cash and the
+    // secure tab, `staff-cart.ts`; the reader, `terminal.ts`) and stamps `settled_by`.
+    db
+      .from("qr_orders")
+      .select("cart_id,created_at,settled_by")
+      .in("cart_id", cartIds)
+      .limit(ROUND_CART_CAP),
   ]);
-  const { data: batched, error: linesError } = linesRes;
+  const { data: batched, error: linesError, count: linesCount } = linesRes;
   if (linesError || !batched) {
     console.error("[kitchen] round read (lines) failed — rounds unknown this poll", {
       message: linesError?.message,
@@ -516,18 +524,45 @@ async function readRounds(
     });
     return null;
   }
+  // Shorter than its own count: the API's row ceiling cut it below our cap. A rank read off part of
+  // a session's Sends is a guessed number, so it is no answer at all.
+  if (linesCount === null || linesCount > batched.length) {
+    console.error(
+      "[kitchen] round read (lines) truncated below its count — rounds unknown this poll",
+      {
+        count: linesCount,
+        rows: batched.length,
+      },
+    );
+    return null;
+  }
   if (ordersRes.error || !ordersRes.data) {
     console.error("[kitchen] round read (orders) failed — rounds unknown this poll", {
       message: ordersRes.error?.message,
     });
     return null;
   }
+  if (queueEmptiness(ordersRes.data.length, ROUND_CART_CAP) === "cannot-say") {
+    console.error("[kitchen] round read (orders) saturated — rounds unknown this poll", {
+      cap: ROUND_CART_CAP,
+    });
+    return null;
+  }
+  // Settlement food is told apart by the paid moment ONLY on a cart its guest paid (Codex round 2
+  // on #328): a staff-settled cart cannot carry it, so every batch there is a Send — including one
+  // fired inside the 10-second grace that the settle landed in (its `fire_at`, the grace deadline,
+  // is after the order). On a guest-paid cart a batch whose `fire_at` is at or after the order is
+  // settlement food; the one case no stamp decides — a Send landing inside the 10 s before a GUEST's
+  // own card payment is recorded — is read as settlement food (m5 §H.2).
+  const staffSettled = new Set<string>();
   const paidAtByCart = new Map<string, string>();
   for (const o of ordersRes.data) {
     if (o.cart_id === null) continue;
+    if (o.settled_by) staffSettled.add(o.cart_id);
     const prev = paidAtByCart.get(o.cart_id);
     if (prev === undefined || o.created_at < prev) paidAtByCart.set(o.cart_id, o.created_at);
   }
+  for (const cartId of staffSettled) paidAtByCart.delete(cartId);
   const bySession = new Map<string, RoundLine[]>();
   for (const r of batched) {
     const sid = sessionByCart.get(r.cart_id);

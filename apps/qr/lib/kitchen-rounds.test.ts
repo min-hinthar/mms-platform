@@ -289,8 +289,8 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
     const r1 = card();
     const r2 = r2card();
     const tags = cardTags([r1, r2], noRail, decided([r1, r2]));
-    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1 });
-    expect(tags.get(r2.key)).toEqual({ kind: "round", n: 2 });
+    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1, disc: null });
+    expect(tags.get(r2.key)).toEqual({ kind: "round", n: 2, disc: null });
   });
 
   it("the round in the name is the card's DECISION, never the live read (the blind pass on #328; `kitchen-rounds/name-reads-the-live-ordinal`)", () => {
@@ -303,8 +303,8 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
       r2card({ round: { kind: "n", n: 4 } }),
     ];
     const tags = cardTags(renumbered, noRail, frozen);
-    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1 });
-    expect(tags.get(r2.key)).toEqual({ kind: "round", n: 2 });
+    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1, disc: null });
+    expect(tags.get(r2.key)).toEqual({ kind: "round", n: 2, disc: null });
     // A card still provisional under a failed read falls back to its stamp, never to the read's number.
     const u = r2card({ round: { kind: "n", n: 2 } });
     const provisional = new Map<string, RoundDecision>([
@@ -321,7 +321,11 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
   it("a card whose twin sits on the Bring-back rail is tagged too, so two chips are never alike (`kitchen-rounds/rail-twin-ignored`)", () => {
     const r2 = r2card();
     const chip = card(); // round 1, bumped
-    expect(cardTags([r2], [chip], decided([r2])).get(r2.key)).toEqual({ kind: "round", n: 2 });
+    expect(cardTags([r2], [chip], decided([r2])).get(r2.key)).toEqual({
+      kind: "round",
+      n: 2,
+      disc: null,
+    });
     expect(cardTags([r2], [{ ...chip, sessionId: "s9" }], decided([r2])).get(r2.key)).toBeNull();
   });
 
@@ -402,7 +406,7 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
     const r1 = card();
     const togo = r2card({ round: { kind: "none" } });
     const tags = cardTags([r1, togo], noRail, decided([r1, togo]));
-    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1 });
+    expect(tags.get(r1.key)).toEqual({ kind: "round", n: 1, disc: null });
     expect(tags.get(togo.key)).toEqual({ kind: "time", stampIso: togo.stampIso, disc: null });
   });
 
@@ -412,6 +416,37 @@ describe("cardTags — what the pill, the chip and the names add to 'Table 4'", 
     const tags = cardTags([p, q], noRail, decided([p, q]));
     expect(tags.get(p.key)).toBeNull();
     expect(tags.get(q.key)).toBeNull();
+  });
+});
+
+describe("cardTags — two DECIDED numbers that collide are told apart (Codex round 2 on #328)", () => {
+  it("after a merge two live round-1 cards of one session and table each take their key's discriminator, extended while they tie (`kitchen-rounds/round-duplicates-undiscriminated`)", () => {
+    // Table 4's own round 1, and Table 6's round 1 re-parented into Table 4's session by a merge:
+    // both decisions were frozen at 1 when each landed.
+    const own = card();
+    const merged = card({ key: "b|" + B2, fireBatch: B2, stampIso: at(-300_000) });
+    const tags = cardTags([own, merged], noRail, decided([own, merged]));
+    expect(tags.get(own.key)).toEqual({ kind: "round", n: 1, disc: "3f2a" });
+    expect(tags.get(merged.key)).toEqual({ kind: "round", n: 1, disc: "7d0e" });
+    // A shared prefix extends both, one character at a time.
+    const near = "3f2a9c10-9999-4aaa-8bbb-000000000003";
+    const twin = card({ key: "b|" + near, fireBatch: near });
+    const ext = cardTags([own, twin], noRail, decided([own, twin]));
+    expect(ext.get(own.key)).toEqual({ kind: "round", n: 1, disc: "3f2a9c101" });
+    expect(ext.get(twin.key)).toEqual({ kind: "round", n: 1, disc: "3f2a9c109" });
+    // Different numbers never collide; a chip on the rail with the same number does.
+    const r2 = r2card();
+    expect(cardTags([own, r2], noRail, decided([own, r2])).get(own.key)).toEqual({
+      kind: "round",
+      n: 1,
+      disc: null,
+    });
+    const chip = card({ key: "b|" + B2, fireBatch: B2 });
+    expect(cardTags([own], [chip], decided([own])).get(own.key)).toEqual({
+      kind: "round",
+      n: 1,
+      disc: "3f2a",
+    });
   });
 });
 

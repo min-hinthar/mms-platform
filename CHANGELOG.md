@@ -55,6 +55,11 @@ served`, the union post-pay's `@mms/ui` `KitchenTrack` declares identically), `t
   part in the ties; settlement food (fired at or after its cart's order) is never a numbered round;
   the carts leg joins the `Promise.all`, the lines cap is 2 000 and both saturation branches are
   pinned. m5 §H.1 has the record.
+- **Codex round 2 on #328:** the round read's line cap sits at the API's 1 000-row ceiling and an
+  exact count refuses any silently truncated answer; settlement food is told apart only on a cart its
+  guest paid (a staff-settled cart carries none); decided round numbers that collide after a merge
+  take the same discriminator as time tags; the Undo pill and the Bring-back chip start at the tap,
+  so Undo is never offered over a line the server counts as served. m5 §H.2 has the record.
 - **Gates:** 44 new mutants (`kds-undo/*`, `kitchen-track/*`, `kitchen-rounds/*`, `kitchen/*`,
   `kds-rounds/*`, `staff-clock/seconds-stamp-in-the-process-zone`); `KdsBoard.test.tsx` gains the
   two-cards cases; `kitchen-queue-counter.test.ts` the dine-in cases; `KdsStopCard.test.tsx` the shape.

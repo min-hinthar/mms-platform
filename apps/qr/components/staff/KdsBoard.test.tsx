@@ -3033,6 +3033,77 @@ describe("PD5 — round two lands on a ticket that's still cooking: one Send, on
     expect(cards(container)[0]!.getAttribute("aria-label")).toContain("Table 4 · Round 2");
   });
 
+  it("after a merge two live round-1 cards of one table are never named alike: each name carries its key's discriminator (Codex round 2 on #328)", () => {
+    // Table 4's own round 1 and the merged-in table's round 1, both decided 1 when they landed.
+    currentQueue = {
+      ...queue(),
+      tickets: [
+        roundOne({ key: "b|b1", fireBatch: "b1" }),
+        roundTwo({ key: "b|b9", fireBatch: "b9", round: { kind: "n", n: 1 } }),
+      ],
+    };
+    const { container } = mount("en");
+    const names = cards(container).map((c) => c.getAttribute("aria-label"));
+    // MUTATION: the round branch of `ticketId` dropping `tag.disc` — both read "Table 4 · Round 1", red.
+    expect(names).toEqual([
+      `Table 4 · Round 1 · b1 — ${ts("en", "kds.channel.dinein")}`,
+      `Table 4 · Round 1 · b9 — ${ts("en", "kds.channel.dinein")}`,
+    ]);
+  });
+
+  it("the Undo pill and the Bring-back chip start at the TAP, so neither outlives the server's window (Codex round 2 on #328)", async () => {
+    // The server stamps `bumped_at` between the tap and its answer; a window measured from the
+    // answer would still offer Undo after `trackStage` counts the line served.
+    let dateNow = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => dateNow);
+    currentQueue = { ...queue(), tickets: [roundOne()] };
+    const q = mount("en");
+    const { container } = q;
+    const d = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => d.promise);
+    currentQueue = { ...queue(), tickets: [] };
+    fireEvent.click(bumpButtons(q)[0]!); // the tap, at 1 000 000
+    await waitFor(() => expect(bumpTicket).toHaveBeenCalledTimes(1));
+    dateNow = 1_003_000; // the answer lands three seconds later
+    await act(async () => {
+      d.resolve({ ok: true });
+    });
+    await waitFor(() => expect(container.querySelector(".kds-undo")).not.toBeNull());
+    expect(container.querySelector(".kds-recall-btn")).not.toBeNull();
+    // 6.5 s after the TAP (3.5 s after the answer): the pill is gone.
+    // MUTATION: `expiresAt: Date.now() + KDS_UNDO_MS` in onBumped — it lives to 1 009 000, red.
+    dateNow = 1_006_500;
+    await waitFor(() => expect(container.querySelector(".kds-undo")).toBeNull(), {
+      timeout: 2_500,
+    });
+    expect(container.querySelector(".kds-recall-btn")).not.toBeNull();
+    // 120.5 s after the tap: the chip is gone too (the SQL's two minutes run from `bumped_at`).
+    // MUTATION: `expiresAt: Date.now() + RECALL_MS` at the answer — it lives to 1 123 000, red.
+    dateNow = 1_120_500;
+    await waitFor(() => expect(container.querySelector(".kds-recall-btn")).toBeNull(), {
+      timeout: 2_500,
+    });
+  });
+
+  it("an answer that lands after the tap's whole window opens no pill — the rail still brings it back", async () => {
+    let dateNow = 2_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => dateNow);
+    currentQueue = { ...queue(), tickets: [roundOne()] };
+    const q = mount("en");
+    const { container } = q;
+    const d = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => d.promise);
+    currentQueue = { ...queue(), tickets: [] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(bumpTicket).toHaveBeenCalledTimes(1));
+    dateNow = 2_007_000; // seven seconds: past the six-second window
+    await act(async () => {
+      d.resolve({ ok: true });
+    });
+    await waitFor(() => expect(container.querySelector(".kds-recall-btn")).not.toBeNull());
+    expect(container.querySelector(".kds-undo")).toBeNull();
+  });
+
   it("round 2 arrives as its OWN card: it flashes and chimes once, round 1 does not re-flash, and a repeated poll re-arrives nothing", async () => {
     soundWanted = true;
     armOk = true;

@@ -107,6 +107,11 @@ type RecallEntry = {
   card: TagCard;
   label: string;
   lineIds: string[];
+  /** The device instant of the All done TAP (Codex round 2 on #328). The server stamps `bumped_at`
+   *  between the tap and its answer, so a window measured from the tap ends no later than the
+   *  server's: the pill closes before `trackStage` (and the TV's TURN, and the pay door) can count
+   *  the line served, and the chip before `mms_recall_ticket`'s two minutes run out. */
+  tappedAt: number;
   expiresAt: number;
   stillOn: string | null;
 };
@@ -163,7 +168,7 @@ function ticketId(
       tag === null
         ? ""
         : tag.kind === "round"
-          ? ` · ${tf(lang, "kds.round", { id: tag.n })}`
+          ? ` · ${tf(lang, "kds.round", { id: tag.n })}${tag.disc === null ? "" : ` · ${tag.disc}`}`
           : [stampLabel(tag.stampIso), tag.disc ?? ""]
               .filter((part) => part !== "")
               .map((part) => ` · ${part}`)
@@ -853,10 +858,13 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // six seconds (the tap beside it, mid-rush — K22's own scenario) must not evict the dish's
       // only way back: the 86 keeps the bar until it expires, and this bump is reachable from the
       // recall rail the whole two minutes. The reverse (an 86 after a bump) may take the slot.
-      setUndo((prev) =>
-        prev?.kind === "eighty6" && prev.expiresAt > Date.now()
-          ? prev
-          : { kind: "bump", ...entry, expiresAt: Date.now() + KDS_UNDO_MS },
+      setUndo(
+        (prev) =>
+          prev?.kind === "eighty6" && prev.expiresAt > Date.now()
+            ? prev
+            : entry.tappedAt + KDS_UNDO_MS > Date.now()
+              ? { kind: "bump", ...entry, expiresAt: entry.tappedAt + KDS_UNDO_MS }
+              : prev, // a late answer past the window: no pill — the rail still brings it back
       );
       // PD5 (decision 12) — the maître d's one quiet line, said once with the bump sentence and
       // only while true: the table's OTHER card is still on the board.
@@ -1739,6 +1747,7 @@ function TicketCard({
       // only the ids it is given, so no RPC change).
       const lineIds = ticket.lines.map((l) => l.id);
       const label = id.main; // the name the tap was made under — a late answer says the same one
+      const tappedAt = Date.now(); // the windows start here, never at the answer
       // Decision 12, captured at the tap: the table whose other card is still on the board.
       const still = stillOn
         ? tf(lang, "kds.table", { id: ticket.tableNumber ?? ticket.label })
@@ -1768,7 +1777,8 @@ function TicketCard({
                 },
                 label,
                 lineIds,
-                expiresAt: Date.now() + RECALL_MS,
+                tappedAt,
+                expiresAt: tappedAt + RECALL_MS,
                 stillOn: still,
               },
               label,
