@@ -920,3 +920,26 @@ record>))`, no client-view reference, no hand-written past tense, `undoOutcome` 
    failed; "Try again" runs it now) and the page's Toast (what the queued scans came to). Polite
    announcements queue; neither interrupts the other. Re-running the failed search on `online` is a
    nice-to-do (filed under PD4's row), not a correctness fix.
+
+#### H.5 · Codex on #329's merge head `ff29547` — three P2s, fixed in one commit
+
+- **An in-flight replay could still leave an Undo that removes both units.** Retiring at a write's
+  start (and again when a replay lands) misses this order: a replay of the item starts → the sheet add
+  starts → the sheet's write lands (×1) → the replay's lands (×2) → the replay answers (no Undo yet) →
+  the sheet answers with a read taken before the replay landed and mints an Undo of confirmed qty 1 →
+  the Undo writes 0. Now every write of an item is tallied in a per-barcode ledger (`writeStarted` /
+  `writeLanded`: events and in-flight count; `lib/scan-undo.ts`), the sheet add takes its mark right
+  after its own start, and it mints only when its own landing is the one event since and nothing is in
+  flight (`undoMayMint`). Otherwise no Undo is offered (the stepper is). A replay's landing also
+  retires a matching Undo. `check:scan-repeat` proposition 6 f pins that every `scanAdd` / `setQty`
+  outside the Undo is on the ledger (a top-level start, a landing in a `finally`) and that the mint is
+  gated with a mark taken after the add's own start; the exact order above is a test.
+- **Offline, the Name sheet waited for a failed lookup.** A keystroke resets the hits, so the offline
+  state (which required a completed empty result) never showed and the request still went out.
+  `lib/name-search.ts` decides both halves: no request with the radio down (the query is sent when it
+  returns — `online` is a dependency of the debounced search), and the sheet's offline state at once.
+  Browse keeps its shipped "Search unavailable — please try again.", now immediately.
+- **"Start a fresh basket" dropped focus on `<body>` on the Scan door.** `parkFocus` picked the pressed
+  button (its `fresh` candidate) because the field and the stage were absent; the button then left
+  with the banner. `freshBasketLanding` never names that button, and `usePendingFocus` waits for the
+  new stage to mount, giving up if the shopper moved focus elsewhere.

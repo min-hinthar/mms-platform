@@ -120,9 +120,8 @@ const UNDO: Fixture[] = [
   },
   {
     name: "the record built by `undoFromAdd` over the client view",
-    find: "          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now });",
-    replace:
-      "          const u = undoFromAdd({ barcode, lines: linesRef.current, openedAt: now });",
+    find: "            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })",
+    replace: "            ? undoFromAdd({ barcode, lines: linesRef.current, openedAt: now })",
     expect: /proposition 6: .*undoFromAdd must take the add's OWN response/,
   },
   {
@@ -152,6 +151,41 @@ const UNDO: Fixture[] = [
     replace: '      setUndo((prev) => undoAfterWrite(prev, lastScanned?.code ?? ""));',
     expect:
       /proposition 6: `setQty\(line.lineId, nextQty\)` writes line.barcode without first retiring/,
+  },
+  // f. the write ledger (Codex on #329's head ff29547): the mint is gated, every write tallied
+  {
+    name: "the Undo minted UNGATED — a replay that crossed the add goes unseen",
+    find: "          const u = undoMayMint(writesRef.current, barcode, mark)\n            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })\n            : null;",
+    replace: "          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now });",
+    expect:
+      /proposition 6: `undoFromAdd\(\{ barcode, lines: r\.lines, openedAt: now \}\)` mints an Undo UNGATED/,
+  },
+  {
+    name: "the mint's mark taken BEFORE its own start (it would count itself as another writer)",
+    find: "      writesRef.current = writeStarted(writesRef.current, barcode);\n      const mark = writeMark(writesRef.current, barcode);",
+    replace:
+      "      const mark = writeMark(writesRef.current, barcode);\n      writesRef.current = writeStarted(writesRef.current, barcode);",
+    expect: /the mint's `writeMark` must be taken AFTER this add's own `writeStarted`/,
+  },
+  {
+    name: "a replay that never joins the ledger",
+    find: "        writesRef.current = writeStarted(writesRef.current, entry.barcode);\n",
+    replace: "",
+    expect:
+      /proposition 6: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` is not on the write ledger/,
+  },
+  {
+    name: "a stepper whose landing is not in a finally (a throw would leave it in flight)",
+    find: "      } finally {\n        writesRef.current = writeLanded(writesRef.current, line.barcode);\n      }",
+    replace: "      }\n      writesRef.current = writeLanded(writesRef.current, line.barcode);",
+    expect: /proposition 6: `setQty\(line\.lineId, nextQty\)` is not on the write ledger/,
+  },
+  {
+    name: "the add's landing tallied under ANOTHER item",
+    find: "      } finally {\n        writesRef.current = writeLanded(writesRef.current, barcode);\n      }",
+    replace:
+      "      } finally {\n        writesRef.current = writeLanded(writesRef.current, scanId);\n      }",
+    expect: /proposition 6: `scanAdd\(cartId, barcode, scanId\)` is not on the write ledger/,
   },
 ];
 

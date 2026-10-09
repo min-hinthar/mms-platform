@@ -42,13 +42,21 @@ import {
   type ScanPairing,
 } from "@/lib/scan-pairing";
 import { useStageCover } from "@/lib/hooks/useStageCover";
-import { nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
+import { freshBasketLanding, nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
+import { usePendingFocus } from "@/lib/hooks/usePendingFocus";
 import { nextRefusal, type SheetRefusal } from "@/lib/sheet-refusal";
+import { nameSearchStep } from "@/lib/name-search";
 import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
 import {
   chipArmed,
+  NO_WRITES,
   undoAfterWrite,
   undoFromAdd,
+  undoMayMint,
+  writeLanded,
+  writeMark,
+  writeStarted,
+  type WriteLedger,
   undoOpen,
   undoOutcome,
   undoSecondsLeft,
@@ -203,6 +211,11 @@ export default function Grocery() {
   // keyboard hold that pauses the window (lib/undo-hold.ts, WCAG 2.2.1). `tick` re-renders the
   // seconds leaf and expires the window; the write itself is NEVER optimistic.
   const [undo, setUndo] = useState<AddUndo | null>(null);
+  // PD4 (Codex on #329's head ff29547) — every write of an item, tallied per barcode: a sheet add
+  // mints its Undo only when no other write of the item started or landed inside its own window and
+  // none is still in flight (`undoMayMint`, lib/scan-undo.ts). A ref: the handlers read it at the
+  // instant they decide, never through a render.
+  const writesRef = useRef<WriteLedger>(NO_WRITES);
   // Mirrors `undo` for `add()`'s repeat toast (a memoized handler; render reads the state).
   const undoRef = useRef<AddUndo | null>(null);
   useEffect(() => {
@@ -296,7 +309,8 @@ export default function Grocery() {
     setQuery(q);
     setHits(null);
     setSearchFailed(false);
-    setSearching(q.trim().length >= 2);
+    // "Searching…" only for a query that will actually be sent (lib/name-search.ts).
+    setSearching(nameSearchStep(q, navigator.onLine !== false) === "fetch");
   }, []);
   // PD4 — the radio, live (the ScanStage reads it the same way): the Name sheet's offline state is
   // "Search needs a connection", not "unavailable". `truth` is the probe's cached verdict, not this.
@@ -320,6 +334,19 @@ export default function Grocery() {
       panelTitle: document.getElementById("scan-panel-title"),
     })?.focus({ preventScroll: true });
   }, []);
+  // PD4 (Codex on #329's head ff29547) — "Start a fresh basket" parks NOT through `parkFocus`: the
+  // pressed button is its `fresh` candidate and leaves with the banner, and on the Scan door the
+  // stage it should land on mounts a render later. `usePendingFocus` waits for it.
+  const pickFreshLanding = useCallback(
+    () =>
+      freshBasketLanding({
+        field: searchRef.current,
+        stage: document.getElementById("scan-stage"),
+        panelTitle: document.getElementById("scan-panel-title"),
+      }),
+    [],
+  );
+  const landFresh = usePendingFocus(pickFreshLanding);
 
   // W4b — the Browse|Scan tab. Browse is the DEFAULT door (lib/grocery-landing.ts says why and what
   // switching it would owe); the camera ask waits until the shopper chooses Scan. Phase 1c — the
@@ -593,11 +620,14 @@ export default function Grocery() {
       if (nextQty <= 0 && !document.querySelector(".mms-sheet")) parkFocus();
       flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
       let wrote = false;
+      writesRef.current = writeStarted(writesRef.current, line.barcode);
       try {
         await ledger.track(setQty(line.lineId, nextQty));
         wrote = true;
       } catch {
         flash("Couldn’t update that — try again.");
+      } finally {
+        writesRef.current = writeLanded(writesRef.current, line.barcode);
       }
       // The reconcile ticket is allocated AFTER the write await — so the recovery handler's
       // ticket fast-forward cannot void it. If the shopper swapped carts while the write was in
@@ -785,6 +815,10 @@ export default function Grocery() {
         return;
       }
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
+      // The write joins the item's ledger; `mark` is taken right after its OWN start, so the mint
+      // below can tell whether any other write of the item crossed it (lib/scan-undo.ts).
+      writesRef.current = writeStarted(writesRef.current, barcode);
+      const mark = writeMark(writesRef.current, barcode);
       let r;
       try {
         r = await ledger.track(scanAdd(cartId, barcode, scanId));
@@ -809,6 +843,8 @@ export default function Grocery() {
           void diagnose();
         }
         return;
+      } finally {
+        writesRef.current = writeLanded(writesRef.current, barcode);
       }
       // An abandoned cart's response fires NOTHING — not the toast, not the counter, not the
       // analytics event, not a state transition. The seq guard alone couldn't stop these side
@@ -853,8 +889,13 @@ export default function Grocery() {
         if (sheet) {
           if (sheet.miss) pairingRef.current = pairMiss(sheet.miss, barcode);
           // Built from the add's OWN confirmed view (`r.lines`), keeping its qty: the Undo writes
-          // exactly one fewer — never a qty from the client view (lib/scan-undo.ts).
-          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now });
+          // exactly one fewer — never a qty from the client view (lib/scan-undo.ts). Minted ONLY
+          // when no other write of the item crossed this add (`undoMayMint`): a replay that started
+          // first and landed after this add's read would leave that view a unit short, and "one
+          // fewer" of it removes both (Codex on #329's head ff29547). No Undo then; the stepper is.
+          const u = undoMayMint(writesRef.current, barcode, mark)
+            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })
+            : null;
           setUndo(u);
           setUndoLeft(u ? undoSecondsLeft(u, now) : 0);
           holdRef.current = NO_HOLD;
@@ -979,8 +1020,16 @@ export default function Grocery() {
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
         setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too
+        writesRef.current = writeStarted(writesRef.current, entry.barcode);
         const seq = ++reqSeq.current;
-        const r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
+        let r: Awaited<ReturnType<typeof scanAdd>>;
+        try {
+          r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
+        } finally {
+          writesRef.current = writeLanded(writesRef.current, entry.barcode);
+        }
+        // …and again once it LANDS: an Undo minted while it was in flight would take its unit too.
+        if (r.ok) setUndo((prev) => undoAfterWrite(prev, entry.barcode));
         if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;
         if (r.ok) {
           delivered += 1;
@@ -1161,9 +1210,20 @@ export default function Grocery() {
     let active = true;
     const t = window.setTimeout(() => {
       if (!active) return;
-      if (q.length < 2) {
+      const step = nameSearchStep(q, online);
+      if (step === "clear") {
         setHits(null);
         setSearchFailed(false);
+        setSearching(false);
+        return;
+      }
+      if (step === "offline") {
+        // PD4 (Codex on #329's head ff29547) — the radio is KNOWN down: no request. Browse says its
+        // shipped "Search unavailable — please try again." at once (it used to after the lookup
+        // failed); the Name sheet reads the radio and says "Search needs a connection". `online` is
+        // a dependency, so the query is sent the moment the radio is back.
+        setHits([]);
+        setSearchFailed(true);
         setSearching(false);
         return;
       }
@@ -1185,7 +1245,7 @@ export default function Grocery() {
       active = false;
       window.clearTimeout(t);
     };
-  }, [query, searchNonce]);
+  }, [query, searchNonce, online]);
 
   // Search-hit add — same serialization as the browse cards (adversarial MED-3: an unguarded
   // double-tap on a result row was two server adds). Pre-basket, `add` flashes the honest notice
@@ -1425,10 +1485,11 @@ export default function Grocery() {
             className="grocery-retry"
             onClick={() => {
               // This very button unmounts on the next render (the banner is gated on cartGone) —
-              // park focus on a stable element FIRST (the Browse field, or the stage — PD4), and
-              // let the toast (the one live region) say the re-mint is underway; "Starting your
-              // basket…" below is deliberately not live (Codex P2, WCAG 2.4.3).
-              parkFocus();
+              // focus goes to a stable element: the Browse field at once, or on the Scan door the
+              // stage once it mounts (`landFresh` waits — never this leaving button; Codex on #329's
+              // head ff29547). The toast (the one live region) says the re-mint is underway;
+              // "Starting your basket…" below is deliberately not live (Codex P2, WCAG 2.4.3).
+              landFresh();
               flash("Starting a fresh basket…");
               // Switching carts: VOID every outstanding ticket (fast-forward appliedSeq past them)
               // and zero the per-cart analytics counter. The seq guard alone only ORDERS responses

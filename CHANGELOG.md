@@ -90,6 +90,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   container; and the `initialFocus` allowlist reads every app and `@mms/ui` source, refusing aliases,
   `createElement`, re-exports and deep imports it cannot read. Every `check:scan-repeat` evasion is a
   committed fixture run in CI (`lib/check-scan-repeat.test.ts`).
+- **Codex on #329's merge head `ff29547`, three P2s, fixed in one commit** (the spec's §H.5): a sheet
+  add mints its Undo only when no other write of the item started or landed inside its window and
+  none is in flight — a per-barcode write ledger every write (live adds, replays, the stepper) is
+  routed through (`undoMayMint`, proposition 6 f), and a replay's landing retires the Undo too, so a
+  replay that crossed the add can no longer leave an Undo that removes both units; with the radio
+  known down the Name sheet says "Search needs a connection" at once and no request is sent
+  (`lib/name-search.ts`; the query re-runs when the radio returns); and "Start a fresh basket" hands
+  focus to the new stage once it mounts, never to the leaving button (`usePendingFocus`).
 
 ### The pickup promise — the guided claim ticket, "I’m here" with a take-back, M65 (2026-10-08, PD3)
 

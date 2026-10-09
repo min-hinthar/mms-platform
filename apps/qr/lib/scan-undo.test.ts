@@ -5,8 +5,13 @@ import {
   chipArmed,
   undoOpen,
   undoSecondsLeft,
+  NO_WRITES,
   undoAfterWrite,
   undoFromAdd,
+  undoMayMint,
+  writeLanded,
+  writeMark,
+  writeStarted,
   undoOutcome,
   undoSentence,
   undoTargetQty,
@@ -161,5 +166,73 @@ describe("undoOpen — a write in flight never expires under the pill", () => {
     // MUTATION: ignore `removing` → the pill vanishes mid-write and its outcome lands on nothing; red.
     expect(undoOpen(u, 1000 + 9000, 0, true)).toBe(true);
     expect(undoOpen(u, 1000 + 9000, 0, false)).toBe(false);
+  });
+});
+
+describe("undoMayMint — the write ledger: a sheet add mints its Undo only when no other write of the item crossed it", () => {
+  const X = "2990000000017";
+
+  it("CODEX ON ff29547 — the exact order: replay starts, sheet starts, both land, the replay answers first, then the sheet → NO Undo", () => {
+    // The sheet's own read was taken before the replay's write landed, so its confirmed qty is 1
+    // while the server holds 2; an Undo would write 0 and take both units.
+    // MUTATION: count only this add's own landing (`>=`, not `===`) → the Undo mints from the short
+    // view; red.
+    let l = NO_WRITES;
+    l = writeStarted(l, X); // the replay starts
+    l = writeStarted(l, X); // the sheet add starts …
+    const mark = writeMark(l, X); // … and takes its mark right after its own start
+    // (server: the sheet's write lands ×1, then the replay's ×2 — invisible to the client)
+    l = writeLanded(l, X); // the replay's response arrives
+    l = writeLanded(l, X); // the sheet's response arrives
+    expect(undoMayMint(l, X, mark)).toBe(false);
+  });
+
+  it("the replay still IN FLIGHT when the sheet's response arrives → no Undo (it may land after)", () => {
+    // MUTATION: ignore `inFlight` → the Undo mints and the replay's later landing makes it remove
+    // two; red.
+    let l = NO_WRITES;
+    l = writeStarted(l, X); // the replay starts
+    l = writeStarted(l, X);
+    const mark = writeMark(l, X);
+    l = writeLanded(l, X); // the sheet answers; the replay has not
+    expect(undoMayMint(l, X, mark)).toBe(false);
+  });
+
+  it("a write that STARTED and LANDED inside the window, nothing in flight → still no Undo", () => {
+    let l = NO_WRITES;
+    l = writeStarted(l, X);
+    const mark = writeMark(l, X);
+    l = writeStarted(l, X); // a stepper on the line
+    l = writeLanded(l, X);
+    l = writeLanded(l, X); // the sheet answers last
+    expect(undoMayMint(l, X, mark)).toBe(false);
+  });
+
+  it("CONTROL — the sheet add alone (and writes of OTHER items) mints its Undo", () => {
+    // MUTATION: an add that never mints → the shopper's Undo is gone for good; red.
+    let l = NO_WRITES;
+    l = writeStarted(l, "2990000000024"); // another item, still in flight
+    l = writeStarted(l, X);
+    const mark = writeMark(l, X);
+    l = writeLanded(l, X);
+    expect(undoMayMint(l, X, mark)).toBe(true);
+    // …and writes of X that finished BEFORE this add started do not count against it.
+    let k = NO_WRITES;
+    k = writeStarted(k, X);
+    k = writeLanded(k, X);
+    k = writeStarted(k, X);
+    const m2 = writeMark(k, X);
+    k = writeLanded(k, X);
+    expect(undoMayMint(k, X, m2)).toBe(true);
+  });
+
+  it("a landing takes the write out of flight, never below zero", () => {
+    // MUTATION: a landing that leaves `inFlight` up → every later add of the item is refused its
+    // Undo; red (the control above too).
+    let l = writeLanded(NO_WRITES, X);
+    l = writeStarted(l, X);
+    const mark = writeMark(l, X);
+    l = writeLanded(l, X);
+    expect(undoMayMint(l, X, mark)).toBe(true);
   });
 });

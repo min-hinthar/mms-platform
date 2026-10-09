@@ -171,6 +171,19 @@ describe("the Name sheet — guided states", () => {
     expect(counterTag()).toBeTruthy();
   });
 
+  it("OFFLINE AT ONCE: a fresh query with the radio down says so — never 'Searching…' (Codex on #329's head ff29547)", () => {
+    // A keystroke resets the hits to null, so the old predicate (a completed empty result) showed
+    // "Searching…" until the network gave up. MUTATION: `searching` checked before `offline` in
+    // the state line → "Searching…" over a radio known to be down; red.
+    render(
+      <GroceryNameSheet
+        {...base({ query: "durian", hits: null, searching: true, online: false })}
+      />,
+    );
+    expect(screen.getByText("Search needs a connection — or ask at the counter.")).toBeTruthy();
+    expect(screen.queryByText(/Searching/)).toBeNull();
+  });
+
   it("8–14 digits typed: the barcode line, no search state, no tag", () => {
     render(<GroceryNameSheet {...base({ query: "2990000000017", hits: [] })} />);
     expect(

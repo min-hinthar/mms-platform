@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { Button, Icon, Sheet } from "@mms/ui";
 import type { GroceryHit } from "@/lib/grocery";
 import { looksLikeBarcode } from "@/lib/scan-notice";
+import { nameSearchOffline } from "@/lib/name-search";
 import type { SheetRefusal } from "@/lib/sheet-refusal";
 import { t, type DictKey } from "@/lib/i18n";
 import { GroceryResultRow } from "./GroceryResultRow";
@@ -101,7 +102,9 @@ export function GroceryNameSheet({
   const asked = q.length >= 2 && !typedCode;
   const noMatch = asked && hits !== null && hits.length === 0 && !searching && !searchFailed;
   const failed = asked && searchFailed && online;
-  const offline = asked && !online && hits !== null && hits.length === 0;
+  // At ONCE with the radio down — a keystroke resets the hits, so waiting for an empty result showed
+  // "Searching…" until the network gave up (Codex on #329's head ff29547; lib/name-search.ts).
+  const offline = nameSearchOffline(asked, online, hits);
   const deadEnd = noMatch || failed || offline;
   const rows = asked && hits !== null && hits.length > 0 && !searchFailed;
   /** A MISS opened this sheet: the coverage truth, the camera hero and the counter tag are its. */
@@ -161,10 +164,10 @@ export function GroceryNameSheet({
             {fromMiss && <Line k="notYou" lead />}
             <Line k="oneWord" lead={!fromMiss} />
           </>
-        ) : searching && (hits === null || hits.length === 0) ? (
-          <Line k="searching" />
         ) : offline ? (
           <Line k="searchNeedsConnection" lead />
+        ) : searching && (hits === null || hits.length === 0) ? (
+          <Line k="searching" />
         ) : failed ? (
           <Line k="searchUnavailable" lead />
         ) : noMatch ? (

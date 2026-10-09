@@ -1189,18 +1189,59 @@ const COVER = "useStageCover";
     if (!target || !ts.isIdentifier(target[0]) || !charged) return;
     if (charged.pos >= target[1].pos && charged.end <= target[1].end) responses.add(target[0].text);
   });
+  const isNull = (e) => !!e && e.kind === ts.SyntaxKind.NullKeyword;
+  const mintMarks = [];
   const fromAdd = new Set();
+  /** `writesRef.current` — the ledger, read where the decision is made. */
+  const isLedger = (e) => !!e && printed(e) === "writesRef.current";
   walk(src, (n) => {
-    if (
-      !ts.isVariableDeclaration(n) ||
-      !ts.isIdentifier(n.name) ||
-      !n.initializer ||
-      !ts.isCallExpression(n.initializer) ||
-      !ts.isIdentifier(n.initializer.expression) ||
-      n.initializer.expression.text !== "undoFromAdd"
-    )
+    if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
+    if (n.expression.text !== "undoFromAdd") return;
+    // THE MINT IS GATED (Codex on #329's head ff29547): every `undoFromAdd(…)` is the taken arm of
+    // `const U = undoMayMint(writesRef.current, <code>, <mark>) ? undoFromAdd(…) : null`, <mark> the
+    // ONE `const <mark> = writeMark(writesRef.current, <code>)` of that function, taken after its own
+    // `writeStarted` (checked with the writes below).
+    let cond = n.parent;
+    while (cond && ts.isParenthesizedExpression(cond)) cond = cond.parent;
+    const decl = cond && cond.parent && ts.isVariableDeclaration(cond.parent) ? cond.parent : null;
+    const gate =
+      cond && ts.isConditionalExpression(cond) && cond.whenTrue === n ? cond.condition : null;
+    const gated =
+      !!decl &&
+      ts.isIdentifier(decl.name) &&
+      !!gate &&
+      ts.isCallExpression(gate) &&
+      ts.isIdentifier(gate.expression) &&
+      gate.expression.text === "undoMayMint" &&
+      gate.arguments.length === 3 &&
+      isLedger(gate.arguments[0]) &&
+      printed(gate.arguments[1]) === chargedCode &&
+      ts.isIdentifier(gate.arguments[2]) &&
+      isNull(unwrap(cond.whenFalse));
+    if (!gated) {
+      fail(
+        `proposition 6: \`${n.getText(src).slice(0, 60)}\` mints an Undo UNGATED — it must be the taken arm of\n` +
+          "  `undoMayMint(writesRef.current, <code>, <mark>) ? undoFromAdd(…) : null`: a write of the item\n" +
+          "  that crossed this add leaves its view short, and the Undo's absolute write takes both units.",
+      );
       return;
-    const obj = n.initializer.arguments[0];
+    }
+    const markName = gate.arguments[2].text;
+    const marks = declsOf(markName).filter(
+      (d) =>
+        d.initializer &&
+        ts.isCallExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        d.initializer.expression.text === "writeMark" &&
+        isLedger(d.initializer.arguments[0]) &&
+        printed(d.initializer.arguments[1]) === chargedCode,
+    );
+    if (declsOf(markName).length !== 1 || marks.length !== 1)
+      fail(
+        `proposition 6: the mint's mark \`${markName}\` must be ONE \`const ${markName} = writeMark(writesRef.current, ${chargedCode})\`.`,
+      );
+    else mintMarks.push(marks[0]);
+    const obj = n.arguments[0];
     const prop = (key) => {
       if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
       const p = obj.properties.find((q) => q.name && q.name.getText(src) === key);
@@ -1217,14 +1258,13 @@ const COVER = "useStageCover";
       ts.isIdentifier(lines.expression) &&
       responses.has(lines.expression.text);
     const ownCode = code && ts.isIdentifier(code) && code.text === chargedCode;
-    if (ownLines && ownCode) fromAdd.add(n.name.text);
+    if (ownLines && ownCode) fromAdd.add(decl.name.text);
     else
       fail(
         `proposition 6: \`${n.getText(src).slice(0, 80)}\` — undoFromAdd must take the add's OWN response\n` +
           `  (\`lines: <the scanAdd result>.lines\`, \`barcode\` the code scanAdd charged), never the client view.`,
       );
   });
-  const isNull = (e) => e.kind === ts.SyntaxKind.NullKeyword;
   /** `(p) => undoAfterWrite(p, B)` — the barcode B's printed text, or null when it is not that shape. */
   const afterWrite = (e) => {
     if (!e || !ts.isArrowFunction(e) || e.parameters.length !== 1) return null;
@@ -1316,6 +1356,72 @@ const COVER = "useStageCover";
           "  the same function. The Undo writes the add's confirmed qty minus one ABSOLUTELY, so a second\n" +
           "  write of the same item would make it take that unit too.",
       );
+  });
+  // f. THE LEDGER (Codex on #329's head ff29547): every write of a line outside the Undo — each live
+  //    `scanAdd` and `setQty` — is tallied: a TOP-LEVEL `writesRef.current = writeStarted(
+  //    writesRef.current, B)` before it in its own function, and the write inside a `try` whose
+  //    `finally` holds `writesRef.current = writeLanded(writesRef.current, B)` at its top level (a
+  //    throw still lands it, or `inFlight` never falls and no later add of the item mints). And the
+  //    mint's mark is taken AFTER its own start — a mark taken before it would count its own start
+  //    as another writer's, and one taken later could miss a write that started in between.
+  const ledgerStep = (st, fn, item) =>
+    ts.isExpressionStatement(st) &&
+    ts.isBinaryExpression(st.expression) &&
+    st.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    isLedger(st.expression.left) &&
+    ts.isCallExpression(st.expression.right) &&
+    ts.isIdentifier(st.expression.right.expression) &&
+    st.expression.right.expression.text === fn &&
+    st.expression.right.arguments.length === 2 &&
+    isLedger(st.expression.right.arguments[0]) &&
+    printed(st.expression.right.arguments[1]) === item;
+  walk(src, (w) => {
+    if (!ts.isCallExpression(w) || !ts.isIdentifier(w.expression)) return;
+    const kind = w.expression.text;
+    if ((kind !== CHARGE && kind !== "setQty") || isLiterallyDead(w)) return;
+    if (undoFn && w.pos >= undoFn.pos && w.end <= undoFn.end) return;
+    let item = null;
+    if (kind === CHARGE) item = w.arguments[1] ? printed(w.arguments[1]) : null;
+    else {
+      const id = w.arguments[0];
+      if (id && ts.isPropertyAccessExpression(id) && id.name.text === "lineId")
+        item = `${printed(id.expression)}.barcode`;
+    }
+    const f = enclosingFunction(w);
+    const top = f && f.body && ts.isBlock(f.body) ? f.body.statements : [];
+    const at = top.findIndex((st) => w.pos >= st.pos && w.end <= st.end);
+    const startAt =
+      item === null || at < 0
+        ? -1
+        : top.slice(0, at).findIndex((st) => ledgerStep(st, "writeStarted", item));
+    let landed = false;
+    for (let t = w.parent; t && t !== f; t = t.parent)
+      if (
+        ts.isTryStatement(t) &&
+        w.pos >= t.tryBlock.pos &&
+        w.end <= t.tryBlock.end &&
+        t.finallyBlock &&
+        t.finallyBlock.statements.some((st) => ledgerStep(st, "writeLanded", item))
+      )
+        landed = true;
+    if (startAt < 0 || !landed)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\` is not on the write ledger — it needs a top-level\n` +
+          `  \`writesRef.current = writeStarted(writesRef.current, ${item ?? "<the item>"})\` before it and a\n` +
+          `  \`writesRef.current = writeLanded(writesRef.current, ${item ?? "<the item>"})\` in the \`finally\` of a try\n` +
+          "  around it. An untallied write can cross a sheet add unseen, and that add mints an Undo from\n" +
+          "  a view a unit short — the Undo then removes both units.",
+      );
+    // The mint's mark, if this function mints: declared after the start, before the write.
+    for (const m of mintMarks) {
+      if (!(m.pos >= f.pos && m.end <= f.end)) continue;
+      const markAt = top.findIndex((st) => m.pos >= st.pos && m.end <= st.end);
+      if (markAt <= startAt || markAt >= at)
+        fail(
+          "proposition 6: the mint's `writeMark` must be taken AFTER this add's own `writeStarted` and\n" +
+            "  before its write — anywhere else it counts its own start as another writer's, or misses one.",
+        );
+    }
   });
 }
 

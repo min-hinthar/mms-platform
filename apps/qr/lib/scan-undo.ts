@@ -75,6 +75,58 @@ export function undoAfterWrite(u: AddUndo | null, barcode: string): AddUndo | nu
   return u !== null && u.barcode === barcode ? null : u;
 }
 
+/**
+ * THE WRITE LEDGER — may a sheet add MINT its Undo at all? (Codex on #329's head `ff29547`.)
+ *
+ * Retiring at a write's START misses a write that started EARLIER and lands LATER. The order that
+ * defeats it: a replay of the item starts → the sheet add starts → the sheet's write lands (×1) →
+ * the replay's write lands (×2) → the replay's response arrives (no Undo yet, nothing to retire) →
+ * the sheet's response arrives, its post-write read taken before the replay landed, and mints an
+ * Undo of `confirmedQty` 1 → the Undo writes 0 and BOTH units go. Retiring again when the replay
+ * lands does not help: in that order the Undo does not exist yet.
+ *
+ * So every write of an item — live adds, replays, the stepper, and the minting add itself — is
+ * tallied per barcode: `events` counts starts and landings, `inFlight` the writes not yet answered.
+ * An add takes its `mark` right after its OWN start; when its response has landed it may mint only
+ * if its own landing is the ONE event since (`events === mark + 1`) and nothing is still in flight.
+ * Anything else means another write of the item started or landed inside its window, so its view
+ * may not be the server's — and an absolute "one fewer" from a view that may be short is exactly
+ * the defect. No Undo is offered then; the stepper still is. Pure, so a value falsifies it;
+ * `check:scan-repeat` proposition 6 pins that the page routes every write through it.
+ */
+export type WriteTally = { events: number; inFlight: number };
+export type WriteLedger = ReadonlyMap<string, WriteTally>;
+export const NO_WRITES: WriteLedger = new Map();
+
+const tallyOf = (l: WriteLedger, barcode: string): WriteTally =>
+  l.get(barcode) ?? { events: 0, inFlight: 0 };
+
+/** A write of `barcode` has started. */
+export function writeStarted(l: WriteLedger, barcode: string): WriteLedger {
+  const t = tallyOf(l, barcode);
+  return new Map(l).set(barcode, { events: t.events + 1, inFlight: t.inFlight + 1 });
+}
+
+/** A write of `barcode` has been answered (landed, refused or thrown — it is no longer in flight). */
+export function writeLanded(l: WriteLedger, barcode: string): WriteLedger {
+  const t = tallyOf(l, barcode);
+  return new Map(l).set(barcode, {
+    events: t.events + 1,
+    inFlight: Math.max(0, t.inFlight - 1),
+  });
+}
+
+/** The mark an add takes right after its OWN start. */
+export function writeMark(l: WriteLedger, barcode: string): number {
+  return tallyOf(l, barcode).events;
+}
+
+/** May the add whose own write started at `mark` — and has since landed — mint its Undo? */
+export function undoMayMint(l: WriteLedger, barcode: string, mark: number): boolean {
+  const t = tallyOf(l, barcode);
+  return t.events === mark + 1 && t.inFlight === 0;
+}
+
 /** Is the window still open at `now`, after `heldMs` of keyboard hold? A window whose write is IN
  *  FLIGHT never expires under it: the pill keeps saying "Removing…" until the write answers. */
 export function undoOpen(u: AddUndo, now: number, heldMs = 0, removing = false): boolean {

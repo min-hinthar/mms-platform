@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { nameSheetCloseTarget, parkTarget, type FocusTarget } from "./grocery-focus";
+import {
+  freshBasketLanding,
+  nameSheetCloseTarget,
+  parkTarget,
+  type FocusTarget,
+} from "./grocery-focus";
 
 /**
  * PD4 — the market page's focus chains. Each MUTATION is a row in scripts/verify-slice.mjs
@@ -107,5 +112,21 @@ describe("parkTarget — the one parking fallback", () => {
     expect(parkTarget({ field: null, fresh: null, stage, panelTitle: el() })).toBe(stage);
     const panelTitle = el();
     expect(parkTarget({ field: null, fresh: null, stage: null, panelTitle })).toBe(panelTitle);
+  });
+});
+
+describe("freshBasketLanding — never the button that was pressed (it leaves with the banner)", () => {
+  it("the Scan door: no field — the stage once it mounts; null until then (the caller waits)", () => {
+    // MUTATION: drop the stage → a fresh basket on the Scan door lands nowhere; red.
+    const stage = el();
+    expect(freshBasketLanding({ field: null, stage, panelTitle: null })).toBe(stage);
+    expect(freshBasketLanding({ field: null, stage: null, panelTitle: null })).toBeNull();
+  });
+
+  it("the Browse field first; a camera panel's title last", () => {
+    const field = el();
+    const title = el();
+    expect(freshBasketLanding({ field, stage: el(), panelTitle: title })).toBe(field);
+    expect(freshBasketLanding({ field: null, stage: null, panelTitle: title })).toBe(title);
   });
 });
