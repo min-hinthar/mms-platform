@@ -2880,7 +2880,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     const list = within(dialog).getByRole("list");
     expect(list.textContent).toContain("Mohinga");
     // The kitchen's qty token: a multiple is filled.
-    expect(list.querySelector('.show-server-qty[data-many="true"]')!.textContent).toBe("2");
+    expect(list.querySelector('.pass-dish-qty[data-many="true"]')!.textContent).toBe("2");
     const status = within(dialog).getByRole("status");
     expect(status.textContent).toContain("Not sent yet");
     // No prices, no total on the ticket.

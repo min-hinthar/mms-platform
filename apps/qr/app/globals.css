@@ -2788,25 +2788,25 @@ html[data-fx="off"] .pa-mid {
   justify-content: safe center;
   padding: var(--s3) 0;
 }
-.show-server-list {
+.pass-dishes {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.show-server-row {
+.pass-dish {
   display: flex;
   align-items: center;
   gap: 14px;
   min-height: 76px;
   padding: 10px 0;
 }
-.show-server-row + .show-server-row {
+.pass-dish + .pass-dish {
   border-top: 1px solid var(--pass-unlit);
 }
 /* The kitchen's qty grammar (`qtyStands`, the KDS token) in the PASS's own inks — never a theme
    token on the paper: a single is a ringed numeral, a multiple is filled. The one accent fill on a
    pass that is not "now": the KDS exception the vocabulary names (m1 appendix C). */
-.show-server-qty {
+.pass-dish-qty {
   flex: none;
   min-width: 44px;
   height: 44px;
@@ -2820,27 +2820,27 @@ html[data-fx="off"] .pa-mid {
   font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
-.show-server-qty[data-many] {
+.pass-dish-qty[data-many] {
   background: var(--pass-ac);
   color: var(--pass-paper);
   box-shadow: none;
 }
-.show-server-names {
+.pass-dish-names {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
-.show-server-name,
-.show-server-name-my {
+.pass-dish-name,
+.pass-dish-name-my {
   font-size: var(--fs-h2);
   font-weight: var(--fw-bold);
   color: var(--pass-ink);
   overflow-wrap: anywhere;
 }
-.show-server-name {
+.pass-dish-name {
   line-height: var(--lh-snug);
 }
-.show-server-name-my {
+.pass-dish-name-my {
   font-family: var(--font-my);
   line-height: var(--lh-my);
 }

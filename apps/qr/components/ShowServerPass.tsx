@@ -111,23 +111,23 @@ export function ShowServerPass({
           }
           tear
         >
-          <ul role="list" aria-labelledby="card-status" className="show-server-list">
+          <ul role="list" aria-labelledby="card-status" className="pass-dishes">
             {dishes.map((d) => (
-              <li key={d.id} className="show-server-row">
+              <li key={d.id} className="pass-dish">
                 <span
-                  className="show-server-qty"
+                  className="pass-dish-qty"
                   data-many={qtyStands(d.qty) || undefined}
                   aria-hidden="true"
                 >
                   {d.qty}
                 </span>
-                <span className="show-server-names">
-                  <span className="show-server-name">
+                <span className="pass-dish-names">
+                  <span className="pass-dish-name">
                     <span className="sr-only">{`${d.qty} `}</span>
                     {d.name}
                   </span>
                   {d.nameMy && (
-                    <span lang="my" className="show-server-name-my">
+                    <span lang="my" className="pass-dish-name-my">
                       {d.nameMy}
                     </span>
                   )}
