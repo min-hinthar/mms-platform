@@ -4169,7 +4169,9 @@ export function Checkout({
               <SendToKitchenButton
                 ref={sendHandle}
                 cartId={cartId}
-                verb={hero}
+                // The host never waits on themselves (`orderStageHero` answers "send" first), so
+                // "wait" is a guest's arm only — narrowed here, never drawn by this control.
+                verb={hero === "wait" ? "bill" : hero}
                 grace={grace}
                 draftCount={kitchenDraftQty}
                 // 3c-ii — stashed while the table sheet is up, said once it has unmounted.

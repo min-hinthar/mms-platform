@@ -31,7 +31,7 @@ const GUEST: Authz = {
   locked: false,
   settling: false,
 };
-let authz: Authz | (() => never) = GUEST;
+let authz: Authz | (() => Error) = GUEST;
 class AuthzError extends Error {
   constructor(
     message: string,

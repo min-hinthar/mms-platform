@@ -91,18 +91,26 @@ type Res = { data: unknown; error: { message: string } | null };
 /** What each table answers this test. `null` error = success. */
 let cartRes: Res = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
 let itemsRes: Res = { data: [], error: null };
+/** PD1 — the advisory nudge-stamp read on `qr_carts` (selected by its columns). */
+let nudgeRes: Res = { data: null, error: null };
 
 function table(name: string) {
+  let cols = "";
   const answer = (): Promise<Res> =>
     Promise.resolve(
       name === "qr_carts"
-        ? cartRes
+        ? cols.includes("send_nudge")
+          ? nudgeRes
+          : cartRes
         : name === "qr_cart_items"
           ? itemsRes
           : { data: [], error: null },
     );
   const api = {
-    select: () => api,
+    select: (c?: string) => {
+      cols = c ?? "";
+      return api;
+    },
     // `touchCart`'s updated_at write. It answers success and is not what these cases are about —
     // the subject is the view read that follows it.
     update: () => api,
@@ -130,6 +138,33 @@ const { getCartView, setQty } = await import("./cart");
 beforeEach(() => {
   cartRes = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
   itemsRes = { data: [], error: null };
+  nudgeRes = { data: null, error: null };
+});
+
+describe("getCartView — PD1's nudge stamp is advisory: read when it stands, never an outage", () => {
+  it("a standing stamp reaches the view, both halves", async () => {
+    nudgeRes = {
+      data: { send_nudge_seat: "s-thiri", send_nudge_at: "2026-10-08T10:00:00.000Z" },
+      error: null,
+    };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toEqual({ seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" });
+    expect(Number.isNaN(Date.parse(v.serverNow))).toBe(false);
+  });
+  it("an unreadable stamp (the columns not migrated yet: 42703) is null, and the order still renders", async () => {
+    // RED if the stamp rides the cart read (or throws): every /cart would show the outage screen
+    // until the owner applies the migration — on a project the previews share with prod.
+    nudgeRes = { data: null, error: { message: "column qr_carts.send_nudge_seat does not exist" } };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toBeNull();
+    expect(v.items).toEqual([]);
+  });
+  it("half a stamp is no stamp — nothing would ever clear the line it drew", async () => {
+    // MUTATION (cart/nudge-half-stamp-read-as-a-wait): the time half dropped from the check — a seat
+    // with no time reads as a standing wait; red.
+    nudgeRes = { data: { send_nudge_seat: "s-thiri", send_nudge_at: null }, error: null };
+    expect((await getCartView("c-1")).sendNudge).toBeNull();
+  });
 });
 
 describe("getCartView — an unreadable cart is reported, never answered with an empty one", () => {

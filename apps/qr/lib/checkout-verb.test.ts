@@ -84,15 +84,12 @@ describe("payBlock — Pay's one reason, in precedence (D16)", () => {
         frozenByPeer: true,
         unsentBlocks: true,
         graceOpen: true,
-        hostPresent: true,
       }),
     ).toBe("peer");
     // MUTATION (checkout-verb/grace-outranks-unsent): the two returns swapped — the Send still
     // owed reopens the window, so "Pay opens when the undo window closes" would be a lie; red.
-    expect(payBlock({ ...none, unsentBlocks: true, graceOpen: true, hostPresent: true })).toBe(
-      "unsent",
-    );
-    expect(payBlock({ ...none, graceOpen: true, hostPresent: true })).toBe("grace");
+    expect(payBlock({ ...none, unsentBlocks: true, graceOpen: true })).toBe("unsent");
+    expect(payBlock({ ...none, graceOpen: true })).toBe("grace");
   });
 
   it("an undo in flight alone is the grace reason", () => {
