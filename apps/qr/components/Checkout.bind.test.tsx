@@ -129,6 +129,7 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: null,
+    mode: "dinein",
     ...over,
   } satisfies View;
 }

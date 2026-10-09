@@ -188,6 +188,7 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: 7,
+    mode: "dinein",
     ...over,
   } satisfies View;
 }
@@ -2502,6 +2503,18 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
     expect(document.body.textContent).not.toContain("splitting the bill");
+  });
+
+  // ── Codex round 2 on #331 (head 5c074e1) ──
+
+  it("a missed split read cannot un-park the door: the cart view's mode answers it (comment 4226408727)", async () => {
+    // `app/cart/page.tsx` passes `null` on any getSplitContext failure; the view's mode comes from
+    // the fail-closed authorization read. RED before the fix: the door asked the split's mode, saw
+    // null, and drew the card hero + tip ask at a table create-intent refuses (410).
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.queryByRole("button", { name: /^Pay( the whole order)? · / })).toBeNull();
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
   });
 
   // ── Codex round 1 on #331 (head c253013): three P2s, each pinned red-first ──

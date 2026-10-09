@@ -106,6 +106,7 @@ import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
   payBlockedByUnsent,
+  doorMode,
   phonePayParked,
   unsentFoodQty,
   type CheckoutStage,
@@ -256,6 +257,7 @@ export function Checkout({
   initialMySeat = null,
   initialTabType = "none",
   initialCounterRequestedAt = null,
+  initialViewMode = null,
   initialTableNumber = null,
   tables = [],
   canTab = false,
@@ -283,6 +285,9 @@ export function Checkout({
   initialTabType?: "none" | "trust" | "secure";
   /** A1 — the table's live "pay at the counter" ask (ISO) from the server view, or null. */
   initialCounterRequestedAt?: string | null;
+  /** Codex round 2 on #331 — the session's mode from the cart view (`getCartView.mode`, the
+   *  fail-closed authorization read); the parked phone-pay door reads it before the split's. */
+  initialViewMode?: string | null;
   /** A1 — the registered table number the eyebrow and the counter card name; null for an
    *  unregistered sticker or an UNBOUND session. 3c-ii (D30): a SEED, the `initialLocked` idiom —
    *  the number is state afterwards, written by every applied view and by the bind's CONFIRMED
@@ -439,6 +444,9 @@ export function Checkout({
   // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
   // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
   const sessionMode = splitContext?.mode ?? null;
+  // Codex round 2 on #331 — the mode the cart VIEW carries (fail-closed authorization read), kept
+  // beside the split's best-effort one; the parked phone-pay door reads it first (`doorMode`).
+  const [viewMode, setViewMode] = useState<string | null>(initialViewMode);
   const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
   // W9a — the two TABLE-only line controls ("For here / To go", "Make it now") gate on this, NOT on
   // `!isTakeout`. The distinction is load-bearing: `splitContext` is nulled by cart/page.tsx on ANY
@@ -456,7 +464,13 @@ export function Checkout({
   // row and no "& pay" door — the receipt's own foot carries the total and the docked counter door
   // is the one way to pay; after the ask, the phone becomes the counter pass. ANSWERED in
   // create-intent (lib/surfaces: a hidden button with a live action behind it is not parked).
-  const phonePayOff = phonePayParked(sessionMode, surfaceOpen("dineInPhonePay"));
+  // Codex round 2 on #331 — the door asks the AUTHORITATIVE mode (the cart view's, fail-closed),
+  // never the best-effort split context alone: a missed split read must not draw a card hero at a
+  // table whose every Pay tap create-intent refuses.
+  const phonePayOff = phonePayParked(
+    doorMode(viewMode, sessionMode),
+    surfaceOpen("dineInPhonePay"),
+  );
   // PD2 (m2 decision 7) — the tender truth, DERIVED: the counter is cash-only unless a reader is
   // configured (or the owner names a card taken outside the app — a parked constant).
   const counterCard = counterTakesCard(readerConfigured);
@@ -649,6 +663,7 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+    setViewMode(v.mode); // Codex round 2 on #331 — the door's authoritative mode
     // PD2 (Codex round 1 on #331, comment 4222692016) — the ask's OWNERSHIP follows the confirmed
     // value: a view with no ask (a tablemate withdrew it; the register settled) ends this phone's
     // claim to it, so the NEXT null→stamp edge is read as the tablemate's ask it is — said once,
@@ -1291,7 +1306,10 @@ export function Checkout({
   // W12: dine-in review is STAGED (order | bill) — the stage joins the key so a flip animates the
   // step wrapper and lands focus on the heading exactly like review↔pay always has.
   const onPay = step === "pay" && clientSecret && payTotals;
-  const staged = isDineIn;
+  // Codex round 2 on #331 — a dine-in table the SPLIT read missed is still a table: while the phone
+  // door is parked the cart view's (fail-closed) mode stages it too, so the Bill reaches the counter
+  // door and the pass instead of an unstaged review whose card controls are gone.
+  const staged = isDineIn || phonePayOff;
   const viewKey =
     isGroup && settling && splitContext
       ? "settle"
@@ -4334,7 +4352,7 @@ export function Checkout({
                 both. Held states are `aria-disabled` with the reason as the description, and every
                 blocked tap re-says it through the view's one region. No amount on the door: it
                 charges nothing, and the total sits on the slip above. */}
-            {showPayControls && isDineIn && phonePayOff && (
+            {showPayControls && phonePayOff && (
               <PayAtCounterDock
                 lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
                 reason={

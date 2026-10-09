@@ -8961,6 +8961,14 @@ const MUTANTS = [
     replace: "  return payBlockedByUnsent(mode, sendableUnits, false);",
   },
   {
+    id: "checkout-stage/door-reads-the-best-effort-mode",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "Codex round 2 on #331 — the split context's mode is best-effort (null on a failed read, '' on an unchecked one); a door that asks it alone draws the card hero and tip ask at a dine-in table whose every Pay tap create-intent refuses. The cart view's fail-closed mode wins",
+    find: "  return viewMode || splitMode || null;",
+    replace: "  return splitMode || null;",
+  },
+  {
     id: "checkout-stage/parked-door-admits-a-table",
     file: "apps/qr/lib/checkout-stage.ts",
     suite: "lib/checkout-stage.test.ts",
@@ -25654,6 +25662,14 @@ const MUTANTS = [
     find: "  const doorLabel = billDoorLabel(block, {\n    counterAsk: counterAt != null,\n    phonePayOpen: !phonePayOff,\n  });\n",
     replace:
       "  const doorLabel = billDoorLabel(block, {\n    counterAsk: false,\n    phonePayOpen: !phonePayOff,\n  });\n",
+  },
+  {
+    id: "checkout/door-asks-the-split-mode",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 on #331 — the rule is lib's (`doorMode`), the WIRING is here: a Bill that asks the parked door with the split context's mode draws a card hero at a dine-in table whenever the split read misses",
+    find: "    doorMode(viewMode, sessionMode),",
+    replace: "    sessionMode,",
   },
   {
     id: "checkout/door-ignores-the-parked-door",
