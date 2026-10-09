@@ -11,7 +11,7 @@ import { MsgText } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2g · reader ──
 import {
   readerAlertKey,
@@ -129,8 +129,9 @@ export function TerminalSettleButton({
   /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS tap as the
    *  acknowledgement (never read into an amount). */
   acknowledgedApprovalIds?: readonly string[];
-  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list. */
-  onApprovalPending?: (pending: PendingFlag[]) => void;
+  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list and says
+   *  `dishes`, the ones this tap did NOT acknowledge (`reWarning`). */
+  onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
   /** Codex round 2 (P2) — the page's own re-read. A raced `unsent` refusal means the page's detail
    *  is stale (a dish landed after its last read): without a re-read the Send the refusal points at
    *  may not exist yet, and staff wait for the next poll to act on the fix they were just told. */
@@ -187,9 +188,11 @@ export function TerminalSettleButton({
   // said only while its surface is here). Re-armed at setup: Strict Mode runs the cleanup once on
   // mount, and a cleanup-only latch would read "gone" forever (the CLAUDE.md gotcha).
   const alive = useRef(true);
-  // The blind pass on #333 — what THIS door's own re-warning named, acknowledged by its next tap even
-  // where no page re-draws the flag (`ackForTap`): a re-warning, never a block.
+  // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
+  // carried, acknowledged by its next tap (`ackForTap`). With a page, the page owns it.
   const warned = useRef<string[]>([]);
+  // What the last start SENT as its acknowledgement — the re-warning names what it did not cover.
+  const sentAck = useRef<string[]>([]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -215,7 +218,7 @@ export function TerminalSettleButton({
             : res.code === "unreadable"
               ? { kind: "unreadable" }
               : res.code === "approval_pending"
-                ? { kind: "approvalPending", dish: warnedDishes(res.pending) }
+                ? { kind: "approvalPending", dish: reWarning(res.pending, sentAck.current).dishes }
                 : res.code === "approval_unreadable"
                   ? { kind: "approvalUnreadable" }
                   : { kind: "server", text: res.error },
@@ -223,8 +226,8 @@ export function TerminalSettleButton({
       // PD8 — a request this tap did not display: the page re-draws the flag card naming it and
       // says so in its one region; the next tap acknowledges what it shows.
       if (res.code === "approval_pending") {
-        warned.current = res.pending.map((p) => p.id);
-        onApprovalPending?.(res.pending);
+        if (!onApprovalPending) warned.current = res.pending.map((p) => p.id);
+        onApprovalPending?.(res.pending, reWarning(res.pending, sentAck.current).dishes);
       }
       // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
       // the page says it in its one region and takes the cashier to the Send.
@@ -301,11 +304,12 @@ export function TerminalSettleButton({
       // Codex r3 on #310 — the pending record's token rides the start as its `startId`: the
       // PaymentIntent carries it, so a reloaded tablet resumes THIS start and no other tablet's.
       // PD8 — the ids this door displays at ITS tap ride the start as the acknowledgement.
+      sentAck.current = ackForTap(acknowledgedApprovalIds ?? [], warned.current);
       const out = await boundWrite(
         settleCard({
           sessionId,
           startId: pending,
-          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),
+          acknowledgedApprovalIds: sentAck.current,
         }),
       );
       if (out.kind === "answer") {

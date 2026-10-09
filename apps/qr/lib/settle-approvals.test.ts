@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ackForTap,
+  reWarning,
   warnedDishes,
   APPROVALS_UNREADABLE_REFUSAL,
   APPROVAL_PENDING_REFUSAL,
@@ -106,3 +107,16 @@ function flag(id: string, lineName: string) {
     lineNow: "unknown" as const,
   };
 }
+
+describe("reWarning — the dishes a re-warning NAMES (the last blind pass on #333)", () => {
+  it("names only what the tap did NOT acknowledge — the dish that caused the refusal", () => {
+    const pending = [flag("r1", "Mohinga"), flag("r2", "Tea leaf salad")];
+    // MUTATION (settle-approvals/re-warning-names-the-acknowledged): it names Mohinga, the dish the
+    // cashier already saw and acknowledged, and Tea leaf salad goes unsaid; red.
+    expect(reWarning(pending, ["r1"])).toEqual({ fresh: [pending[1]], dishes: "Tea leaf salad" });
+    expect(reWarning(pending, []).dishes).toBe("Mohinga · Tea leaf salad");
+  });
+  it("names every pending dish when the server listed none new", () => {
+    expect(reWarning([flag("r1", "Mohinga")], ["r1"]).dishes).toBe("Mohinga");
+  });
+});

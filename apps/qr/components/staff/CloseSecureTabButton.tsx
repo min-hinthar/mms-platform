@@ -11,7 +11,7 @@ import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
@@ -93,8 +93,9 @@ export function CloseSecureTabButton({
   /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS confirm as
    *  the acknowledgement (never read into an amount). */
   acknowledgedApprovalIds?: readonly string[];
-  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list. */
-  onApprovalPending?: (pending: PendingFlag[]) => void;
+  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list and says
+   *  `dishes`, the ones this confirm did NOT acknowledge (`reWarning`). */
+  onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
   /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
    *  retired (a send, a later read with nothing unsent, another setter): the raced line never
    *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
@@ -143,9 +144,11 @@ export function CloseSecureTabButton({
   const alertMsg: CloseError | null = drift ? { kind: "moved", ...drift } : error;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
-  // The blind pass on #333 — what THIS door's own re-warning named, acknowledged by its next confirm
-  // even where no page re-draws the flag (`ackForTap`): a re-warning, never a block.
+  // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
+  // carried, acknowledged by its next confirm (`ackForTap`). With a page, the page owns it.
   const warned = useRef<string[]>([]);
+  // What the last close SENT as its acknowledgement — the re-warning names what it did not cover.
+  const sentAck = useRef<string[]>([]);
 
   // Move focus into the confirm group when it opens and back to the trigger when it closes (parity with
   // CashSettleButton, S1-audit S6). The guard skips first mount.
@@ -220,9 +223,10 @@ export function CloseSecureTabButton({
       if (res.code === "approval_pending") {
         // PD8 — a request this confirm did not display: nothing charged, the freeze released. The
         // page re-draws the flag card naming it; the next confirm acknowledges what it shows.
-        warned.current = res.pending.map((p) => p.id);
-        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });
-        onApprovalPending?.(res.pending);
+        const said = reWarning(res.pending, sentAck.current);
+        if (!onApprovalPending) warned.current = res.pending.map((p) => p.id);
+        setError({ kind: "approvalPending", dish: said.dishes });
+        onApprovalPending?.(res.pending, said.dishes);
         return false;
       }
       if (res.code === "approval_unreadable") {
@@ -270,11 +274,12 @@ export function CloseSecureTabButton({
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       // PD8 — the ids this door displays at ITS confirm ride the close as the acknowledgement.
+      sentAck.current = ackForTap(acknowledgedApprovalIds ?? [], warned.current);
       const out = await boundWrite(
         closeSecureTab({
           sessionId,
           quotedCents: quoted,
-          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),
+          acknowledgedApprovalIds: sentAck.current,
         }),
       );
       if (out.kind === "answer") {

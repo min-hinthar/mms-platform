@@ -583,13 +583,12 @@ export function FloorDetailLive({
   // re-draws with the server's list, the pane's one region says the title sentence, and the next
   // tap acknowledges what it shows — a re-warning, never a block (PATH_DESIGN decision 4).
   const onApprovalPending = useCallback(
-    (pending: PendingFlag[]) => {
+    (pending: PendingFlag[], dishes: string) => {
       setDetail((d) => ({ ...d, pendingRequests: pending }));
-      const first = pending[0];
+      // The dishes the door's tap did NOT acknowledge (`reWarning`, the door's one binding) — never
+      // the one the cashier already saw (the last blind pass on #333).
       setWriteError(
-        first ? (
-          <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: first.lineName }} />
-        ) : null,
+        dishes ? <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: dishes }} /> : null,
       );
       onChange();
     },

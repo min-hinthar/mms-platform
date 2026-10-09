@@ -37,11 +37,12 @@ export const FLAG_CONSEQUENCE_ID = "flag-consequence";
  * asks the page to re-read (`onRefresh`); only an APPLIED decision closes it (`onDecided`), and only
  * an approve says the total is moving (a deny or a close leaves every figure where it was).
  */
-export function flagCardState(flag: PendingFlag): RequestCardState {
+export function flagCardState(flag: PendingFlag): RequestCardState | null {
   // Take payment renders over an OPEN cart only, so the line alone decides open vs changed. A line
-  // that could not be read offers the open keys: the write's own M184 compare refuses a changed line,
-  // and that refusal now stays in the sheet with its reason.
-  if (flag.lineNow === "unknown") return "open";
+  // that could not be read decides nothing (null): the pane offers no key over it — Deny on a line
+  // that may have changed would write the `denied` D2 retired (the last blind pass on #333). The
+  // queue decides it, and the next detail read brings the line back.
+  if (flag.lineNow === "unknown") return null;
   return requestCardState({
     cartStatus: "open",
     qty: flag.qty,
@@ -92,6 +93,9 @@ export function ApprovalFlagCard({
   const eligible = signersFor(roster.approvers, oldest.initiatorStaffId);
   // Nobody here can decide: a READ roster with no signer. A failed read keeps Decide (fail open).
   const nobody = !roster.failed && eligible !== null && eligible.length === 0;
+  // An unreadable line offers no decision here (`flagCardState` → null); the consequence still says
+  // what Take payment does.
+  const decidable = state !== null;
   const H = headingLevel === 3 ? "h3" : "h4";
   const dish = padDishName(lang, oldest.lineName, oldest.nameMy);
   const dishText = dish.lead.text;
@@ -150,7 +154,7 @@ export function ApprovalFlagCard({
           </li>
         ))}
       </ul>
-      {!nobody && (
+      {!nobody && decidable && (
         <button
           ref={decideRef}
           type="button"
@@ -158,7 +162,12 @@ export function ApprovalFlagCard({
           style={decideBtn}
           aria-expanded={deciding}
           aria-controls={deciding ? "flag-decide" : undefined}
-          onClick={() => setDecidingId(oldest.id)}
+          onClick={() => {
+            // Per open: a LATE ok from an earlier sheet the ✕ closed must not send THIS one's
+            // close to the settle heading (the last blind pass on #333).
+            applied.current = false;
+            setDecidingId(oldest.id);
+          }}
         >
           <Chrome lang={lang} k="settle.flag.decide" echo="stack" />
         </button>
@@ -175,7 +184,7 @@ export function ApprovalFlagCard({
           <Chrome lang={lang} k="settle.flag.consequence" vars={{ x: dishText }} echo="stack" />
         )}
       </p>
-      {deciding && (
+      {deciding && state !== null && (
         <div id="flag-decide">
           <ApprovalDecision
             request={{

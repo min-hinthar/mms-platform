@@ -380,17 +380,72 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     });
     mountFlagged();
     await takeCash();
-    // The card names the new dish; the page's one region says the re-warning.
+    // The card re-draws with the server's list; the page's one region names the dish this tap did
+    // NOT acknowledge — Tea Leaf Salad, never Mohinga, which the cashier had already seen.
+    // MUTATION (pane/re-warning-names-the-first): the region names Mohinga alone and the new dish
+    // goes unsaid; red. (settle-approvals/re-warning-names-the-acknowledged · approval-ack/
+    // pane-acks-nothing): it names "Mohinga · Tea Leaf Salad", the acknowledged dish again; red here
+    // first.
     const card = document.querySelector(".settle-flag") as HTMLElement;
     expect(card.textContent).toContain("Tea Leaf Salad");
-    expect(orderRegion().textContent).toContain(
-      tf("en", "settle.flag.pendingRefused", { x: "Mohinga" }),
+    expect(orderRegion().textContent).toBe(
+      tf("en", "settle.flag.pendingRefused", { x: "Tea Leaf Salad" }),
     );
     settleCash.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210, tipCents: 0 });
     await takeCash();
-    // MUTATION (approval-ack/pane-acks-nothing): the re-drawn card's ids never reach the tap; red.
+    // The page is the one owner of the re-warning: the door remembers nothing, so the next tap's ids
+    // come ONLY from the re-drawn card. MUTATION (approval-ack/pane-acks-nothing): [] reaches the
+    // tap; red.
     expect(settleCash).toHaveBeenLastCalledWith(
       expect.objectContaining({ acknowledgedApprovalIds: ["r-1", "r-2"] }),
     );
+  });
+
+  it("a line the read could not see offers NO decision here — Deny would write the retired 'denied' over a line that may have moved", () => {
+    mountFlagged({ ...FLAGGED, pendingRequests: [{ ...FLAG, lineNow: "unknown" }] });
+    // The flag and its consequence still say what Take payment does.
+    expect(document.querySelector(".settle-flag")).not.toBeNull();
+    // MUTATION (pane/decide-offered-on-unknown): "Decide it here" opens Deny and Approve over an
+    // unread line; red.
+    expect(screen.queryByRole("button", { name: /Decide it here/ })).toBeNull();
+  });
+
+  it("a LATE ok after the ✕ closed one sheet never sends the NEXT sheet's ✕ to the settle heading", async () => {
+    const SECOND = { ...FLAG, id: "r-2", lineId: "l2", lineName: "Tea Leaf Salad" };
+    let land!: (v: Resolve) => void;
+    resolveApproval.mockImplementationOnce(() => new Promise<Resolve>((r) => (land = r)));
+    // The page's polls keep reading r-1 as pending while its decision is out.
+    answer = () => Promise.resolve({ kind: "detail", detail: FLAGGED });
+    mountFlagged();
+    await decideHere();
+    fireEvent.change(document.getElementById("appr-r-1-pin")!, { target: { value: "1234" } });
+    await act(async () => {
+      fireEvent.click(within(sheet()!).getByRole("button", { name: /^Approve/ }));
+    });
+    // No answer by the bound: the sheet frees, and the cashier closes it with its ✕.
+    await tick(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(within(sheet()!).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    expect(sheet()).toBeNull();
+    // The decision lands late (r-1 approved); the page's re-read shows the NEXT request.
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...FLAGGED, pendingRequests: [SECOND] } });
+    await act(async () => {
+      land({ ok: true, decision: "approve" });
+    });
+    await tick(400);
+    expect(document.querySelector(".settle-flag")!.textContent).toContain("Tea Leaf Salad");
+    // A new sheet for r-2, closed with its ✕: focus returns to "Decide it here", its opener.
+    await decideHere();
+    expect(sheet()).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(within(sheet()!).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    // MUTATION (pane/applied-survives-the-next-open): the late ok's flag sends this ✕ to the settle
+    // heading as if r-2 had been decided; red.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Decide it here/ }));
   });
 });

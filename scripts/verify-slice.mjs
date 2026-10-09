@@ -8184,8 +8184,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — the sheet sends the figure the cashier READ as `quotedCents` (compare-only). Dropped, the server's compare-and-swap never runs and a moved total is recorded silently",
-    find: "          quotedCents: at.quoted,\n          acknowledgedApprovalIds: ackForTap(at.acked, warned.current),\n",
-    replace: "          acknowledgedApprovalIds: ackForTap(at.acked, warned.current),\n",
+    find: "          quotedCents: at.quoted,\n          acknowledgedApprovalIds: at.acked,\n",
+    replace: "          acknowledgedApprovalIds: at.acked,\n",
   },
   {
     id: "p2c-register/cash-tip-chip-lit-by-string",
@@ -8277,9 +8277,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · register (P2aa) — the confirm sends the total it SHOWED as `quotedCents` (compare-only). Dropped, the server's compare never runs and the card on file is charged a total nobody read",
-    find: "          quotedCents: quoted,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n",
-    replace:
-      "          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n",
+    find: "          quotedCents: quoted,\n          acknowledgedApprovalIds: sentAck.current,\n",
+    replace: "          acknowledgedApprovalIds: sentAck.current,\n",
   },
   {
     id: "p2c-register/inflight-register-read-as-unsure",
@@ -9088,7 +9087,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — the reader's `unsent` refusal renders the dictionary sentence with the count. Folded into the server arm, it is English on a Burmese console and a second alert beside the page's region",
-    find: '          : res.code === "unsent"\n            ? { kind: "unsent", units: res.units }\n            : res.code === "unreadable"\n              ? { kind: "unreadable" }\n              : res.code === "approval_pending"\n                ? { kind: "approvalPending", dish: warnedDishes(res.pending) }\n                : res.code === "approval_unreadable"\n                  ? { kind: "approvalUnreadable" }\n                  : { kind: "server", text: res.error },',
+    find: '          : res.code === "unsent"\n            ? { kind: "unsent", units: res.units }\n            : res.code === "unreadable"\n              ? { kind: "unreadable" }\n              : res.code === "approval_pending"\n                ? { kind: "approvalPending", dish: reWarning(res.pending, sentAck.current).dishes }\n                : res.code === "approval_unreadable"\n                  ? { kind: "approvalUnreadable" }\n                  : { kind: "server", text: res.error },',
     replace: '          : { kind: "server", text: res.error },',
   },
   {
@@ -17345,9 +17344,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2h (9b · fact 3) — the start's busy frees AT STAFF_HANG_MS. A bound that never fires latches 'Starting the reader…' for as long as the action queue is stuck (the W10c latch in a new shape)",
-    find: "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n        }),\n      );\n",
+    find: "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: sentAck.current,\n        }),\n      );\n",
     replace:
-      "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n        }),\n        2 ** 31 - 1,\n      );\n",
+      "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: sentAck.current,\n        }),\n        2 ** 31 - 1,\n      );\n",
   },
   {
     id: "p2h-doors/reader-start-waiting-unsaid",
@@ -17483,9 +17482,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2h (9b · fact 3) — the close frees AT STAFF_HANG_MS. A bound that never fires holds 'Charging…' with Cancel refused for as long as the queue is stuck",
-    find: "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n        }),\n      );",
+    find: "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: sentAck.current,\n        }),\n      );",
     replace:
-      "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n        }),\n        2 ** 31 - 1,\n      );",
+      "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: sentAck.current,\n        }),\n        2 ** 31 - 1,\n      );",
   },
   {
     id: "p2h-doors/close-waiting-unsaid",
@@ -18840,6 +18839,31 @@ const MUTANTS = [
     why: "PD8 (the blind pass on #333) — the page hands every door an empty acknowledgement: each tap with a flag up is refused 'approval_pending', forever",
     find: "  const acknowledgedApprovalIds = detail.pendingRequests.map((r) => r.id);",
     replace: "  const acknowledgedApprovalIds: string[] = [];",
+  },
+  {
+    id: "pane/re-warning-names-the-first",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/FloorDetailLive.flag.test.tsx",
+    why: "PD8 (the last blind pass on #333) — the pane's re-warning names the oldest pending dish, the one the cashier already saw, not the one that caused the refusal",
+    find: '<Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: dishes }} />',
+    replace:
+      '<Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: pending[0]?.lineName ?? "" }} />',
+  },
+  {
+    id: "pane/decide-offered-on-unknown",
+    file: "apps/qr/components/staff/ApprovalFlagCard.tsx",
+    suite: "components/staff/FloorDetailLive.flag.test.tsx",
+    why: "PD8 (the last blind pass on #333) — an unreadable line still offers Decide: a sheet with no state to choose its keys from",
+    find: "  const decidable = state !== null;",
+    replace: "  const decidable = true;",
+  },
+  {
+    id: "pane/applied-survives-the-next-open",
+    file: "apps/qr/components/staff/ApprovalFlagCard.tsx",
+    suite: "components/staff/FloorDetailLive.flag.test.tsx",
+    why: "PD8 (the last blind pass on #333) — a late 'ok' from a sheet the ✕ closed marks the NEXT open applied: its plain close sends focus to the settle heading instead of back to Decide",
+    find: "            applied.current = false;\n            setDecidingId(oldest.id);",
+    replace: "            setDecidingId(oldest.id);",
   },
   {
     id: "p2h-boards/approvals/late-answer-dropped",
@@ -21942,9 +21966,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Codex r3 on #310 — the start carries the pending record's token as its start id; without it the resume (which requires it) never adopts the collect this tablet began",
-    find: "          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n",
-    replace:
-      "          sessionId,\n          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),\n",
+    find: "          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: sentAck.current,\n",
+    replace: "          sessionId,\n          acknowledgedApprovalIds: sentAck.current,\n",
   },
   {
     id: "p2h-cx3/provider/resume-without-start",
@@ -27469,6 +27492,14 @@ const MUTANTS = [
     replace: "  return [...new Set([...warned])].slice(0, 50);",
   },
   {
+    id: "settle-approvals/re-warning-names-the-acknowledged",
+    file: "apps/qr/lib/settle-approvals.ts",
+    suite: "lib/settle-approvals.test.ts",
+    why: "PD8 (the last blind pass on #333) — a re-warning names every pending dish, the ones the tap acknowledged included, so it reads as the warning the cashier already answered",
+    find: "  const fresh = pending.filter((p) => !seen.has(p.id));",
+    replace: "  const fresh = pending.filter(() => true);",
+  },
+  {
     id: "resolve/close-keeps-self-preflight",
     file: "apps/qr/lib/approvals.ts",
     suite: "lib/approvals.test.ts",
@@ -27620,15 +27651,15 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "PD8 (the blind pass on #333) — with no page to re-draw, the cash door re-sends the stale snapshot after its own re-warning: refused forever, a block and never 'tap again'",
-    find: "        warned.current = res.pending.map((p) => p.id);\n        if (onApprovalPending) {",
-    replace: "        if (onApprovalPending) {",
+    find: '        warned.current = res.pending.map((p) => p.id);\n        setError({ kind: "approvalPending", dish: said.dishes });',
+    replace: '        setError({ kind: "approvalPending", dish: said.dishes });',
   },
   {
     id: "approval-ack/tab-door-sends-nothing",
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "PD8 (the blind pass on #333) — the tab close sends an empty acknowledgement: a secure tab with a flag up can never close on its card",
-    find: "          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),",
+    find: "          acknowledgedApprovalIds: sentAck.current,",
     replace: "          acknowledgedApprovalIds: [],",
   },
   {
@@ -27636,15 +27667,15 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "PD8 — the tab door forgets its own re-warning: the next confirm re-sends the stale snapshot and is refused again",
-    find: '        warned.current = res.pending.map((p) => p.id);\n        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });',
-    replace: '        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });',
+    find: '        if (!onApprovalPending) warned.current = res.pending.map((p) => p.id);\n        setError({ kind: "approvalPending", dish: said.dishes });',
+    replace: '        setError({ kind: "approvalPending", dish: said.dishes });',
   },
   {
     id: "approval-ack/reader-door-sends-nothing",
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "PD8 (the blind pass on #333) — the reader start sends an empty acknowledgement: card-present can never start with a flag up",
-    find: "          acknowledgedApprovalIds: ackForTap(acknowledgedApprovalIds ?? [], warned.current),",
+    find: "          acknowledgedApprovalIds: sentAck.current,",
     replace: "          acknowledgedApprovalIds: [],",
   },
   {
@@ -27652,8 +27683,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "PD8 — the reader door forgets its own re-warning: the next tap re-sends the stale snapshot and is refused again",
-    find: "        warned.current = res.pending.map((p) => p.id);\n        onApprovalPending?.(res.pending);",
-    replace: "        onApprovalPending?.(res.pending);",
+    find: "        if (!onApprovalPending) warned.current = res.pending.map((p) => p.id);\n        onApprovalPending?.(",
+    replace: "        onApprovalPending?.(",
   },
   {
     id: "floor/detail-drops-the-flags",

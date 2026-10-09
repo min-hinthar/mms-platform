@@ -36,7 +36,7 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
-import { ackForTap, warnedDishes, type PendingFlag } from "@/lib/settle-approvals";
+import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -191,9 +191,10 @@ export function CashSettleButton({
    *  with a flag up IS the acknowledgement. Nothing here is read into an amount. */
   acknowledgedApprovalIds?: readonly string[];
   /** PD8 — the server re-warned (`approval_pending`): a request this tap did not display. The sheet
-   *  closes and the page re-draws the flag card with the server's list; the next tap acknowledges
-   *  what it shows. Omitted (no page): the sheet says it and keeps Take armed. */
-  onApprovalPending?: (pending: PendingFlag[]) => void;
+   *  closes and the page re-draws the flag card with the server's list and says `dishes` — the
+   *  ones this tap did NOT acknowledge (`reWarning`); the next tap acknowledges what the card shows.
+   *  Omitted (no page): the sheet says them and keeps Take armed. */
+  onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
   /** PD8 — a decision just landed and the page's re-read has not: the trigger reads "Updating the
    *  total…" (busy, full ink — never dimmed) until the server's figure arrives; amounts are never
    *  optimistic. */
@@ -354,8 +355,8 @@ export function CashSettleButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   // PD8 — the pending request ids the trigger displayed at the tap that opened the sheet.
   const ackedAtTap = useRef<string[]>([]);
-  // The blind pass on #333 — what THIS door's own re-warning named (its alert lists every dish), so
-  // the next tap passes even where no page re-draws the flag (`ackForTap`): never a block.
+  // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
+  // carried, so its next Take passes (`ackForTap`): never a block. With a page, the page owns it.
   const warned = useRef<string[]>([]);
   const settleRef = useRef<HTMLButtonElement>(null);
   // "Keep the change" unmounts under its own tap (the readout then says Exact) — focus goes to
@@ -430,15 +431,17 @@ export function CashSettleButton({
       if (res.code === "approval_pending") {
         // PD8 — a request this tap did not display: nothing recorded. A re-warning, never a block:
         // the page re-draws the flag card naming the dish (its one region says so) and the next
-        // tap acknowledges what it shows. With no page, the sheet names every dish it carried and
-        // Take stays armed — the next Take acknowledges exactly those (`warned`).
-        warned.current = res.pending.map((p) => p.id);
+        // tap acknowledges what it shows. Both name the dishes this tap did NOT acknowledge
+        // (`reWarning`). With no page, the sheet says them and Take stays armed — the next Take
+        // acknowledges everything the refusal carried (`warned`; the rest this tap had acknowledged).
+        const said = reWarning(res.pending, at.acked);
         if (onApprovalPending) {
           setConfirming(false);
-          onApprovalPending(res.pending);
+          onApprovalPending(res.pending, said.dishes);
           return;
         }
-        setError({ kind: "approvalPending", dish: warnedDishes(res.pending) });
+        warned.current = res.pending.map((p) => p.id);
+        setError({ kind: "approvalPending", dish: said.dishes });
         return;
       }
       if (res.code === "approval_unreadable") {
@@ -511,8 +514,9 @@ export function CashSettleButton({
       quoted: shownTotal,
       basis: totalCents,
       tenderAtTap: tenderedCents != null && tenderedCents > 0 ? tenderedCents : null,
-      // PD8 — the ids the trigger displayed when it was tapped (captured at that tap, below).
-      acked: ackedAtTap.current,
+      // PD8 — the ids the trigger displayed when it was tapped (captured at that tap, below), plus
+      // what this door's own re-warning carried where no page re-draws the flag.
+      acked: ackForTap(ackedAtTap.current, warned.current),
     };
     try {
       // 9b — called OUTSIDE any transition, awaited BOUNDED, handed the RAW action promise (a raced
@@ -523,7 +527,7 @@ export function CashSettleButton({
           sessionId,
           tipCents,
           quotedCents: at.quoted,
-          acknowledgedApprovalIds: ackForTap(at.acked, warned.current),
+          acknowledgedApprovalIds: at.acked,
         }),
       );
       if (out.kind === "answer") {

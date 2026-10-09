@@ -37,8 +37,8 @@ export async function readPendingApprovalFlags(cartId: string): Promise<PendingF
   }
   // PD8 (the blind pass on #333) — the line as it stands NOW, through the queue's ONE derivation, so
   // the pane's sheet offers the request's real keys (a changed line: Close it, never only Deny). A
-  // failed read is "unknown", never "gone": the doors need only the ids, and the write's own M184
-  // compare refuses a changed line in place.
+  // failed read is "unknown", never "gone": the doors need only the ids, and the card offers no
+  // decision on an unknown line (the queue still can).
   const lineIds = [...new Set(data.map((r) => r.line_id).filter((id): id is string => !!id))];
   let lineById: Map<string, RequestLineNow> | null = new Map();
   if (lineIds.length) {
