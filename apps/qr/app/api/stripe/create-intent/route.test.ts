@@ -44,7 +44,10 @@ const h = vi.hoisted(() => ({
   availability: vi.fn(),
   create: vi.fn(),
   pin: vi.fn(),
+  promoRelease: vi.fn(),
 }));
+/** Codex round 2 on #331 (P1) — the stale-grant release's answer (null = released). */
+let promoReleaseErr: { message: string } | null = null;
 
 vi.mock("@mms/db/schemas", () => ({
   createIntentInput: {
@@ -69,7 +72,10 @@ vi.mock("@/lib/lock", () => ({
     h.release(...a);
     return Promise.resolve(null);
   },
-  releasePromoGrantFor: () => Promise.resolve(null),
+  releasePromoGrantFor: (...a: unknown[]) => {
+    h.promoRelease(...a);
+    return Promise.resolve(promoReleaseErr);
+  },
   linkPaymentIntent: () => Promise.resolve({ linked: true, error: null }),
 }));
 vi.mock("@/lib/supersede", () => ({
@@ -181,6 +187,7 @@ beforeEach(() => {
   sessionRow = { mode: "dinein", host_seat: "h" };
   phonePayOpen = false;
   supersedeAnswer = "cleared";
+  promoReleaseErr = null;
 });
 
 describe("PD2 — the parked dine-in phone-pay door is ANSWERED at create-intent", () => {
@@ -216,6 +223,34 @@ describe("PD2 — the parked dine-in phone-pay door is ANSWERED at create-intent
     res = await POST(req());
     expect(res.status).toBe(503);
     expect(h.release).not.toHaveBeenCalled();
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it("3b. a parked attempt RELEASES the predecessor's promo pin under its own era before it refuses (Codex round 2 on #331, P1)", async () => {
+    // A dine-in cart carrying `promo_granted_cents` from an earlier card attempt: the supersede
+    // cancels and UNLINKS that intent (so its webhook no longer matches `releaseByIntent`), and the
+    // table's NEXT step is the counter, never another attempt. RED before the fix: the 410 returned
+    // above the release, so the pin outlived the attempt and the register's settle priced the old
+    // basket's discount.
+    // MUTATION (create-intent/refusal-keeps-the-stale-pin): the release's statement deleted; red.
+    const res = await POST(req());
+    expect(res.status).toBe(410);
+    expect(h.promoRelease).toHaveBeenCalledTimes(1);
+    expect(h.promoRelease).toHaveBeenCalledWith(CART, ERA);
+    // In order: the predecessor made unusable, THEN its pin released (M151's predicate), THEN the
+    // lock given back — the release is era-scoped, so it must run while the lock is still ours.
+    const supersededAt = h.supersede.mock.invocationCallOrder[0]!;
+    const pinReleasedAt = h.promoRelease.mock.invocationCallOrder[0]!;
+    const lockReleasedAt = h.release.mock.invocationCallOrder[0]!;
+    expect(supersededAt).toBeLessThan(pinReleasedAt);
+    expect(pinReleasedAt).toBeLessThan(lockReleasedAt);
+  });
+
+  it("3c. a stale pin that could not be released refuses as an outage (a retry heals it), never as the door", async () => {
+    promoReleaseErr = { message: "timeout" };
+    const res = await POST(req());
+    expect(res.status).toBe(503);
+    expect(h.release).toHaveBeenCalledWith(CART, UID, ERA);
     expect(h.create).not.toHaveBeenCalled();
   });
 

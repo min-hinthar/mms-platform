@@ -6509,6 +6509,14 @@ const MUTANTS = [
     replace: "  dineInPhonePay: true,\n",
   },
   {
+    id: "create-intent/refusal-keeps-the-stale-pin",
+    file: "apps/qr/app/api/stripe/create-intent/route.ts",
+    suite: "app/api/stripe/create-intent/route.test.ts",
+    why: "Codex round 2 on #331 (P1) — the stale-grant release runs directly under the supersede, before ANY pre-mint refusal: the supersede has already cancelled and unlinked the predecessor (so its webhook no longer matches releaseByIntent), and a parked dine-in table's next step is the counter, never another attempt — a refusal returning above the release leaves the old basket's discount pinned for the register's settle",
+    find: '    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");',
+    replace: "    const staleGrantErr = null as { message: string } | null;",
+  },
+  {
     id: "surfaces/create-intent-route-answers-open",
     file: "apps/qr/app/api/stripe/create-intent/route.ts",
     suite: "app/api/stripe/create-intent/route.test.ts",
