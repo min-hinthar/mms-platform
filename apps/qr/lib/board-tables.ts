@@ -1,7 +1,7 @@
 import { kdsLineGate } from "./counter-order";
 import type { KitchenRound } from "./kitchen-types";
 import { cardStamp, ticketKey } from "./kitchen-rounds";
-import { groupStage, rollUp, trackStage } from "./kitchen-track";
+import { groupStage, rollUp, trackStage, type KitchenStage } from "./kitchen-track";
 import { catalogNameMy } from "./ticket-names";
 import {
   PULSE_PASS_LINGER_MS,
@@ -55,9 +55,9 @@ import {
  * mutant.
  */
 
-/** The wall's three stamps: Sent · Cooking · Served — `kitchen-track`'s, minus the two a wall
- *  never draws (unsent, and sending inside the grace). */
-export type BoardDishStage = "sent" | "cooking" | "served";
+/** The wall's three stamps: Sent · Cooking · Served — the ONE `KitchenStage` (`@mms/ui`), minus the
+ *  two a wall never draws (unsent, and sending inside the grace). A subset, never a second vocabulary. */
+export type BoardDishStage = Extract<KitchenStage, "sent" | "cooking" | "served">;
 
 /** One dish row: a name and its stage. No quantity, modifier, note or id — the shape is the boundary. */
 export type BoardDish = {

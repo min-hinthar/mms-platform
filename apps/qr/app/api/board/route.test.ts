@@ -573,7 +573,14 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
 
   it("a SATURATED kitchen read is null too — a partial wall is a table missing a round (m9 decision 23; `board/saturated-line-read-publishes-tables`, `board/saturated-send-read-publishes-tables`)", async () => {
     seedCookingTable();
-    lines = Array.from({ length: 500 }, (_, i) => ({ ...lines[0]!, id: `l${i}` }));
+    // Only ONE of the 500 carries a batch, so the Send-completion read answers one row and is NOT
+    // saturated: the line read's own cap is the only guard that can refuse this wall (a fixture where
+    // every line shared the batch re-read all 500 and let the send guard mask this one).
+    lines = Array.from({ length: 500 }, (_, i) => ({
+      ...lines[0]!,
+      id: `l${i}`,
+      fire_batch: i === 0 ? BATCH : null,
+    }));
     expect(((await (await GET(req())).json()) as Body).tables).toBeNull();
     seedCookingTable();
     sendExtra = Array.from({ length: 500 }, (_, i) => ({
