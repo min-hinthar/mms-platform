@@ -25722,6 +25722,14 @@ const MUTANTS = [
     replace: '{phonePayOff && <Row k="rowTotal" cents={totals.subtotalCents} strong roll />}',
   },
   {
+    id: "checkout/split-board-under-the-register",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (guard 6) — while phone pay is parked no phone pays a share, so a group's freeze is the register's cash settle; the split board then tells the table it is 'splitting the bill' and hides the Bill's held door and the register's sentence",
+    find: "  const splitBoardShown = isGroup && settling && splitContext != null && !phonePayOff;",
+    replace: "  const splitBoardShown = isGroup && settling && splitContext != null;",
+  },
+  {
     id: "checkout/door-ignores-the-parked-door",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",

@@ -96,7 +96,11 @@ vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
 // PD2 (Codex round 1 on #331) — a MARKER, not null: the pass replaces the Bill, so whether the split
 // chooser still renders beneath it is a question this suite asks; the marker carries no text.
 vi.mock("./SplitSection", () => ({ SplitSection: () => <div data-testid="split-section" /> }));
-vi.mock("./SettlementBoard", () => ({ SettlementBoard: () => null }));
+// The blind pass on #331 (guard 6) — a MARKER carrying the board's subject, not null: whether a group
+// table under the register's freeze flips to the split board is a question this suite asks.
+vi.mock("./SettlementBoard", () => ({
+  SettlementBoard: () => <div data-testid="settlement-board">Your table is splitting the bill</div>,
+}));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
 vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
 vi.mock("./SecureTabButton", () => ({ SecureTabButton: () => null }));
@@ -2495,6 +2499,26 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     await settle();
     expect(regionText()).toContain("Your table asked to pay at the counter.");
     expect(h.requestCounterPay).not.toHaveBeenCalled();
+  });
+
+  it("a GROUP table under the register's freeze keeps the Bill and its held door — never the split board (blind pass, guard 6)", () => {
+    // While phone pay is parked no phone pays a share (the self-serve split is parked too, and its
+    // shares are phone payments), so a group's freeze is the REGISTER's. RED before the fix: the
+    // group flipped to the split board — "splitting the bill" — during the counter's cash settle.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    // MUTATION (checkout/split-board-under-the-register): the board shown for any group freeze; red.
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(dockLine()).toContain("The counter is taking your table’s payment right now");
   });
 
   it("the register mid-settle holds the door with its own sentence, never the split's", async () => {

@@ -1316,14 +1316,19 @@ export function Checkout({
   // door is parked the cart view's (fail-closed) mode stages it too, so the Bill reaches the counter
   // door and the pass instead of an unstaged review whose card controls are gone.
   const staged = isDineIn || phonePayOff;
-  const viewKey =
-    isGroup && settling && splitContext
-      ? "settle"
-      : onPay
-        ? "pay"
-        : staged
-          ? `review-${stage}`
-          : "review";
+  // The blind pass on #331 (guard 6) — the split board is the SELF-SERVE split's screen, and while
+  // phone pay is parked no phone pays a share (the split is parked too: `openSettlement` refuses), so
+  // a group's freeze is the REGISTER's cash settle — which flipped a whole table to "splitting the
+  // bill" for the length of the counter's settle. While parked, a group keeps the Bill, and its held
+  // door names the register (decision 15). ONE binding for the view key and the render.
+  const splitBoardShown = isGroup && settling && splitContext != null && !phonePayOff;
+  const viewKey = splitBoardShown
+    ? "settle"
+    : onPay
+      ? "pay"
+      : staged
+        ? `review-${stage}`
+        : "review";
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
@@ -2923,7 +2928,7 @@ export function Checkout({
         key={viewKey}
         className={`checkout-step${stepDir === "back" ? " checkout-step-back" : ""}`}
       >
-        {isGroup && settling && splitContext ? (
+        {splitBoardShown && splitContext ? (
           <>
             <SettlementBoard
               cartId={cartId}
