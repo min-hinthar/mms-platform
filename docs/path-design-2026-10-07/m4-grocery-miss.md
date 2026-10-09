@@ -790,4 +790,7 @@ the code had, not the one the finding guessed.
 3. **A Name-sheet dismissal mid-write** used to drop the pairing and the Undo (`nameSheetRef` read after
    the round trip). The sheet context is captured at invocation and carried through, so a ✕ while the
    add is in flight still pairs the code and offers the Undo when the ok lands; the chip and the Toast
-   show it either way.
+   show it either way. Only the sheet that asked is CLOSED by its ok, and only while it is still the
+   open one (compared by identity): a sheet a NEW miss opened in the meantime stays open, its state
+   line never receives the first add's refusal (that goes to the Toast), and its close-restore is not
+   re-aimed (the follow-up commit after `75ec322`, Codex 4222536467's second case).

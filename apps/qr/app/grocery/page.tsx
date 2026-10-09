@@ -652,8 +652,12 @@ export default function Grocery() {
       // sheet EVERY refusal is said in its own state line (the bottom toast sits behind the raised
       // keyboard — `--kb-inset` lifts the sheet, not the toast region); outside it, the toast.
       const sheet = via === "search" ? nameSheetRef.current : null;
+      // The sheet that ASKED is still the open one — compared by identity (each open mints a new
+      // object), so a sheet dismissed mid-write, or replaced by a NEW miss's sheet, never receives
+      // this add's words or its close (Codex r1 on #329, 4222536467, the second case).
+      const askerOpen = () => sheet !== null && nameSheetRef.current === sheet;
       const say = (text: string, opts: { my?: string; quiet?: boolean } = {}) => {
-        if (sheet) setSheetRefusal(text);
+        if (askerOpen()) setSheetRefusal(text);
         else flash(text, opts);
       };
       // M186 — a CAMERA scan of a barcode this basket already pays for is NEVER charged again. The
@@ -798,11 +802,16 @@ export default function Grocery() {
           setUndoLeft(u ? undoSecondsLeft(u, now) : 0);
           holdRef.current = NO_HOLD;
           setUndoRemoving(false);
-          setSheetClosedAt(now);
-          setChipLive(chipArmed(now, now));
-          closedByAddRef.current = true;
-          setSheetRefusal(null);
-          setNameSheet(null);
+          // The pairing and the Undo belong to the asking sheet even if it was dismissed mid-write;
+          // the CLOSE (and the arm and the close-restore that ride it) only to that sheet while it
+          // is still the open one — never to a later miss's sheet the shopper is now using.
+          if (askerOpen()) {
+            setSheetClosedAt(now);
+            setChipLive(chipArmed(now, now));
+            closedByAddRef.current = true;
+            setSheetRefusal(null);
+            setNameSheet(null);
+          }
         }
         posthog.capture("grocery_item_scanned", {
           barcode,
