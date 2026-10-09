@@ -26,6 +26,8 @@ const DECLS = cssDeclarations(PASS_CSS);
 const RM = "@media (prefers-reduced-motion: reduce)";
 const FORCED = "@media (forced-colors: active)";
 const THEME_RULE = '.ui-track[data-surface="theme"]';
+/** The paper rule carries the never-nested guard in its selector (see the nesting test). */
+const PAPER = ".ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper";
 const light = tokenBlock(":root");
 const darkOnly = tokenBlock(".dark");
 const dark = { ...light, ...darkOnly };
@@ -74,6 +76,27 @@ describe("ink constancy — the pass reads no theme token and no colour literal"
     expect(offenders).toEqual([]);
   });
 
+  it("every --pass-* token the sheet reads is DECLARED — in tokens.css's :root or by the sheet itself", () => {
+    const declared = new Set([
+      ...Object.keys(light).filter((k) => k.startsWith("--pass-")),
+      ...LOCAL,
+    ]);
+    const undeclared = new Set<string>();
+    for (const d of DECLS)
+      for (const ref of varRefs(d.value))
+        if (ref.startsWith("--pass-") && !declared.has(ref))
+          undeclared.add(`${ref} in ${d.selector} { ${d.prop} }`);
+    // MUTATION: `var(--pass-seam-width)` (a typo) — a dotted rule silently gone; red, naming it.
+    expect([...undeclared]).toEqual([]);
+    expect(declared.has("--pass-paper")).toBe(true);
+  });
+
+  it("a pass never nests: the paper rule refuses a pass inside a pass", () => {
+    const paper = DECLS.filter((d) => d.prop === "background" && d.value === "var(--pass-paper)" && d.selector.endsWith(".ui-pass-paper")); // prettier-ignore
+    expect(paper).toHaveLength(1);
+    expect(paper[0]!.selector).toBe(".ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper");
+  });
+
   it("the track's theme block reads exactly the theme's own stage inks, and nothing gold or accent", () => {
     const refs = DECLS.filter((d) => members(d.selector).includes(THEME_RULE)).flatMap((d) =>
       varRefs(d.value),
@@ -116,8 +139,8 @@ describe("ink constancy — the pass reads no theme token and no colour literal"
       /^color-mix\(in srgb, var\(--pass-ink\) \d+%, var\(--pass-paper\)\)$/,
     );
     expect(one(".ui-pass-notch", "background")).toBe("var(--pass-hole)");
-    expect(one(".ui-pass-paper", "background")).toBe("var(--pass-paper)");
-    expect(one(".ui-pass-paper", "box-shadow")).toBe("var(--sh-paper)");
+    expect(one(PAPER, "background")).toBe("var(--pass-paper)");
+    expect(one(PAPER, "box-shadow")).toBe("var(--sh-paper)");
   });
 });
 
@@ -247,9 +270,21 @@ describe("the three figure tiers — 40 · 88 · 54, from the tokens, never a fo
     expect(px(light["--fs-pass"]!)).toBe(88);
     expect(one('.ui-pass[data-tier="tv"] .ui-pass-figure-code', "font-size")).toBe("var(--pass-fs-tv)"); // prettier-ignore
     expect(px(one(".ui-pass", "--pass-fs-tv"))).toBe(54);
-    // The TV table figure is PINNED: no clamp anywhere in the pass's figure rules.
-    for (const d of DECLS.filter((d) => d.selector.includes("ui-pass-figure") && d.prop === "font-size")) // prettier-ignore
+    // The TV and counter figures are PINNED: their tier rules read `--fs-pass` and nothing else,
+    // and resolving every figure font-size through tokens.css, only the documented step-down
+    // (`[data-figure-long]`, `--fs-display`) may land on a clamp — `var(--fs-display)` IS one.
+    const figureSizes = DECLS.filter((d) => d.selector.includes("ui-pass-figure") && d.prop === "font-size"); // prettier-ignore
+    // Four declarations: the holder's, the counter + TV-table list, the TV code, the step-down list.
+    expect(figureSizes.length).toBe(4);
+    for (const d of figureSizes) {
       expect(d.value, d.selector).not.toContain("clamp(");
+      const resolved = varRefs(d.value).map((r) => light[r] ?? one(".ui-pass", r));
+      expect(resolved.length, d.selector).toBe(1);
+      const isClamp = /clamp\(/.test(resolved[0]!);
+      expect(isClamp, `${d.selector} resolves to ${resolved[0]}`).toBe(d.selector.includes("[data-figure-long]")); // prettier-ignore
+    }
+    for (const sel of ['.ui-pass[data-tier="tv"] .ui-pass-figure-table', '.ui-pass[data-tier="counter"] .ui-pass-figure']) // prettier-ignore
+      expect(one(sel, "font-size")).toBe("var(--fs-pass)");
   });
 
   it("a table is Fraunces 600 tabular; a code is the Hanken 800 code face", () => {
@@ -294,7 +329,7 @@ describe("the escorts — reduced motion names every animated selector; every ke
       for (const sel of members(d.selector)) expect(escorted.has(sel), sel).toBe(true);
   });
 
-  it("every animation names a keyframe this file defines, and its last frame is the base state", () => {
+  it("every animation names a keyframe this file defines, and its last frame IS the element's own base", () => {
     const frames = new Map<string, Record<string, string>>();
     for (const d of DECLS) {
       const m = /^@keyframes (\S+)$/.exec(d.media ?? "");
@@ -302,21 +337,57 @@ describe("the escorts — reduced motion names every animated selector; every ke
       const key = `${m[1]}|${d.selector}`;
       frames.set(key, { ...(frames.get(key) ?? {}), [d.prop]: d.value });
     }
+    // The CSS initial value of each animated property — what an element has when its base rule
+    // says nothing. A `to` frame must equal the base DECLARATION where one exists, else this.
+    const INITIAL: Record<string, string> = {
+      transform: "none",
+      "clip-path": "none",
+      "stroke-dashoffset": "0",
+      opacity: "1",
+    };
+    /** The animated selector's element: its last compound, attributes stripped
+     *  (`.ui-pass[data-stamping] .ui-pass-tail` → `.ui-pass-tail`;
+     *   `.ui-track[data-filling] .ui-track-seg[data-landing]` → `.ui-track-seg`). */
+    const element = (selector: string) =>
+      selector
+        .split(/\s+/)
+        .pop()!
+        .replace(/\[[^\]]*\]/g, "");
+    const base = (el: string, prop: string) => {
+      const hits = DECLS.filter(
+        (d) =>
+          d.media === null &&
+          d.prop === prop &&
+          members(d.selector).some((m) => m === el || m.endsWith(` > ${el}`)),
+      );
+      expect(hits.length, `${el} { ${prop} } declared at most once`).toBeLessThanOrEqual(1);
+      return hits[0]?.value ?? INITIAL[prop];
+    };
     for (const d of animated) {
       const name = d.value.split(/\s+/)[0]!;
       const last = frames.get(`${name}|to`) ?? frames.get(`${name}|100%`);
       expect(last, `${name} has a to/100% frame`).toBeDefined();
+      const el = element(d.selector);
       for (const [prop, value] of Object.entries(last!)) {
         if (prop === "animation-timing-function") continue;
-        // At rest: no transform, the clip open, the stroke drawn — the base styles pass.css declares.
-        expect(["transform", "clip-path", "stroke-dashoffset"], prop).toContain(prop);
-        if (prop === "transform") expect(value).toBe("none");
-        if (prop === "clip-path") expect(value).toBe("inset(0)");
-        if (prop === "stroke-dashoffset") expect(value).toBe("0");
+        expect(Object.keys(INITIAL), `${name}: ${prop} is an animatable property this suite knows`).toContain(prop); // prettier-ignore
+        // MUTATION: `uiPassPrint` ending at `inset(0)` while `.ui-pass-tail` rests unclipped (the
+        // notches' overhang shaved after every print) — red, naming the frame.
+        expect(value, `${name} → ${el} { ${prop} } ends at the element's base`).toBe(
+          base(el, prop),
+        );
       }
     }
     // The stamp's base is fully drawn, so turning the animation off IS the escort.
     expect(one(".ui-pass-stamp-mark", "stroke-dashoffset")).toBe("0");
+    // The print's rest clip is ONE value, read by the tail, the tear and both keyframes.
+    expect(one(".ui-pass", "--pass-print-rest")).toMatch(/^inset\(-\d+px\)$/);
+    expect(one(".ui-pass-tear", "clip-path")).toBe("var(--pass-print-rest)");
+  });
+
+  it("TURN's perspective sits on each turning element's OWN parent (the head for the main, the identity for the figure)", () => {
+    expect(one(".ui-pass-head", "perspective")).toBe("600px");
+    expect(one(".ui-pass-identity", "perspective")).toBe("600px");
   });
 
   it("TURN is two --dur-base halves, ease-in then --ease-out, and nothing on a pass loops", () => {
