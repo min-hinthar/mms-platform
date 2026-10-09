@@ -20,8 +20,14 @@
 -- ⚠️ `now()` is the TRANSACTION start time and this whole file is one transaction, so "a minute
 -- later" is simulated by moving `send_nudge_at` into the past directly.
 --
--- CI-only: it needs the local stack (Docker). Written against the migration's signatures and never
--- run in the authoring environment — the first CI run is its first run.
+-- Run red-first before it shipped (2026-10-09), on LEARNINGS #95's throwaway Postgres 16 with all
+-- 108 migrations + seed applied (the other 30 supabase/tests files green beside it): each guard in
+-- `mms_nudge_host`'s WHERE dropped in turn, the fire's clear dropped, the clear's `exists` dropped,
+-- anon granted, the stamp's seat swapped — every one red at its own assert. One note from that run:
+-- dropping `s.host_seat is not null` ALONE leaves the hostless refusal standing, because
+-- `s.host_seat <> p_seat` is already NULL (falsy) on a hostless table; the explicit term is kept for
+-- the reader, and the hostless assert goes red the moment the comparison is made null-safe
+-- (`is distinct from`) without it. That first run also corrected an assert: `fired` counts LINES.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pd1_send_nudge_test.sql
@@ -109,7 +115,7 @@ begin
   select * into r from public.mms_nudge_host(cart, thiri);
   assert r.ok, 'the nudge before the send lands';
   select fired into v_fired from public.mms_fire_cart(cart);
-  assert v_fired = 2, format('the send fires the 2 units — got %s', v_fired);
+  assert v_fired = 1, format('the send fires the one draft LINE (`fired` counts lines, not units) — got %s', v_fired);
   select send_nudge_seat, send_nudge_at into v_seat, v_at from public.qr_carts where id = cart;
   assert v_seat is null and v_at is null, 'the fire clears the stamp in the same statement';
   -- nothing draft now: a fresh nudge stands through a send that moves no line

@@ -29,7 +29,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   session active, a host, the nudger a member and not the host, at most once a minute; a read-only
   diagnosis on a miss) and restates `mms_fire_cart` whole so the fire clears the stamp in the same
   statement. `supabase/tests/pd1_send_nudge_test.sql` (named in CI's required list) pins each guard
-  beside the legitimate write. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
+  beside the legitimate write — run red-first on LEARNINGS #95's throwaway Postgres 16 (all 108
+  migrations + seed; the other 30 SQL tests green beside it), every guard dropped in turn going red. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
   success carrying the standing stamp; a pay lock or settle freeze refuses it before the RPC — nobody
   can send under one, and `check-freeze-parity` now counts it among 17 lock-bearing mutations);
   `getCartView` reads the stamp ADVISORY, beside the sold-out

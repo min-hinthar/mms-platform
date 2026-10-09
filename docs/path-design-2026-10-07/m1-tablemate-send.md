@@ -563,9 +563,11 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   `send_nudge_at`; `mms_nudge_host(cart, seat)` with every rule in the UPDATE's WHERE and a read-only
   diagnosis on a miss (`closed · not_member · no_host · is_host · recent · no_cart · unknown`);
   `mms_fire_cart` restated whole so the fire clears the stamp in the same statement (a fire that moves
-  nothing leaves it standing). `supabase/tests/pd1_send_nudge_test.sql` in CI's required list. The
-  action `lib/send-nudge.ts` (member-authorized; per-seat rate guard; `recent` = success with the
-  standing stamp; refusals returned, never thrown). `getCartView` reads the stamp ADVISORY.
+  nothing leaves it standing). `supabase/tests/pd1_send_nudge_test.sql` in CI's required list, run
+  red-first on a throwaway Postgres 16 (LEARNINGS #95) before the push. The
+  action `lib/send-nudge.ts` (member-authorized; refuses under a pay lock or settle freeze, the
+  server half of decision 18; per-seat rate guard; `recent` = success with the standing stamp;
+  refusals returned, never thrown). `getCartView` reads the stamp ADVISORY.
 - Screen 2 (A2 · A3 · B2 · B3, D3 · D4): `ShowServerPass` — the Sheet as a full-screen dialog
   (`.mms-sheet-full`) holding `CounterPass` (counter tier; a numberless table's code at the holder
   tier, spelt); the status in the pass head as `KitchenTrack` and the dialog's one live region; the
