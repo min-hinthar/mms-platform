@@ -2597,6 +2597,29 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
   });
 
+  it("a tablemate EMPTYING and refilling the cart while the promo field has focus never strands the door (last blind pass, critical)", async () => {
+    // The exact path the last pass found: the empty-cart branch returns before any in-render reset,
+    // so the focused input unmounts with no blur; `stage` stays "bill", so the refilled Bill came
+    // back with `promoFocused` still true and the ONE door hidden over a blank band.
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /promo/i })).toBeNull());
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    await syncFromServer();
+    // MUTATION (checkout/promo-focus-outlives-the-form): the input's unmount no longer clears the
+    // flag — the door stays hidden on this path AND the ask path above; red.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy(),
+    );
+  });
+
   it("a split-read miss draws the dock AND the padding that clears it — one binding (blind pass, critical 3)", () => {
     mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
     expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();

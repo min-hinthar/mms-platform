@@ -483,6 +483,15 @@ export function Checkout({
   // PD2 — the promo field has focus: the dock and its fade hide so they never ride the keyboard,
   // and return on blur (the keyed pay furniture below reads it).
   const [promoFocused, setPromoFocused] = useState(false);
+  // The blind passes on #331 — the promo field's focus cannot outlive the INPUT. React fires no
+  // `blur` for an input it removes in its own commit (an ask landing, the settle freeze, a tablemate
+  // emptying the cart into the empty-slip branch), so the input's own unmount is the blur: a STABLE
+  // callback ref (an inline one would be detached and re-attached on every render, clearing the flag
+  // while the field still has focus). Whatever path removes the field, the docked door — the Bill's
+  // ONE door — cannot come back `hidden`.
+  const promoInputRef = useCallback((el: HTMLInputElement | null) => {
+    if (el === null) setPromoFocused(false);
+  }, []);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -2832,11 +2841,6 @@ export function Checkout({
   // AND by the page padding that clears it (the padding used to read the split's `isDineIn`, so a
   // split-read miss drew the dock over the promo form with nothing to scroll it clear).
   const dockShown = showPayControls && phonePayOff;
-  // The blind pass on #331 (critical 2) — the promo field's focus cannot outlive the form. React
-  // fires no `blur` for an input it removes in its own commit (an ask landing, the settle freeze),
-  // so the form's unmount is the blur: adjusted during render (React's derived-state pattern), or
-  // the docked door — the Bill's ONLY door — came back `hidden` with no way to un-hide it.
-  if (promoFocused && !showPayControls) setPromoFocused(false);
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -3665,6 +3669,7 @@ export function Checkout({
                   maxLength={40}
                   // PD2 — the docked counter door hides while this field has focus (it would
                   // otherwise ride the keyboard) and returns on blur.
+                  ref={promoInputRef}
                   onFocus={() => setPromoFocused(true)}
                   onBlur={() => setPromoFocused(false)}
                   className="checkout-promo-input"

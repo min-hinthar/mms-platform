@@ -25691,9 +25691,9 @@ const MUTANTS = [
     id: "checkout/promo-focus-outlives-the-form",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
-    why: "The blind pass on #331 (critical 2) — React fires no blur for an input it removes in its own commit; the promo focus outliving the form leaves the Bill's ONLY door hidden after an ask lands and is withdrawn",
-    find: "  if (promoFocused && !showPayControls) setPromoFocused(false);\n",
-    replace: "",
+    why: "The blind passes on #331 — React fires no blur for an input it removes in its own commit (an ask landing, the settle freeze, a tablemate emptying the cart); the promo focus outliving its INPUT leaves the Bill's ONLY door hidden over a blank band. The input's own unmount (a stable callback ref) is the blur",
+    find: "    if (el === null) setPromoFocused(false);",
+    replace: "    if (false) setPromoFocused(false);",
   },
   {
     id: "checkout/dock-padding-reads-the-split-mode",
