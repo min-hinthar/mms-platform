@@ -3829,7 +3829,7 @@ live file says where the history went. And keep a measured number in exactly one
 cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
 table, with a one-line cell pointing to it.
 
-## #250
+## #253
 
 **A killed `verify:slice` can leave a mutant that `check:mutant-anchors` cannot see (2026-10-08, PD8).**
 The anchors guard proves each mutant's `find` string matches once — but a mutant whose `replace` still
