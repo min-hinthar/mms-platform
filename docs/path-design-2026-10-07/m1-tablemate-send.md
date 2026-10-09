@@ -569,8 +569,8 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   server half of decision 18; per-seat rate guard; `recent` = success with the standing stamp;
   refusals returned, never thrown). `getCartView` reads the stamp ADVISORY.
 - Screen 2 (A2 · A3 · B2 · B3, D3 · D4): `ShowServerPass` — the Sheet as a full-screen dialog
-  (`.mms-sheet-full`) holding `CounterPass` (counter tier; a numberless table's code at the holder
-  tier, spelt); the status in the pass head as `KitchenTrack` and the dialog's one live region; the
+  (`.mms-sheet-full`) holding `CounterPass` (counter tier; a numberless table prints "Aye’s table" /
+  "Your table" — never the join code, below); the status in the pass head as `KitchenTrack` and the dialog's one live region; the
   dishes as `.pass-dish*` rows with the KDS qty grammar in pass inks; Done pinned. `lib/show-server.ts`:
   `waitingDishes`, `passDishes` (the listed rows stay after they go; a late draft joins; a removed
   row leaves), `showServerStatus` (waiting · sending · sent · none, read against the VIEW's
@@ -584,9 +584,10 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
 **Waits on another stream / the owner.**
 
 - The migration is the OWNER's (one file, Supabase MCP `apply_migration`, after confirming
-  `fasnpdhtvqtzjlvruqcu`). Until it is applied, the advisory read answers 42703 and degrades to no
-  stamp, and every "Let {host} know" answers "That didn’t go through — please try again." — honest,
-  but a button that cannot succeed; apply it before or with the merge.
+  `fasnpdhtvqtzjlvruqcu`), and it goes FIRST: apply `20261008123000`, then merge. The build before
+  PD1 runs unchanged against the new `mms_fire_cart`; the PD1 build offers "Let {host} know" only
+  when its stamp read succeeds (`nudgeReady`), so an unmigrated project hides the button rather than
+  offering one whose every tap fails.
 - A8 (the console's hollow ring, Dad's pane grouping): counter-floor, with P2do.
 - Decision 16 (the host's name ask, once, when the party reaches two): not built; the role sentence
   covers an unnamed host meanwhile.
@@ -597,7 +598,8 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
 
 - Taken: the nudge is never a toggle — the settled control is `aria-disabled`, described by the
   confirmation, and a tap re-says it (C3); the radius-10 qty token is the KDS exception, in pass inks
-  (C5); the unbound pass keeps the holder's code tier (C6); "Table code" is listed English-only (C4).
+  (C5); ~~the unbound pass keeps the holder's code tier (C6); "Table code" is listed English-only
+  (C4)~~ — reversed in the fix round below.
 - Not taken: a larger dish-row tier on the pass (C8) — the rows use `--fs-h2` for both tongues; the
   console adopting ပြန်ဖျက် (C1) — withdrawn by D2 anyway.
 
@@ -622,3 +624,34 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
    mounted (no focus to move).
 
 **Residuals filed.** The legacy-pin note on PD2's row; the host's Bill stage carries no waiting line.
+
+**Fix round — the capped blind pass on #335 (REJECT), 2026-10-09.**
+
+- **Lock order.** The first `mms_fire_cart` restatement cleared the stamp AFTER locking the lines;
+  against the line RPCs' cart-then-line (P2cy) a tablemate's "+" racing the host's Send deadlocked.
+  Both functions now take the cart row `for no key update` first (cart → line), proven with two
+  sessions by `scripts/verify-fire-cart-race.mjs` (+ `--mutants`). The clear writes only when a stamp
+  stands; a nudge racing a Send is ordered by the same lock (fire first → `nothing_to_send`).
+- **Whose stamp.** `mms_nudge_host` returns the stamp's seat; another seat inside the minute is
+  `taken`, and the Bill says "{guest} already let {host} know — they can see the table’s waiting."
+  (`alreadyNudgedCopy`) — never "{host} can see you're waiting" for a nudge that is not this guest's.
+- **A stamp needs a dish.** The nudge requires a dine-in draft, an active dine-in table and no fresh
+  pay lock or split freeze, IN its WHERE; the host's bar shows "Someone’s waiting" only beside a
+  dine-in draft. "Already paid" became "This order has moved or closed".
+- **Reconciliation 6 reversed (owner-delegated, 2026-10-09).** No pass prints the session's join
+  code: it is the bearer join secret and the realtime/RLS key (`lib/session-code.ts`), and a pass is
+  held up in the dining room, where anyone who reads eight characters could join the table, add
+  dishes that fire with its next Send, and read its names and cart. A numberless table's pass — this
+  moment's and m2's counter pass — prints a non-secret identity in the figure's place: the host's
+  first name ("Aye’s table") or "Your table" (`lib/pass-identity.ts`, which cannot even be handed the
+  code). Dad finds the table on the console by its open cart. Pinned for both passes by a test that
+  reads the pass's DOM and accessible names for the code, and a mutant per pass that routes it back.
+- **Replayable.** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
+  `scripts/verify-mode-authority.mjs` (suite `pd1`); the decorative `NUDGE_COOLDOWN_MS` is gone.
+- **Two clocks on the pass, justified.** The pass compares the lines' DB-stamped `fire_at` with the
+  view's `serverNow` (the APP server's clock) — the same pairing `sendToKitchen` has returned since
+  S2 for the undo countdown. The skew between the two managed hosts is NOT measured here (both are
+  expected to keep NTP time). The bound the code does keep: the re-read lands
+  `GRACE_REREAD_MARGIN_MS` (300 ms) past the deadline, which absorbs a skew below that; a larger one
+  moves the flip by at most the skew, and the flip is a display state (no write, no amount) that the
+  next applied view corrects. Reading the DB clock instead would cost a round trip on every view.
