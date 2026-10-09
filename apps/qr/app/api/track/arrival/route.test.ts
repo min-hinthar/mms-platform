@@ -23,28 +23,32 @@ beforeEach(() => {
   answer = () => Promise.resolve({ ok: true });
 });
 
-const EVERY: ArrivalWrite[] = [
-  { ok: true },
-  { ok: false, reason: "unauthorized" },
-  { ok: false, reason: "not_today" },
-  { ok: false, reason: "too_early" },
-  { ok: false, reason: "collected" },
-  { ok: false, reason: "closed" },
-  { ok: false, reason: "rate" },
-  { ok: false, reason: "failed" },
-];
+/** The route's status for EVERY answer `stampArrival` can give. `satisfies` makes the table
+ *  exhaustive by type (the second blind pass on #330): a reason added to `ArrivalWrite` without a row
+ *  here is a typecheck error, and so is a row for a reason that no longer exists — a hand-kept list
+ *  went stale silently. */
+type Answer = "ok" | Extract<ArrivalWrite, { ok: false }>["reason"];
+const STATUS = {
+  ok: 200,
+  unauthorized: 200,
+  not_today: 200,
+  too_early: 200,
+  collected: 200,
+  closed: 200,
+  rate: 429,
+  failed: 500,
+} satisfies Record<Answer, number>;
+const answerOf = (k: Answer): ArrivalWrite =>
+  k === "ok" ? { ok: true } : { ok: false, reason: k };
+const EVERY = (Object.keys(STATUS) as Answer[]).map(answerOf);
 
 describe("POST /api/track/arrival — the status IS the keep/clear contract", () => {
   it("maps rate → 429, failed → 500 and every decided answer → 200", async () => {
-    const status = async (a: ArrivalWrite) => {
-      answer = () => Promise.resolve(a);
-      return (await POST(req(ORDER))).status;
-    };
-    expect(await status({ ok: true })).toBe(200);
-    expect(await status({ ok: false, reason: "not_today" })).toBe(200);
     // MUTATION: map `rate` / `failed` to 200 — the reconcile retires an arrival nobody heard.
-    expect(await status({ ok: false, reason: "rate" })).toBe(429);
-    expect(await status({ ok: false, reason: "failed" })).toBe(500);
+    for (const k of Object.keys(STATUS) as Answer[]) {
+      answer = () => Promise.resolve(answerOf(k));
+      expect([k, (await POST(req(ORDER))).status]).toEqual([k, STATUS[k]]);
+    }
   });
 
   it("for EVERY answer, the route's response keeps or clears the record exactly as the in-page answer does", async () => {

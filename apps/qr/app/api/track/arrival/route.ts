@@ -19,10 +19,11 @@ import { stampArrival } from "@/lib/arrival";
  * discards its response either way, which is why the record exists.
  *
  * No Origin check, deliberately (the release-lock reasoning): the session cookie is `SameSite=Lax`,
- * so a cross-site POST carries no session and `stampArrival` refuses it as unauthorized — the
- * cookie is the CSRF guard. And a refusal is a plain `ok:false` here, not a distinct 403: the
- * reason set is the same ONE "unauthorized" for unknown and not-yours, so the route is no more of
- * an existence oracle than the action.
+ * so a cross-site POST carries no session, and `stampArrival` answers it the decided `unauthorized`
+ * (a 200) before the flood guard or any order read — the cookie is the CSRF guard. Only an identity
+ * service that is DOWN is `failed` (a 500, kept for a retry). And a refusal is a plain `ok:false`
+ * here, not a distinct 401/403: the reason set is the same ONE "unauthorized" for no session,
+ * unknown and not-yours, so the route is no more of an existence oracle than the action.
  */
 export async function POST(req: NextRequest) {
   let body: unknown;

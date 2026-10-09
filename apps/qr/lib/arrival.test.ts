@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ARRIVAL_LEAD_MIN } from "./pickup-promise";
 
 /**
  * PD3 — `stampArrival`, the ONE "I’m here" write (m3 decision 22; judges' graft 4; guided risk 1).
@@ -223,7 +224,7 @@ describe("stampArrival — the write, guarded IN the statement", () => {
 
   it("is TOO EARLY before the lead bound — the same rule the page offers by, enforced in the statement (blind pass on #330)", async () => {
     // MUTATION: drop the statement's lead bound — a 9 AM call for a 6:20 PM slot stamps "Here now".
-    const lead = 30 * 60_000;
+    const lead = ARRIVAL_LEAD_MIN * 60_000; // the ONE constant the statement reads — never a copy
     await expect(stampArrival({ orderId: ORDER }, Date.parse(SLOT) - lead - 1)).resolves.toEqual({
       ok: false,
       reason: "too_early",
@@ -397,10 +398,21 @@ describe("stampArrival — who may write (the session arm, then the durable earn
     expect(row.arrived_at).toBeNull();
   });
 
-  it("an unverified caller (a token mid-refresh, no session) is `failed`, never a decided `unauthorized` (blind pass on #330)", async () => {
-    // A reconcile at mount can race the browser's token rotation; a decided refusal there retired
-    // the record. MUTATION: answer `unauthorized` when no caller is verified.
+  it("NO session is the decided `unauthorized`, and reads nothing (second blind pass on #330)", async () => {
+    // A bot or a cookie-less POST must not read as a 5xx, and must buy no order read.
+    // MUTATION: answer `failed` for every throw (the first blind pass's shape).
     callerUid = null;
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(orderReads).toBe(0);
+  });
+
+  it("an identity service that is DOWN is `failed`, never a decided `unauthorized` (blind pass on #330)", async () => {
+    // A decided refusal is a 200 the client retires its pending record on; an outage is not a
+    // verdict. MUTATION: answer `unauthorized` for every throw.
+    callerUid = { unavailable: true };
     await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
       ok: false,
       reason: "failed",

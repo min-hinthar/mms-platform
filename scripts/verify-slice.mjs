@@ -27295,6 +27295,14 @@ const MUTANTS = [
       '    if (typeof ok === "boolean") return { answered: true, ok };\n  }\n  return status < 500 && status !== 429 ? { answered: true, ok: false } : { answered: false };',
   },
   {
+    id: "arrival-pending/any-400-clears-the-record",
+    file: "apps/qr/lib/arrival-pending.ts",
+    suite: "lib/arrival-pending.test.ts",
+    why: "the second blind pass on #330 (open question) — a 400 is the route's answer only with the route's own refusal body; an edge or platform 400 retired an arrival the route never saw",
+    find: "  if (status === 400 && isRouteRefusal(body)) return { answered: true, ok: false };",
+    replace: "  if (status === 400) return { answered: true, ok: false };",
+  },
+  {
     id: "arrival-pending/no-answer-clears-the-record",
     file: "apps/qr/lib/arrival-pending.ts",
     suite: "lib/arrival-pending.test.ts",
@@ -27423,13 +27431,20 @@ const MUTANTS = [
     replace: "",
   },
   {
-    id: "arrival/unverified-caller-reads-as-refusal",
+    id: "arrival/caller-outage-reads-as-refusal",
     file: "apps/qr/lib/arrival.ts",
     suite: "lib/arrival.test.ts",
-    why: "blind pass on #330 (open question) — no verified caller (a token mid-refresh at a reconcile, the auth transport down) is `failed`; a decided `unauthorized` retired the guest's record",
-    find: '    return { ok: false, reason: "failed" }; // no verified caller is not a decided "not yours"',
-    replace:
-      '    return { ok: false, reason: "unauthorized" }; // no verified caller is not a decided "not yours"',
+    why: "blind pass on #330 (open question) — an identity service that is DOWN is `failed`; a decided `unauthorized` retired the guest's record on an outage",
+    find: '    return { ok: false, reason: unavailable(e) ? "failed" : "unauthorized" };',
+    replace: '    return { ok: false, reason: "unauthorized" };',
+  },
+  {
+    id: "arrival/no-session-reads-as-outage",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "the second blind pass on #330 — NO session (a bot, a cookie-less POST) is the decided `unauthorized`; answered `failed`, it surfaced as a 500",
+    find: '    return { ok: false, reason: unavailable(e) ? "failed" : "unauthorized" };',
+    replace: '    return { ok: false, reason: "failed" };',
   },
   {
     id: "arrival/classification-error-swallowed",
@@ -27496,6 +27511,22 @@ const MUTANTS = [
     why: "the second blind pass on #330 — 'This page catches up…' is withdrawn once the page can no longer read the order (the live row gone, the snapshot read a decided no)",
     find: "  return pickedUp || !(liveStale && snapshotRefused);",
     replace: "  return true;",
+  },
+  {
+    id: "pickup-promise/too-early-reads-try-again",
+    file: "apps/qr/lib/pickup-promise.ts",
+    suite: "lib/pickup-promise.test.ts",
+    why: "the second blind pass on #330 (open question) — a decided `too_early` (the device clock ahead of the server's) names the clock the counter takes the arrival from; a plain 'try again' fails the same way",
+    find: '  if (reason !== "too_early") return TRACK.refused;',
+    replace: "  return TRACK.refused;",
+  },
+  {
+    id: "orders/fallback-auth-outage-reads-as-not-found",
+    file: "apps/qr/lib/orders.ts",
+    suite: "lib/orders-payers.test.ts",
+    why: "the second blind pass on #330 — an auth TRANSPORT failure in the /track snapshot read is `error`; answered `not_found`, a glitch withdrew the pickup foot as if the order were gone",
+    find: '  if (authErr && isTransportFailure(authErr)) return { ok: false, reason: "error" };',
+    replace: "",
   },
   {
     id: "arrival/earned-by-arm-dropped",

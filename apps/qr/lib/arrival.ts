@@ -40,11 +40,12 @@ export type ArrivalWrite =
   | { ok: true }
   | {
       ok: false;
-      /** `unauthorized` — unknown, malformed or not the caller's (ONE answer: no existence oracle);
+      /** `unauthorized` — no session, or an order unknown, malformed or not the caller's (ONE
+       *  answer: no existence oracle);
        *  `not_today` — the slot is on another day (or the order is not a pickup); `too_early` — more
        *  than ARRIVAL_LEAD_MIN before the slot; `collected` — the bag already left; `closed` — the
-       *  order is no longer paid (refunded / failed); `rate` — too many taps; `failed` — no verified
-       *  caller, or the UPDATE or a read it depends on failed. Every value but `rate` and `failed` is a
+       *  order is no longer paid (refunded / failed); `rate` — too many taps; `failed` — the identity
+       *  service is down, or the UPDATE or a read it depends on failed. Every value but `rate` and `failed` is a
        *  decided answer the client may act on. */
       reason:
         | "unauthorized"
@@ -63,13 +64,16 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
 
   // WHO, then the flood guard, then any order read (blind pass on #330): the guard used to run only
   // after authorization succeeded, so a loop on a known order id bought several backend reads per
-  // request, unthrottled. No verified caller — the auth transport down, or a token mid-refresh at a
-  // reconcile — is `failed`, never a decided "not yours" the client would retire its record on.
+  // request, unthrottled. An identity service that is DOWN (`unavailable`, W10a) is `failed`, never a
+  // decided "not yours" the client would retire its record on; NO session at all (a bot, a
+  // cookie-less POST, cleared site data) is the decided `unauthorized` — not a 5xx (the second blind
+  // pass on #330). A token mid-rotation is neither: the server client refreshes it from the cookie's
+  // refresh token inside `getUser()` before it answers.
   let uid: string;
   try {
     uid = await getCallerUid();
-  } catch {
-    return { ok: false, reason: "failed" }; // no verified caller is not a decided "not yours"
+  } catch (e) {
+    return { ok: false, reason: unavailable(e) ? "failed" : "unauthorized" };
   }
   try {
     await assertMutationRate(uid);

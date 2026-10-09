@@ -137,8 +137,18 @@ describe("routeOutcome — only the route's own answers are answers (blind pass 
       ok: false,
     });
   });
-  it("a 400 (a malformed body: it will never succeed) is a decided refusal", () => {
-    expect(routeOutcome(400, { ok: false })).toEqual({ answered: true, ok: false });
+  it("a 400 carrying the route's refusal body (a malformed request: it will never succeed) is a decided refusal", () => {
+    expect(routeOutcome(400, { ok: false, reason: "unauthorized" })).toEqual({
+      answered: true,
+      ok: false,
+    });
+  });
+  it("a 400 some OTHER layer sent (no body, an HTML page, not the route's shape) is NOT an answer (second blind pass on #330)", () => {
+    // MUTATION: retire on ANY 400 — an edge or platform 400 cleared an arrival the route never saw.
+    expect(routeOutcome(400, null)).toEqual({ answered: false });
+    expect(routeOutcome(400, "<html>Bad Request</html>")).toEqual({ answered: false });
+    expect(routeOutcome(400, { error: "bad request" })).toEqual({ answered: false });
+    expect(routeOutcome(400, { ok: true })).toEqual({ answered: false });
   });
   it("a platform 4xx, a 429, a 5xx or an unreadable 200 is NOT an answer — the record stays", () => {
     // MUTATION: treat every status below 500 as decided (the first draft) — a deployment

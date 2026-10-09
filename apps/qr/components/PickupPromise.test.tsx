@@ -206,6 +206,28 @@ describe("'I’m here' — the one-slot swap, the same-gesture guard, the take-b
     expect(container.textContent).toContain("Couldn’t let the counter know — try again.");
   });
 
+  it("a decided TOO EARLY names the clock the counter takes it from, not a 'try again' (second blind pass on #330)", async () => {
+    // The device clock ran ahead of the server's. RED when the card reads the plain sentence.
+    const { container } = mount();
+    announceArrival.mockResolvedValue({
+      ok: false,
+      error: "Couldn’t let the counter know — try again.",
+      reason: "too_early",
+    });
+    fireEvent.click(button(container, "I’m here")!);
+    await act(async () => {
+      vi.advanceTimersByTime(6_300);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(window.localStorage.getItem(KEY)).toBeNull(); // a decided answer retires the record
+    const refusal = container.querySelector(".pickup-refused")?.textContent ?? "";
+    expect(refusal).toContain("you can tell the counter you’re here from 5:50 PM.");
+    expect(refusal).not.toContain("try again");
+    expect(region(container)).toContain("from 5:50 PM");
+  });
+
   it("a keyboard user parked on Undo HOLDS the window (WCAG 2.2.1); leaving it lets the window run on", async () => {
     keyboardFocus = true;
     const { container } = mount();

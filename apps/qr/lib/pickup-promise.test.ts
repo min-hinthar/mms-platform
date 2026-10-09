@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { PICKED_UNDO_MS } from "./expo-rules";
+import { TRACK } from "./i18n/track";
 import {
   ARRIVAL_LEAD_MIN,
   ARRIVAL_UNDO_MS,
   arrivalCommitDue,
+  arrivalRefusal,
   arrivalTapHeld,
   isFired,
   LATE_AFTER_MIN,
@@ -135,11 +137,16 @@ describe("pickupGuide — ready and picked up", () => {
 });
 
 describe("pickupGuide — 'I’m here' is offered from ARRIVAL_LEAD_MIN before the slot, on its own day", () => {
-  it("is offered from 30 minutes before the slot — booked, cooking, late or ready — and not a minute earlier", () => {
+  it("is offered from ARRIVAL_LEAD_MIN before the slot — booked, cooking, late or ready — and not a minute earlier", () => {
     // Blind pass on #330: offered the whole day, a 9 AM tap for a 6:20 PM slot rang the bell at
     // 9 AM, pinned "Here now" above every due bag all day, and the real arrival could never be
     // announced. The spec's own scene is 19 minutes early. MUTATION: drop the lead bound.
-    expect(ARRIVAL_LEAD_MIN).toBe(30);
+    // The one deliberate literal: a POLICY pin, not a transcribed measurement — the second blind
+    // pass on #330 asked for it to say so.
+    expect(
+      ARRIVAL_LEAD_MIN,
+      "the 30-minute lead was decided under delegation (PD3, m3 §H; owner to confirm, OPEN-ITEMS PD3) — change it only on the owner's ruling",
+    ).toBe(30);
     const held = { ...base, fireAt: "2026-10-09T01:08:00.000Z" };
     expect(pickupGuide(held, at("2026-10-08T17:00:00.000Z")).arrivalOffered).toBe(false); // 10 AM
     expect(pickupGuide(base, at(SLOT, -ARRIVAL_LEAD_MIN) - 1).arrivalOffered).toBe(false);
@@ -244,5 +251,30 @@ describe("the take-back window — the lane's 6 seconds, held time added, armed 
     expect(arrivalTapHeld(10_000, 10_349)).toBe(true);
     expect(arrivalTapHeld(10_000, 10_350)).toBe(false);
     expect(arrivalTapHeld(null, 10_000)).toBe(false);
+  });
+});
+
+describe("arrivalRefusal — a decided `too_early` names its clock (second blind pass on #330)", () => {
+  it("too_early says when the counter takes the arrival — the slot less the lead — in both tongues", () => {
+    // The device clock ran ahead of the server's; "try again" would fail the same way.
+    // MUTATION: every refusal gets the plain "try again".
+    const line = arrivalRefusal("too_early", SLOT); // 6:20 PM PDT; the clock below is node's Intl
+    expect(line.en).toBe(
+      "It’s a little early — you can tell the counter you’re here from 5:50 PM.",
+    );
+    expect(line.my).toContain("5:50 PM");
+    expect(line.my).not.toContain("{t}");
+  });
+  it("every other refusal, and no reason at all, keeps the one plain sentence", () => {
+    for (const r of [
+      "unauthorized",
+      "not_today",
+      "collected",
+      "closed",
+      "rate",
+      "failed",
+      undefined,
+    ])
+      expect(arrivalRefusal(r, SLOT)).toEqual(TRACK.refused);
   });
 });

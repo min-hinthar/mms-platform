@@ -20,6 +20,7 @@ import type { Entry } from "@/lib/i18n/types";
 import {
   ARRIVAL_UNDO_MS,
   arrivalCommitDue,
+  arrivalRefusal,
   arrivalTapHeld,
   pickupGuide,
   stopClockLabel,
@@ -197,6 +198,8 @@ export function PickupPromise({
 
   // ── "I’m here": the take-back window, the commit, the pending record ───────────────────────────
   const [phase, setPhase] = useState<Phase>("idle");
+  /** The refusal sentence the card shows while `phase === "refused"` (`arrivalRefusal`). */
+  const [refusal, setRefusal] = useState<Entry>(TRACK.refused);
   const [win, setWin] = useState<Window | null>(null);
   /** When the "I’m here" control last (re)mounted under a finger — the same-gesture guard. */
   const [hereArmedAt, setHereArmedAt] = useState<number | null>(null);
@@ -215,7 +218,7 @@ export function PickupPromise({
   const sendOutRef = useRef(false);
 
   const settle = useCallback(
-    (outcome: ArrivalOutcome, error?: string) => {
+    (outcome: ArrivalOutcome, reason?: string) => {
       sendOutRef.current = false;
       if (pendingArrivalCleared(outcome)) clearPendingArrival(safeLocalStorage(), order.id);
       if (outcome.answered && outcome.ok) {
@@ -223,11 +226,15 @@ export function PickupPromise({
         setConfirmedLocal(true);
         setSpoken(TRACK.confirmed);
       } else {
+        // A decided `too_early` names its clock; everything else is the one plain sentence
+        // (`arrivalRefusal`, lib/pickup-promise.ts).
+        const line = arrivalRefusal(reason, pickupSlot);
+        setRefusal(line);
         setPhase("refused");
-        setSpoken({ en: error ?? TRACK.refused.en, my: TRACK.refused.my });
+        setSpoken(line);
       }
     },
-    [order.id],
+    [order.id, pickupSlot],
   );
   /** The window ended (or the page hid inside it): write the record, then the in-page send. */
   const commit = useCallback(() => {
@@ -240,7 +247,7 @@ export function PickupPromise({
     sendOutRef.current = true;
     // A resolved `failed` / `rate` is not an answer (`actionOutcome`, lib/arrival-pending.ts).
     announceArrival({ orderId: order.id })
-      .then((r) => settle(actionOutcome(r), r.ok ? undefined : r.error))
+      .then((r) => settle(actionOutcome(r), r.ok ? undefined : r.reason))
       .catch(() => settle({ answered: false }));
   }, [order.id, settle]);
 
@@ -548,9 +555,9 @@ export function PickupPromise({
               )}
               {phase === "refused" && (
                 <p className="pickup-refused">
-                  {TRACK.refused.en}
+                  {refusal.en}
                   <span lang="my" className="pickup-line-my">
-                    {TRACK.refused.my}
+                    {refusal.my}
                   </span>
                 </p>
               )}

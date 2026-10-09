@@ -85,6 +85,14 @@ export const TRACK = {
     en: "Couldn’t let the counter know — try again.",
     my: "ကောင်တာကို မပြောနိုင်ခဲ့ပါ — ထပ်စမ်းပါ", // DRAFT, guided (m3.json concepts[1].screens[3])
   },
+  // A decided `too_early` (the second blind pass on #330: the device clock ran ahead of the server's,
+  // so the page offered the question a little before the counter takes it) names the clock from which
+  // it will, instead of a "try again" that would fail the same way. No spec string draws it (J29):
+  // the house's own words, decided under the owner's delegation (post-pay).
+  tooEarly: {
+    en: "It’s a little early — you can tell the counter you’re here from {t}.",
+    my: "စောနေသေးတယ် — {t} ကစပြီး ကောင်တာကို ရောက်နေပြီလို့ ပြောလို့ရပါမယ်", // DRAFT, post-pay
+  },
   // B5 — the capped keyboard hold's warning, five seconds before the window is let go. No spec
   // string draws it (J29): the house's own words, decided under the owner's delegation (post-pay).
   capSoon: {

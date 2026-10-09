@@ -139,15 +139,22 @@ export function reconcileDue(
 /**
  * What a reconcile POST's response MEANS for the record (blind pass on #330, open question). Only the
  * route's own answers are answers: a 200 carrying a boolean `ok` (success, or a decided refusal), or
- * a 400 (a malformed body — it will never succeed). Everything else — a 429 or a 5xx from the route,
- * and any status the PLATFORM answered instead (a deployment-protection 401, a 408, a 413), or a 200
- * whose body cannot be read — is no answer, and the record stays for the next visit inside its window.
+ * a 400 carrying the route's own refusal body (`ok: false` — a malformed request body, which will
+ * never succeed). Everything else — a 429 or a 5xx from the route, any status the PLATFORM answered
+ * instead (a deployment-protection 401, a 408, a 413, an edge 400 with an HTML page: the second blind
+ * pass on #330), or a 200 whose body cannot be read — is no answer, and the record stays for the next
+ * visit inside its window.
  */
 export function routeOutcome(status: number, body: unknown): ArrivalOutcome {
-  if (status === 400) return { answered: true, ok: false };
+  if (status === 400 && isRouteRefusal(body)) return { answered: true, ok: false };
   if (status === 200 && typeof body === "object" && body !== null) {
     const ok = (body as { ok?: unknown }).ok;
     if (typeof ok === "boolean") return { answered: true, ok };
   }
   return { answered: false };
+}
+
+/** The route's own refusal body (`{ ok: false, … }`), as opposed to a page some other layer sent. */
+function isRouteRefusal(body: unknown): boolean {
+  return typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === false;
 }

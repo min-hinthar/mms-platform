@@ -1,6 +1,7 @@
 "use server";
 // verify:slice-exempt — PD3: a thin Server Action over `stampArrival` (lib/arrival.ts, mutated),
-// which holds every authority rule; this maps its answer to the card's one refusal sentence.
+// which holds every authority rule; this passes its answer through with the plain refusal sentence
+// (the card picks its own line from `reason`: `arrivalRefusal`, lib/pickup-promise.ts, mutated).
 import { stampArrival, type ArrivalWrite } from "./arrival";
 import { TRACK } from "./i18n/track";
 

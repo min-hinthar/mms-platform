@@ -1,5 +1,6 @@
 "use server";
 import { cookies } from "next/headers";
+import { isTransportFailure } from "./authz";
 import { COUNTER_TENDERS } from "./counter-tender";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
@@ -200,7 +201,12 @@ export async function getMyOrderFallback(input: {
   const supa = serverClient(await cookies());
   const {
     data: { user },
+    error: authErr,
   } = await supa.auth.getUser();
+  // An auth TRANSPORT failure is not "not yours" (the second blind pass on #330): answered
+  // `not_found`, a glitch withdrew /track's "this page catches up" foot as if the order were gone.
+  // Unknowable ≠ unauthenticated (W10a, `isTransportFailure`).
+  if (authErr && isTransportFailure(authErr)) return { ok: false, reason: "error" };
   if (!user) return { ok: false, reason: "not_found" };
   const db = serviceClient();
 

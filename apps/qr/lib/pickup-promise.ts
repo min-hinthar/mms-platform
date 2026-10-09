@@ -232,6 +232,17 @@ export function slotLabel(slotIso: string, nowMs: number): string {
   return `${day} ${formatSlot(slotIso)}`;
 }
 
+/** The card's sentence for a DECIDED refusal of "I’m here" (the second blind pass on #330).
+ *  `too_early` — the device clock ran ahead of the server's — names the clock from which the counter
+ *  takes the arrival (the slot less ARRIVAL_LEAD_MIN; the server answers `not_today` before
+ *  `too_early`, so the slot is today and the clock alone is the honest label). Every other refusal
+ *  keeps the one plain sentence. */
+export function arrivalRefusal(reason: string | undefined, pickupSlot: string): Entry {
+  if (reason !== "too_early") return TRACK.refused;
+  const from = new Date(Date.parse(pickupSlot) - ARRIVAL_LEAD_MIN * 60_000).toISOString();
+  return trackFill("tooEarly", formatClock(from));
+}
+
 // ── the take-back window ─────────────────────────────────────────────────────────────────────────
 
 /** Is the deferred arrival write due at `nowMs`? The window starts at the tap and slides by the time
