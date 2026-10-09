@@ -293,8 +293,13 @@ export function SplitSection({
         <h2 id="split-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 4px" }}>
           Splitting the bill?
         </h2>
+        {/* PD2 (m2 B10; PATH_DESIGN round 3 D4) — "Pay as one bill here" is a phone-pay door, so it
+            is said only while that door is open (`SURFACES.dineInPhonePay`); parked, only the
+            counter clause is true. English-only, as shipped — no Burmese invented. */}
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: 0, lineHeight: 1.5 }}>
-          Pay as one bill here — or ask at the counter, and our staff can split it for you.
+          {surfaceOpen("dineInPhonePay")
+            ? "Pay as one bill here — or ask at the counter, and our staff can split it for you."
+            : "Ask at the counter, and our staff can split it for you."}
         </p>
         <details className="split-parked-details">
           <summary>See each person’s share</summary>
