@@ -40,6 +40,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   total is `number | null` (no tray on $0.00); the seal lands once per same-tab reload
   (`takeSealLanding`), calm on every revisit; focus moves to Take after the slip's re-quote; the slip
   list's name is one script.
+- **The last blind pass on #334:** ONE time-based rule resolves a lost or late settle's doubt —
+  the ledger keeps WHEN each arose (the newest loss advances it), and `tillLedgerRead` applies the
+  hosts' own `settleUnknownAfterRead` to the start of their latest open read (`openReadAt`, fed by
+  the pad AND the table page); the pad's mark advances to the newest doubt. A refusal after a lost
+  answer tells the pane `unknown`. The seal lands only on a document RELOADED after the landing
+  (`sealNavNow`); a client-side revisit is calm.
 - **Mutants:** `till/*`, `till-ui/*`, `seal/*`, `pad-seal/*`, `pad-door/*`, `pad-route/*`,
   `pad/unpriced-*`, `send-view/asked-table-counts-only-staff`, `p2do/*`, `pd1/*`, `pd2/*`, `k44/*`;
   re-anchored: the cash sheet's, the receipt stack's (now `ReceiptStack.tsx`) and the strip's owed mark.

@@ -1317,6 +1317,41 @@ describe("FloorDetailLive — a lost counter cash settle's 'most likely went thr
     expect(replace).not.toHaveBeenCalled();
     vi.restoreAllMocks();
   });
+
+  it("#334 sequence b: the page's read cleared the lost settle, a NEW attempt went out and was REFUSED late — the close is the ordinary close", async () => {
+    await lostThenCancel(); // A's answer lost at T, the sheet cancelled
+    // Reads keep showing the order OPEN past A's window: A never landed (the page's mark clears).
+    await tick(SETTLE_TTL_MS + 5000);
+    // C: the sheet again, Take, and no answer at the bound — the page holds again.
+    let resolveC: (v: unknown) => void = () => {};
+    settleCash.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveC = r;
+      }),
+    );
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(STAFF_HANG_MS);
+    // C's late answer: refused — nothing recorded, and A was already proved never to have landed.
+    await act(async () => {
+      resolveC({ ok: false, error: "Couldn’t take it." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION till-ui/host-read-not-asked (judged here too): the till never applies the page's
+    // open read, keeps A's doubt, never hands up `false` — and a colleague's close is said as "the
+    // payment most likely went through" over a settle the server refused; red.
+    expect(unknownNotice()).toBeNull();
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    vi.restoreAllMocks();
+  });
 });
 
 describe("FloorDetailLive — the reader's money status is never masked by a stale refusal (R3)", () => {

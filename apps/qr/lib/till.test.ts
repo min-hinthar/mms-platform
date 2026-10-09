@@ -14,6 +14,7 @@ import {
   tillCancelSays,
   tillDoubts,
   tillLedgerAfter,
+  tillLedgerRead,
   type TillEvent,
   tillDoorLandsInert,
   tillHeroTier,
@@ -27,6 +28,7 @@ import {
   SEAL_OFFERS_WALKUP,
 } from "./till";
 import type { Handoff } from "./register-ui";
+import { SETTLE_MAY_LAND_MS } from "./register-math";
 
 /**
  * PD6 · counter-floor — the till tray's pure rules, pinned. Red-first by mutant (verify:slice
@@ -175,14 +177,16 @@ describe("the slip — frozen with the quote, diverged when the cart changes (Co
 describe("the till's ledger — reassurance only where an attempt came to nothing and no doubt is left", () => {
   /** The ledger after a run of events, from a clean till. */
   const run = (...es: TillEvent[]) => es.reduce(tillLedgerAfter, TILL_LEDGER_CLEAN);
+  const T0 = 1_000_000;
+  const MIN = 60_000;
 
   it("one attempt: says it after a refusal or a stalled tap; never after waiting, unknown, landed, or a plain cancel", () => {
     expect(tillCancelSays(run({ k: "opened" }, { k: "refused", late: false }))).toBe(true);
     expect(tillCancelSays(run({ k: "opened" }, { k: "tapRefused", as: "stalled" }))).toBe(true);
     // MUTATION till/cancel-reassures-a-waiting-payment: "nothing was taken" over a settle that may
     // still be recorded — the cashier takes the money twice; red.
-    expect(tillCancelSays(run({ k: "opened" }, { k: "out" }))).toBe(false);
-    expect(tillCancelSays(run({ k: "opened" }, { k: "threw", late: false }))).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "out", at: T0 }))).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "threw", late: false, at: T0 }))).toBe(false);
     expect(tillCancelSays(run({ k: "opened" }, { k: "landed" }))).toBe(false);
     // Appendix C: a routine cancel stays silent.
     expect(tillCancelSays(run({ k: "opened" }))).toBe(false);
@@ -192,12 +196,20 @@ describe("the till's ledger — reassurance only where an attempt came to nothin
     // (A) The first settle's answer was lost after it committed; the re-tap is refused "That table
     // is closed." — that refusal is the first settle LANDING, never "nothing was taken".
     // MUTATION till/refusal-clears-the-doubt → red.
-    const a = run({ k: "opened" }, { k: "threw", late: false }, { k: "refused", late: false });
+    const a = run(
+      { k: "opened" },
+      { k: "threw", late: false, at: T0 },
+      { k: "refused", late: false },
+    );
     expect(tillDoubts(a)).toBe(true);
     expect(tillCancelSays(a)).toBe(false);
     // (B) …or the re-tap is refused at the tap (another action stalled). MUTATION
     // till/stalled-tap-clears-the-doubt → red.
-    const b = run({ k: "opened" }, { k: "threw", late: false }, { k: "tapRefused", as: "stalled" });
+    const b = run(
+      { k: "opened" },
+      { k: "threw", late: false, at: T0 },
+      { k: "tapRefused", as: "stalled" },
+    );
     expect(tillCancelSays(b)).toBe(false);
   });
 
@@ -205,8 +217,8 @@ describe("the till's ledger — reassurance only where an attempt came to nothin
     // MUTATION till/opening-wipes-the-doubt (an opening resets the ledger) → red.
     const l = run(
       { k: "opened" },
-      { k: "out" },
-      { k: "threw", late: true },
+      { k: "out", at: T0 },
+      { k: "threw", late: true, at: T0 + MIN },
       { k: "opened" },
       { k: "refused", late: false },
     );
@@ -214,31 +226,101 @@ describe("the till's ledger — reassurance only where an attempt came to nothin
     expect(tillCancelSays(l)).toBe(false);
   });
 
-  it("only the out attempt's own late answer resolves `out`; an on-time refusal of a newer one does not", () => {
+  it("only the out attempt's own late answer resolves `outSince` — never another attempt's lost answer", () => {
     // The attempt out past the bound answered: refused — nothing recorded; the till may reassure.
-    expect(tillCancelSays(run({ k: "out" }, { k: "refused", late: true }))).toBe(true);
+    expect(tillCancelSays(run({ k: "out", at: T0 }, { k: "refused", late: true }))).toBe(true);
     // A NEWER attempt refused while the first is still out: the first may yet land. MUTATION
     // till/on-time-refusal-resolves-out → red.
-    const l = run({ k: "out" }, { k: "refused", late: false });
-    expect(l.out).toBe(true);
+    const l = run({ k: "out", at: T0 }, { k: "refused", late: false });
+    expect(l.outSince).toBe(T0);
     expect(tillCancelSays(l)).toBe(false);
-    // …and a late THROW of the out attempt leaves it unknown, never resolved.
-    expect(tillDoubts(run({ k: "out" }, { k: "threw", late: true }))).toBe(true);
+    // A lost answer, THEN an attempt out whose late answer is a refusal: the refusal answers its
+    // own attempt, never the lost one. MUTATION till/late-refusal-resolves-the-lost → red.
+    const m = run(
+      { k: "threw", late: false, at: T0 },
+      { k: "out", at: T0 + MIN },
+      { k: "refused", late: true },
+    );
+    expect(m).toMatchObject({ outSince: null, lostSince: T0 });
+    expect(tillCancelSays(m)).toBe(false);
+    // …and a late THROW of the out attempt is a new lost answer, never a resolution.
+    expect(run({ k: "out", at: T0 }, { k: "threw", late: true, at: T0 + MIN })).toMatchObject({
+      outSince: null,
+      lostSince: T0 + MIN,
+    });
   });
 
-  it("a read resolves the doubt; a landed attempt resolves everything", () => {
-    // The host's read (`settleUnknownAfterRead`) showed the order still open past the settle's life.
-    // MUTATION till/read-never-resolves → red.
-    const read = run(
-      { k: "threw", late: false },
-      { k: "readResolved" },
+  it("two lost answers: the NEWEST instant is kept — a read past the first one's window answers nothing (#334, sequence a)", () => {
+    // A throws at t0; B throws a minute later; a read STARTS at t0 + 10 min + 1 s with the order
+    // open; then C is refused and the cashier cancels. The read outlived A's window, not B's: B may
+    // still be recording the payment, so nothing reassures.
+    // MUTATION till/earliest-doubt-kept (the first loss's instant kept) → red.
+    const l = run(
+      { k: "opened" },
+      { k: "threw", late: false, at: T0 },
+      { k: "threw", late: false, at: T0 + MIN },
       { k: "refused", late: false },
     );
-    expect(tillDoubts(read)).toBe(false);
-    expect(tillCancelSays(read)).toBe(true);
+    expect(l.lostSince).toBe(T0 + MIN);
+    const read = tillLedgerRead(l, T0 + SETTLE_MAY_LAND_MS + 1000);
+    expect(tillDoubts(read)).toBe(true);
+    expect(tillCancelSays(read)).toBe(false);
+    // A read that STARTED past B's window too resolves both (nothing was recorded).
+    const later = tillLedgerRead(l, T0 + MIN + SETTLE_MAY_LAND_MS + 1);
+    expect(later).toMatchObject({ outSince: null, lostSince: null });
+    expect(tillCancelSays(later)).toBe(true);
+  });
+
+  it("the read rule is the hosts' own, exactly: strictly past the window, never at it; no read, no resolution", () => {
+    const l = run({ k: "threw", late: false, at: T0 }, { k: "refused", late: false });
+    // MUTATION till/read-never-resolves (`tillLedgerRead` ignores the read) → red.
+    expect(tillDoubts(tillLedgerRead(l, T0 + SETTLE_MAY_LAND_MS + 1))).toBe(false);
+    // At the window's edge the settle could still land (`settleUnknownAfterRead` is strict).
+    expect(tillDoubts(tillLedgerRead(l, T0 + SETTLE_MAY_LAND_MS))).toBe(true);
+    // MUTATION till/read-resolves-any-read (any open read resolves) → red: a read that started
+    // before the settle could last land proves nothing.
+    expect(tillDoubts(tillLedgerRead(l, T0 + 1000))).toBe(true);
+    // No open read yet: nothing resolves — the clock never does.
+    expect(tillLedgerRead(l, null)).toBe(l);
+    // The out attempt's doubt resolves by the same rule (its answer never came back at all).
+    const out = run({ k: "out", at: T0 });
+    expect(tillLedgerRead(out, T0 + SETTLE_MAY_LAND_MS + 1).outSince).toBeNull();
+    expect(tillLedgerRead(out, T0 + SETTLE_MAY_LAND_MS).outSince).toBe(T0);
+  });
+
+  it("table page, sequence b: a read clears A, C goes out, C's late refusal leaves NO doubt", () => {
+    // A throws at t0; the page's read clears it after 10 min; C goes out later; C's late answer is
+    // a refusal. Nothing is left in doubt — the page must let its closed-bounce hold go.
+    const afterA = run({ k: "threw", late: false, at: T0 });
+    const read = T0 + SETTLE_MAY_LAND_MS + 1000;
+    const l = tillLedgerRead(
+      tillLedgerAfter(tillLedgerAfter(tillLedgerRead(afterA, read), { k: "out", at: read + MIN }), {
+        k: "refused",
+        late: true,
+      }),
+      read,
+    );
+    expect(tillDoubts(l)).toBe(false);
+    // And the read applied only at the decision (the till asks the host then) answers the same.
+    const atDecision = tillLedgerRead(
+      run(
+        { k: "threw", late: false, at: T0 },
+        { k: "out", at: read + MIN },
+        { k: "refused", late: true },
+      ),
+      read,
+    );
+    expect(tillDoubts(atDecision)).toBe(false);
+  });
+
+  it("a landed attempt resolves everything", () => {
     // The payment was recorded: no doubt is left (and nothing to reassure about — the seal stands).
-    const landed = run({ k: "out" }, { k: "threw", late: true }, { k: "landed" });
-    expect(landed).toEqual({ last: "landed", out: false, unknown: false });
+    const landed = run(
+      { k: "out", at: T0 },
+      { k: "threw", late: true, at: T0 + MIN },
+      { k: "landed" },
+    );
+    expect(landed).toEqual({ last: "landed", outSince: null, lostSince: null });
   });
 });
 

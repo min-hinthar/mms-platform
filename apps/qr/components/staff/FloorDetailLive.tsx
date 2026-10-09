@@ -228,6 +228,10 @@ export function FloorDetailLive({
   // answered CASH attempt cleared it, so a close hours later — cleared from another tablet, or paid
   // on the reader — was said as "the payment most likely went through".
   const settleUnknown = useRef<number | null>(null);
+  // #334 (the last blind pass) — the START of the latest committed read that showed the order OPEN:
+  // the cash till's `openReadAt`, so its own doubts resolve by this page's rule (no `door` needed).
+  const openReadAt = useRef<number | null>(null);
+  const openReadAtNow = useCallback(() => openReadAt.current, []);
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
@@ -485,10 +489,13 @@ export function FloorDetailLive({
           if (!alive.current) return;
           if (res.kind === "detail") {
             // Phase 2c · review (R2) — an open cart read after the lost settle could last land.
+            const cartOpen = res.detail.cartId != null && !res.detail.settled;
             settleUnknown.current = settleUnknownAfterRead(settleUnknown.current, {
               startedAtMs,
-              cartOpen: res.detail.cartId != null && !res.detail.settled,
+              cartOpen,
             });
+            if (cartOpen)
+              openReadAt.current = Math.max(openReadAt.current ?? startedAtMs, startedAtMs);
             setDetail(res.detail);
             setReadTicket(ticket);
             fails.current = 0;
@@ -1568,10 +1575,12 @@ export function FloorDetailLive({
               onOutcomeUnknown={
                 isCounter
                   ? (unknown) => {
+                      // `true` advances the mark to the NEWEST doubt (the till's contract).
                       settleUnknown.current = unknown ? Date.now() : null;
                     }
                   : undefined
               }
+              openReadAt={openReadAtNow}
               blocked={settleBlocked}
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}

@@ -7,7 +7,7 @@ import { laneHref } from "@/lib/staff-more";
 import { handoffRows, type HandoffRow } from "@/lib/register-math";
 import type { Handoff } from "@/lib/register-ui";
 import { handoffCode } from "@/lib/reader-collect";
-import { readHandoffStash, takeHandoffFocus, takeSealLanding } from "@/lib/floor-pane";
+import { readHandoffStash, sealNavNow, takeHandoffFocus, takeSealLanding } from "@/lib/floor-pane";
 import { TILL_MEDIA, sealHeroTier, sealAdopt } from "@/lib/till";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { echoDrawn } from "@/lib/staff-labels";
@@ -334,8 +334,9 @@ export function ClosedHandoffCard({
   // another order) the server card stands, calm, with no invented Change. Read after mount, from a
   // scheduled callback (the server render cannot see the tab's storage).
   const [adopted, setAdopted] = useState<Handoff | null>(null);
-  // The blind pass on #334 — the LANDING is a one-shot note beside the stash (`takeSealLanding`):
-  // the first render after a same-tab reload lands; every later revisit is the calm seal.
+  // The blind passes on #334 — the LANDING is a one-shot note beside the stash (`takeSealLanding`):
+  // the first mount in a document RELOADED after the landing lands (`sealNavNow`); a client-side
+  // revisit, and every later mount, is the calm seal.
   const [reLanded, setReLanded] = useState(false);
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -345,7 +346,9 @@ export function ClosedHandoffCard({
     const id = setTimeout(() => {
       const a = sealAdopt(handoff, readHandoffStash(sessionId));
       setAdopted(a);
-      setReLanded(a !== null && takeSealLanding(sessionId, handoff.orderId, Date.now()));
+      setReLanded(
+        a !== null && takeSealLanding(sessionId, handoff.orderId, Date.now(), sealNavNow()),
+      );
     }, 0);
     return () => clearTimeout(id);
   }, [sessionId, handoff]);

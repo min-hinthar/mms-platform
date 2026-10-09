@@ -1,4 +1,5 @@
 import { padDishName } from "./order-pad";
+import { settleUnknownAfterRead } from "./register-math";
 import type { TableLineView } from "./floor-types";
 import type { Handoff } from "./register-ui";
 import type { StaffLang } from "./staff-lang";
@@ -119,37 +120,42 @@ export function tillSlipDiverged(
 export type TillAttempt = "none" | "refused" | "stalled" | "waiting" | "unknown" | "landed";
 
 /**
- * The till's LEDGER of attempts — what the last one came to, and the DOUBT every earlier one left
- * (the blind pass on #334, CRITICAL 1). An attempt whose answer was lost (`unknown`) or is still out
- * past the bound (`out`) may have RECORDED the payment, so its doubt is STICKY: a later attempt's
- * refusal or a stalled tap never erases it ("That table is closed." after a lost answer is the
- * settle landing, not nothing), and neither does a new opening of the tray. Only the late answer of
- * the attempt that was out resolves `out`; a READ resolves both (the host's `settleUnknownAfterRead`:
- * a read that started after a settle could last land — `SETTLE_MAY_LAND_MS`, the freeze's own life —
- * and still shows the order open proves nothing was recorded); a landed attempt resolves both (the
- * payment IS recorded — the seal follows).
+ * The till's LEDGER of attempts — what the last one came to, and WHEN each doubt arose (the blind
+ * passes on #334, CRITICAL 1 twice). An attempt whose answer was LOST (`threw`) or is still OUT past
+ * the bound (`out`) may have RECORDED the payment, so its doubt is sticky: a later attempt's refusal,
+ * a stalled tap or a new opening never erases it ("That table is closed." after a lost answer is the
+ * settle landing, not nothing).
+ *
+ * ONE time-based rule resolves a doubt — the hosts' own (`settleUnknownAfterRead`, register-math,
+ * imported, never copied): a host READ that STARTED after the doubt arose plus `SETTLE_MAY_LAND_MS`
+ * (the freeze's own life) and still shows the order OPEN proves nothing was recorded. So each doubt
+ * keeps its INSTANT, and a second lost answer ADVANCES `lostSince` to the newest — a read that only
+ * outlived the first loss's window must never answer the second's (`tillLedgerRead`). Otherwise:
+ * the out attempt's own late answer resolves `outSince` (a refusal: nothing recorded) — never
+ * another attempt's lost answer; a landed attempt resolves everything (the payment IS recorded —
+ * the seal follows). Silence and the clock never resolve anything.
  */
 export type TillLedger = {
   /** The last attempt, in this opening ("none" at an opening). */
   last: TillAttempt;
-  /** An attempt is still out past the bound: its late answer may yet record the payment. */
-  out: boolean;
-  /** An attempt's answer was lost: only a read can tell whether it recorded the payment. */
-  unknown: boolean;
+  /** When the attempt still out past the bound went out (device ms), or null. One at most: a re-tap
+   *  while it is out is refused at the tap (`waiting`). */
+  outSince: number | null;
+  /** When the NEWEST lost answer was learned (device ms), or null — every later loss advances it. */
+  lostSince: number | null;
 };
 
-export const TILL_LEDGER_CLEAN: TillLedger = { last: "none", out: false, unknown: false };
+export const TILL_LEDGER_CLEAN: TillLedger = { last: "none", outSince: null, lostSince: null };
 
 /** What happened to the till, in the order it happened. `late` marks the answer (or the loss) of
- *  the attempt that was OUT — the only answer that resolves `out`. */
+ *  the attempt that was OUT — the only answer that resolves `outSince`. `at` is when a doubt arose. */
 export type TillEvent =
   | { k: "opened" }
   | { k: "tapRefused"; as: "waiting" | "stalled" }
   | { k: "refused"; late: boolean }
   | { k: "landed" }
-  | { k: "out" }
-  | { k: "threw"; late: boolean }
-  | { k: "readResolved" };
+  | { k: "out"; at: number }
+  | { k: "threw"; late: boolean; at: number };
 
 /** The ledger after an event — pure, so every rule above is falsified by a value. */
 export function tillLedgerAfter(l: TillLedger, e: TillEvent): TillLedger {
@@ -159,21 +165,38 @@ export function tillLedgerAfter(l: TillLedger, e: TillEvent): TillLedger {
     case "tapRefused":
       return { ...l, last: e.as };
     case "refused":
-      return { ...l, last: "refused", out: e.late ? false : l.out };
+      return { ...l, last: "refused", outSince: e.late ? null : l.outSince };
     case "landed":
-      return { last: "landed", out: false, unknown: false };
+      return { last: "landed", outSince: null, lostSince: null };
     case "out":
-      return { ...l, last: "waiting", out: true };
+      return { ...l, last: "waiting", outSince: e.at };
     case "threw":
-      return { last: "unknown", out: e.late ? false : l.out, unknown: true };
-    case "readResolved":
-      return { ...l, out: false, unknown: false };
+      return {
+        last: "unknown",
+        outSince: e.late ? null : l.outSince,
+        lostSince: l.lostSince === null ? e.at : Math.max(l.lostSince, e.at),
+      };
   }
+}
+
+/**
+ * The ledger as the host's reads leave it: `openReadAtMs` is the START (device ms) of the host's
+ * latest committed read that showed the order OPEN, or null (none yet). Each doubt resolves exactly
+ * as the host's own mark does (`settleUnknownAfterRead`); the predicate is monotone in the start, so
+ * the LATEST open read answers every doubt any open read could. Read at decision time (the cancel,
+ * a late refusal), never on a clock: no time passing resolves a doubt without a read.
+ */
+export function tillLedgerRead(l: TillLedger, openReadAtMs: number | null): TillLedger {
+  if (openReadAtMs === null) return l;
+  const read = { startedAtMs: openReadAtMs, cartOpen: true };
+  const outSince = settleUnknownAfterRead(l.outSince, read);
+  const lostSince = settleUnknownAfterRead(l.lostSince, read);
+  return outSince === l.outSince && lostSince === l.lostSince ? l : { ...l, outSince, lostSince };
 }
 
 /** Whether any attempt may still have recorded the payment. */
 export function tillDoubts(l: TillLedger): boolean {
-  return l.out || l.unknown;
+  return l.outSince !== null || l.lostSince !== null;
 }
 
 /**

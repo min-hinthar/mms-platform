@@ -2343,15 +2343,17 @@ readTicket)` settles it on a read with a LATER ticket; a read already in the air
   tap to update" (the mark is the control that re-freezes it) and holds Take through the ONE binding.
   On the pad host a held tap and the clean-cancel line ("Nothing was taken — the order is still
   here.", only after a refused or stalled attempt, and never while any attempt's answer — in this
-  opening or an earlier one — is lost or still out: the doubt is sticky until a read resolves it)
-  are said by the pad's ONE region.
+  opening or an earlier one — is lost or still out: the doubt is sticky until a host read that
+  STARTED after the NEWEST doubt could land shows the order open — ONE time-based rule,
+  `tillLedgerRead` over the hosts' own `settleUnknownAfterRead`) are said by the pad's ONE region.
 - **The seal (PD6, m6) is the paid card's grammar on every counter surface.** A solid ✓ disc (paid —
   never an approval), the HERO (the Change at `--till-fs-hand` wide; the Total when no tender was
   entered, with no Change and no Cash received), the count-back rows, the #CODE on the ONE PASS (a
   CounterPass stub, constant paper, notched to the seal's ground), one quiet secondary (Walk-up, with
   its true note; Takeaway bags outranks it) beside "Back to the counter", the one hero. CALM by default;
-  the green wash, the rise and ONE ok bloom on the disc only where the settle JUST landed (or a same-tab
-  reload whose stash names the order) — never on a revisit, a deep link or the server's card. Wide, its
+  the green wash, the rise and ONE ok bloom on the disc only where the settle JUST landed (or the first
+  mount in a document RELOADED after that landing, whose note names the order — `sealNavNow`) — never
+  on a client-side revisit, a deep link or the server's card. Wide, its
   actions take the till grid's money corner. Cash received and Change are what the cashier entered,
   kept in this tab only.
 

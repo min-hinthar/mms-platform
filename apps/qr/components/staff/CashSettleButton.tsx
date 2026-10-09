@@ -40,6 +40,7 @@ import {
   tillDoubts,
   tillHeroTier,
   tillLedgerAfter,
+  tillLedgerRead,
   tillSlipDiverged,
   type TillEvent,
   type TillLedger,
@@ -127,11 +128,6 @@ export type TillDoor = {
    *  is unknown (`onOutcomeUnknown(true)`) that nothing has resolved. Read at the cancel: while it
    *  holds, nothing is said — the host's view covers a ledger this control lost (a remount). */
   outcomeOpen: () => boolean;
-  /** How many times a host READ has resolved a settle outcome it was told is unknown (a read that
-   *  started after the settle could last land and shows the order open — `settleUnknownAfterRead`).
-   *  The positive signal the till's own doubt waits for: a count past the one at the doubt resolves
-   *  it; silence never does. */
-  readsResolved: () => number;
 };
 
 /**
@@ -172,6 +168,7 @@ export function CashSettleButton({
   onSettled,
   onChanged,
   onOutcomeUnknown,
+  openReadAt,
   onSettleOutcome,
   // Named `gateBlocked` inside: `blocked` below is the SHEET's binding (`cashSettleBlocked`).
   blocked: gateBlocked = false,
@@ -214,11 +211,21 @@ export function CashSettleButton({
   /** The parent's own detail refresh (debounced). Replaces a `router.refresh()` that updated nothing
    *  this control reads — the detail lives in `FloorDetailLive`'s state, not the RSC payload. */
   onChanged?: () => void;
-  /** Whether a settle's outcome is UNKNOWN right now: `true` when the action rejected (the response
-   *  was lost — it may have landed), `false` the moment any later attempt gets an answer. The page
-   *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
-   *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
+  /** Whether a settle's outcome is UNKNOWN. `true` each time an attempt's answer is LOST (the action
+   *  rejected — on time, or late after the bound) or goes OUT past the bound: the host's mark then
+   *  ADVANCES to now (the newest doubt — never kept at an earlier one), and only a host read that
+   *  started after it could land and shows the order open clears it (`settleUnknownAfterRead`).
+   *  `false` only when no doubt is left: a LANDED answer (the payment is recorded), or the late
+   *  REFUSAL of the attempt that was out when the till holds no other doubt once the host's latest
+   *  open read (`openReadAt`) is applied (`tillLedgerRead`). An on-time refusal hands nothing up — it
+   *  answers no doubt. The page holds a counter order's closed-bounce on it (critic finding: a
+   *  landed counter settle closes the session behind it, and the bounce yanked the cashier to the
+   *  floor mid-sheet). */
   onOutcomeUnknown?: (unknown: boolean) => void;
+  /** #334 (the last blind pass) — the START (device ms) of the host's latest committed read that
+   *  showed this order OPEN, or null. Both hosts feed it; the till resolves its doubts with it by the
+   *  hosts' own rule (`tillLedgerRead` → `settleUnknownAfterRead`), so the two can never disagree. */
+  openReadAt?: () => number | null;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's settle, as it lands. The page says it where this control
    *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
@@ -264,15 +271,16 @@ export function CashSettleButton({
   const till = useMediaQuery(TILL_MEDIA);
   // PD6 — the slip FROZEN at open, beside the quote (null while closed, or with no slip).
   const [slipAtOpen, setSlipAtOpen] = useState<readonly TillSlipLine[] | null>(null);
-  // PD6 (m6 graft 5) — the till's LEDGER (`tillLedgerAfter`): the last attempt, and the doubt every
-  // earlier one left — STICKY across attempts and openings (the blind pass on #334, CRITICAL 1).
+  // PD6 (m6 graft 5) — the till's LEDGER (`tillLedgerAfter`): the last attempt, and WHEN each doubt
+  // arose — STICKY across attempts and openings (the blind passes on #334, CRITICAL 1).
   const ledgerRef = useRef<TillLedger>(TILL_LEDGER_CLEAN);
-  // The host's resolution count when the latest doubt arose: only a read resolving AFTER it answers it.
-  const doubtMark = useRef(0);
   const track = (e: TillEvent) => {
     ledgerRef.current = tillLedgerAfter(ledgerRef.current, e);
-    if (e.k === "out" || e.k === "threw") doubtMark.current = door?.readsResolved() ?? 0;
   };
+  // At a decision (a late refusal, the cancel): the host's latest open read resolves each doubt by
+  // the hosts' own rule (`tillLedgerRead`) — the till holds no count and no clock of its own.
+  const readLedger = (): TillLedger =>
+    (ledgerRef.current = tillLedgerRead(ledgerRef.current, openReadAt?.() ?? null));
   // PD6 — the pad's `beforeOpen` is async: a second tap while it runs opens nothing twice.
   const opening = useRef(false);
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
@@ -365,12 +373,15 @@ export function CashSettleButton({
     if (totalCents === null) {
       // #334 C2 — the read the gate waited for priced nothing: the tray never opens over an
       // invented due. The host's gate re-decides the hold on that read and says why; this is the
-      // type's own backstop (a quote is a number).
+      // type's own backstop (a quote is a number). An unread late word stays unread: it is said
+      // under the trigger again, never dropped by an opening that did not happen (#334, the open
+      // question — `lateUnseen` is cleared only by the freeze that opens).
       setConfirming(false);
     } else {
       setQuote(openQuote(reconciled, totalCents));
       setTipBaseAtOpen(tipBaseCents);
       setSlipAtOpen(slip ?? null);
+      setLateUnseen(false);
     }
   }
   const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;
@@ -485,12 +496,16 @@ export function CashSettleButton({
   function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap, late = false) {
     if (!res.ok) {
       // A definite refusal: THIS attempt recorded nothing. It answers the doubt only when it is the
-      // late answer of the attempt that was out, and no other attempt's answer was lost — a refusal
-      // after a lost answer ("That table is closed.") is that settle LANDING, never "nothing"
-      // (the blind pass on #334, CRITICAL 1). Only then is the page's closed-bounce hold let go.
+      // late answer of the attempt that was out, and no other attempt's lost answer is left once
+      // the host's latest open read is applied — a refusal after a lost answer ("That table is
+      // closed.") is that settle LANDING, never "nothing" (the blind passes on #334, CRITICAL 1).
+      // Only then is the page's closed-bounce hold let go.
       track({ k: "refused", late });
-      if (late && !tillDoubts(ledgerRef.current)) onOutcomeUnknown?.(false);
-      onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
+      const left = readLedger();
+      if (late && !tillDoubts(left)) onOutcomeUnknown?.(false);
+      // And the pane hears the same truth: while a doubt is left, "didn't go through" would be a
+      // lie about a payment that may have landed — it hears `unknown` (#334, the open question).
+      onSettleOutcome?.(tillDoubts(left) ? "unknown" : "refused");
       // The sheet stays open with the refusal inside it — the cashier reads why where they
       // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
       // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
@@ -637,7 +652,7 @@ export function CashSettleButton({
         // control away; if not, Settle is live again (a retry cannot record twice — the cart is
         // no longer open once it has been paid).
         console.error("[CashSettleButton] settle rejected — outcome unknown", out.error);
-        track({ k: "threw", late: false });
+        track({ k: "threw", late: false, at: Date.now() });
         setError({ kind: "unknown" });
         onOutcomeUnknown?.(true);
         onSettleOutcome?.("unknown");
@@ -651,7 +666,7 @@ export function CashSettleButton({
       // truth; and it is FIFO, not FloorDetailLive's SETTLE_MAY_LAND_MS, that bounds a settle which
       // was queued unsent behind a hung head (register-math.ts `settleUnknownAfterRead`).
       ownLate.current = true;
-      track({ k: "out" });
+      track({ k: "out", at: Date.now() });
       setError({ kind: "waiting" });
       onOutcomeUnknown?.(true);
       onSettleOutcome?.("unknown");
@@ -663,7 +678,9 @@ export function CashSettleButton({
         // even after unmount. A late THROW is still no answer: the outcome stays unknown.
         if (late.kind === "answer") land(late.value, at, true);
         else {
-          track({ k: "threw", late: true });
+          // A NEW doubt, learned now: the host's mark advances to it (`onOutcomeUnknown`'s contract).
+          track({ k: "threw", late: true, at: Date.now() });
+          onOutcomeUnknown?.(true);
           setError({ kind: "unknown" });
           // Codex r2 on #310 (A1) — and handed UP again: the bound's `unknown` reached a detail that
           // was still MOUNTED (it ignores one then — this control's own line said it), so if the
@@ -1191,13 +1208,9 @@ export function CashSettleButton({
             triggerRef.current?.focus();
             // PD6 (m6 graft 5) — the tray is gone and the page is un-hidden: the pad's Toast
             // reassures, only where an attempt came to nothing recorded and no attempt left a
-            // doubt (`tillCancelSays`) — a doubt the host's READ has since resolved is resolved —
-            // and the host itself holds no unknown outcome (#334, C1).
-            if (door) {
-              if (tillDoubts(ledgerRef.current) && door.readsResolved() > doubtMark.current)
-                track({ k: "readResolved" });
-              if (!door.outcomeOpen() && tillCancelSays(ledgerRef.current)) door.onCancelClean();
-            }
+            // doubt (`tillCancelSays`, after the host's latest open read: `readLedger`) — and the
+            // host itself holds no unknown outcome (#334, C1).
+            if (door && !door.outcomeOpen() && tillCancelSays(readLedger())) door.onCancelClean();
           }}
         >
           {till ? (
@@ -1346,7 +1359,6 @@ export function CashSettleButton({
     // NOW (a ref): the door's gate may have awaited a read while a late word landed.
     const lateUnseenNow = lateUnseenRef.current;
     if (!lateUnseenNow) setError(null);
-    setLateUnseen(false);
     unsentJump.current = null;
     // A new opening starts its own last attempt — and KEEPS every earlier doubt (#334, C1).
     track({ k: "opened" });

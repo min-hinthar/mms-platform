@@ -476,14 +476,17 @@ export function dropHandoffStash(sessionId: string, store: Store | null = sessio
 }
 
 /**
- * PD6 — the SEAL's landing, as a ONE-SHOT note (the blind pass on #334: the stash alone re-landed the
- * seal — the green wash, the bloom — on every same-tab REVISIT of a paid order, where m6 B6 allows it
- * on a same-tab RELOAD only). The host that took the money writes it beside the stash (`orderId` and
- * the time); the closed card TAKES it — read and cleared — so the first render after a reload lands
- * and every later visit is the calm seal (the stash's tender still shows: it is what was entered, in
- * this tab). Honoured for `SEAL_LANDING_TTL_MS` and for the SAME order only: a reload hours later, or
- * a note left for another sale, lands nothing. Every storage failure is a deliberate swallow — the
- * card still renders, calm.
+ * PD6 — the SEAL's landing, as a ONE-SHOT note (the blind passes on #334: the stash alone re-landed
+ * the seal — the green wash, the bloom — on every same-tab REVISIT of a paid order, and then the note
+ * alone landed a client-side revisit, where m6 B6 allows it on a same-tab RELOAD only). The host that
+ * took the money writes it beside the stash (`orderId` and the time). The rule, exactly: the FIRST
+ * mount of that order's closed card in a LATER document lands only when that document was a RELOAD
+ * (`SealNav`, read off Navigation Timing), inside `SEAL_LANDING_TTL_MS`, for the SAME order. A
+ * mount in the document that wrote the note (a client-side revisit: Back, the reader chip's View)
+ * lands nothing and leaves the note for a reload; a later document takes it either way (one shot),
+ * so a reload after a full-page revisit is calm too. The stash's tender still shows on every visit:
+ * it is what was entered, in this tab. Every storage failure is a deliberate swallow — the card still
+ * renders, calm.
  */
 export const SEAL_LANDING_TTL_MS = 120_000;
 
@@ -504,20 +507,57 @@ export function markSealLanding(
   }
 }
 
-/** Read AND clear the note (one shot); true only for THIS order, written within the TTL. */
+/** How THIS document was reached: whether it was a RELOAD, and when it started (device ms —
+ *  `performance.timeOrigin`, the same clock as the note's `Date.now()`). */
+export type SealNav = { reload: boolean; docStartMs: number };
+
+type NavPerf = {
+  timeOrigin?: number;
+  getEntriesByType?: (type: string) => ReadonlyArray<object>;
+  navigation?: { type?: number };
+};
+
+/**
+ * This document's navigation: Navigation Timing 2's entry (`type === "reload"`), the deprecated
+ * `performance.navigation.type === 1` as the fallback; neither readable → NOT a reload (the calm
+ * seal — the bloom only where it is known to belong). No `timeOrigin` → the document started at
+ * the epoch, so every note reads as this document's own (calm).
+ */
+export function sealNavNow(perf: NavPerf | null = globalThis.performance ?? null): SealNav {
+  try {
+    const entry = perf?.getEntriesByType?.("navigation")?.[0] as { type?: unknown } | undefined;
+    const reload =
+      entry && typeof entry.type === "string"
+        ? entry.type === "reload"
+        : perf?.navigation?.type === 1;
+    const origin = perf?.timeOrigin;
+    return {
+      reload,
+      docStartMs: typeof origin === "number" && Number.isFinite(origin) ? origin : 0,
+    };
+  } catch {
+    return { reload: false, docStartMs: 0 }; // deliberate: an unreadable navigation lands nothing
+  }
+}
+
+/** Whether THIS mount lands the seal (see above), taking the note when it is a later document's. */
 export function takeSealLanding(
   sessionId: string,
   orderId: string,
   nowMs: number,
+  nav: SealNav,
   store: Store | null = session(),
 ): boolean {
   try {
     const raw = store?.getItem(sealLandingKey(sessionId)) ?? null;
     if (raw === null) return false;
-    store?.removeItem(sealLandingKey(sessionId));
     const bar = raw.lastIndexOf("|");
     const at = Number(raw.slice(bar + 1));
+    // Written in THIS document: a client-side revisit — calm, and the note waits for a reload.
+    if (Number.isFinite(at) && at >= nav.docStartMs) return false;
+    store?.removeItem(sealLandingKey(sessionId));
     return (
+      nav.reload &&
       bar > 0 &&
       raw.slice(0, bar) === orderId &&
       Number.isFinite(at) &&

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_HANG_MS, ownWaitSlot } from "@/lib/bounded-write";
 import { TILL_MEDIA, type TillSlipLine } from "@/lib/till";
+import { SETTLE_MAY_LAND_MS, settleUnknownAfterRead } from "@/lib/register-math";
 import type { TillDoor } from "./CashSettleButton";
 
 /**
@@ -238,7 +239,6 @@ describe("the pad host's door (K39) — the walk-up sale never leaves the pad", 
     onHeldTap: vi.fn(),
     onCancelClean: vi.fn(),
     outcomeOpen: () => false,
-    readsResolved: () => 0,
     ...over,
   });
 
@@ -372,7 +372,6 @@ const padDoor = (over: Partial<TillDoor> = {}): TillDoor => ({
   onHeldTap: vi.fn(),
   onCancelClean: vi.fn(),
   outcomeOpen: () => false,
-  readsResolved: () => 0,
   ...over,
 });
 
@@ -380,26 +379,33 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
   afterEach(() => {
     vi.useRealTimers();
   });
-  /** A host modelled on the pad: it holds what it was told is unknown, and answers `outcomeOpen`. */
+  /** A host modelled on the pad: its mark ADVANCES to each doubt it is told of, its reads clear it
+   *  by `settleUnknownAfterRead`, and it hands the till the start of its latest OPEN read. */
   function host(opts: { remembers: boolean } = { remembers: true }) {
-    let unknown = false;
-    let resolved = 0;
+    let since: number | null = null;
+    let openRead: number | null = null;
     const onOutcomeUnknown = vi.fn((u: boolean) => {
-      if (opts.remembers) unknown = u;
+      if (opts.remembers) since = u ? Date.now() : null;
     });
     const onCancelClean = vi.fn();
     return {
       onOutcomeUnknown,
       onCancelClean,
-      outcomeOpen: () => unknown,
-      readsResolved: () => resolved,
-      /** The pad's read showed the order open past the settle's life: nothing was recorded. */
-      readResolves: () => {
-        if (unknown) resolved += 1;
-        unknown = false;
+      outcomeOpen: () => since !== null,
+      openReadAt: () => openRead,
+      /** A read that STARTED at `startedAtMs` committed, showing the order still open. */
+      read: (startedAtMs: number) => {
+        since = settleUnknownAfterRead(since, { startedAtMs, cartOpen: true });
+        openRead = Math.max(openRead ?? startedAtMs, startedAtMs);
       },
     };
   }
+  /** The host's props, as the pad hands them in (`onOutcomeUnknown` left out where the case says). */
+  const wire = (h: ReturnType<typeof host>, handsUp = true) => ({
+    onOutcomeUnknown: handsUp ? h.onOutcomeUnknown : undefined,
+    openReadAt: h.openReadAt,
+    door: padDoor({ onCancelClean: h.onCancelClean, outcomeOpen: h.outcomeOpen }),
+  });
   const tap = (el: () => HTMLElement) =>
     act(async () => {
       fireEvent.click(el());
@@ -414,14 +420,7 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
     settleCash
       .mockRejectedValueOnce(new Error("network dropped"))
       .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
-    const { trigger, settle } = mount({
-      onOutcomeUnknown: h.onOutcomeUnknown,
-      door: padDoor({
-        onCancelClean: h.onCancelClean,
-        outcomeOpen: h.outcomeOpen,
-        readsResolved: h.readsResolved,
-      }),
-    });
+    const { trigger, settle } = mount(wire(h));
     await tap(trigger);
     await tap(settle); // the answer is lost after the settle may have committed
     expect(h.onOutcomeUnknown).toHaveBeenLastCalledWith(true);
@@ -440,13 +439,7 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
     settleCash
       .mockRejectedValueOnce(new Error("network dropped"))
       .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
-    const { trigger, settle } = mount({
-      door: padDoor({
-        onCancelClean: h.onCancelClean,
-        outcomeOpen: h.outcomeOpen,
-        readsResolved: h.readsResolved,
-      }),
-    });
+    const { trigger, settle } = mount(wire(h, false));
     await tap(trigger);
     await tap(settle);
     await tap(settle);
@@ -468,14 +461,7 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
         }),
       )
       .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
-    const { trigger, settle } = mount({
-      onOutcomeUnknown: h.onOutcomeUnknown,
-      door: padDoor({
-        onCancelClean: h.onCancelClean,
-        outcomeOpen: h.outcomeOpen,
-        readsResolved: h.readsResolved,
-      }),
-    });
+    const { trigger, settle } = mount(wire(h));
     await tap(trigger);
     await tap(settle);
     await act(async () => {
@@ -507,14 +493,7 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
         resolve = res;
       }),
     );
-    const { trigger, settle } = mount({
-      onOutcomeUnknown: h.onOutcomeUnknown,
-      door: padDoor({
-        onCancelClean: h.onCancelClean,
-        outcomeOpen: h.outcomeOpen,
-        readsResolved: h.readsResolved,
-      }),
-    });
+    const { trigger, settle } = mount(wire(h));
     await tap(trigger);
     await tap(settle);
     await act(async () => {
@@ -541,17 +520,11 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
     settleCash
       .mockRejectedValueOnce(new Error("network dropped"))
       .mockResolvedValueOnce({ ok: false, error: "Couldn’t take it.", code: "sentence" });
-    const { trigger, settle } = mount({
-      onOutcomeUnknown: h.onOutcomeUnknown,
-      door: padDoor({
-        onCancelClean: h.onCancelClean,
-        outcomeOpen: h.outcomeOpen,
-        readsResolved: h.readsResolved,
-      }),
-    });
+    const { trigger, settle } = mount(wire(h));
     await tap(trigger);
     await tap(settle);
-    h.readResolves();
+    // The pad's read STARTED past the lost settle's life and shows the order open.
+    h.read(Date.now() + SETTLE_MAY_LAND_MS + 1000);
     await tap(settle);
     await tap(() => screen.getByRole("button", { name: "Cancel" }));
     await settleIn();
@@ -571,6 +544,157 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
     await settleIn();
     // MUTATION till-ui/cancel-ignores-the-host → red.
     expect(onCancelClean).not.toHaveBeenCalled();
+  });
+
+  // ── #334, the LAST blind pass — ONE time-based rule for every doubt (`tillLedgerRead`) ──
+  it("sequence a: two lost answers straddle a read — the read past the FIRST loss's window answers nothing", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T0 = Date.parse("2026-10-09T18:00:00.000Z");
+    vi.setSystemTime(T0);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // A host that remembers nothing: only the till's own ledger stands between B and "Nothing was
+    // taken" (a remembering host would mask the till's rule).
+    const h = host({ remembers: false });
+    settleCash
+      .mockRejectedValueOnce(new Error("A lost"))
+      .mockRejectedValueOnce(new Error("B lost"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    const { trigger, settle } = mount(wire(h));
+    await tap(trigger);
+    await tap(settle); // A's answer is lost at t0
+    vi.setSystemTime(T0 + 60_000);
+    await tap(settle); // B's a minute later — B's server function may still be running
+    // A read STARTED past A's window (t0 + 10 min + 1 s), inside B's, and shows the order open.
+    h.read(T0 + SETTLE_MAY_LAND_MS + 1000);
+    vi.setSystemTime(T0 + SETTLE_MAY_LAND_MS + 5000);
+    await tap(settle); // C is refused
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await settleIn();
+    // MUTATION till/earliest-doubt-kept → "Nothing was taken" while B can still commit; red.
+    expect(h.onCancelClean).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("sequence b, the table page (no door): a read cleared A, C went out, C's late REFUSAL frees the page's hold", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const h = host();
+    const outcomes: string[] = [];
+    let resolve: (v: unknown) => void = () => {};
+    settleCash.mockRejectedValueOnce(new Error("A lost")).mockReturnValueOnce(
+      new Promise((res) => {
+        resolve = res;
+      }),
+    );
+    const { trigger, settle } = mount({
+      onOutcomeUnknown: h.onOutcomeUnknown,
+      openReadAt: h.openReadAt,
+      onSettleOutcome: (o) => outcomes.push(o),
+    });
+    await tap(trigger);
+    await tap(settle); // A's answer is lost
+    expect(h.outcomeOpen()).toBe(true);
+    // The page's own read, started past A's window, shows the order open: A never landed.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SETTLE_MAY_LAND_MS + 1000);
+    });
+    h.read(Date.now());
+    expect(h.outcomeOpen()).toBe(false);
+    await tap(settle); // C
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    });
+    expect(h.outcomeOpen()).toBe(true); // C is out: the page holds again
+    await act(async () => {
+      resolve({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // C's late refusal answers C, and the page's read already answered A: no doubt is left.
+    // MUTATION till-ui/host-read-not-asked (the till never applies `openReadAt`) → the page holds
+    // "most likely went through" over a settle the server refused; red.
+    expect(h.onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+    expect(h.outcomeOpen()).toBe(false);
+    expect(outcomes.at(-1)).toBe("refused");
+    vi.restoreAllMocks();
+  });
+
+  it("the out attempt's late THROW is a NEW doubt: the host's mark advances to it", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const h = host();
+    let reject: (e: unknown) => void = () => {};
+    settleCash.mockReturnValueOnce(
+      new Promise((_, rej) => {
+        reject = rej;
+      }),
+    );
+    const { trigger, settle } = mount(wire(h));
+    await tap(trigger);
+    await tap(settle);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    });
+    const outAt = Date.now();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      reject(new Error("dropped late"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // A read that started past the OUT instant's window, inside the late throw's.
+    h.read(outAt + SETTLE_MAY_LAND_MS + 1000);
+    // MUTATION till-ui/late-throw-never-advances-the-host → the read clears a mark the throw
+    // never moved, and a close that follows is bounced as an ordinary close; red.
+    expect(h.outcomeOpen()).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("a refusal after a lost answer tells the pane `unknown` — never 'didn't go through'; a clean refusal says `refused`", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const outcomes: string[] = [];
+    settleCash
+      .mockRejectedValueOnce(new Error("A lost"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    const { trigger, settle } = mount({ onSettleOutcome: (o) => outcomes.push(o) });
+    await tap(trigger);
+    await tap(settle);
+    await tap(settle);
+    // MUTATION till-ui/refused-forwarded-over-a-doubt → ["unknown", "refused"]; red.
+    expect(outcomes).toEqual(["unknown", "unknown"]);
+    cleanup();
+    const clean: string[] = [];
+    settleCash.mockResolvedValueOnce({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+    const again = mount({ onSettleOutcome: (o) => clean.push(o) });
+    await tap(again.trigger);
+    await tap(again.settle);
+    expect(clean).toEqual(["refused"]);
+    vi.restoreAllMocks();
+  });
+
+  it("an unread late word survives a tap the backstop refuses (an unpriced read): said under the trigger again", async () => {
+    vi.useFakeTimers();
+    let resolve: (v: unknown) => void = () => {};
+    settleCash.mockReturnValueOnce(
+      new Promise((res) => {
+        resolve = res;
+      }),
+    );
+    const { trigger, settle, rerender } = mount();
+    await tap(trigger);
+    await tap(settle);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    });
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      resolve({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(document.body.textContent).toContain("Couldn’t take it.");
+    rerender({ totalCents: null });
+    await tap(trigger);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // MUTATION till-ui/backstop-drops-the-late-word → the refusal nobody read is gone; red.
+    expect(document.body.textContent).toContain("Couldn’t take it.");
   });
 });
 
