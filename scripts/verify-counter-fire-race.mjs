@@ -22,7 +22,7 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the thirteen orderings below, on one cart (two, for the merge). The
+ * WHAT THIS PROVES, and no more: the fifteen orderings below, on one cart (two, for the merge). The
  * no-show, the undo and a settle claim take the same cart-row lock, but no scenario here interleaves
  * THEM — those orderings are argued from construction and pinned single-session (P2F.15e, P2F.18),
  * not proven here. The no-show IS interleaved with a void, a request (h, h2) and a kitchen Start (j).
@@ -100,15 +100,29 @@
  *       Without the no-show's lines lock B reads the line as merely fired, decides a solo write-off,
  *       waits at the void, and voids a started dish with no manager.
  *
+ *   PD5b (`20261009120300_pd5b_settlement_batch_and_fold.sql`) marks the settlement batch: the drain
+ *   (`mms_fire_pending_food`) mints it as a version-8 UUID, every Send a version-4 one, and the
+ *   kitchen read numbers rounds by that mark. Two more orders, on a DINE-IN table with a dine-in and
+ *   a to-go draft — THE GRACE RACE:
+ *   (k) send-before-settlement-fire — A Sends inside an open transaction (the dine-in dish, its
+ *       deadline 10 s out); B records the guest's payment (the cart → paid) and runs the drain, which
+ *       must BLOCK on A's line lock and, once A commits, fire only the to-go dish (1). The Send's dish
+ *       keeps A's batch, version 4; the to-go dish carries the mark. Without the drain's draft guard it
+ *       re-stamps the Send's dish with the settlement batch, and the Send loses its number.
+ *   (k2) settlement-fire-before-send — B records the payment and drains both drafts inside an open
+ *       transaction (2, one marked batch); A's Send must BLOCK on B's lines and, once B commits, fire 0.
+ *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
  *
  * ── `--mutants` ─────────────────────────────────────────────────────────────────────────────────
  *
- * For each function, re-create it from THIS migration's text with its cart-row lock deleted. Each
+ * For each function, re-create it from the LAST chain file that defines it (p2f, then PD5b's
+ * restatements of the merge and the drain) with its cart-row lock — or, for the drain, its mark or its
+ * draft guard — deleted. Each
  * mutant asserts the pattern matched exactly once, the apply succeeded and `md5(prosrc)` changed,
- * and that EXACTLY its expected scenarios went red; the restore re-applies the whole migration file
- * (idempotent) and asserts every body is byte-identical to the baseline. A green baseline runs
+ * and that EXACTLY its expected scenarios went red; the restore re-applies the whole chain, in order
+ * (idempotent), and asserts every body is byte-identical to the baseline. A green baseline runs
  * first, and before anything is written the live bodies are compared with what the migration
  * produces INSIDE A ROLLED-BACK TRANSACTION — if a later migration redefines one of these
  * functions, restoring from this file would revert it, so the battery refuses.
@@ -133,14 +147,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRATION = path.join(
-  ROOT,
-  "supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql",
-);
+/**
+ * The migrations whose functions this battery mutates and restores, IN APPLY ORDER. PD5b restates
+ * `mms_merge_table_orders` (the fold keeps each Send whole) and `mms_fire_pending_food` (the settlement
+ * mark), so a mutant patches the LAST file that defines its function and a restore replays both —
+ * replaying p2f alone would revert PD5b's merge, and every verdict would be about dead code.
+ */
+const MIGRATIONS = [
+  path.join(ROOT, "supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql"),
+  path.join(ROOT, "supabase/migrations/20261009120300_pd5b_settlement_batch_and_fold.sql"),
+];
 const TAG = "P2FR";
 const CODE_PREFIX = `reg-${TAG}-`;
 /** The merge target: a diner's pickup, deliberately NOT `reg-` (a counter target is refused). */
 const TGT_PREFIX = `${TAG}T-`;
+/** PD5b — a dine-in table (the grace race, k · k2). Tagged so the cleanup finds it. */
+const DINE_PREFIX = `${TAG}D-`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -437,6 +459,36 @@ function target(id) {
     lines: () => q(`select count(*) from public.qr_cart_items where cart_id = '${out}';`),
   };
 }
+
+/** PD5b — a DINE-IN table with an open cart and two drafts: a dine-in dish (what a Send fires) and a
+ *  to-go one (a Send leaves it; the settlement fires it). The grace race (k · k2). */
+function dineFixture(id) {
+  const out = q(`with s as (
+      insert into public.table_sessions (qr_code, mode, status, expires_at)
+      values ('${DINE_PREFIX}${id}-${RUN}-${++fixtureSeq}', 'dinein', 'active',
+              clock_timestamp() + interval '12 hours') returning id
+    ), c as (
+      insert into public.qr_carts (session_id) select id from s returning id
+    ), i as (
+      insert into public.qr_cart_items
+        (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+      select c.id, '${TAG}-dish', v.name, 1, 1400, 147, v.ful
+        from c, (values ('Mohinga', 'dinein'), ('Tea leaf salad', 'togo')) v(name, ful)
+      returning id, fulfillment
+    )
+    select (select id from c), (select id from i where fulfillment = 'dinein'),
+           (select id from i where fulfillment = 'togo');`);
+  const [cart, dish, togo] = out.split("|");
+  if (!cart || !dish || !togo)
+    throw new Error(`${TAG} dine-in fixture ${id} did not resolve: ${out}`);
+  /** A line's batch, and its UUID version character (15th) — '8' is the settlement mark. */
+  const batchOf = (line) => q(`select fire_batch from public.qr_cart_items where id = '${line}';`);
+  return { cart, dish, togo, batchOf, version: (line) => batchOf(line).charAt(14) };
+}
+/** The Send (`mms_fire_cart`): fired · batch. The guest's payment recorded: the settle's claim. */
+const send = (f) => `select fired || '|' || batch from public.mms_fire_cart('${f.cart}'::uuid);`;
+const payRecorded = (f) => `update public.qr_carts set status = 'paid' where id = '${f.cart}';`;
+const settleFire = (f) => `select public.mms_fire_pending_food('${f.cart}'::uuid);`;
 
 /** A counter order a no-show can write off: one SENT line (past its grace) and two drafts — one
  *  under the loss ceiling (a solo void) and one over it (a request needs a manager). */
@@ -891,6 +943,62 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  // PD5b — THE GRACE RACE. A Send is in its grace when the guest's payment is recorded; the
+  // settlement then fires what was left. The Send's line must keep its OWN unmarked batch.
+  async k() {
+    const f = dineFixture("k");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const sent = await a.run(send(f));
+      await b.run("begin;");
+      await b.run(payRecorded(f));
+      b.fire(settleFire(f));
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const settled = await b.collect();
+      await b.run("commit;");
+      const [fired, batch] = String(sent).split("|");
+      return [
+        ["A's Send fired the dine-in dish", fired, "1"],
+        ["B's settlement waited on the Send's line", how, "blocked"],
+        ["B fired only what the Send left", settled, "1"],
+        ["the Send's dish keeps the Send's batch", f.batchOf(f.dish), batch],
+        ["the Send's batch is a Send's (version 4)", f.version(f.dish), "4"],
+        ["the settlement's dish carries the mark (version 8)", f.version(f.togo), "8"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  // …and the reverse: the payment and its settlement first. The Send waits, then fires nothing.
+  async k2() {
+    const f = dineFixture("k2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await b.run("begin;");
+      await b.run(payRecorded(f));
+      const settled = await b.run(settleFire(f));
+      a.fire(send(f));
+      const how = await blockedOrDone(a, b);
+      await b.run("commit;");
+      const sent = await a.collect();
+      return [
+        ["B's settlement fired both drafts", settled, "2"],
+        ["A's Send waited on the settlement's lines", how, "blocked"],
+        ["A's Send fired nothing on the paid cart", String(sent).split("|")[0], "0"],
+        ["the dine-in dish carries the mark (version 8)", f.version(f.dish), "8"],
+        ["the to-go dish carries the mark (version 8)", f.version(f.togo), "8"],
+        ["one settlement batch for both", f.batchOf(f.dish) === f.batchOf(f.togo), true],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
 /** Run every scenario; returns the ids that went red (printing when `loud`). */
@@ -917,6 +1025,8 @@ async function battery(loud) {
         i: "clear-before-resolve",
         i2: "resolve-mid-clear",
         j: "kitchen-start-before-no-show",
+        k: "send-before-settlement-fire",
+        k2: "settlement-fire-before-send",
       }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
@@ -938,7 +1048,7 @@ function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
   q(`delete from public.staff where user_id = '${MGR}';
      delete from auth.users where id = '${MGR}';`);
-  for (const prefix of [CODE_PREFIX, TGT_PREFIX]) {
+  for (const prefix of [CODE_PREFIX, TGT_PREFIX, DINE_PREFIX]) {
     q(`delete from public.mms_approvals a using public.qr_carts c, public.table_sessions s
          where a.cart_id = c.id and c.session_id = s.id and s.qr_code like '${prefix}%';
        delete from public.qr_cart_items ci using public.qr_carts c, public.table_sessions s
@@ -950,14 +1060,17 @@ function cleanup() {
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
-const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
-/** Every function this migration defines — the restore re-applies them all, so all are compared. */
+const MIGRATION_TEXTS = MIGRATIONS.map((f) => readFileSync(f, "utf8"));
+/** The chain as one script — what a restore replays and what the drift check applies and rolls back. */
+const MIGRATION_TEXT = MIGRATION_TEXTS.join("\n");
+/** Every function the chain defines — the restore re-applies them all, so all are compared. */
 const FNS = [
   "mms_bump_ticket",
   "mms_clear_cart_name",
   "mms_clear_counter_cart",
   "mms_counter_no_show",
   "mms_fire_counter_cart",
+  "mms_fire_pending_food",
   "mms_line_transition",
   "mms_merge_table_orders",
   "mms_request_approval",
@@ -970,19 +1083,22 @@ const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
   where n.nspname = 'public' and p.proname in (${FNS.map((f) => `'${f}'`).join(", ")})
   order by 1;`;
 
-/** This migration's `create or replace` statement for `fn`, exactly once or not at all. */
+/** The `create or replace` statement for `fn` in the LAST chain file that defines it, exactly once
+ *  in that file or not at all. */
 function statementFor(fn) {
   const head = `create or replace function public.${fn}(`;
-  const at = MIGRATION_TEXT.indexOf(head);
-  if (at < 0 || MIGRATION_TEXT.indexOf(head, at + 1) >= 0) return null;
+  const text = [...MIGRATION_TEXTS].reverse().find((t) => t.includes(head));
+  if (text === undefined) return null;
+  const at = text.indexOf(head);
+  if (text.indexOf(head, at + 1) >= 0) return null;
   // The sweeper is restated in its original file's style (`end; $$;`); the rest end `end $$;`.
   const ends = ["\nend $$;", "\nend; $$;"]
-    .map((t) => [MIGRATION_TEXT.indexOf(t, at), t])
+    .map((t) => [text.indexOf(t, at), t])
     .filter(([i]) => i >= 0)
     .sort((x, y) => x[0] - y[0]);
   if (!ends.length) return null;
   const [end, term] = ends[0];
-  return MIGRATION_TEXT.slice(at, end + term.length);
+  return text.slice(at, end + term.length);
 }
 
 const MUTANTS = [
@@ -1126,6 +1242,27 @@ const MUTANTS = [
     expect: ["j"],
     why: "a no-show racing a kitchen Start writes off a cooked dish as uncooked — past the manager gate",
   },
+  // ── PD5b — the grace race (k · k2) ──────────────────────────────────────────────────────────────
+  {
+    id: "pd5b/settlement-batch-unmarked",
+    fn: "mms_fire_pending_food",
+    find: "  v_batch uuid := overlay(gen_random_uuid()::text placing '8' from 15 for 1)::uuid;\n",
+    replace: "  v_batch uuid := gen_random_uuid();\n",
+    // Both orders read the settlement's lines' version character.
+    expect: ["k", "k2"],
+    why: "the settlement batch unmarked: the kitchen read cannot tell the food the table had not sent from a Send, in either order",
+  },
+  {
+    id: "pd5b/settlement-fires-cooking-lines",
+    fn: "mms_fire_pending_food",
+    find: "      and ci.state = 'draft'\n",
+    replace: "",
+    // (k): the settlement waits on the Send's line lock and then RE-fires the Send's dish under its
+    // own marked batch — the Send's batch is gone and its number with it. (k2) stays green: the
+    // settlement fires first, and both lines were drafts anyway.
+    expect: ["k"],
+    why: "the drain's draft guard is what leaves a Send that landed in the grace alone: without it the settlement re-stamps the Send's dish with the settlement mark",
+  },
 ];
 
 function restoreMigration() {
@@ -1142,7 +1279,7 @@ async function runMutants() {
   if (live !== expected || live.split("\n").length !== FNS.length) {
     throw new Error(
       `${TAG} REFUSED — ` +
-        `the live bodies are not what ${path.basename(MIGRATION)} produces — a later migration ` +
+        `the live bodies are not what ${MIGRATIONS.map((m) => path.basename(m)).join(" + ")} produce — a later migration ` +
         `redefines one (or a mutant is live). Restoring from this file would revert it, so every ` +
         `verdict would be about dead code.\n  live:\n${live}\n  migration:\n${expected}`,
     );
@@ -1249,7 +1386,8 @@ async function main() {
   }
   const left = q(
     `select count(*) from public.table_sessions
-      where qr_code like '${CODE_PREFIX}%' or qr_code like '${TGT_PREFIX}%';`,
+      where qr_code like '${CODE_PREFIX}%' or qr_code like '${TGT_PREFIX}%'
+         or qr_code like '${DINE_PREFIX}%';`,
   );
   if (left !== "0") {
     console.log(red(`✗ cleanup left ${left} ${TAG} sessions behind`));
@@ -1262,7 +1400,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show · send-before-settlement-fire · settlement-fire-before-send\n`,
       ),
     );
   }

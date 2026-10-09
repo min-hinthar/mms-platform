@@ -412,7 +412,7 @@ jobs:
           # count is not enough: once a third file lands, deleting or renaming one of these would still
           # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
           # to this list when it becomes load-bearing.
-          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql supabase/tests/p2dd_p2cy_line_guards_test.sql supabase/tests/p2f_counter_cook_before_paid_test.sql supabase/tests/p3c2_table_number_uniq_test.sql supabase/tests/m258_undo_fire_lock_guard_test.sql supabase/tests/m261_undo_fire_cart_lock_test.sql supabase/tests/m263_bind_session_table_test.sql; do
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql supabase/tests/p2dd_p2cy_line_guards_test.sql supabase/tests/p2f_counter_cook_before_paid_test.sql supabase/tests/p3c2_table_number_uniq_test.sql supabase/tests/m258_undo_fire_lock_guard_test.sql supabase/tests/m261_undo_fire_cart_lock_test.sql supabase/tests/m263_bind_session_table_test.sql supabase/tests/pd5b_settlement_batch_and_fold_test.sql; do
             if [ ! -f "$required" ]; then
               echo "::error::Required SQL test missing: $required (renamed or deleted?)"
               exit 1
@@ -465,6 +465,8 @@ jobs:
       #   grep -c 'id: "' scripts/verify-mode-authority.mjs
       # ~211s measured locally at 127 mutants (each replays the chain) — the timeout has headroom for CI.
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
+      # (205 since PD5b — 8 pd5b rows over `mms_fire_pending_food` and the merge's fold, which also
+      # moves the 18 earlier merge rows onto the pd5b file; the full 205 ran green on a throwaway PG16.)
       # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
       # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
       - name: Mode-authority mutants (can the guards fail?)
@@ -512,8 +514,10 @@ jobs:
       # send-before-merge · kitchen-fire-before-merge (the merge's counter refusal, decided under its
       # locks) · no-show-before-void · no-show-before-request (the cart locked before the line), and —
       # the Phase 2f self-review — clear-before-resolve · resolve-mid-clear (the Clear locks and
-      # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock).
-      # Commits `reg-P2FR-` / `P2FRT-` fixtures (and runs the sweeper, which closes every expired
+      # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock),
+      # and — PD5b — THE GRACE RACE on a dine-in table: send-before-settlement-fire (the drain waits on
+      # the Send's line, then leaves it and its unmarked batch) · settlement-fire-before-send.
+      # Commits `reg-P2FR-` / `P2FRT-` / `P2FRD-` fixtures (and runs the sweeper, which closes every expired
       # session in the DB), so the script refuses anything that is not the local stack.
       # ~23s measured locally (the sweep scenarios wait out a 2s expiry, send-before-merge a 10s grace).
       - name: Counter-fire race harness (two concurrent sessions)
@@ -526,10 +530,13 @@ jobs:
       # the void's and the request's cart locks (h, h2), and — the Phase 2f self-review — the Clear's
       # supersede (i) and approvals lock (i2) and the no-show's lines lock (j) — md5-checked apply,
       # byte-identical restore. The first six are verify-mode-authority.mjs's lock survivors; the
-      # other eight it leaves out.
-      # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait).
+      # other eight it leaves out. PD5b adds two on the settlement drain, against the grace race (k ·
+      # k2): its mark dropped (both) and its draft guard dropped (k — it re-stamps the Send's dish).
+      # The harness restores from the chain p2f → pd5b (PD5b restates the merge and the drain).
+      # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait); 476s at
+      # sixteen on a loaded 4-CPU container (2026-10-09), so 12 minutes for headroom.
       - name: Counter-fire race mutants (can the locks fail?)
-        timeout-minutes: 9
+        timeout-minutes: 12
         run: node scripts/verify-counter-fire-race.mjs --mutants
       # (No "Stop stack" step: it was `supabase stop || true` on a hosted VM that is discarded after
       # the job — it could never fail and guarded nothing, for ~19 s per run.)

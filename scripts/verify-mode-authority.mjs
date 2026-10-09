@@ -95,6 +95,14 @@
  * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
  * in all (with M261's lock order, above).
  *
+ * PD5b adds suite `pd5b`: `mms_fire_pending_food` restated with its batch minted as a version-8 UUID
+ * (the settlement mark the kitchen read classifies by — PD5B.1–3) and `mms_merge_table_orders` restated
+ * AGAIN with the fold's batch term for cooking lines (PD5B.4–9). The merge's last definition moves to
+ * the pd5b file, so M109's seven and Phase 2f's eleven merge mutants patch THAT text (`src: "pd5b"`),
+ * still judged by their own suites. Eight killed mutants, one per rule, and NO new survivor: the
+ * mark's order against a concurrent Send (the drain waiting on the Send's line lock, then leaving it)
+ * is two-session work, killed by `verify-counter-fire-race.mjs --mutants` (orders k · k2).
+ *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
  *
@@ -171,9 +179,20 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
     test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
   },
+  // PD5b — `mms_fire_pending_food` restated (its batch minted as a version-8 UUID, the settlement
+  // mark) and `mms_merge_table_orders` restated AGAIN (the fold compares `fire_batch` for cooking
+  // lines). The merge's LAST definition moves here, so M109's and Phase 2f's merge mutants patch THIS
+  // file now (`src: "pd5b"`) and are still judged by their own suites; the fire joins TARGETS.
+  pd5b: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261009120300_pd5b_settlement_batch_and_fold.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/pd5b_settlement_batch_and_fold_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "pd5b"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -552,7 +571,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-deleted",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.1",
     why: "the whole M109 guard. A pickup table merges into a dine-in one: M97's fold predicate refuses to FOLD the mismatched tag, but the line re-parents onto the target cart anyway, and the tail then cancels the source cart and closes the source session",
@@ -562,7 +581,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-is-dinein-flavoured",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.3",
     why: 'the gate written as "is one of them dine-in?" — the shape M100 uses one function over. It refuses both dine-in-vs-other directions and merges scan-and-go straight into pickup, which is why case 3 holds two NON-dine-in modes',
@@ -572,7 +591,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-checks-one-side",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.2",
     why: "a one-sided gate — it refuses a pickup source landing on a dine-in target and admits the reverse. Case 1 alone cannot see this, which is the whole reason case 2 is not a mirror written for symmetry",
@@ -582,7 +601,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-over-tightened",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.7",
     why: "the OPPOSITE failure, and the one cases 1-6 all pass: a gate demanding both tables be dine-in refuses two pickup tables merging, an ordinary floor action. Over-blocking is as expensive as under-blocking",
@@ -592,7 +611,7 @@ const MUTANTS = [
   {
     id: "merge/reads-line-tags-not-mode",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.4",
     why: "the wrong COLUMN, and the mutant the first version of this suite could not kill. A session's `mode` and its lines' `fulfillment` tags are perfectly correlated in ordinary data, so a gate comparing TAGS answers identically on every ordinary fixture — M109's whole defect, reintroduced green. Case 4 holds the modes equal while the tags differ (a seated diner who tapped To go), which is the only shape that separates them",
@@ -603,7 +622,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-weakened-by-tag-conjunct",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     expect: "M109.5",
     why: "the half-right version of the row above, and the reason case 5 is not redundant with case 4: a real mode comparison WEAKENED by an extra tag conjunct. Case 4 passes it (the modes match, so the gate is never reached), and only case 5 — modes differing while both lines happen to read `togo` — sees a pickup table merge into a dine-in one",
@@ -614,7 +633,7 @@ const MUTANTS = [
   {
     id: "merge/null-mode-branch-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "m109",
     // DOCUMENTED SURVIVOR — a GAP, not a property. `select … into` yields NULL when no row matches,
     // and `null <> null` is null, which `if` treats as false: without the explicit test an unreadable
@@ -1529,7 +1548,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-source-check-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28a ·",
     why: "the finding itself: a counter source's sent food re-parents onto a table's cart — off the KDS, onto another customer's bill",
@@ -1539,7 +1558,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-target-check-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28d ·",
     why: "a table's lines folded INTO a counter order — an unpaid pay-at-pickup bag that is nobody's table",
@@ -1549,7 +1568,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-refusal-still-writes",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28a · the refusal writes nothing",
     why: "a refusal that supersedes the source's pending requests first — a manager's queue emptied by a merge that never happened",
@@ -1561,7 +1580,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-sent-states-narrowed",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28b ·",
     why: "a started or served dish is sent food too — 'fired' alone lets a cooked order merge away",
@@ -1571,7 +1590,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-sent-null-fire-at-not-sent",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28c ·",
     why: "a fired line with no fire_at is on the KDS (P2F.22) — reading it as unsent merges food the kitchen shows",
@@ -1581,7 +1600,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-sent-grace-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28e ·",
     why: "over-block: an in-grace line never reached the KDS and is still the sender's to undo — the no-show's predicate, exactly",
@@ -1591,7 +1610,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-sent-comped-blocks",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28g ·",
     why: "over-block: a comped line is an audited loss already and the merge never moves it",
@@ -1601,7 +1620,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-sent-grocery-blocks",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28h ·",
     why: "over-block: grocery is never kitchen food",
@@ -1611,7 +1630,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-code-term-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28i ·",
     why: "the code half of the counter predicate: a diner's own pickup with fired food is a table, and merges",
@@ -1621,7 +1640,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-mode-term-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28j ·",
     why: "the mode half of the counter predicate: a reg- code on a scan-and-go session is not a counter order",
@@ -1693,7 +1712,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-grace-revert-dropped",
     fn: "mms_merge_table_orders",
-    src: "p2f",
+    src: "pd5b", // PD5b restates the merge again (the fold keeps each Send whole); patch the LAST definition
     suite: "p2f",
     expect: "P2F.28e ·",
     why: "an in-grace counter line arrives on a pay-first target still 'fired' with the counter's deadline and batch — it skips the target's pay-then-fire schedule and goes live on the counter's clock",
@@ -2304,6 +2323,76 @@ const MUTANTS = [
         "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
     },
   ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
+  // ── PD5b — the settlement mark (PD5B.1) and the fold that keeps each Send whole (PD5B.4–.9) ──────
+  // One killed mutant per rule, each red on its NAMED case. The mark's ORDER against a concurrent
+  // Send (the settlement fire waiting on the Send's line lock) is two-session work: killed by
+  // `scripts/verify-counter-fire-race.mjs --mutants` (orders k · k2), not claimed here.
+  ...[
+    {
+      id: "pd5b/settlement-batch-unmarked",
+      fn: "mms_fire_pending_food",
+      expect: "PD5B.1 ·",
+      why: "the mark dropped: the settlement mints a plain v4 batch, so the kitchen read cannot tell settlement food from a Send and numbers it as a round",
+      find: "  v_batch uuid := overlay(gen_random_uuid()::text placing '8' from 15 for 1)::uuid;",
+      replace: "  v_batch uuid := gen_random_uuid();",
+    },
+    {
+      id: "pd5b/settlement-mark-off-the-version",
+      fn: "mms_fire_pending_food",
+      expect: "PD5B.1 ·",
+      why: "the mark written one character over, into the variant: the batch still differs from a Send's, but not where the kitchen read (character 15, the version) looks — and the RFC variant is lost",
+      find: "placing '8' from 15 for 1",
+      replace: "placing '8' from 20 for 1",
+    },
+    {
+      id: "pd5b/fold-ignores-the-batch",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.4 ·",
+      why: "the PD5b term deleted: a fired portion folds onto another Send's line and cooks on that card with no bump, and its own card shrinks",
+      find: "        and (r.state not in ('fired', 'in_progress') or t.fire_batch is not distinct from r.fire_batch)\n",
+      replace: "",
+    },
+    {
+      id: "pd5b/fold-term-fired-only",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.5 ·",
+      why: "the term narrowed to `fired`: a dish Mom has STARTED folds onto another Send's card",
+      find: "        and (r.state not in ('fired', 'in_progress') or",
+      replace: "        and (r.state not in ('fired') or",
+    },
+    {
+      id: "pd5b/fold-refuses-every-cooking-line",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.6 ·",
+      why: "the term written as a refusal: cooking lines never fold, even two portions of the SAME Send — the rule compares the Send, it does not forbid the fold",
+      find: "or t.fire_batch is not distinct from r.fire_batch)",
+      replace: "or false)",
+    },
+    {
+      id: "pd5b/fold-term-every-state",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.7 ·",
+      why: "the term widened to every state: served lines of two Sends stop folding, though no card is cooking them",
+      find: "        and (r.state not in ('fired', 'in_progress') or t.fire_batch is not distinct from r.fire_batch)",
+      replace: "        and (t.fire_batch is not distinct from r.fire_batch)",
+    },
+    {
+      id: "pd5b/fold-term-null-unequal",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.8 ·",
+      why: "`=` for `is not distinct from`: null = null is null, so two batchless fired lines (fired before S2 stamped batches) stop folding",
+      find: "t.fire_batch is not distinct from r.fire_batch)",
+      replace: "t.fire_batch = r.fire_batch)",
+    },
+    {
+      id: "pd5b/fold-term-reaches-drafts",
+      fn: "mms_merge_table_orders",
+      expect: "PD5B.9 ·",
+      why: "the term widened to drafts: two drafts that each carry a stale batch (a dish brought back to draft keeps it) stop folding — a draft fold must work exactly as before",
+      find: "        and (r.state not in ('fired', 'in_progress') or",
+      replace: "        and (r.state not in ('draft', 'fired', 'in_progress') or",
+    },
+  ].map((m) => ({ ...m, src: "pd5b", suite: "pd5b" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2365,6 +2454,7 @@ const TARGETS = [
   "mms_shell_untouched",
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
+  "mms_fire_pending_food",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

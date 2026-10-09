@@ -27527,9 +27527,36 @@ const MUTANTS = [
     id: "kitchen-rounds/settlement-batch-counted",
     file: "apps/qr/lib/kitchen-rounds.ts",
     suite: "lib/kitchen-rounds.test.ts",
-    why: "Codex on #328 — settlement food (fired at or after its cart's order, on a cart that was already paid) is never a numbered round; counted, a hostless table paid at the counter with drafts shifts its next Send to 'Round 3'",
-    find: "    if (paidAt !== undefined && ms >= Date.parse(paidAt)) settlement.add(l.fire_batch);\n",
+    why: "Codex on #328 · PD5b — settlement food (its batch MARKED version 8 by mms_fire_pending_food) is never a numbered round; counted, a hostless table paid at the counter with drafts shifts its next Send to 'Round 3'",
+    find: "    if (isSettlementBatch(l.fire_batch)) settlement.add(l.fire_batch);\n",
     replace: "",
+  },
+  {
+    id: "kitchen-rounds/settlement-mark-any-version",
+    file: "apps/qr/lib/kitchen-rounds.ts",
+    suite: "lib/kitchen-rounds.test.ts",
+    why: "PD5b — the mark is the VERSION character, '8'; read as any version, every Send is settlement food and no round is ever numbered — the grace race's Send loses its number along with every other",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    replace:
+      "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+  },
+  {
+    id: "kitchen-rounds/settlement-mark-in-the-variant",
+    file: "apps/qr/lib/kitchen-rounds.ts",
+    suite: "lib/kitchen-rounds.test.ts",
+    why: "PD5b — an 8 read one group over, in the variant, where every v4 Send may carry one: a Send whose variant is 8 reads as settlement food",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    replace:
+      "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{12}$/i;",
+  },
+  {
+    id: "kitchen-rounds/settlement-mark-unanchored",
+    file: "apps/qr/lib/kitchen-rounds.ts",
+    suite: "lib/kitchen-rounds.test.ts",
+    why: "PD5b — the mark read off any string that CONTAINS a v8 UUID: a padded or prefixed batch reads as settlement food — a classification that is positive only for the canonical batch the drain mints",
+    find: "const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+    replace:
+      "const SETTLEMENT_BATCH = /[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}/i;",
   },
   {
     id: "kitchen-rounds/tie-on-the-raw-second",
@@ -27577,22 +27604,6 @@ const MUTANTS = [
     suite: "lib/kitchen-queue-counter.test.ts",
     why: "Codex round 2 on #328 — PostgREST's max_rows truncates SILENTLY, and the deployed ceiling is a dashboard setting this repo cannot read: a lines read shorter than its own exact count ranked part of a session's Sends, a guessed number. It must read unknown",
     find: "  if (linesCount === null || linesCount > batched.length) {",
-    replace: "  if (false) {",
-  },
-  {
-    id: "kitchen/settlement-on-a-staff-settled-cart",
-    file: "apps/qr/lib/kitchen.ts",
-    suite: "lib/kitchen-queue-counter.test.ts",
-    why: "Codex round 2 on #328 — a staff-settled cart cannot carry settlement food (every staff tender refuses unsent dine-in drafts), so a Send the settle landed inside its 10 s grace is a numbered round; read as settlement food, the table's later rounds shift down",
-    find: "  for (const cartId of staffSettled) paidAtByCart.delete(cartId);\n",
-    replace: "",
-  },
-  {
-    id: "kitchen/round-orders-saturation-ignored",
-    file: "apps/qr/lib/kitchen.ts",
-    suite: "lib/kitchen-queue-counter.test.ts",
-    why: "Codex round 2 on #328 — an orders leg at its cap cannot say which carts were paid when: settlement food would be ranked as a Send. Every round must read unknown",
-    find: '  if (queueEmptiness(ordersRes.data.length, ROUND_CART_CAP) === "cannot-say") {',
     replace: "  if (false) {",
   },
   {

@@ -6,6 +6,7 @@ import {
   decideRound,
   decideRounds,
   heldKey,
+  isSettlementBatch,
   roundOrdinals,
   sessionStillOn,
   stampLabel,
@@ -25,6 +26,8 @@ const NOW = "2026-10-08T19:48:00.000Z";
 const at = (ms: number) => new Date(Date.parse(NOW) + ms).toISOString();
 const B1 = "3f2a9c10-1111-4aaa-8bbb-000000000001";
 const B2 = "7d0e4b22-2222-4aaa-8bbb-000000000002";
+/** A settlement batch as `mms_fire_pending_food` mints it since PD5b: version 8 (character 15). */
+const SETTLE = "5c1d7e33-3333-8aaa-8bbb-000000000003";
 
 describe("ticketKey — one Send is one card, from the RAW row", () => {
   it("keys a batched line by its batch alone, so a merge that re-parents the batch keeps the card (`kitchen-rounds/key-by-cart-only`)", () => {
@@ -35,7 +38,8 @@ describe("ticketKey — one Send is one card, from the RAW row", () => {
     // The same batch is the same card on every poll, whatever its fire time reads …
     expect(ticketKey({ cart_id: "c1", fire_batch: B1, fire_at: at(-61_000) })).toBe(a);
     // … and whichever cart it sits on: when `mms_merge_table_orders` RE-PARENTS a line it rewrites
-    // only `cart_id` (a line it FOLDS into a matching target line is deleted instead — m5 §H.3).
+    // only `cart_id` (a line it FOLDS into a matching target line is deleted instead; since PD5b a
+    // cooking line folds only into a line of its own batch — m5 §H.4).
     expect(ticketKey({ cart_id: "c9", fire_batch: B1, fire_at: at(-60_000) })).toBe(a);
   });
 
@@ -99,24 +103,40 @@ describe("roundOrdinals — the session's rounds, by first fire time", () => {
     expect(mixed.get(B1)).toBe(1);
   });
 
-  it("settlement food — fired at or after its cart's order — is never a numbered round (Codex on #328; `kitchen-rounds/settlement-batch-counted`)", () => {
-    // A hostless table paid at the counter with unsent drafts: `mms_fire_pending_food` stamps them
-    // at the settlement on the cart that was just paid; the guest's Send on that cart came before.
-    const paidAt = new Map([["c-paid", at(-2_600_000)]]);
+  it("settlement food — its batch MARKED by the drain — is never a numbered round (Codex on #328; PD5b; `kitchen-rounds/settlement-batch-counted`)", () => {
+    // A hostless table paid at the counter with unsent drafts: `mms_fire_pending_food` fires them
+    // under a version-8 batch; the guest's Sends carry version-4 batches.
     const lines = [
       dinein(B1, -3_000_000, "c-paid"),
-      dinein("bt", -2_599_000, "c-paid"),
+      dinein(SETTLE, -2_599_000, "c-paid"),
       dinein(B2, -40_000, "c-open"),
     ];
-    const r = roundOrdinals(lines, NOW, paidAt);
+    const r = roundOrdinals(lines, NOW);
     expect(r.get(B1)).toBe(1);
-    expect(r.has("bt")).toBe(false);
+    expect(r.has(SETTLE)).toBe(false);
     expect(r.get(B2)).toBe(2);
-    // Fired at the order's own instant is settlement food too; one second before is a Send.
-    expect(roundOrdinals([dinein("bt", -2_600_000, "c-paid")], NOW, paidAt).has("bt")).toBe(false);
-    expect(roundOrdinals([dinein("bt", -2_601_000, "c-paid")], NOW, paidAt).get("bt")).toBe(1);
-    // Without an order the cart is open and every batch is a Send.
-    expect(roundOrdinals(lines, NOW).get("bt")).toBe(2);
+  });
+
+  it("THE GRACE RACE: a Send fired AFTER the cart's payment was recorded keeps its number — the mark decides, never the moment (PD5b; `kitchen-rounds/settlement-mark-any-version`)", () => {
+    // The Send landed in the 10 s before the guest's own card payment (or a staff secure-tab close)
+    // was recorded: its `fire_at` — the grace deadline — is after the order. Read by WHEN it fired it
+    // was settlement food and lost its number; its batch is a v4, so it is round 2.
+    const lines = [dinein(B1, -3_000_000, "c-paid"), dinein(B2, -2_599_000, "c-paid")];
+    const r = roundOrdinals(lines, NOW);
+    expect(r.get(B1)).toBe(1);
+    expect(r.get(B2)).toBe(2);
+  });
+
+  it("isSettlementBatch reads the version character of a canonical UUID, and nothing else", () => {
+    expect(isSettlementBatch(SETTLE)).toBe(true);
+    expect(isSettlementBatch(SETTLE.toUpperCase())).toBe(true);
+    expect(isSettlementBatch(B1)).toBe(false);
+    // The 8 must be the VERSION: an 8 in the variant position is a v4 Send's ordinary variant.
+    expect(isSettlementBatch("3f2a9c10-1111-4aaa-8bbb-000000000003")).toBe(false);
+    // Not a UUID (a fixture id, a truncated or padded string) — never settlement food.
+    expect(isSettlementBatch("bt")).toBe(false);
+    expect(isSettlementBatch(` ${SETTLE}`)).toBe(false);
+    expect(isSettlementBatch(SETTLE.slice(0, -1))).toBe(false);
   });
 
   it("an undone Send (its batch cleared) and a line with no fire time never count", () => {
