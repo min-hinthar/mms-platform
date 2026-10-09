@@ -60,6 +60,8 @@ describe("clearPreviewOf — the slip's dishes and its ONE figure", () => {
     row({ id: "d1", state: "draft", fire_at: null, qty: 3 }),
     row({ id: "g1", state: "fired", fire_at: FUTURE }),
     row({ id: "c1", state: "in_progress", comped: true }),
+    // A comped DRAFT: the kitchen never had it either — dropped, as the no-show drops it.
+    row({ id: "c2", state: "draft", fire_at: null, comped: true }),
   ];
   const p = clearPreviewOf(rows, NOW, "2026-10-09T18:00:00.000000+00:00", (id) =>
     id === "m-mohinga" ? "မုန့်ဟင်းခါး" : null,
@@ -76,9 +78,10 @@ describe("clearPreviewOf — the slip's dishes and its ONE figure", () => {
     expect(p.lossCents).toBe(5500);
     // 2 + 1 + 1 = 4 dishes — the count the RPC answers with.
     expect(p.units).toBe(4);
-    // MUTATION clear/dropped-counts-the-comp → red: 3 drafts + 1 in-grace = 4, the comp is a loss
-    // already recorded, never "dropped".
-    expect(p.droppedUnits).toBe(4);
+    // The no-show's rule (`counterNoShowDropped`): 3 drafts + 1 in-grace fire + 1 comped draft = 5
+    // (node -e 'console.log(3+1+1)'); the comp the kitchen HAS is neither sent nor dropped.
+    // MUTATION clear/dropped-misses-the-grace (drafts only) → 4; red.
+    expect(p.droppedUnits).toBe(5);
     expect(p.seenAt).toBe("2026-10-09T18:00:00.000000+00:00");
     expect(clearIsLoss(p)).toBe(true);
   });

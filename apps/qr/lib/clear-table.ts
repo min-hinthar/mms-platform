@@ -7,6 +7,7 @@
  * figure — and how the RPC's answer reads. Pure, so a value falsifies every rule.
  */
 import type { StaffKey } from "./i18n/staff";
+import { counterNoShowDropped, counterSentLine } from "./counter-order";
 
 /** One line as the clear's look reads it (`getClearPreview`, a fresh read at the Clear tap). */
 export type ClearRow = {
@@ -22,18 +23,14 @@ export type ClearRow = {
 };
 
 /**
- * SENT — `mms_clear_table`'s predicate exactly (and `mms_counter_no_show`'s): fired, cooking or
- * served; never grocery (the kitchen never had it); never comped (a comp is already an audited
- * loss); past its send grace (`fire_at` null, or at or before the DATABASE clock — an in-grace line
- * never reached the KDS and goes back to draft, unrecorded).
+ * SENT — `mms_clear_table`'s predicate, which is `mms_counter_no_show`'s: fired, cooking or served;
+ * never grocery (the kitchen never had it); never comped (a comp is already an audited loss); past
+ * its send grace (`fire_at` null, or at or before the DATABASE clock — an in-grace line never
+ * reached the KDS and goes back to draft, unrecorded). ONE rule: the no-show's `counterSentLine`
+ * (lib/counter-order.ts, with its own mutants), never a second copy.
  */
 export function clearSentLine(r: ClearRow, dbNowMs: number): boolean {
-  return (
-    (r.state === "fired" || r.state === "in_progress" || r.state === "served") &&
-    r.fulfillment !== "grocery" &&
-    !r.comped &&
-    (r.fire_at === null || Date.parse(r.fire_at) <= dbNowMs)
-  );
+  return counterSentLine(r, dbNowMs);
 }
 
 /** A dish on the loss slip: its own snapshot words, its kitchen state, its menu price × qty. */
@@ -56,7 +53,8 @@ export type ClearPreview = {
   lossCents: number;
   /** Σ qty over the SENT set — the RPC answers with the same count. */
   units: number;
-  /** Dishes the kitchen never got (drafts, in-grace fires): dropped, never counted as a loss. */
+  /** Dishes the kitchen never got (drafts, in-grace fires — comped or not): dropped, never counted
+   *  as a loss. The no-show's own rule (`counterNoShowDropped`), named once. */
   droppedUnits: number;
 };
 
@@ -81,12 +79,7 @@ export function clearPreviewOf(
         amountCents: r.unit_price_cents * r.qty,
       }),
     );
-  const dropped = rows.filter(
-    (r) =>
-      r.fulfillment !== "grocery" &&
-      !r.comped &&
-      (r.state === "draft" || (r.state === "fired" && !clearSentLine(r, dbNowMs))),
-  );
+  const dropped = rows.filter((r) => counterNoShowDropped(r, dbNowMs));
   return {
     seenAt,
     sent,
