@@ -32,6 +32,9 @@
   --pass-stub-ground: color-mix(in srgb, var(--pass-ink) 6%, var(--pass-paper));
   --pass-print-dur: 1.05s;
   --pass-print-delay: 640ms;
+  /* The tail's and the tear's clip AT REST: the PRINT keyframes end here, so the base IS the final
+     frame, and -8px admits the notches' overhang (7px at most) that an `inset(0)` would shave. */
+  --pass-print-rest: inset(-8px);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -51,7 +54,9 @@
   pointer-events: none;
   user-select: none;
 }
-.ui-pass-paper {
+/* A pass NEVER nests. The guard is on the paper, where it shows: a pass rendered inside another
+   draws no ground, no edge and no shadow (`:where()` keeps the specificity at one class). */
+.ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -143,6 +148,8 @@
   max-width: 100%;
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
+  /* The figure's TURN (Y axis) needs its perspective on its own parent; the head's serves the main. */
+  perspective: 600px;
 }
 .ui-pass-label {
   display: inline-flex;
@@ -235,9 +242,11 @@
 .ui-pass[data-tier="tv"] .ui-pass-label-en {
   font-size: var(--fs-h2);
 }
-/* A three-digit table steps down to `--fs-display` with no wrap (m2 appendix C) — after the tier
-   rules on purpose: same specificity, so source order decides. */
-.ui-pass[data-figure-long] .ui-pass-figure-table {
+/* A three-digit table (either orientation), or a code of five or more glyphs on a portrait paper,
+   steps down to `--fs-display` with no wrap (m2 appendix C) — after the tier rules on purpose:
+   same specificity, so source order decides. */
+.ui-pass[data-figure-long] .ui-pass-figure-table,
+.ui-pass[data-figure-long] .ui-pass-figure-code {
   font-size: var(--fs-display);
 }
 
@@ -281,6 +290,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  clip-path: var(--pass-print-rest);
 }
 .ui-pass-seam {
   position: relative;
@@ -351,6 +361,7 @@
 .ui-pass-tear {
   flex: none;
   height: 11px;
+  clip-path: var(--pass-print-rest);
   background: var(--pass-paper);
   -webkit-mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, currentColor 6.5px);
   mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, currentColor 6.5px);
@@ -504,7 +515,7 @@
     transform: translateY(8px);
   }
   to {
-    clip-path: inset(0);
+    clip-path: var(--pass-print-rest);
     transform: none;
   }
 }
@@ -513,7 +524,7 @@
     clip-path: inset(0 0 100% 0);
   }
   to {
-    clip-path: inset(0);
+    clip-path: var(--pass-print-rest);
   }
 }
 

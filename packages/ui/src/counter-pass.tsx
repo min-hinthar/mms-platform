@@ -34,10 +34,16 @@ import { useId, type CSSProperties, type ReactNode } from "react";
  * the host scales it with one uniform transform.
  *
  * Motion lives in the host's hands as hooks, each playing once when the host sets it (keyed on the
- * stage so a revisit or a first read never replays): `turning="head"` plays the TURN on the head
- * (X axis: a stage completes, m9/m10), `turning="figure"` on the figure (Y axis: m3's time → code);
- * `stamping` plays STAMP on the ✓ then PRINT on the tail (Paid only). One thing moves at a time: a
- * host never sets both. Reduced motion gets the final frame (pass.css).
+ * stage so a revisit or a first read never replays): `turning="head"` plays the TURN on the head's
+ * MAIN — the status row and the identity, the cell m9/m10 mean by "the status cell TURNs"; the
+ * stub's small fields never move — (X axis: a stage completes), `turning="figure"` on the figure
+ * (Y axis: m3's time → code). It is a one-element flap: the new face folds edge-on, then falls in
+ * from its hinge; the old face is gone at the commit. `stamping` plays STAMP on the ✓ then PRINT
+ * on the tail (Paid only). One thing moves at a time: a host never sets both. Reduced motion gets
+ * the final frame (pass.css).
+ *
+ * A pass NEVER nests inside another: the body holds rows, never a pass (pass.css draws no paper
+ * for a nested one, so a mistake shows).
  */
 export type PassTier = "holder" | "counter" | "tv";
 export type PassOrientation = "portrait" | "landscape";
@@ -143,10 +149,15 @@ export function CounterPass({
   const landscape = orientation === "landscape";
   const leadLabel = lang === "my" ? label.my : label.en;
   const tongues: ReadonlyArray<PassLang> = lang === "my" ? ["my", "en"] : ["en", "my"];
-  // A three-digit TABLE steps down at the --fs-pass tiers; the holder's 40px has the room, and a
-  // code's host sizes its own stub.
+  // The step-down at the --fs-pass tiers (the holder's 40px has the room): a TABLE of three or more
+  // characters in either orientation, and a CODE of five or more glyphs on a PORTRAIT paper (seven
+  // glyphs of 88px Hanken 800 overflow a 390px phone; a landscape stub grows to its code — m6's
+  // seal keeps its #CODE at --fs-pass).
+  const glyphs = figure?.trim().length ?? 0;
   const figureLong =
-    figure != null && figureKind === "table" && tier !== "holder" && figure.trim().length >= 3;
+    figure != null &&
+    tier !== "holder" &&
+    (figureKind === "table" ? glyphs >= 3 : glyphs >= 5 && !landscape);
   const hasBody = children != null && children !== false;
   const hasStub = stub != null || terminal === "paid";
   const Heading = inert ? "p" : HEADING[headingLevel];
@@ -155,11 +166,20 @@ export function CounterPass({
   // STAMP then PRINT is Paid only (the ONE MOTION LANGUAGE): a non-terminal or Ready pass handed
   // `stamping` plays nothing.
   const stamps = stamping && terminal === "paid";
-  // The figureless identity: the lead tongue's words name the pass; a second tongue is decorative.
-  const fallbackLead = fallback == null ? null : (fallback[tongues[0]!] ?? fallback.en);
-  const fallbackEcho =
-    fallback == null ? null : fallback[tongues[0]!] == null ? null : fallback[tongues[1]!];
-  const fallbackLeadLang = fallback != null && fallback[tongues[0]!] != null ? tongues[0]! : "en";
+  // The figureless identity: the first NON-EMPTY tongue in lang order names the pass ("" is
+  // missing, like an absent `my`); a second tongue is decorative. No tongue at all is a
+  // programming error, refused loudly: a pass with an empty name is an a11y defect, never a render.
+  const present = (t: PassLang) => {
+    const v = fallback?.[t]?.trim();
+    return v ? v : null;
+  };
+  const fallbackLeadLang =
+    fallback == null ? "en" : present(tongues[0]!) != null ? tongues[0]! : tongues[1]!;
+  const fallbackLead = fallback == null ? null : present(fallbackLeadLang);
+  if (fallback != null && fallbackLead == null)
+    throw new Error("CounterPass: `fallback` needs at least one non-empty tongue (its name)");
+  const fallbackEchoLang: PassLang = fallbackLeadLang === "en" ? "my" : "en";
+  const fallbackEcho = fallback == null ? null : present(fallbackEchoLang);
   return (
     <Tag
       className={["ui-pass", className].filter(Boolean).join(" ")}
@@ -196,7 +216,11 @@ export function CounterPass({
                     {fallbackLead}
                   </span>
                   {fallbackEcho != null ? (
-                    <span className="ui-pass-fallback-echo" lang={tongues[1]} aria-hidden="true">
+                    <span
+                      className="ui-pass-fallback-echo"
+                      lang={fallbackEchoLang}
+                      aria-hidden="true"
+                    >
                       {fallbackEcho}
                     </span>
                   ) : null}

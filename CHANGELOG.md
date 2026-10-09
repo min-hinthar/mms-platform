@@ -41,7 +41,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ink mapping parsed from `pass.css`; ink constancy (no theme token but `--sh-paper`, no colour
   literal, never gold or accent); Night contrast of every pass pair measured from `tokens.css`,
   with `.dark` proven to redeclare no `--pass-*` token; the reduced-motion escort names every
-  animated selector. Twelve mutations induced and watched fail.
+  animated selector. Every guard was induced and watched fail before it passed (the mutations are
+  listed on the PR).
 
 ### The pass tokens: `--fs-pass`, `--till-fs-hand` and the constant `--pass-*` inks (2026-10-08)
 

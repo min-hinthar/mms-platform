@@ -17,7 +17,7 @@ import {
  */
 const WORD = { en: "Cooking", my: "ချက်နေဆဲ" };
 const render = (props: Partial<KitchenTrackProps> & { stage: KitchenStage }) =>
-  renderToStaticMarkup(createElement(KitchenTrack, { size: "row", ...props }));
+  renderToStaticMarkup(createElement(KitchenTrack, { size: "row", ...props } as KitchenTrackProps));
 const count = (html: string, needle: string) => html.split(needle).length - 1;
 
 describe("KitchenTrack — length is progress", () => {
@@ -61,8 +61,11 @@ describe("KitchenTrack — length is progress", () => {
     // Nothing lands on the ring or the dashed grace: `filling` is ignored there.
     expect(render({ stage: "unsent", filling: true })).not.toContain("data-filling");
     expect(render({ stage: "sending", filling: true })).not.toContain("data-filling");
-    // And an un-fill (the earlier stage, no `filling`) carries no animation hook at all.
-    expect(render({ stage: "sent" })).not.toContain("data-filling");
+    // And an un-fill (the earlier stage, no `filling`) carries neither hook: no `data-filling`
+    // and no landing mark — a first read or a revisit renders exactly this, the final frame.
+    const unfill = render({ stage: "sent" });
+    expect(unfill).not.toContain("data-filling");
+    expect(unfill).not.toContain("data-landing");
   });
 });
 
@@ -110,6 +113,18 @@ describe("KitchenTrack — a11y: the word carries the state; never a live region
   it("with an aria-label and no word, the track is ONE image named by it", () => {
     const html = render({ stage: "served", "aria-label": "Served" });
     expect(html).toMatch(/^<span class="ui-track"[^>]*role="img"[^>]*aria-label="Served"/);
+  });
+
+  it("a word AND an aria-label would be two names for one fact: the type refuses the pair", () => {
+    // Compile-time pin (`pnpm typecheck` reads this file): a loosened union un-expects it.
+    // @ts-expect-error — word and aria-label together
+    const both: KitchenTrackProps = {
+      stage: "sent",
+      size: "row",
+      word: WORD,
+      "aria-label": "Sent",
+    };
+    expect(both).toBeDefined();
   });
 
   it("with neither, the track is decorative", () => {

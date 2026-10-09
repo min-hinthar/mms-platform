@@ -1128,9 +1128,10 @@ wins over it where they disagree.
   `fallback: { en; my? }` — never both, never neither (the type refuses it).
 - `figure: string` · `figureKind: "table" | "code"` — ONE identity figure, printed once: `table` is
   Fraunces 600 tabular (`--font-display`, `--fw-semibold`, `--track-display`); `code` (a code or a
-  time) is the Hanken 800 code face (`--fw-heavy`, `--track-wide`, tabular). A `table` of three or
-  more characters at the `counter` / `tv` tiers steps down to `--fs-display` with no wrap
-  (`data-figure-long`); a code never steps (its host sizes the stub).
+  time) is the Hanken 800 code face (`--fw-heavy`, `--track-wide`, tabular). At the `counter` / `tv`
+  tiers a `table` of three or more characters (either orientation) and a `code` of five or more
+  glyphs (portrait only; a landscape stub grows) step down to `--fs-display` with no wrap
+  (`data-figure-long`); the holder's 40px never steps.
 - `label: { en; my }` · `lang: "en" | "my"` — the two-tongue label over the figure; the lead
   tongue prints first ("စားပွဲ · Table" under `my`, "Table · စားပွဲ" under `en`); the Burmese is
   `--font-my` at full ink (`--pass-ink`, `--fs-h2` at the counter/TV tiers, `--fs-lead` on the
@@ -1207,7 +1208,7 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
   un-fill is instant: render the earlier stage without `filling`.
 - `aria-label?: string` — with no word, the track is one `role="img"` named by it. With a word, the
   segments are decorative and the word is the state. With neither, the track is decorative. Never a
-  live region.
+  live region. `word` and `aria-label` together are refused by the type (`KitchenTrackName`).
 - Rendered: `data-stage`, `data-size`, `data-surface`, `data-filling`; `.ui-track-segs` with three
   `.ui-track-seg` (`data-lit`, `data-dashed`, `data-landing`), or `.ui-track-ring`.
 
@@ -1228,13 +1229,21 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
 5. **The accessible name is one tongue.** The brief's "the figure is read once … one name" is met by
    hiding the visible two-tongue label from assistive tech and naming the pass from the lead tongue's
    label + the figure. A screen reader in Burmese hears "စားပွဲ 7"; in English "Table 7".
-6. **TURN is one element, keyed by the host.** A split-flap's out-half needs the old face; the host
-   keys the turning part on the stage, so the commit swaps the face and the flap plays once (edge-on
-   at `--dur-base` ease-in, then falling from the hinge over `--dur-base` `--ease-out`). The X axis
-   hinges at the top (the head), the Y axis at the centre (the figure).
+6. **TURN is one element, keyed by the host — the new face only.** `turning="head"` animates the
+   head's MAIN (the status row + the identity: the cell m9 and m10 mean by "the status cell TURNs");
+   the stub's small fields never move. The host keys the turning part on the stage, so the commit
+   swaps the face and the flap plays once: the NEW face folds edge-on over `--dur-base` ease-in, then
+   falls back in from its hinge over `--dur-base` `--ease-out`. A split-flap's out-half with the OLD
+   face is not drawn — one keyed element cannot show a face that is gone at the commit — so what
+   ships is the fold-and-fall of the face that arrived. The X axis hinges at the top (the head's
+   perspective on `.ui-pass-head`), the Y axis at the centre (the figure's perspective on its own
+   parent, `.ui-pass-identity`).
 7. **PRINT is sequential across the paper's edge.** The tail prints inside the paper; the torn foot
    is a sibling outside it (its mask cannot punch the paper's own edge), so it prints last in
-   `--dur-fast` after the body's 1.05s — one print head, never two reveals at once.
+   `--dur-fast` after the body's 1.05s — one print head, never two reveals at once. **The rest clip is
+   the base:** the tail and the tear rest at `clip-path: var(--pass-print-rest)` (`inset(-8px)`, which
+   admits the notches' 7px overhang), and both PRINT keyframes end exactly there, so "base = final
+   frame" holds and no notch is shaved after a print (the blind pass on #327).
 8. **The stamped stub's `--pass-okb` wash is portrait-only** (the dine-in pass, m10 screen 3). A
    landscape stub keeps paper; the seal's own green body is the host's.
 9. **`terminal="ready"` draws the stamp in the head** at 20px before the host's kicker word (m3 B4:
@@ -1253,6 +1262,24 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
 14. **`stamping` is inert off a Paid pass** (Codex round 1 on #327). The hook is the host's, but the
     language's "STAMP then PRINT: Paid only" is the primitive's to keep: `data-stamping` renders only
     with `terminal="paid"`, so a Ready ticket or a live pass handed the flag plays nothing.
+15. **A code steps down on a portrait paper, from five glyphs** (the blind pass on #327). Seven glyphs
+    of 88px Hanken 800 overflow a 390px phone, so at the `counter` / `tv` tiers a `code` of ≥ 5 glyphs
+    takes `data-figure-long` (→ `--fs-display`) in PORTRAIT; a landscape stub grows to its code
+    instead, so m6's seal keeps its #CODE at `--fs-pass` (m6 D2). A table steps down from three
+    characters in either orientation (a three-digit table at 88px overflows the TV's 136px stub).
+16. **`KitchenTrack` refuses `word` + `aria-label` together** (the blind pass on #327): two names
+    for one fact. `KitchenTrackName` is a union — the word (with `lang` / `echo`) OR the label —
+    pinned by `@ts-expect-error` in its suite. `data-landing` is rendered only while a FILL plays,
+    so an un-fill, a first read or a revisit carries no mark at all.
+17. **An empty fallback tongue is a missing tongue; no tongue is refused.** `fallback: { en: "" }`
+    with a Burmese tongue names the pass in Burmese; `{ en: "", my: "" }` (or whitespace) throws
+    `CounterPass: fallback needs at least one non-empty tongue` — a pass with an empty name is an
+    a11y defect, never a render (fail fast). The type cannot express non-empty, so it is a runtime
+    refusal with a test.
+18. **A pass never nests.** The body holds rows, never a pass. The guard sits on the paper rule
+    (`.ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper`, `:where()` keeping the specificity at
+    one class): a nested pass draws no ground, no edge and no shadow, so the mistake shows at once
+    rather than half-styling; the suite pins the selector.
 
 **Appendix C items taken.** m2 C's three-digit fallback (step down to `--fs-display`, no wrap); m9
 C's "pin `--fs-pass` and let board-fit step down" (D1 confirmed it; a test refuses `clamp(` on any
