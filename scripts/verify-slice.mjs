@@ -27440,6 +27440,31 @@ const MUTANTS = [
     replace: "    if (!after) {",
   },
   {
+    id: "track-arrival-route/rate-answers-200",
+    file: "apps/qr/app/api/track/arrival/route.ts",
+    suite: "app/api/track/arrival/route.test.ts",
+    why: "blind pass on #330 — the route's status IS the reconcile's keep/clear contract: a flood-guard refusal answered 200 reads as decided and retires a committed arrival nobody heard",
+    find: '    if (!r.ok && r.reason === "rate") return NextResponse.json(r, { status: 429 });',
+    replace: '    if (!r.ok && r.reason === "rate") return NextResponse.json(r, { status: 200 });',
+  },
+  {
+    id: "track-arrival-route/failed-answers-200",
+    file: "apps/qr/app/api/track/arrival/route.ts",
+    suite: "app/api/track/arrival/route.test.ts",
+    why: "blind pass on #330 — a failed write answered 200 reads as decided and retires the guest's pending arrival on a transient error",
+    find: '    if (!r.ok && r.reason === "failed") return NextResponse.json(r, { status: 500 });',
+    replace:
+      '    if (!r.ok && r.reason === "failed") return NextResponse.json(r, { status: 200 });',
+  },
+  {
+    id: "track-arrival-route/throw-answers-200",
+    file: "apps/qr/app/api/track/arrival/route.ts",
+    suite: "app/api/track/arrival/route.test.ts",
+    why: "blind pass on #330 — a thrown read is no answer; answered 200 an outage would retire every pending arrival it touched",
+    find: '    return NextResponse.json({ ok: false, reason: "failed" }, { status: 500 });',
+    replace: '    return NextResponse.json({ ok: false, reason: "failed" }, { status: 200 });',
+  },
+  {
     id: "arrival/earned-by-arm-dropped",
     file: "apps/qr/lib/arrival.ts",
     suite: "lib/arrival.test.ts",

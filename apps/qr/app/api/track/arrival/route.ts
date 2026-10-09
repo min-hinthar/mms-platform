@@ -1,7 +1,3 @@
-// verify:slice-exempt — PD3: this route is GLUE for the `pagehide` beacon and the next-visit
-// reconcile over `stampArrival` (lib/arrival.ts, mutated), which holds every authority rule — the
-// same-day and collected guards in the statement, the row check, the earned_by arm. It parses,
-// forwards and answers; no rule lives in a line here.
 import { NextRequest, NextResponse } from "next/server";
 import { stampArrival } from "@/lib/arrival";
 
