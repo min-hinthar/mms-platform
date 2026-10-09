@@ -6,7 +6,6 @@ import {
   isReservedSessionCode,
   isSoloMode,
   reservedCodeRefusal,
-  soloDeviceCode,
   soloJoinVerdict,
   sweepsExpiredSquatter,
 } from "@/lib/session-code";
@@ -16,6 +15,7 @@ import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
+import { soloRemintKey } from "@/lib/solo-remint";
 import type { BindTableResult } from "@/lib/bind-table";
 import {
   awaitsFirstDiner,
@@ -299,9 +299,12 @@ export async function POST(req: NextRequest) {
   // (`soloJoinVerdict`, lib/session-code.ts); the write itself is refused in SQL whatever this
   // decides (`mms_refuse_solo_join`, 20261009120200), and its `solo_session` reads below as the
   // same 404. A refusal says exactly what a wrong code says. A `remint` is the device's own stored
-  // solo code under a NEW identity: a fresh session for this device under a fresh code (the client
-  // adopts the returned `joinCode`), never the old session's member and never stranded.
-  let remintSolo = false;
+  // solo code under a NEW identity: a session for this device under a key derived from (that stored
+  // code, this seat) — `soloRemintKey`, RETRY-STABLE (Codex P2 on #339): a lost response, or a
+  // second tab sending the same stored code, recomputes the SAME key, finds the session the first
+  // request minted (or loses the insert race on the active-code index and re-reads it below), and
+  // converges on one session and one cart. The client adopts the returned `joinCode`; the old
+  // session is never this seat's, and the device is never stranded.
   if (sess && isSoloMode(sess.mode)) {
     const { data: mine, error: mineErr } = await db
       .from("session_members")
@@ -323,9 +326,14 @@ export async function POST(req: NextRequest) {
     });
     if (solo === "refuse") return NextResponse.json({ error: NO_TABLE }, { status: 404 });
     if (solo === "remint") {
-      sess = null;
-      resolvedQr = undefined;
-      remintSolo = true;
+      const key = soloRemintKey(mode, sess.qr_code, seat);
+      try {
+        sess = await findActive(key); // a retry (or another tab) finds the session already re-minted
+      } catch (e) {
+        if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+        throw e;
+      }
+      resolvedQr = key; // none yet → the mint below creates it under `key`, never the held code
     }
   }
 
@@ -491,9 +499,7 @@ export async function POST(req: NextRequest) {
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
   // collides means a concurrent joiner won the insert, so we re-read and join theirs.
   for (let attempt = 0; attempt < 6 && !sess; attempt++) {
-    // A solo re-mint takes a fresh per-device key in the client's own shape; a host-start, a join code.
-    const code =
-      resolvedQr ?? (remintSolo && isSoloMode(mode) ? soloDeviceCode(mode) : generateJoinCode());
+    const code = resolvedQr ?? generateJoinCode();
     const { data, error } = await db
       .from("table_sessions")
       // K2: stamp the registered table number (null for a host-mint code / unregistered sticker /

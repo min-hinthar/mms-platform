@@ -90,12 +90,6 @@ export function isSoloMode(mode: string): boolean {
   return mode !== "dinein";
 }
 
-/** A fresh per-device key for a solo session, in the client's own shape (`resolveQrCode`,
- *  lib/useTableSession.ts): `${mode}-<uuid>`, unguessable and never shown. */
-export function soloDeviceCode(mode: string): string {
-  return `${mode}-${crypto.randomUUID()}`;
-}
-
 /**
  * What a SOLO session this POST found means for the calling seat, decided before `/api/session`
  * writes anything (the SQL trigger refuses a second member at the write whatever this says):
@@ -104,8 +98,9 @@ export function soloDeviceCode(mode: string): string {
  *  - `refuse` — a `?j=` invite join of someone else's solo session: the same 404 a wrong code gets,
  *    so the answer is no existence oracle;
  *  - `remint` — the device's OWN stored solo code under a NEW identity (its anonymous session was
- *    replaced): a fresh session for this device under a fresh code — never a member of the old one,
- *    and never stranded behind a refusal it cannot fix.
+ *    replaced): a session for this device under a retry-stable key (`soloRemintKey`,
+ *    lib/solo-remint.ts) — never a member of the old one, and never stranded behind a refusal it
+ *    cannot fix.
  * `null` — not a solo session: the dine-in arms decide.
  */
 export function soloJoinVerdict(i: {

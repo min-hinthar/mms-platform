@@ -4,7 +4,6 @@ import {
   isReservedSessionCode,
   isSoloMode,
   reservedCodeRefusal,
-  soloDeviceCode,
   soloJoinVerdict,
   sweepsExpiredSquatter,
 } from "./session-code";
@@ -120,12 +119,5 @@ describe("soloJoinVerdict — a solo session is one device's own order", () => {
   it("a dine-in session is not this rule's to decide", () => {
     for (const joinOnly of [true, false])
       expect(soloJoinVerdict({ mode: "dinein", ...stranger, joinOnly })).toBeNull();
-  });
-
-  it("a re-minted solo key has the client's own shape, and is fresh every time", () => {
-    const a = soloDeviceCode("pickup");
-    expect(a).toMatch(/^pickup-[0-9a-f-]{36}$/);
-    expect(soloDeviceCode("pickup")).not.toBe(a);
-    expect(isReservedSessionCode(a)).toBe(false);
   });
 });

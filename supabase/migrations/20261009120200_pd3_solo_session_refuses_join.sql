@@ -30,6 +30,38 @@
 -- supabase/tests/pd3_solo_session_refuses_join_test.sql and `scripts/verify-mode-authority.mjs`
 -- suite `pd3s`.
 
+-- ── 0. FIRST: the state this migration prevents must not already exist (Codex P1 on #339) ────────
+-- The trigger below governs FUTURE writes only. A solo session that already held a second member
+-- would keep it — its `is_member` reads, its cart writes, its arrival stamp, the expiry its activity
+-- slides — and the migration would have grandfathered exactly the member it exists to refuse.
+-- Measured on prod, read-only, 2026-10-09 (the coordinator): pickup / scan-and-go sessions with more
+-- than one `session_members` row — ZERO, at any status. So nothing is deleted. Instead the apply
+-- ABORTS, loudly, if that state exists when it runs: today a proven no-op. A named function rather
+-- than an inline block, so supabase/tests can drive it on a fixture and it can be re-run as a check.
+create or replace function public.mms_assert_solo_sessions_single() returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_found text;
+begin
+  select string_agg(format('%s (%s, %s members)', s.id, s.mode, m.n), ', ' order by s.id)
+    into v_found
+    from public.table_sessions s
+    join (select session_id, count(*) as n
+            from public.session_members
+           group by session_id
+          having count(*) > 1) m on m.session_id = s.id
+   where s.mode <> 'dinein';   -- every mode but dine-in is solo, the trigger's own rule
+  if v_found is not null then
+    raise exception 'solo_sessions_with_members: %', v_found
+      using errcode = 'P0001',
+            hint = 'A pickup or scan-and-go session already holds a second member: reconcile it (an owner decision) before installing session_members_solo_guard.';
+  end if;
+end; $$;
+
+revoke all on function public.mms_assert_solo_sessions_single() from public, anon, authenticated;
+
+select public.mms_assert_solo_sessions_single();
+
+-- ── 1. the refusal, where the membership is written ──────────────────────────────────────────────
 create or replace function public.mms_refuse_solo_join() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare v_mode text;

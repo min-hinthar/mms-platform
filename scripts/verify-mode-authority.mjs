@@ -96,8 +96,10 @@
  * in all (with M261's lock order, above).
  *
  * PD3's follow-up adds suite `pd3s`: `mms_refuse_solo_join`, the trigger that keeps a solo (pickup,
- * scan-and-go) session to its one member where the membership is written. Five killed mutants, one
- * per body-reachable `SOLO.<n> ·` case, and NO new survivor: its UPDATE event (SOLO.6) and its
+ * scan-and-go) session to its one member where the membership is written, and
+ * `mms_assert_solo_sessions_single`, the migration's first statement, which aborts the apply if a solo
+ * session already holds a second member (Codex P1 on #339). Nine killed mutants, one or more per
+ * body-reachable `SOLO.<n> ·` case, and NO new survivor: the trigger's UPDATE event (SOLO.6) and the
  * grants (SOLO.7) are DDL no body mutant reaches, induced red by hand; its advisory key orders two
  * racing first members, a two-session property STATED in the migration header, not a row here.
  *
@@ -2360,6 +2362,40 @@ const MUTANTS = [
       find: "  if exists (\n",
       replace: "  if true or exists (\n",
     },
+    // Codex P1 on #339 — the apply-time guard, the migration's FIRST statement: it aborts the apply
+    // when a solo session already holds a second member, instead of grandfathering it.
+    {
+      id: "solo/apply-guard-never-raises",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the apply-time guard never raises: the migration installs the trigger over a solo session that already holds a second member, and that member keeps every is_member read",
+      find: "  if v_found is not null then\n",
+      replace: "  if false then\n",
+    },
+    {
+      id: "solo/apply-guard-counts-from-three",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the guard's threshold off by one: a solo session with exactly two members — the state the trigger exists to prevent — passes",
+      find: "          having count(*) > 1) m on m.session_id = s.id\n",
+      replace: "          having count(*) > 2) m on m.session_id = s.id\n",
+    },
+    {
+      id: "solo/apply-guard-names-pickup",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the guard written as the mode it was found on: a scan-and-go session with two members passes",
+      find: "   where s.mode <> 'dinein';   -- every mode but dine-in is solo, the trigger's own rule\n",
+      replace: "   where s.mode = 'pickup';\n",
+    },
+    {
+      id: "solo/apply-guard-counts-dinein",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8a",
+      why: "the guard's mode filter dropped: every dine-in party with two phones aborts the apply",
+      find: "   where s.mode <> 'dinein';   -- every mode but dine-in is solo, the trigger's own rule\n",
+      replace: "   ;\n",
+    },
   ].map((m) => ({ fn: "mms_refuse_solo_join", ...m, src: "pd3s", suite: "pd3s" })),
 ];
 
@@ -2423,6 +2459,7 @@ const TARGETS = [
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
   "mms_refuse_solo_join",
+  "mms_assert_solo_sessions_single",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

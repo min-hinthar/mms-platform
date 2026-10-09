@@ -444,7 +444,7 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 202 `id:` rows (measured below; was "20" while the file held 27) across twenty-two LIVE functions
+      # 206 `id:` rows (measured below; was "20" while the file held 27) across twenty-three LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, — Phase 2f · P2v — mms_fire_counter_cart,
@@ -454,7 +454,7 @@ jobs:
       # and mms_bump_ticket, and — Phase 3c-ii · M258 — mms_undo_fire, and — M263 · J41 · J40 —
       # mms_bind_session_table and the ONE "untouched" predicate's readers mms_shell_untouched,
       # mms_untouched_shells and mms_claim_untouched_shell, and — PD3's follow-up — the solo-session
-      # trigger mms_refuse_solo_join) plus one of
+      # trigger mms_refuse_solo_join and its apply-time guard mms_assert_solo_sessions_single) plus one of
       # mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
       # and the NAMED case (not just some case) to be the one that goes red. Seventeen mutants are
@@ -468,7 +468,8 @@ jobs:
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
       # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
       # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
-      # (202 since PD3's follow-up — suite pd3s, five rows on mms_refuse_solo_join, the chain nine files.)
+      # (206 since PD3's follow-up — suite pd3s, nine rows on mms_refuse_solo_join and its apply-time
+      # guard, the chain nine files.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs

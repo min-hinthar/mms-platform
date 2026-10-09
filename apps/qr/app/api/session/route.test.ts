@@ -335,6 +335,7 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { POST } = await import("./route");
+const { soloRemintKey } = await import("@/lib/solo-remint");
 
 function req(body: Record<string, unknown>) {
   return {
@@ -512,6 +513,61 @@ describe("/api/session — a SOLO session (pickup, scan-and-go) refuses a second
     expect(members).toContainEqual(
       expect.objectContaining({ session_id: body.sessionId, seat_id: SEAT }),
     );
+  });
+
+  it("a RETRY of the re-mint (its response lost) lands on the SAME session and cart — never a second (Codex P2 on #339)", async () => {
+    // The client learns the new key only from the response, so a lost response means the retry
+    // sends the held key again. MUTATION: skip the re-read of the derived key — the retry mints a
+    // second session under it.
+    const held = row("pickup-old", "pickup", OTHER);
+    sessions = [held];
+    members = [{ session_id: held.id, seat_id: OTHER }];
+    carts = [];
+    const first = (await (await POST(req({ qrCode: "pickup-old", mode: "pickup" }))).json()) as {
+      sessionId: string;
+      cartId: string;
+      joinCode: string;
+    };
+    writes = [];
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    const again = (await res.json()) as { sessionId: string; cartId: string; joinCode: string };
+    expect(again).toMatchObject({
+      sessionId: first.sessionId,
+      cartId: first.cartId,
+      joinCode: first.joinCode,
+    });
+    expect(first.joinCode).toBe(soloRemintKey("pickup", "pickup-old", SEAT));
+    expect(sessionInserts()).toEqual([]);
+    expect(sessions.filter((r) => r.qr_code === first.joinCode)).toHaveLength(1);
+    expect(members.filter((m) => m.session_id === first.sessionId)).toHaveLength(1);
+  });
+
+  it("two TABS re-minting at once converge: the loser of the insert race joins the winner's session and cart", async () => {
+    // Both tabs send the held key; both derive the same key. The other tab's insert lands between
+    // this one's read and its insert, so this one meets the active-code index (23505) and re-reads.
+    const held = row("pickup-old", "pickup", OTHER);
+    const key = soloRemintKey("pickup", "pickup-old", SEAT);
+    sessions = [held];
+    members = [{ session_id: held.id, seat_id: OTHER }];
+    carts = [];
+    insertCollision = {
+      code: "23505",
+      then: () => {
+        sessions.push(row(key, "pickup", SEAT, { id: "sess-winner" }));
+        members.push({ session_id: "sess-winner", seat_id: SEAT });
+        carts?.push({ id: "cart-winner", session_id: "sess-winner", status: "open" });
+      },
+    };
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      sessionId: "sess-winner",
+      cartId: "cart-winner",
+      joinCode: key,
+    });
+    expect(sessions.filter((r) => r.qr_code === key)).toHaveLength(1);
+    expect(members.filter((m) => m.session_id === "sess-winner")).toHaveLength(1);
   });
 
   it("the SQL refusal (`solo_session`, a join racing the check) reads as the same wrong-code 404", async () => {

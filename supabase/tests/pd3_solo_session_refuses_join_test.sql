@@ -17,11 +17,18 @@
 --   5. a dine-in party still takes a second and a third member;
 --   6. an UPDATE that moves a member INTO a held pickup session is refused too;
 --   7. the trigger function is not callable by a client role (EXECUTE revoked, as the party cap's).
+--   8. the migration's FIRST statement, `mms_assert_solo_sessions_single()` (Codex P1 on #339): it
+--      is silent while only a dine-in party holds several members, and RAISES
+--      `solo_sessions_with_members` (P0001) on a scan-and-go session that already holds two — the
+--      fixture is built with the trigger disabled inside this rolled-back transaction, the only way
+--      that state can now exist. It is the guard that aborts the apply instead of grandfathering a
+--      second member.
 --
 -- Every case names itself (`SOLO.<n> ·`) so `scripts/verify-mode-authority.mjs` can require the
 -- NAMED case to be the one its mutant turns red (suite `pd3s`). Cases 6 and 7 pin the trigger's
 -- events and the grants — DDL no function-body mutant can reach — and were induced red by hand: the
--- trigger re-created INSERT-only, and EXECUTE granted to `authenticated`.
+-- trigger re-created INSERT-only, and EXECUTE granted to `authenticated`. Case 8's two legs are each
+-- killed by a mutant of the guard's body.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pd3_solo_session_refuses_join_test.sql
@@ -120,6 +127,41 @@ begin
   assert not has_function_privilege('anon', 'public.mms_refuse_solo_join()', 'execute')
      and not has_function_privilege('authenticated', 'public.mms_refuse_solo_join()', 'execute'),
     'SOLO.7 · a client role can EXECUTE mms_refuse_solo_join — revoke it from public, anon and authenticated';
+end $$;
+
+-- ══ 8. the apply-time guard: silent on a dine-in party, raises on a solo session with two members ═
+-- The only way a second member can now reach a solo session is with the trigger off — so the
+-- fixture turns it off, inside this transaction (rolled back below).
+alter table public.session_members disable trigger session_members_solo_guard;
+
+do $$
+declare
+  g uuid := gen_random_uuid();
+  v_state text;
+begin
+  -- (a) case 5's dine-in party holds three members: not this guard's business.
+  begin
+    perform public.mms_assert_solo_sessions_single();
+    v_state := 'silent';
+  exception when others then
+    v_state := sqlerrm;
+  end;
+  assert v_state = 'silent',
+    format('SOLO.8a · the apply-time guard refused a DINE-IN party (%s) — the migration would abort on every live table', v_state);
+
+  -- (b) a scan-and-go session that already holds two members aborts the apply.
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (g, 'scango-' || g, 'scango', 'active', null);
+  insert into public.session_members (session_id, seat_id, display_name, role) values
+    (g, gen_random_uuid(), 'Guest', 'host'), (g, gen_random_uuid(), 'Guest', 'guest');
+  begin
+    perform public.mms_assert_solo_sessions_single();
+    v_state := 'silent';
+  exception when others then
+    v_state := sqlstate || ':' || split_part(sqlerrm, ':', 1);
+  end;
+  assert v_state = 'P0001:solo_sessions_with_members',
+    format('SOLO.8b · a solo session already holding two members passed the apply-time guard (%s) — the migration would grandfather the second member', v_state);
 end $$;
 
 rollback;

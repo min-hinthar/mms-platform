@@ -1362,11 +1362,27 @@ that delegation the four items H4 and H5 left for the owner are decided:
     for that code", no existence oracle — and the trigger's `solo_session` maps to the same 404. The
     minting device rejoins: as a member, or as the host retrying its own failed first insert.
   - **The device whose anonymous identity was replaced is not stranded.** Its stored solo key names
-    a session another uid now holds, so the route re-mints a fresh `${mode}-<uuid>` session for it,
-    and `useTableSession` adopts the returned key. The old session is untouched: no slide, no second
-    member, no host change. Its cart stays with the identity that minted it.
-- Pinned: `supabase/tests/pd3_solo_session_refuses_join_test.sql` (seven named cases, registered in
-  ci.yml; red on the un-migrated stack at SOLO.2; SOLO.6 and SOLO.7 induced red by hand).
-  `scripts/verify-mode-authority.mjs` suite `pd3s`: five killed mutants, 202 accounted for. And
-  verify:slice `session-code/solo-*`, `session-route/solo-*`,
+    a session another uid now holds, so the route re-mints a session for it, and `useTableSession`
+    adopts the returned key. The old session is untouched: no slide, no second member, no host
+    change. Its cart stays with the identity that minted it.
+  - **The re-mint is retry-stable** (Codex P2 on #339). Its key is derived, not random:
+    `soloRemintKey` (`lib/solo-remint.ts`) is a UUID v5 of (the stored key, the seat) under a fixed
+    namespace, in the client's `${mode}-<uuid>` shape. A lost response — the client learns the new
+    key only from it, so its retry sends the held key again — or a second tab recomputes the same
+    key: the route finds the session already minted under it, or loses the insert race on the
+    active-code index and re-reads the winner, so one session and one cart. The trigger's guarantees
+    are untouched: the key names a session only this seat mints, and any other seat is refused at
+    the write.
+  - **The migration aborts if the state it prevents already exists** (Codex P1 on #339). Its first
+    statement, `mms_assert_solo_sessions_single()`, raises `solo_sessions_with_members` when any
+    pickup or scan-and-go session holds more than one member: the trigger governs future writes
+    only, and installing it over such a session would grandfather the second member. Measured on
+    prod, read-only, 2026-10-09: ZERO such sessions, at any status — so the guard is a proven no-op
+    today, nothing is deleted, and the state, should it ever exist at apply time, fails the apply
+    loudly instead.
+- Pinned: `supabase/tests/pd3_solo_session_refuses_join_test.sql` (eight named cases, registered in
+  ci.yml; red on the un-migrated stack at SOLO.2; SOLO.6 and SOLO.7 induced red by hand; the abort
+  also shown on a cluster holding a two-member pickup fixture).
+  `scripts/verify-mode-authority.mjs` suite `pd3s`: nine killed mutants, 206 accounted for. And
+  verify:slice `session-code/solo-*`, `session-route/solo-*`, `solo-remint/*`,
   `use-table-session/solo-remint-not-adopted`.
