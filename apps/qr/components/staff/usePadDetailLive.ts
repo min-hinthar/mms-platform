@@ -28,13 +28,25 @@ export function usePadDetailLive({
   sessionId,
   readsRef,
   onCommit,
+  pausedRef,
+  onClosed,
 }: {
   initial: TableDetail;
   sessionId: string;
   /** The last read STARTED — bumped here, read by the add chain when an add lands. */
   readsRef: MutableRefObject<number>;
-  /** A read committed: its start sequence. */
-  onCommit: (readStartSeq: number) => void;
+  /** A read committed: its start sequence, and (PD6) when it started and whether it showed the cart
+   *  open — the pad's "a settle's outcome is unknown" mark ends on such a read
+   *  (`settleUnknownAfterRead`). */
+  onCommit: (readStartSeq: number, read: { startedAtMs: number; cartOpen: boolean }) => void;
+  /** PD6 (m6 · K39) — the seal stands: like a printed receipt, nothing re-reads under it. While it
+   *  holds no read starts, and a read already in the air is dropped when it answers — a `closed`
+   *  verdict (the counter session closes behind its settle) never navigates the seal away. A REF,
+   *  read when a read would start and when it answers, never from a render. */
+  pausedRef?: MutableRefObject<boolean>;
+  /** PD6 — a `closed` verdict, offered to the pad first: true when the pad handled it (a settle whose
+   *  outcome is unknown — "most likely went through", said in place), false to go to the floor. */
+  onClosed?: () => boolean;
 }) {
   const router = useRouter();
   const [detail, setDetail] = useState<TableDetail>(initial);
@@ -51,6 +63,10 @@ export function usePadDetailLive({
   useEffect(() => {
     commitRef.current = onCommit;
   }, [onCommit]);
+  const closedRef = useRef(onClosed);
+  useEffect(() => {
+    closedRef.current = onClosed;
+  }, [onClosed]);
   // ── Phase 2c · review fixes · pad2 ── the RAW read, watched apart from its 15s give-up (P5).
   // Next runs Server Actions one at a time, so a read that timed out is still IN the queue (behind a
   // hung add, usually): starting another only stacks a second abandoned call behind the first, every
@@ -101,18 +117,29 @@ export function usePadDetailLive({
     try {
       do {
         rerun.current = false;
+        // PD6 — the seal stands: no read starts under it (the owed read is simply not owed).
+        if (pausedRef?.current) return;
         const ticket = ++readsRef.current;
+        const startedAtMs = Date.now();
         try {
           const raw = gate.watch(getTableDetail(sessionId));
           const res = await raceTimeout(raw, "read");
           if (!alive.current) return;
+          // PD6 — a read that was in the air when the seal went up says nothing over it.
+          if (pausedRef?.current) return;
           if (res.kind === "detail") {
             setDetail(res.detail);
             setDetailSeq((n) => n + 1);
             fails.current = 0;
             setDegraded(null);
-            commitRef.current(ticket);
+            commitRef.current(ticket, {
+              startedAtMs,
+              cartOpen: res.detail.cartId != null && !res.detail.settled,
+            });
           } else if (res.kind === "closed") {
+            // PD6 — offered to the pad first: a counter settle whose outcome is unknown closed the
+            // session behind it, so it most likely went through — said in place, never a bounce.
+            if (closedRef.current?.()) return;
             // Cleared or closed elsewhere: the floor BY NAME (a bare `/staff` resolves by the door
             // cookie and can land a counter tablet on the kitchen board).
             router.replace(STAFF_DOOR_TARGET.counter);
@@ -139,7 +166,7 @@ export function usePadDetailLive({
     } finally {
       inFlight.current = false;
     }
-  }, [sessionId, router, readsRef, gateOf, miss]);
+  }, [sessionId, router, readsRef, gateOf, miss, pausedRef]);
   useEffect(() => {
     kick.current = () => void refresh();
   }, [refresh]);

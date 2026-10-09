@@ -10,6 +10,7 @@ import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
 import { STAFF_HANG_MS, stalledSince, youngWrite } from "@/lib/bounded-write";
 import { reloadHolds } from "@/lib/reload-guard";
+import { handoffStashKey } from "@/lib/floor-pane";
 
 /**
  * Phase 2c · pad — the ORDER PAD's WIRING (DESIGN-LANGUAGE §28). The decisions are pure and pinned
@@ -22,16 +23,22 @@ const addItem = vi.fn<(raw: unknown) => Promise<StaffWriteResult>>();
 const setQty = vi.fn<(id: string, raw: unknown) => Promise<StaffWriteResult>>(() =>
   Promise.resolve({ ok: true }),
 );
+const settleCash = vi.fn();
 vi.mock("@/lib/staff-cart", () => ({
   staffAddItem: (raw: unknown) => addItem(raw),
   staffSetQty: (id: string, raw: unknown) => setQty(id, raw),
   setLineNotes: vi.fn(() => Promise.resolve({ ok: true })),
+  settleCash: (raw: unknown) => settleCash(raw),
 }));
 const setName =
   vi.fn<
     (raw: unknown) => Promise<{ ok: true } | { ok: false; error: string; code?: "keepName" }>
   >();
-vi.mock("@/lib/register", () => ({ setCartCustomerName: (raw: unknown) => setName(raw) }));
+const openRegisterOrder = vi.fn();
+vi.mock("@/lib/register", () => ({
+  setCartCustomerName: (raw: unknown) => setName(raw),
+  openRegisterOrder: (raw: unknown) => openRegisterOrder(raw),
+}));
 const fire = vi.fn<(raw: unknown) => Promise<StaffFireResult>>();
 const undo = vi.fn<(raw: unknown) => Promise<StaffUndoResult>>();
 vi.mock("@/lib/staff-send", () => ({
@@ -321,6 +328,8 @@ const rowKeys = () =>
 const sendBtn = () => document.querySelector<HTMLButtonElement>(".pad-dock .staff-send button")!;
 const settleBtn = () => document.querySelector<HTMLButtonElement>(".pad-settle button")!;
 const region = () => document.querySelector<HTMLElement>(".ui-toast-region")!;
+/** PD6 — the crowned till tray (the one cash sheet), opened in place on a counter order. */
+const tray = () => screen.queryByRole("dialog", { name: STAFF["settle.cash.title"].en });
 
 beforeEach(() => {
   vi.useFakeTimers({ now: T });
@@ -663,16 +672,31 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     expect(region().textContent).toBe(STAFF["table.send.hold.add"].en.replace("{x}", "Mohinga"));
   });
 
-  it("on a counter order Take payment is accepted while an add flies, drains it, then goes to payment", async () => {
+  it("on a counter order Take cash is accepted while an add flies, drains it, reads it back, then opens the till in place (PD6)", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
-    mount(counterPayable(), { counter: true });
+    // `counterPayable()` arms the read with itself; the read AFTER the add is armed below it.
+    const seed = counterPayable();
+    // The read after the add: the dish is on it, and so is its price.
+    getTableDetail.mockResolvedValue({
+      kind: "detail",
+      detail: {
+        ...counterPayable(),
+        lines: [
+          line({ id: "l1", fulfillment: "togo", sendable: false }),
+          line({ id: "l2", fulfillment: "togo", sendable: false }),
+        ],
+        itemCount: 2,
+        ...priced(2900, 3162),
+      },
+    });
+    mount(seed, { counter: true });
     await act(async () => {
       fireEvent.click(mohinga());
     });
-    // Enabled (never refused for a flying add), and names no stale sum.
+    // Enabled (never refused for a flying add), and names no stale sum: the bare door.
     expect(settleBtn().getAttribute("aria-disabled")).toBeNull();
-    expect(settleBtn().textContent).toBe(STAFF["pad.settle.bare"].en);
+    expect(settleBtn().textContent).toBe(STAFF["settle.cash.title"].en);
     // Phase 3d · counter — nor does the ticket a thumb away: the priced stack keeps its rows and
     // withholds every amount while the dish flies (the dock's own predicate). MUTATION
     // p3d-receipt/ticket-blind-to-a-flying-add → red.
@@ -683,13 +707,23 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     });
     await flush();
     expect(settleBtn().getAttribute("aria-busy")).toBe("true");
-    // MUTATION: navigating before the drain; red.
-    expect(push).not.toHaveBeenCalled();
+    // MUTATION: opening before the drain; red.
+    expect(tray()).toBeNull();
     await act(async () => {
       add.resolve({ ok: true });
     });
     await flush();
-    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+    await flush();
+    // PD6 (K39) — no navigation on a counter order: the tray opens over the pad, quoting the read
+    // that STARTED after the add landed. MUTATION pad-door/gate-skips-the-fresh-read: the tray
+    // freezes the pre-add $15.81 over a cart of two dishes; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(tray()).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^Take \$/ }).textContent).toBe(
+      STAFF["settle.cash.settleAmount"].en.replace("{m}", "$31.62"),
+    );
+    // The slip froze with that read too: no "the order changed" over a cart it already shows.
+    expect(screen.queryByRole("button", { name: /The order changed/ })).toBeNull();
   });
 
   it("at a dine-in table Take payment while an add flies is refused on unsent and jumps to the Send (Codex round 1, P2)", async () => {
@@ -764,14 +798,15 @@ describe("a counter order — Take payment, and (Phase 2f) a Send that is paid a
     });
     await flush();
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
-    expect(push).not.toHaveBeenCalled();
+    expect(tray()).toBeNull();
     expect(region().textContent).toBe(STAFF["pad.nameNotSaved"].en);
     await act(async () => {
       fireEvent.click(settleBtn());
     });
     await flush();
     expect(setName).toHaveBeenCalledTimes(1);
-    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+    expect(push).not.toHaveBeenCalled();
+    expect(tray()).not.toBeNull();
   });
 });
 
@@ -1034,7 +1069,8 @@ describe("Take payment says what it is actually doing while busy", () => {
     // MUTATION: decide the save from the name captured at the tap — the call-out is skipped (it
     // was clean then) and the page leaves with "Aye" thrown away; red.
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
-    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+    await flush();
+    expect(tray()).not.toBeNull();
   });
 
   it("the ticket's own writes are closed while Take payment is on its way out (Codex round 2, P2)", async () => {
@@ -1075,7 +1111,8 @@ describe("Take payment says what it is actually doing while busy", () => {
       save.resolve({ ok: true });
     });
     await flush();
-    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+    await flush();
+    expect(tray()).not.toBeNull();
   });
 
   it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
@@ -1660,7 +1697,8 @@ describe("P4 — nothing is added while Take payment is on its way out", () => {
       save.resolve({ ok: true });
     });
     await flush();
-    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+    await flush();
+    expect(tray()).not.toBeNull();
   });
 
   it("while payment opens: a tile tap is refused", async () => {
@@ -2407,5 +2445,175 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "" });
     expect(region().textContent).toBe(STAFF["browse.name.keep"].en);
     expect(field.value).toBe("Aye");
+  });
+});
+
+describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape of the Sale')", () => {
+  const OK = { ok: true as const, orderId: "o-00003f9a2c", totalCents: 1581, tipCents: 0 };
+  const live = () =>
+    [...document.querySelectorAll('[role="status"],[role="alert"],[aria-live]')].filter(
+      (e) => !e.closest('[role="dialog"]'),
+    );
+  const openTray = async () => {
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    expect(tray()).not.toBeNull();
+  };
+  const takeIt = async (chip: string) => {
+    fireEvent.click(
+      within(screen.getByRole("group", { name: STAFF["settle.a11y.cashQuick"].en })).getByRole(
+        "button",
+        { name: chip },
+      ),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+    });
+    await flush();
+  };
+
+  it("Take cash → the till → Take: the seal stands where the pad was — stashed, focused, the poll paused, one region", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    settleCash.mockResolvedValueOnce(OK);
+    mount(counterPayable(), { counter: true });
+    // One money verb end to end: the dock reads "Take cash · $15.81" (never "Take payment").
+    expect(settleBtn().textContent).toBe(STAFF["settle.cash.trigger"].en.replace("{m}", "$15.81"));
+    await openTray();
+    await takeIt("$20");
+    expect(settleCash).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESSION, tipCents: 0, quotedCents: 1581 }),
+    );
+    // 2000 − 1581 = 419 (node -e 'console.log(2000-1581)'); the #CODE is the order id's last six.
+    const seal = screen.getByRole("region", { name: /Paid.*Change.*\$4\.19.*#3F9A2C/ });
+    expect(document.activeElement).toBe(seal);
+    expect(seal.hasAttribute("data-landing")).toBe(true);
+    // The pad shell is UNMOUNTED, not hidden.
+    expect(document.querySelector(".pad-shell")).toBeNull();
+    expect(document.querySelector(".pad-skip")).toBeNull();
+    // Codex correction 4 — the landing wrote the stash, tender and all (a same-tab reload adopts it).
+    // MUTATION pad-seal/landing-never-stashed: a reload loses Cash received and Change; red.
+    const stashed = JSON.parse(sessionStorage.getItem(handoffStashKey(SESSION))!);
+    expect(stashed).toMatchObject({ orderId: OK.orderId, totalCents: 1581, tenderedCents: 2000 });
+    // The poll is PAUSED under the seal: the session closing behind its settle never bounces it.
+    getTableDetail.mockResolvedValue({ kind: "closed" });
+    const before = getTableDetail.mock.calls.length;
+    await flush(12_000);
+    // MUTATION pad-seal/poll-never-paused: the next read is `closed` and the seal is yanked to the
+    // floor mid-hand-back; red.
+    expect(getTableDetail.mock.calls.length).toBe(before);
+    expect(replace).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(seal);
+    // The pad's ONE region survives with the seal (Walk-up's refusals are said there).
+    expect(live()).toHaveLength(1);
+    // Walk-up is the quiet secondary, described by its honest note; Back to the counter the hero.
+    const walk = screen.getByRole("button", { name: /Walk-up/ });
+    expect(walk.getAttribute("aria-describedby")).toBe("seal-walkup-note");
+    expect(document.getElementById("seal-walkup-note")!.textContent).toBe(
+      STAFF["table.detail.handoff.walkupNote"].en,
+    );
+    expect(screen.getByRole("link", { name: /Back to the counter/ }).className).toContain(
+      "ui-btn-primary",
+    );
+  });
+
+  it("a read already in the air when the seal goes up says nothing over it — its `closed` never bounces the seal", async () => {
+    const inAir = deferred<TableDetailResult>();
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    settleCash.mockResolvedValueOnce(OK);
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    // The 5s poll starts a read that hangs while the cashier counts.
+    getTableDetail.mockReturnValueOnce(inAir.promise);
+    await flush(5000);
+    await takeIt("$20");
+    expect(screen.getByRole("region", { name: /Paid/ })).toBeTruthy();
+    // It answers AFTER the landing: the session closed behind the settle.
+    await act(async () => {
+      inAir.resolve({ kind: "closed" });
+    });
+    await flush();
+    // MUTATION pad-seal/in-air-read-lands-on-the-seal: the late `closed` bounces the seal; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: /Paid/ })).toBeTruthy();
+  });
+
+  it("Walk-up on the seal starts the next order through the ONE mint lock and lands on its pad", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    settleCash.mockResolvedValueOnce(OK);
+    const NEXT = "22222222-2222-4222-8222-222222222222";
+    openRegisterOrder.mockResolvedValueOnce({ ok: true, sessionId: NEXT, created: true });
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    await takeIt("$20");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Walk-up/ }));
+    });
+    await flush();
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    expect(push).toHaveBeenCalledWith(`/staff/table/${NEXT}/add`);
+  });
+
+  it("a refused settle, then Cancel: the pad's Toast says nothing was taken (graft 5); a plain cancel says nothing", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await flush();
+    expect(region().textContent).not.toBe(STAFF["settle.cash.cancelClean"].en);
+    settleCash.mockResolvedValueOnce({ ok: false, error: "Couldn’t.", code: "sentence" });
+    await openTray();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+    });
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await flush();
+    // MUTATION pad-seal/cancel-clean-unsaid: the hand-up never reaches the Toast; red.
+    expect(region().textContent).toBe(STAFF["settle.cash.cancelClean"].en);
+  });
+
+  it("unpriced (m6 graft 2): the door reads bare 'Take cash', is held, and a tap says reload — no tray", async () => {
+    const d = { ...counterPayable(), settleTotalCents: null, settleBreakdown: null };
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+    mount(d, { counter: true });
+    expect(settleBtn().textContent).toBe(STAFF["settle.cash.title"].en);
+    expect(settleBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById("pad-settle-why")!.textContent).toBe(
+      STAFF["pad.reason.unpriced"].en,
+    );
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    expect(tray()).toBeNull();
+    expect(region().textContent).toBe(STAFF["pad.reason.unpriced"].en);
+  });
+
+  it("a counter settle whose answer was LOST, then a `closed` read: said in place, focused — never a bounce to the floor (§29's hold)", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    settleCash.mockRejectedValueOnce(new Error("fetch failed"));
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+    });
+    await flush();
+    // The settle may have landed: the session closes behind it.
+    getTableDetail.mockResolvedValue({ kind: "closed" });
+    await flush(6000);
+    // MUTATION pad-seal/closed-unknown-bounces: the cashier is yanked to the floor over a payment
+    // that most likely went through; red.
+    expect(replace).not.toHaveBeenCalled();
+    const notice = document.querySelector<HTMLElement>('[aria-labelledby="pad-settle-closed-h"]')!;
+    expect(notice.textContent).toContain(STAFF["settle.cash.unknownClosed"].en);
+    expect(document.activeElement).toBe(notice);
+    expect(logged).toHaveBeenCalled();
   });
 });

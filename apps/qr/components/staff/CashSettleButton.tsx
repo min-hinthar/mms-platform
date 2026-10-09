@@ -104,6 +104,10 @@ export type TillDoor = {
   /** The pad's busy phase while a tap drains the adds or saves the name: the door is busy with that
    *  phase's own words ("Waiting for the last dish…", "Saving the name…"); null when idle. */
   busy: ReactNode | null;
+  /** Whether the door may name its figure (`padSettle.showAmount`): false while an add or a line
+   *  write is pending (§23 — amounts are never intent) or the read priced nothing ("unpriced") —
+   *  the door then reads bare "Take cash", never a stale or invented figure. */
+  showAmount: boolean;
   /** Runs AT THE TAP, before the tray opens — the pad's holds re-decided from refs, the add chain
    *  drained, a typed name saved, the note re-read. Resolves true to open; false when the pad
    *  refused (it said why and moved focus). A throw reads as a refusal. */
@@ -1071,12 +1075,20 @@ export function CashSettleButton({
           void openTray();
         }}
       >
-        <Chrome
-          lang={lang}
-          k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
-          vars={{ m: fmt(shownTotal) }}
-          echo="stack"
-        />
+        {door && !door.showAmount ? (
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
+            echo="stack"
+          />
+        ) : (
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
+            vars={{ m: fmt(shownTotal) }}
+            echo="stack"
+          />
+        )}
       </Button>
       {/* Unmounted, not closed, once the settle landed (see the docblock). The opener is restored
           by hand: WebKit does not focus a tapped button, so the primitive's captured activeElement

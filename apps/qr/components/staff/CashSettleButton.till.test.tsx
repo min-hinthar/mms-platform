@@ -216,6 +216,7 @@ describe("the pad host's door (K39) — the walk-up sale never leaves the pad", 
   const door = (over: Partial<TillDoor> = {}): TillDoor => ({
     held: null,
     busy: null,
+    showAmount: true,
     beforeOpen: () => Promise.resolve(true),
     onHeldTap: vi.fn(),
     onCancelClean: vi.fn(),

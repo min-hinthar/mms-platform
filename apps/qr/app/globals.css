@@ -13443,6 +13443,19 @@ html[data-reloading] body::after {
 .pad-main > .staff-bar {
   margin-bottom: 0;
 }
+/* PD6 — the seal stands where the pad shell was (the shell UNMOUNTED): the shell's row, its own
+   scroller, the page's paper behind it (the seal's notches cut to the seal's own ground). */
+.pad-sealed {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: var(--s4) var(--s4) var(--s6);
+}
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .pad-sealed {
+    padding: 0 0 var(--s4);
+  }
+}
 /* The skip link: the FIRST focusable element, visible only when a keyboard reaches it. */
 .pad-skip {
   position: absolute;
