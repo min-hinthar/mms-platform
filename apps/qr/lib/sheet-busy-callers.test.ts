@@ -619,6 +619,9 @@ const UNGUARDED = [
   // Phase 2g · P2fz — the oldest-first counter list is a READ (pages of open orders, Show more, Try
   // again). Its rows hand off to the pane or the order's page, where each write has its own sheet.
   "staff/CounterOlderSheet.tsx",
+  // PD1 (m1 screen 2) — "Show a server": a full-screen pass the server READS at the table. It
+  // writes nothing; Done (or a swipe) only returns focus to the opener.
+  "ShowServerPass.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {
