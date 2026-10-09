@@ -64,6 +64,65 @@ served`, the union post-pay's `@mms/ui` `KitchenTrack` declares identically), `t
   `kds-rounds/*`, `staff-clock/seconds-stamp-in-the-process-zone`); `KdsBoard.test.tsx` gains the
   two-cards cases; `kitchen-queue-counter.test.ts` the dine-in cases; `KdsStopCard.test.tsx` the shape.
 
+### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
+
+- **post-pay's primitives, the second step of PATH_DESIGN's Sequencing** (round 3's vocabulary
+  additions; the prop surface and every decision made under delegation are recorded in
+  `docs/path-design-2026-10-07/m10-live-pass-pay.md` §H, which the other streams read). Nothing
+  consumes them yet: the streams render them (PD1, PD2, PD3, PD6, PD9, PD10, PD11, PD12).
+- **`CounterPass`** (`packages/ui/src/counter-pass.tsx`): every pass the family reads, rendered and
+  never redrawn — three tiers (`holder` = the 40px `.exit-pass-code` face, `counter` = `--fs-pass`,
+  `tv` = the table figure pinned at `--fs-pass` and a code at the board's 54px row), two orientations
+  (landscape = the stub on the left), ONE identity figure under the two-tongue label whose order
+  flips with `lang` (a `table` figure is Fraunces 600 tabular; a `code` or time the Hanken 800 code
+  face; a three-digit table steps down to `--fs-display` with no wrap), a host-fed status slot, a stub
+  slot, the body, the 2px/4px dotted seam with 12px notches on `--pass-hole`, an optional torn foot,
+  `terminal` (the ONLY ✓: Paid stamps the stub, Ready marks the head), `inert` for guide pictures,
+  and the host's motion hooks (`turning` = TURN on the head or the figure; `stamping` = STAMP then
+  PRINT). Constant paper: every colour is a `--pass-*` token, the one theme token is `--sh-paper`.
+  Named by its heading — the lead tongue's label + the figure, once; `figureSpoken` spells a code.
+  **Codex round 1:** the identity is a union — a figure, or `fallback: { en; my? }` for a pass with no
+  number yet (m11's "Your table": the words at the label tier, no figure, no label, no dot, the lead
+  tongue the name); and `stamping` is inert unless `terminal="paid"` (STAMP then PRINT is Paid only).
+  **Codex round 3:** the TV never draws ✓ — `tier` and `terminal` are one union (`PassTierTerminal`)
+  whose `tv` arm takes no `terminal`, and a cast pair is dropped; `KitchenTrackName` is exported
+  from the barrel.
+- **`KitchenTrack`** (`packages/ui/src/kitchen-track.tsx`): `KitchenStage` =
+  `"unsent" | "sending" | "sent" | "cooking" | "served"`; four sizes (14×5 glyph · 28×6 row · 36×8 TV
+  · 16×6 stub); the hollow ring for unsent, one dashed segment in the grace, 1/3 ink-2 · 2/3 ink ·
+  3/3 ok; the caller's `{ en, my }` word takes its segments' ink (`@mms/ui` holds no strings); an
+  explicit `surface: "pass" | "theme"` (the theme block is the only theme colour in `pass.css`);
+  `filling` plays FILL on the landed segment once; never a live region.
+- **`packages/ui/src/pass.css`**, exported as `@mms/ui/pass.css` and imported by the app's
+  `globals.css` beside `primitives.css` — the only app change. The two non-`--fs-pass` tiers are
+  component-scoped properties on `.ui-pass` (the KDS's `--kfs-*` pattern), so `tokens.css` is
+  untouched and the style-literal ratchet holds its baseline. Every animated selector is named in the
+  reduced-motion block; every keyframe ends at the base style (the final frame).
+- **Tests** (`packages/ui/src/__tests__/counter-pass.test.ts`, `kitchen-track.test.ts`,
+  `pass-css.test.ts`, with the `css-rules.ts` walker): every tier × orientation × terminal × stage
+  rendered to static markup; "✓ only at terminal" red-first; the stage → segment-count and stage →
+  ink mapping parsed from `pass.css`; ink constancy (no theme token but `--sh-paper`, no colour
+  literal, never gold or accent); Night contrast of every pass pair measured from `tokens.css`,
+  with `.dark` proven to redeclare no `--pass-*` token; the reduced-motion escort names every
+  animated selector. Every guard was induced and watched fail before it passed (the mutations are
+  listed on the PR).
+
+### The pass tokens: `--fs-pass`, `--till-fs-hand` and the constant `--pass-*` inks (2026-10-08)
+
+- **guards-style's token-only PR, the first step of PATH_DESIGN's Sequencing (D1(c)).** Two
+  counter-figure tiers join the type scale in `packages/ui/src/tokens.css`: `--fs-pass` (5.5rem, the
+  identity figure read across the counter or the room, and the till's due said aloud — m6's
+  `--till-fs-say` folded into it, reconciliation 2) and `--till-fs-hand` (8rem, the Change handed
+  back). The nine constant pass inks (`--pass-paper`, `-ink`, `-ink-2`, `-ink-3`, `-ac`, `-ok`, `-okb`,
+  `-seam`, `-unlit`) are declared once at `:root` and never redefined in `.dark`, so every pass is
+  constant paper in Night like a wallet pass: seven are the light palette's own values bound to their
+  own names, `--pass-seam` is m10's perforation rule and `--pass-unlit` is m11's measured unlit
+  segment; `--pass-hole` defaults to `--pg` (now also in the print re-pin) and a host overrides it
+  with its own ground. `contrast-audit.test.ts` pins the constancy, the seven equalities and AA for
+  every ink the primitive may put on the paper or the stamped stub (the blind pass's one CRITICAL:
+  a contrast invariant with no guard). No component reads them yet: post-pay's CounterPass and
+  kitchen-track primitives are the next step.
+
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 
 - **The owner's request:** _"merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR"_,
