@@ -87,6 +87,9 @@ export async function requestApproval(raw: unknown): Promise<RequestApprovalResu
   if (status === "no_approval_needed") return { ok: false, reason: "no_approval_needed" };
   if (status === "already_pending") return { ok: false, reason: "already_pending" };
   if (status === "not_open") return { ok: false, reason: "not_open" };
+  // M184 (the blind pass on #333): the RPC refuses atomically while the cart pays or settles — the
+  // same verdict the pay-guard read above gives, never a generic failure.
+  if (status === "in_flight") return { ok: false, reason: "in_flight" };
   if (status === "not_found" || status === "already_done")
     return { ok: false, reason: "not_found" };
   if (status !== "ok") return { ok: false, reason: "error" };

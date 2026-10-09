@@ -1658,12 +1658,12 @@ const MUTANTS = [
   {
     id: "p2f/request-open-recheck-dropped",
     fn: "mms_request_approval",
-    src: "p2f",
+    src: "m184", // M184 restates this function; patch the LAST definition or it is overwritten
     suite: "p2f",
     expect: "P2F.29e ·",
     why: "a pending request raised on a cancelled cart — a manager asked to approve a loss on an order that no longer exists",
-    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  if v_state = 'voided' or v_comped",
-    replace: "  if v_state = 'voided' or v_comped",
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  -- M184 (the blind pass on #333)",
+    replace: "  -- M184 (the blind pass on #333)",
   },
   {
     id: "p2f/void-cart-binding-refuses-everything",
@@ -1678,7 +1678,7 @@ const MUTANTS = [
   {
     id: "p2f/request-cart-binding-refuses-everything",
     fn: "mms_request_approval",
-    src: "p2f",
+    src: "m184", // M184 restates this function; patch the LAST definition or it is overwritten
     suite: "p2f",
     expect: "P2F.29b ·",
     why: "over-block: the line read bound to a cart it can never equal — every request answers not_found",
@@ -2402,7 +2402,7 @@ const MUTANTS = [
       id: "m184/close-ignores-changed-line",
       expect: "M184.11 · close on a changed line lands",
       why: "'changed' dropped from the admission: a stale request on an open cart can be neither approved (changed) nor closed (still_open), and the line's one-pending index blocks the re-ask forever",
-      find: "    v_changed := v_line_state is null\n      or v_qty is distinct from v_req_qty\n      or (v_price * v_qty) is distinct from v_req_amount;",
+      find: "    v_changed := v_line_state is null\n      or v_line_state = 'voided' or coalesce(v_line_comped, false)\n      or v_qty is distinct from v_req_qty\n      or (v_price * v_qty) is distinct from v_req_amount;",
       replace: "    v_changed := false;",
     },
     {
@@ -2434,6 +2434,62 @@ const MUTANTS = [
       find: "  if p_decision not in ('approve','deny','close') then raise exception 'illegal decision %', p_decision; end if;",
       replace:
         "  if p_decision not in ('approve','deny') then raise exception 'illegal decision %', p_decision; end if;",
+    },
+    // ── the blind pass on #333 (2026-10-09) ──
+    {
+      id: "m184/close-ignores-reprice",
+      expect: "M184.16 · close on a re-priced line lands",
+      why: "the close admission without its amount term: a line re-priced at the same qty can be neither approved ('changed') nor closed ('still_open'), and the one-pending index blocks the re-ask",
+      find: "      or (v_price * v_qty) is distinct from v_req_amount;",
+      replace: "      ;",
+    },
+    {
+      id: "m184/close-ignores-off-the-bill",
+      expect: "M184.17 · close on a line voided since the ask lands",
+      why: "a line a manager already removed reads unchanged to the close: its request can never be closed",
+      find: "      or v_line_state = 'voided' or coalesce(v_line_comped, false)\n",
+      replace: "",
+    },
+    {
+      id: "m184/approve-ignores-off-the-bill",
+      expect: "M184.17 · approve on a line voided since the ask is changed",
+      why: "approve on a line already voided: the request records the loss a second time for one dish",
+      find: "  if v_line_state = 'voided' or v_line_comped then\n    return 'changed';\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/approve-ignores-comped",
+      expect: "M184.17 · approve on a line comped since the ask is changed",
+      why: "the off-the-bill rule written as voided alone: a comp approved over a line already given away records the loss twice",
+      find: "  if v_line_state = 'voided' or v_line_comped then",
+      replace: "  if v_line_state = 'voided' then",
+    },
+    {
+      id: "m184/request-ignores-settle",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request on a settling cart is refused in_flight",
+      why: "a request lands between a settle door's acknowledgement and its write: the table pays over a flag nobody saw",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "  if (v_locked and v_locked_at > now() - interval '5 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+    },
+    {
+      id: "m184/request-ignores-lock",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request on a pay-locked cart is refused in_flight",
+      why: "a request lands while a card payment is going through: the PI's base and the queue disagree about the dish",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "  if (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+    },
+    {
+      id: "m184/request-freeze-never-ages",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request after a stale settle freeze lands",
+      why: "over-block: a settle freeze that never ages refuses every request on a table whose abandoned settle left settle_at behind",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "     or (v_settle_at is not null) then\n    return 'in_flight';\n  end if;\n  if v_state",
     },
   ].map((m) => ({ fn: "mms_resolve_approval", ...m, src: "m184", suite: "m184" })),
 ];

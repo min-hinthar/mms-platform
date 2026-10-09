@@ -29,8 +29,20 @@
 -- the one asked about ('still_open' otherwise), and the request's OWN asker may close it (the self rule
 -- is approve/deny's). Deny is unchanged. No backfill: existing 'denied' rows are history.
 --
+-- THE BLIND PASS ON #333 (2026-10-09, before any apply) widened two rules, both in this one file:
+--   · A line REMOVED OR MADE FREE since the ask (a manager's own PIN void or comp — `mms_request_approval`
+--     refuses a line that already was) is not the line asked about either: APPROVE returns 'changed'
+--     (approving it would record the loss a second time) and CLOSE admits it.
+--   · `mms_request_approval` is restated to refuse 'in_flight' while the cart is pay-locked or settling
+--     (the SAME fresh windows as `mms_void_line` and the approve arm). A staff settle door reads the
+--     pending requests AFTER taking the settlement freeze; under the cart's FOR SHARE lock a request
+--     either commits before the freeze (and that read sees it) or sees the freeze and refuses — so no
+--     request can land between a door's acknowledgement and its write. The TS action already refused
+--     this from its own read; the RPC now refuses it atomically.
+--
 -- Pinned by supabase/tests/m184_approval_refuses_when_changed_test.sql (named in ci.yml) and
--- scripts/verify-mode-authority.mjs (suite `m184`). Idempotent: `create or replace` + restated grants.
+-- scripts/verify-mode-authority.mjs (suite `m184`). Idempotent: `create or replace` + restated grants,
+-- for both functions; neither signature changes (no generated-types drift).
 
 create or replace function public.mms_resolve_approval(
   p_id uuid,
@@ -74,11 +86,12 @@ begin
     -- M184 · D2: admitted only once the cart has left 'open' (paid, or cancelled by a clear) OR the
     -- line is no longer the one asked about (gone, or its qty / amount moved) — never on a live,
     -- unchanged request, which still has a real decision to make. No lock: the line is untouched.
-    select ci.state, c.status, ci.qty, ci.unit_price_cents
-      into v_line_state, v_cart_status, v_qty, v_price
+    select ci.state, ci.comped, c.status, ci.qty, ci.unit_price_cents
+      into v_line_state, v_line_comped, v_cart_status, v_qty, v_price
       from public.qr_cart_items ci join public.qr_carts c on c.id = ci.cart_id
       where ci.id = v_line;
     v_changed := v_line_state is null
+      or v_line_state = 'voided' or coalesce(v_line_comped, false)
       or v_qty is distinct from v_req_qty
       or (v_price * v_qty) is distinct from v_req_amount;
     if coalesce(v_cart_status, 'gone') = 'open' and not v_changed then return 'still_open'; end if;
@@ -99,6 +112,11 @@ begin
   if (v_locked and v_locked_at > now() - interval '5 minutes')
      or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then
     return 'in_flight';                            -- B2: don't drop a line from a capturing PI's base
+  end if;
+  -- M184: a line already removed or made free since the ask (its loss is already recorded) is not
+  -- the line asked about; nothing is applied, the request closes instead.
+  if v_line_state = 'voided' or v_line_comped then
+    return 'changed';
   end if;
   -- M184: the qty AND the amount, against the request's snapshot. A match leaves `v_amount` equal to
   -- the snapshot by construction; the S1 re-derive below stays so the audit row is the line's own.
@@ -125,3 +143,69 @@ begin
 end $$;
 revoke all on function public.mms_resolve_approval(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.mms_resolve_approval(uuid, uuid, text) to service_role;
+
+-- ── mms_request_approval, restated (the blind pass on #333): refused while the cart pays or settles ──
+-- The body is 20261001000000_p2f_counter_cook_before_paid.sql's, verbatim, plus the freeze read and the
+-- 'in_flight' refusal (the windows are mms_void_line's). Same signature, same grants.
+create or replace function public.mms_request_approval(
+  p_line uuid,
+  p_action text,
+  p_reason text,
+  p_initiator uuid
+) returns text language plpgsql set search_path = '' as $$
+declare
+  v_cart uuid; v_session uuid; v_state text; v_qty integer; v_price integer; v_name text;
+  v_comped boolean; v_status text; v_loss integer; v_cooked boolean; v_needs_approval boolean;
+  v_max_loss integer; v_gate text;
+  v_req_cart uuid;  -- Codex r3 on #308: the cart locked before the line
+  v_locked boolean; v_locked_at timestamptz; v_settle_at timestamptz;
+begin
+  if p_action not in ('void','comp') then raise exception 'illegal action %', p_action; end if;
+
+  -- Codex r3 on #308 (P2): the cart FOR SHARE, then the line — `mms_void_line`'s order, same reasons.
+  for v_try in 1..3 loop
+    select ci.cart_id into v_req_cart from public.qr_cart_items ci where ci.id = p_line;
+    if v_req_cart is null then return 'not_found'; end if;
+    perform 1 from public.qr_carts where id = v_req_cart for share;
+    select ci.cart_id, c.session_id, ci.state, ci.qty, ci.unit_price_cents, ci.name, ci.comped, c.status,
+           c.locked, c.locked_at, c.settle_at
+      into v_cart, v_session, v_state, v_qty, v_price, v_name, v_comped, v_status,
+           v_locked, v_locked_at, v_settle_at
+      from public.qr_cart_items ci
+      join public.qr_carts c on c.id = ci.cart_id
+      where ci.id = p_line and ci.cart_id = v_req_cart
+      for update of ci;
+    exit when v_cart is not null;
+  end loop;
+  if v_cart is null then return 'not_found'; end if;
+  if v_status <> 'open' then return 'not_open'; end if;
+  -- M184 (the blind pass on #333): never between a settle door's acknowledgement and its write.
+  if (v_locked and v_locked_at > now() - interval '5 minutes')
+     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then
+    return 'in_flight';
+  end if;
+  if v_state = 'voided' or v_comped then return 'already_done'; end if;
+
+  v_cooked := v_state in ('in_progress','served');
+  v_loss := v_price * v_qty;
+  select max_loss_cents into v_max_loss from public.mms_loss_config where id;
+  v_max_loss := coalesce(v_max_loss, 2000);
+  v_needs_approval := (p_action = 'comp') or v_cooked or (v_loss > v_max_loss);
+  if not v_needs_approval then return 'no_approval_needed'; end if;
+  v_gate := case when p_action = 'comp' then 'comp' when v_cooked then 'cooked' else 'ceiling' end;
+
+  begin
+    insert into public.mms_approvals
+      (kind, status, cart_id, session_id, line_id, line_name, qty, amount_cents,
+       reason_code, cooked, initiator_staff_id, approver_staff_id, gate_reason)
+      values
+      (p_action, 'pending', v_cart, v_session, p_line, v_name, v_qty, v_loss,
+       p_reason, v_cooked, p_initiator, null, v_gate);
+  exception when unique_violation then
+    return 'already_pending';
+  end;
+
+  return 'ok';
+end $$;
+revoke all on function public.mms_request_approval(uuid, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.mms_request_approval(uuid, text, text, uuid) to service_role;

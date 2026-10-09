@@ -27426,6 +27426,14 @@ const MUTANTS = [
     replace: "  if (appr.cart_id) {",
   },
   {
+    id: "request/rpc-in-flight-read-as-error",
+    file: "apps/qr/lib/approvals.ts",
+    suite: "lib/approvals.test.ts",
+    why: "M184 (the blind pass on #333) — the RPC's atomic freeze refusal reads as a generic failure: the server's sheet says the request couldn't be sent, over a request that only waits for the payment",
+    find: '  // same verdict the pay-guard read above gives, never a generic failure.\n  if (status === "in_flight") return { ok: false, reason: "in_flight" };\n',
+    replace: "  // same verdict the pay-guard read above gives, never a generic failure.\n",
+  },
+  {
     id: "approvals-count/false-zero-at-the-call",
     file: "apps/qr/lib/approvals.ts",
     suite: "lib/approvals.test.ts",

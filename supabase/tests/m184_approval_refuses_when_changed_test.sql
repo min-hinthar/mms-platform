@@ -20,6 +20,14 @@
 --   M184.13      an illegal decision raises
 --   M184.14      approve on a paid cart stays 'not_open'; a comp approve on an unchanged line lands
 --   M184.15      privileges, the empty search_path, exactly one definition
+--   The blind pass on #333 (2026-10-09):
+--   M184.16      close on an open cart whose line was RE-PRICED at the same qty: ok, superseded — the
+--                amount term of the close admission, on its own
+--   M184.17      a line voided (or comped) since the ask: approve is 'changed' — nothing applied, no
+--                second loss row — and close lands, superseded
+--   M184.18      mms_request_approval while the cart is settling or pay-locked: 'in_flight', no row;
+--                the same request once the freeze is stale: ok (the legitimate half)
+--   M184.19      mms_request_approval keeps its privileges and its single definition
 --
 -- Red-first (the authoring environment's throwaway Supabase-shaped Postgres 16, LEARNINGS #95): red on
 -- M184.2 (`changed` expected, `ok` returned — the shipped resolve applied the 2× line) before the
@@ -346,6 +354,98 @@ begin
     from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
     where ns.nspname = 'public' and p.proname = 'mms_resolve_approval';
   assert sp like '%search_path=%', format('M184.15 · search_path is pinned (%s)', sp);
+end $$;
+
+-- ══ M184.16 · close on an OPEN cart whose line was re-priced at the SAME qty: ok, superseded ══════════
+do $$
+declare mgr uuid := '00000000-0000-0000-0000-000000184a01';
+        c uuid; l uuid; r uuid; v text; ast text; q integer; p integer;
+begin
+  c := pg_temp.m184_table('M184-16');
+  l := pg_temp.m184_line(c, 1400);
+  r := pg_temp.m184_request(c, l);
+  update public.qr_cart_items set unit_price_cents = 1600 where id = l;   -- the qty never moved
+  v := public.mms_resolve_approval(r, mgr, 'close');
+  assert v = 'ok', format('M184.16 · close on a re-priced line lands (%s)', v);
+  select status into ast from public.mms_approvals where id = r;
+  assert ast = 'superseded', format('M184.16 · the row reads superseded (%s)', ast);
+  select qty, unit_price_cents into q, p from public.qr_cart_items where id = l;
+  assert q = 1 and p = 1600, format('M184.16 · the line is untouched (%s × %s)', q, p);
+end $$;
+
+-- ══ M184.17 · a line already off the bill since the ask: approve 'changed' (no second loss), close ok ══
+do $$
+declare mgr uuid := '00000000-0000-0000-0000-000000184a01';
+        c uuid; l uuid; r uuid; v text; ast text; who uuid; n integer;
+begin
+  -- A VOID request whose line a manager then voided with their own PIN (the loss already recorded).
+  c := pg_temp.m184_table('M184-17a');
+  l := pg_temp.m184_line(c, 1400);
+  r := pg_temp.m184_request(c, l);
+  update public.qr_cart_items set state = 'voided' where id = l;
+  v := public.mms_resolve_approval(r, mgr, 'approve');
+  assert v = 'changed', format('M184.17 · approve on a line voided since the ask is changed (%s)', v);
+  select status, approver_staff_id into ast, who from public.mms_approvals where id = r;
+  assert ast = 'pending' and who is null,
+    format('M184.17 · no second loss is recorded — the row is still pending (%s)', ast);
+  v := public.mms_resolve_approval(r, mgr, 'close');
+  assert v = 'ok', format('M184.17 · close on a line voided since the ask lands (%s)', v);
+  select status into ast from public.mms_approvals where id = r;
+  assert ast = 'superseded', format('M184.17 · the voided line''s request reads superseded (%s)', ast);
+  select count(*) into n from public.mms_approvals where line_id = l and status = 'approved';
+  assert n = 0, format('M184.17 · no approved loss row for the voided line (%s)', n);
+  -- A COMP request whose line was comped since: the same refusal and the same close.
+  c := pg_temp.m184_table('M184-17b');
+  l := pg_temp.m184_line(c, 1300);
+  r := pg_temp.m184_request(c, l, 'comp');
+  update public.qr_cart_items set comped = true where id = l;
+  v := public.mms_resolve_approval(r, mgr, 'approve');
+  assert v = 'changed', format('M184.17 · approve on a line comped since the ask is changed (%s)', v);
+  v := public.mms_resolve_approval(r, mgr, 'close');
+  assert v = 'ok', format('M184.17 · close on a line comped since the ask lands (%s)', v);
+end $$;
+
+-- ══ M184.18 · no request between a settle door's acknowledgement and its write: refused in_flight ════
+do $$
+declare thiri uuid := '00000000-0000-0000-0000-000000184a04';
+        c uuid; l uuid; v text; n integer;
+begin
+  -- Settling (a fresh split / staff-settle freeze): refused, nothing written.
+  c := pg_temp.m184_table('M184-18a');
+  l := pg_temp.m184_line(c, 1400);
+  update public.qr_carts set settle_at = now() where id = c;
+  v := public.mms_request_approval(l, 'void', 'kitchen_error', thiri);
+  assert v = 'in_flight', format('M184.18 · a request on a settling cart is refused in_flight (%s)', v);
+  select count(*) into n from public.mms_approvals where line_id = l;
+  assert n = 0, format('M184.18 · no request row was written (%s)', n);
+  -- The legitimate half: the same request once the freeze is stale (past its 10 minutes) lands.
+  update public.qr_carts set settle_at = now() - interval '11 minutes' where id = c;
+  v := public.mms_request_approval(l, 'void', 'kitchen_error', thiri);
+  assert v = 'ok', format('M184.18 · a request after a stale settle freeze lands (%s)', v);
+  -- Pay-locked (a card payment going through): refused; a stale lock lets it through.
+  c := pg_temp.m184_table('M184-18b');
+  l := pg_temp.m184_line(c, 1400);
+  update public.qr_carts set locked = true, locked_at = now() where id = c;
+  v := public.mms_request_approval(l, 'void', 'kitchen_error', thiri);
+  assert v = 'in_flight', format('M184.18 · a request on a pay-locked cart is refused in_flight (%s)', v);
+  update public.qr_carts set locked_at = now() - interval '6 minutes' where id = c;
+  v := public.mms_request_approval(l, 'void', 'kitchen_error', thiri);
+  assert v = 'ok', format('M184.18 · a request after a stale pay lock lands (%s)', v);
+end $$;
+
+-- ══ M184.19 · mms_request_approval: privileges and one definition, as restated ═══════════════════════
+do $$
+declare n integer;
+begin
+  assert not has_function_privilege('anon', 'public.mms_request_approval(uuid, text, text, uuid)', 'execute'),
+    'M184.19 · anon cannot request';
+  assert not has_function_privilege('authenticated', 'public.mms_request_approval(uuid, text, text, uuid)', 'execute'),
+    'M184.19 · authenticated cannot request';
+  assert has_function_privilege('service_role', 'public.mms_request_approval(uuid, text, text, uuid)', 'execute'),
+    'M184.19 · service_role requests';
+  select count(*) into n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+    where ns.nspname = 'public' and p.proname = 'mms_request_approval';
+  assert n = 1, format('M184.19 · exactly one definition (%s)', n);
 end $$;
 
 rollback;

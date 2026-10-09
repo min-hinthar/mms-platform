@@ -48,8 +48,10 @@ vi.mock("@mms/db/server", () => ({
       select: (_cols: string, opts?: { head?: boolean }) =>
         opts?.head
           ? { eq: () => Promise.resolve(countRead) }
-          : {
-              eq: () => ({
+          : (() => {
+              // Chainable: `requestApproval` filters twice (`.eq().eq()`), the resolve once.
+              const q = {
+                eq: () => q,
                 maybeSingle: () =>
                   Promise.resolve({
                     data:
@@ -63,18 +65,23 @@ vi.mock("@mms/db/server", () => ({
                           }
                         : table === "qr_carts"
                           ? { id: "cart-1", locked: false, locked_at: null, settle_at: null }
-                          : null,
+                          : table === "qr_cart_items"
+                            ? { id: LINE }
+                            : null,
                     error: null,
                   }),
-              }),
-            },
+              };
+              return q;
+            })(),
     }),
   }),
 }));
 
 const REQ = "33333333-3333-4333-8333-333333333333";
 const APPROVER = "44444444-4444-4444-8444-444444444444";
-const { resolveApproval, countPendingApprovals } = await import("./approvals");
+const LINE = "55555555-5555-4555-8555-555555555555";
+const SESSION = "66666666-6666-4666-8666-666666666666";
+const { resolveApproval, countPendingApprovals, requestApproval } = await import("./approvals");
 
 beforeEach(() => {
   preflight.mockClear();
@@ -141,5 +148,21 @@ describe("countPendingApprovals — never a false 0 (PD8)", () => {
   it("an unauthorized caller is unknown too (the circle is drawn only for a manager)", async () => {
     gateOk = false;
     expect(await countPendingApprovals()).toEqual({ ok: false });
+  });
+});
+
+describe("requestApproval — the RPC's own freeze refusal (M184 · the blind pass on #333)", () => {
+  const ask = { sessionId: SESSION, cartItemId: LINE, action: "void", reason: "kitchen_error" };
+  it("the RPC's `in_flight` (a settle or a payment took the freeze after the action's own read) is in_flight, never `error`", async () => {
+    // The pay-guard read above passed (payInFlight null); the RPC, under the cart's lock, refused.
+    // MUTATION (request/rpc-in-flight-read-as-error): a generic failure, and the server's sheet says
+    // "couldn't send" over a request that simply waits for the payment; red.
+    rpcStatus = "in_flight";
+    expect(await requestApproval(ask)).toEqual({ ok: false, reason: "in_flight" });
+    expect(rpcCalls.map((c) => c.fn)).toEqual(["mms_request_approval"]);
+  });
+  it("the legitimate request still lands", async () => {
+    rpcStatus = "ok";
+    expect(await requestApproval(ask)).toEqual({ ok: true });
   });
 });
