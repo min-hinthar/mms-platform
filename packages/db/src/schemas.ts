@@ -400,8 +400,28 @@ export const verifyStaffPinInput = z.object({
 
 /** clearTable (S1.2) — a staff member clears a table on turnover (closes the session + cancels its
  *  open cart). Shape only; the server (requireStaff + service-role) owns the close, refuses mid-payment,
- *  and logs it. The client asserts only the session id. */
-export const clearTableInput = z.object({ sessionId: uuid });
+ *  and logs it.
+ *
+ *  PD7 · M182 — `expect` is the LOOK the staff member saw (`getClearPreview`, a fresh read at the
+ *  Clear tap): the SENT line ids, their value (Σ unit × qty, the ledger's) and the database clock at
+ *  the look. REQUIRED for a table — `mms_clear_table` derives its own set under its locks and refuses
+ *  `changed` (writing nothing) when it is any other, and `joined` when someone sat down after the look
+ *  — so the client never ASSERTS a loss, it only names the one it was shown. A counter order's clear
+ *  ignores it (`mms_clear_counter_cart` decides SENT itself). Bounded like the no-show's (200 lines),
+ *  the figure by a ceiling far past any table ($100,000), the clock as an ISO timestamp with offset. */
+export const clearTableInput = z.object({
+  sessionId: uuid,
+  expect: z
+    .object({
+      lineIds: z.array(uuid).max(200),
+      lossCents: z.number().int().min(0).max(10_000_000),
+      seenAt: z.string().max(40).datetime({ offset: true }),
+    })
+    .optional(),
+});
+
+/** getClearPreview (PD7) — the fresh look at the Clear tap: the session only. */
+export const clearPreviewInput = z.object({ sessionId: uuid });
 
 /**
  * staffApplyPromo / staffClearPromo (P3) — a staff member applies or removes a promo code on a
@@ -863,6 +883,7 @@ export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type SetStaffRoleInput = z.infer<typeof setStaffRoleInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type ClearPreviewInput = z.infer<typeof clearPreviewInput>;
 export type StaffApplyPromoInput = z.infer<typeof staffApplyPromoInput>;
 export type StaffClearPromoInput = z.infer<typeof staffClearPromoInput>;
 export type OpenTabInput = z.infer<typeof openTabInput>;

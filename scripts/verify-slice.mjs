@@ -11941,7 +11941,7 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-counter.test.ts",
     why: "over-block: the SQL answers not_counter for a table, so a table routed there can never be cleared",
-    find: "    if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code })) {\n",
+    find: "    if (counterClear) {\n",
     replace: "    if (true) {\n",
   },
   {

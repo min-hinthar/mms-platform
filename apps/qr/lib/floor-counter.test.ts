@@ -202,6 +202,12 @@ vi.mock("@mms/db/server", () => ({
         );
       if (fn === "mms_merge_table_orders")
         return Promise.resolve({ data: mergeMoved, error: null });
+      // PD7 · M182 — a TABLE's clear (its own suite: lib/floor-clear-table.test.ts).
+      if (fn === "mms_clear_table")
+        return Promise.resolve({
+          data: { status: "ok", dishes: 1, loss_cents: 1400, clear_id: "c-1" },
+          error: null,
+        });
       return Promise.resolve({ data: null, error: null });
     },
   }),
@@ -419,11 +425,18 @@ describe("clearTable — a counter order's cancel is ONE locked SQL decision", (
     expect(updates.map((u) => u.table)).toEqual(["table_sessions"]);
   });
 
-  it("a table with fired lines still clears through the plain cancel (Clear's precedent)", async () => {
+  it("a table with fired lines clears through ITS OWN RPC (PD7 · M182), never the counter's", async () => {
     // p2f-cx2-clear/table-through-the-counter-rpc
-    expect(await clearTable({ sessionId: TABLE })).toEqual({ ok: true });
+    const look = { lineIds: ["t1"], lossCents: 1400, seenAt: DB_NOW };
+    expect(await clearTable({ sessionId: TABLE, expect: look })).toEqual({
+      ok: true,
+      dishes: 1,
+      lossCents: 1400,
+    });
     expect(rpcCalls).not.toContain("mms_clear_counter_cart");
-    expect(updates.map((u) => u.table)).toEqual(["qr_carts", "table_sessions"]);
+    expect(rpcCalls).toContain("mms_clear_table");
+    // The RPC is the whole write (one transaction): no plain cancel, no plain close beside it.
+    expect(updates).toEqual([]);
   });
 
   it("an RPC error refuses as an outage and writes nothing (fail closed)", async () => {

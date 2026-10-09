@@ -2,7 +2,15 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { clearTableInput, counterOlderInput, mergeTablesInput } from "@mms/db/schemas";
+import {
+  clearPreviewInput,
+  clearTableInput,
+  counterOlderInput,
+  mergeTablesInput,
+} from "@mms/db/schemas";
+import { clearAnswerOf, clearPreviewOf, clearRefusalSays } from "./clear-table";
+import { STAFF } from "./i18n/staff";
+import { fill } from "./i18n/fill";
 import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
@@ -44,6 +52,7 @@ import { queueEmptiness } from "./queue-window";
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import type {
+  ClearPreviewResult,
   ClearTableResult,
   CounterFloorRow,
   FloorPoll,
@@ -1122,13 +1131,66 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
 }
 
 /**
+ * PD7 · M182 (Codex correction 11) — the FRESH LOOK at the Clear tap: the open cart's lines on the
+ * DATABASE clock, shaped into what the pane shows (`clearPreviewOf`: the SENT dishes, their menu
+ * price, what is dropped) and the clock the clear then carries as `seenAt`. Any failed read is
+ * `unknown`: the pane clears NOTHING on an unknown kitchen read — never a no-loss clear over food
+ * nobody could see. A counter order answers `counter` (its exits are its own); a closed table
+ * `closed`. Advisory only: `mms_clear_table` re-derives every figure under its locks.
+ */
+export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return { kind: "unknown" };
+  const parsed = clearPreviewInput.safeParse(raw);
+  if (!parsed.success) return { kind: "unknown" };
+  const { sessionId } = parsed.data;
+  const db = serviceClient();
+  const [sessionRes, clockRes] = await Promise.all([
+    db.from("table_sessions").select("id,status,mode,qr_code").eq("id", sessionId).maybeSingle(),
+    db.rpc("mms_now"),
+  ]);
+  if (sessionRes.error || clockRes.error) return { kind: "unknown" };
+  const session = sessionRes.data;
+  if (!session || session.status === "closed") return { kind: "closed" };
+  if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code })) return { kind: "counter" };
+  const seenAt = typeof clockRes.data === "string" ? clockRes.data : null;
+  const nowMs = seenAt === null ? Number.NaN : Date.parse(seenAt);
+  if (seenAt === null || !Number.isFinite(nowMs)) return { kind: "unknown" };
+  const { data: cart, error: cartError } = await db
+    .from("qr_carts")
+    .select("id")
+    .eq("session_id", sessionId)
+    .eq("status", "open")
+    .maybeSingle();
+  if (cartError) return { kind: "unknown" };
+  if (!cart) return { kind: "preview", preview: clearPreviewOf([], nowMs, seenAt) };
+  const { data: rows, error: rowsError } = await db
+    .from("qr_cart_items")
+    .select("id,name,qty,unit_price_cents,state,fulfillment,comped,fire_at,menu_item_id")
+    .eq("cart_id", cart.id);
+  if (rowsError || !rows) return { kind: "unknown" };
+  // The dishes' Burmese, through the ONE line-name loader — ADVISORY: a failed name read renders the
+  // English snapshot, never refuses the look (the money and the set are the lines' own).
+  const { nameMyByRef } = await loadLineNames(db, rows, { tag: "clear-preview" });
+  const preview = clearPreviewOf(rows, nowMs, seenAt, (id) => {
+    const r = rows.find((x) => x.menu_item_id === id);
+    return catalogNameMy(nameMyByRef.get(id), r?.name ?? "");
+  });
+  return { kind: "preview", preview };
+}
+
+/**
  * Clear a table on turnover (ORDER-MODEL "clear table" — so a ghost cart never carries to the next
  * party). Closes the session (status='closed' → is_member goes false, locking diners out) and cancels
  * its open cart (status='cancelled' → the existing mutation/pay guards reject it). REFUSES while a
  * payment is in flight (a fresh single-pay lock or a split freeze), so a server can't yank a table out
- * from under a diner mid-checkout. Any active staff may clear (routine turnover, not a loss action — no
- * PIN, unlike an S2 void); it's logged (non-PII) for the turnover audit. The durable two-party audit
- * table arrives with S2's approvals primitive.
+ * from under a diner mid-checkout. Any active staff may clear — ruling #6: a clear never waits for a
+ * PIN (an explicit, recorded exception to S2 decision 1, behind `mms_loss_config.clear_requires_pin`).
+ *
+ * PD7 · M182 — a TABLE's clear is `mms_clear_table`, against the look the pane showed (`expect`):
+ * its durable audit row is `qr_table_clears` (who, when, the dishes, the loss, the stop record), and
+ * every SENT dish is a `table_cleared` void on the owner's loss list, `unapproved`. A COUNTER order
+ * keeps `mms_clear_counter_cart` (it refuses SENT food: "They didn't come" is that exit).
  */
 export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   const gate = await staffGate();
@@ -1137,12 +1199,12 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
 
   const parsed = clearTableInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId } = parsed.data;
+  const { sessionId, expect } = parsed.data;
 
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode,qr_code")
+    .select("id,status,mode,qr_code,table_number")
     .eq("id", sessionId)
     .maybeSingle();
   // W10b — an unread session is not "no such table" (a phantom-table verdict mid-outage); and an
@@ -1151,6 +1213,8 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   if (sessionError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "No such table." };
   if (session.status === "closed") return { ok: false, error: "That table is already cleared." };
+  // ONE binding for which exit this is: a counter order's cancel, or a table's `mms_clear_table`.
+  const counterClear = isCounterOrder({ mode: session.mode, qrCode: session.qr_code });
 
   const { data: cart, error: cartError } = await db
     .from("qr_carts")
@@ -1176,13 +1240,15 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   // already honor (a cancelled cart + a closed session both fail is_member / the mutation guards), so a
   // racing diner write lands on a closed door rather than a half-cleared table.
   let hadItems = false;
+  let dishes = 0;
+  let lossCents = 0;
   if (cart) {
     const { count } = await db
       .from("qr_cart_items")
       .select("id", { count: "exact", head: true })
       .eq("cart_id", cart.id);
     hadItems = (count ?? 0) > 0;
-    if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code })) {
+    if (counterClear) {
       // Phase 2f · P2v — a counter order whose food reached the kitchen is NOT cleared: a cancel
       // would write off cooked food with no audit row. "They didn't come" (the loss-gated no-show,
       // `recordCounterNoShow`) is that order's exit. The SENT check and the cancel are ONE locked
@@ -1190,7 +1256,7 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
       // commits mid-clear, or a line crossing its grace, can no longer land between a read here and
       // the cancel. Fails CLOSED on an error or an unexpected verdict (it guards a write-off path).
       // 'not_open' — the cart left `open` since the read above — proceeds, as a plain cancel that
-      // matched no row always has. A table's fired lines still clear, below, as before.
+      // matched no row always has. A TABLE's clear is `mms_clear_table`, below (PD7 · M182).
       const { data: verdict, error: clearErr } = await db.rpc("mms_clear_counter_cart", {
         p_cart_id: cart.id,
       });
@@ -1204,21 +1270,55 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
         };
       if (verdict !== "ok" && verdict !== "not_open")
         return { ok: false, error: STAFF_WRITE_OUTAGE };
-    } else {
-      const { error: cartErr } = await db
-        .from("qr_carts")
-        .update({ status: "cancelled" })
-        .eq("id", cart.id)
-        .eq("status", "open");
-      if (cartErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
     }
   }
-  const { error: sessErr } = await db
-    .from("table_sessions")
-    .update({ status: "closed" })
-    .eq("id", sessionId)
-    .neq("status", "closed");
-  if (sessErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+  if (counterClear) {
+    const { error: sessErr } = await db
+      .from("table_sessions")
+      .update({ status: "closed" })
+      .eq("id", sessionId)
+      .neq("status", "closed");
+    if (sessErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+  } else {
+    // PD7 · M182 · ruling #6 — a TABLE's clear is ONE locked SQL decision (`mms_clear_table`): the
+    // pending requests superseded, every SENT dish on the owner's loss list as not approved, the
+    // kitchen's lines voided with a durable stop record, the cart cancelled, the session closed, and
+    // the audit row (`qr_table_clears`: who, when, the dishes, the loss). It refuses — writing nothing
+    // — a join or a change after the look the staff member saw (`expect`), money in flight, or a live
+    // card attempt. No look, no clear: the client never asserts a loss, it names the one it was shown.
+    if (!expect)
+      return { ok: false, error: "The order changed — check it and try again.", code: "changed" };
+    const { data: answerRaw, error: clearErr } = await db.rpc("mms_clear_table", {
+      p_session: sessionId,
+      p_initiator: caller.staffId,
+      p_seen_at: expect.seenAt,
+      p_expected_line_ids: expect.lineIds,
+      p_loss_cents: expect.lossCents,
+    });
+    // An RPC error is the function's own failure, and the function is ONE transaction: it rolled
+    // back, so nothing was cleared — said as the outage line (the pane offers the retry).
+    if (clearErr) {
+      console.error("[floor] mms_clear_table failed", { sessionId, message: clearErr.message });
+      return { ok: false, error: STAFF_WRITE_OUTAGE };
+    }
+    const answer = clearAnswerOf(answerRaw);
+    if (answer.status === "unreadable")
+      return { ok: false, error: STAFF_WRITE_OUTAGE, code: "unreadable" };
+    // The refusal's words are the dictionary's (named ONCE): `error` is its English, filled with
+    // this table's number; the pane renders the same key in the device language from `code`.
+    if (answer.status !== "ok")
+      return {
+        ok: false,
+        error: fill(
+          STAFF[clearRefusalSays(answer.status).k].en,
+          { id: tableDisplay({ tableNumber: session.table_number, label: session.qr_code }).text },
+          "en",
+        ),
+        code: answer.status,
+      };
+    dishes = answer.dishes;
+    lossCents = answer.lossCents;
+  }
 
   // Logged (non-PII): who (role, not name) cleared which table, whether it had a live cart. Best-effort
   // and decoupled — an analytics outage must never fail a turnover. Durable two-party audit = S2.
@@ -1229,7 +1329,7 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
         ph.capture({
           distinctId: `staff:${caller.staffId}`,
           event: "staff_clear_table",
-          properties: { role: caller.role, mode: session.mode, hadItems, sessionId },
+          properties: { role: caller.role, mode: session.mode, hadItems, sessionId, dishes },
         });
         await ph.flush();
       } catch {
@@ -1240,7 +1340,8 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
 
   revalidatePath("/staff");
   revalidatePath(`/staff/table/${sessionId}`);
-  return { ok: true };
+  revalidatePath("/staff/kitchen");
+  return dishes > 0 ? { ok: true, dishes, lossCents } : { ok: true };
 }
 
 /** Resolve a session's mode/status + its open cart's pay-state in two reads (shared by the merge path).

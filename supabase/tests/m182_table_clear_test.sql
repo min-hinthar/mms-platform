@@ -191,7 +191,8 @@ begin
   s := pg_temp.m182_table('M182-4-SET');
   a := pg_temp.m182_line(s, 1400, 1, 'fired', past);
   b := pg_temp.m182_line(s, 1300, 1, 'in_progress', past);
-  j := pg_temp.m182_clear(s, array[a], 1400);
+  -- At the TABLE's whole figure (1400 + 1300 = 2700), so only the set can refuse it.
+  j := pg_temp.m182_clear(s, array[a], 2700);
   assert j->>'status' = 'changed', format('M182.4 · a sent set missing a dish refuses (%s)', j);
   j := pg_temp.m182_clear(s, array[a, b, gen_random_uuid()], 2700);
   assert j->>'status' = 'changed', format('M182.4 · a sent set with an extra dish refuses (%s)', j);
