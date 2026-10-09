@@ -36,3 +36,28 @@ export { PageMasthead, Kicker } from "./masthead";
 // Brand icon set (W2b) — curated lucide glyphs at one stroke weight; retires emoji-as-chrome
 export { Icon, categoryIconName } from "./icon";
 export type { IconName } from "./icon";
+// PATH_DESIGN 2026-10-07 round 3 — the ONE PASS and the ONE KITCHEN TRACK, styled by
+// `@mms/ui/pass.css` (`.ui-pass*`, `.ui-track*`). Rendered everywhere, redrawn nowhere.
+export { CounterPass } from "./counter-pass";
+export type {
+  CounterPassProps,
+  PassIdentity,
+  PassTier,
+  PassOrientation,
+  PassFigureKind,
+  PassLang,
+  PassLabel,
+  PassTerminal,
+  PassTierTerminal,
+  PassSeam,
+  PassTurn,
+} from "./counter-pass";
+export { KitchenTrack, KITCHEN_STAGES, TRACK_SEGMENTS, kitchenTrackLit } from "./kitchen-track";
+export type {
+  KitchenStage,
+  KitchenTrackName,
+  KitchenTrackProps,
+  KitchenTrackSize,
+  KitchenTrackSurface,
+  KitchenTrackWord,
+} from "./kitchen-track";
