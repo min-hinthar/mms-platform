@@ -118,13 +118,19 @@ vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart })
  * those run with the door OPEN: the code behind it stays alive and tested, exactly as lib/surfaces
  * promises. The other surfaces answer as shipped.
  */
-const flags = vi.hoisted(() => ({ phonePayOpen: true }));
+// `splitOpen` — the self-serve split door, OPEN for the legacy cases for the same reason (they pin
+// the world after both flips); the parked cases set it as shipped.
+const flags = vi.hoisted(() => ({ phonePayOpen: true, splitOpen: true }));
 vi.mock("@/lib/surfaces", async (orig) => {
   const real = await orig<typeof import("@/lib/surfaces")>();
   return {
     ...real,
     surfaceOpen: (k: Parameters<typeof real.surfaceOpen>[0]) =>
-      k === "dineInPhonePay" ? flags.phonePayOpen : real.surfaceOpen(k),
+      k === "dineInPhonePay"
+        ? flags.phonePayOpen
+        : k === "selfServeSplit"
+          ? flags.splitOpen
+          : real.surfaceOpen(k),
   };
 });
 
@@ -2367,12 +2373,14 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     qrCode: null,
   };
   const dockLine = () => document.getElementById("counter-door-line")?.textContent ?? "";
-  // The door as SHIPPED: parked.
+  // The doors as SHIPPED: phone pay parked, the self-serve split parked.
   beforeEach(() => {
     flags.phonePayOpen = false;
+    flags.splitOpen = false;
   });
   afterEach(() => {
     flags.phonePayOpen = true;
+    flags.splitOpen = true;
   });
 
   it("everything sent: no Pay, no tip ask, no separate total — the slip's own foot carries the total and the docked door says the next step once", async () => {
@@ -2513,12 +2521,25 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
       ],
     };
     mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
-    // MUTATION (checkout/split-board-under-the-register): the board shown for any group freeze; red.
+    // MUTATION (checkout/split-board-reads-the-phone-door): the wiring hands the rule an always-open
+    // split door; red.
     expect(screen.queryByTestId("settlement-board")).toBeNull();
     expect(document.body.textContent).not.toContain("splitting the bill");
     const door = screen.getByRole("button", { name: /^Pay at the counter/ });
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
+    cleanup();
+    // PD10's flip opens phone pay WITHOUT reopening the split: the freeze is still the register's.
+    // RED on the previous gate (`!phonePayOff`), which put the board back here.
+    flags.phonePayOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    cleanup();
+    // …and only an OPEN split door shows the split's own board.
+    flags.splitOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).not.toBeNull();
   });
 
   it("the register mid-settle holds the door with its own sentence, never the split's", async () => {

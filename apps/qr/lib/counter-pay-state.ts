@@ -119,3 +119,23 @@ export function counterUnsentTapCopy(sender: string | null): string {
 export function counterAskLive(counterRequestedAt: string | null | undefined): boolean {
   return typeof counterRequestedAt === "string" && counterRequestedAt.length > 0;
 }
+
+/**
+ * The last blind pass on #331 — WHOSE freeze is it? `settling` is written by two writers: the
+ * self-serve split (`openSettlement`, refused while `SURFACES.selfServeSplit` is parked) and the
+ * register's cash settle. The split board is the SPLIT's screen, so it shows only while that door is
+ * open — the SAME binding `counterPayRefusalCopy` reads to choose the register's sentence. While the
+ * split is parked every freeze is the register's, and a group table keeps the Bill (whose held door
+ * names the register) instead of reading "splitting the bill" during a counter settle — whatever
+ * the phone-pay door says (PD10's flip does not reopen the split).
+ */
+export function splitBoardShown(s: {
+  isGroup: boolean;
+  settling: boolean;
+  /** The split context loaded (the board needs it). */
+  hasSplit: boolean;
+  /** `surfaceOpen("selfServeSplit")` — passed in, never read here, so a test flips it. */
+  selfServeSplitOpen: boolean;
+}): boolean {
+  return s.isGroup && s.settling && s.hasSplit && s.selfServeSplitOpen;
+}

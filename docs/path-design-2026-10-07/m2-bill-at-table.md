@@ -1105,6 +1105,8 @@ stage="unsent"` in its head; the total, the "View bill" disclosure and the recei
 6. The create-intent refusal's sentence is English-only and listed in `K15 · diner-cart`; a raw POST
    never reaches a drawn surface.
 
-**Residuals filed.** A group table under the register's sub-second cash freeze still flips to the
-split board (`isGroup && settling` → `SettlementBoard`, shipped before PD2); the register sentence
-covers the solo Bill, the dock and the pass. Recorded on PD2's OPEN-ITEMS row.
+**Residuals filed.** A stale promo pin can reach the register's cash settle (`mms_promo_discount`
+honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**. The group table
+that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind
+passes on #331: the board shows only while the self-serve split door is open (`splitBoardShown`,
+lib/counter-pay-state — the same door the register's refusal sentence reads).

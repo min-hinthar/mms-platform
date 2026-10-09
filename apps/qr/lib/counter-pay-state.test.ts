@@ -3,6 +3,7 @@ import {
   COUNTER_CARD_OUTSIDE_APP,
   COUNTER_PAY_REFUSAL_COPY,
   REGISTER_SETTLING_COPY,
+  splitBoardShown,
   counterAskLive,
   counterPayRefusal,
   counterPayRefusalCopy,
@@ -140,5 +141,20 @@ describe("PD2 (m2 decision 7) — the tender truth is derived, never a literal",
     // MUTATION (counter/reader-ignored-by-the-tender-sentence): the reader dropped — a register
     // with a card reader still tells every table "The counter takes cash."; red.
     expect(counterTakesCard(true)).toBe(true);
+  });
+});
+
+describe("splitBoardShown — the split board is the SPLIT's screen (the last blind pass on #331)", () => {
+  const on = { isGroup: true, settling: true, hasSplit: true, selfServeSplitOpen: true };
+  it("a group's freeze shows the board only while the self-serve split door is open", () => {
+    expect(splitBoardShown(on)).toBe(true);
+    // MUTATION (counter/split-board-ignores-the-split-door): the split door dropped — the register's
+    // cash settle flips a whole table to "splitting the bill"; red.
+    expect(splitBoardShown({ ...on, selfServeSplitOpen: false })).toBe(false);
+  });
+  it("never for a solo table, a cart that is not settling, or a missing split context", () => {
+    expect(splitBoardShown({ ...on, isGroup: false })).toBe(false);
+    expect(splitBoardShown({ ...on, settling: false })).toBe(false);
+    expect(splitBoardShown({ ...on, hasSplit: false })).toBe(false);
   });
 });

@@ -71,7 +71,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ask silently (a stamp naming the same instant is the same ask) and keeps its real error; the
   promo field's focus cannot outlive its form, so the docked door is never stranded hidden; one
   binding (`dockShown`) draws the dock and the padding that clears it; a group under the register's
-  freeze keeps the Bill while phone pay is parked (never the split board); the pass rings focus in
+  freeze keeps the Bill while the self-serve split is parked (never the split board — the same split
+  door the register's sentence reads, `splitBoardShown`); the pass rings focus in
   `--pass-ac` (pinned in contrast-audit; `check-pass-inks` refuses a universal ring with no in-pass
   override); `check-phone-pay-door` orders the lock release before the return; the register's
   number is pinned on the pass and the slip's foot.
