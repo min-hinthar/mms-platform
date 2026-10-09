@@ -34,16 +34,21 @@ import type { SettleOutcome } from "@/lib/floor-pane";
 import { Button, Icon, Sheet, type ButtonVariant } from "@mms/ui";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import {
+  TILL_LEDGER_CLEAN,
   TILL_MEDIA,
   tillCancelSays,
+  tillDoubts,
   tillHeroTier,
+  tillLedgerAfter,
   tillSlipDiverged,
-  type TillAttempt,
+  type TillEvent,
+  type TillLedger,
   type TillSlipLine,
 } from "@/lib/till";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
+import { SealEcho } from "./HandoffCard";
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
 import { useReloadHold } from "./useReloadHold";
@@ -116,8 +121,17 @@ export type TillDoor = {
    *  `settle.cash.waiting` (this control mounts no `role="alert"` on the pad host). */
   onHeldTap: () => void;
   /** m6 graft 5 — after the tray is gone and the page is un-hidden, the pad's Toast says "Nothing was
-   *  taken — the order is still here.", only when `tillCancelSays` holds for this opening's attempt. */
+   *  taken — the order is still here.", only when `tillCancelSays` holds for the till's ledger. */
   onCancelClean: () => void;
+  /** The blind pass on #334 (CRITICAL 1) — whether the HOST still holds a settle outcome it was told
+   *  is unknown (`onOutcomeUnknown(true)`) that nothing has resolved. Read at the cancel: while it
+   *  holds, nothing is said — the host's view covers a ledger this control lost (a remount). */
+  outcomeOpen: () => boolean;
+  /** How many times a host READ has resolved a settle outcome it was told is unknown (a read that
+   *  started after the settle could last land and shows the order open — `settleUnknownAfterRead`).
+   *  The positive signal the till's own doubt waits for: a count past the one at the doubt resolves
+   *  it; silence never does. */
+  readsResolved: () => number;
 };
 
 /**
@@ -170,7 +184,10 @@ export function CashSettleButton({
   door,
 }: {
   sessionId: string;
-  totalCents: number;
+  /** The page's all-in total, or null when its read priced nothing (the blind pass on #334, C2): the
+   *  tray NEVER opens on null — its quote is a number by type, and the freeze refuses an unpriced
+   *  read (the host's gate has already said why) — and the trigger draws no figure. */
+  totalCents: number | null;
   /** W17c-3 — the tip BASE (subtotal − discount, BEFORE tax) the quick-tip chips offer percentages
    *  against. NOT `totalCents`, which is tax-inclusive: the review's HIGH was that a "20%" chip
    *  computed off the tax-inclusive total charges ~9% more than the identically-labelled chip at
@@ -247,8 +264,15 @@ export function CashSettleButton({
   const till = useMediaQuery(TILL_MEDIA);
   // PD6 — the slip FROZEN at open, beside the quote (null while closed, or with no slip).
   const [slipAtOpen, setSlipAtOpen] = useState<readonly TillSlipLine[] | null>(null);
-  // PD6 (m6 graft 5) — what this opening's last attempt came to, read when the tray closes.
-  const attemptRef = useRef<TillAttempt>("none");
+  // PD6 (m6 graft 5) — the till's LEDGER (`tillLedgerAfter`): the last attempt, and the doubt every
+  // earlier one left — STICKY across attempts and openings (the blind pass on #334, CRITICAL 1).
+  const ledgerRef = useRef<TillLedger>(TILL_LEDGER_CLEAN);
+  // The host's resolution count when the latest doubt arose: only a read resolving AFTER it answers it.
+  const doubtMark = useRef(0);
+  const track = (e: TillEvent) => {
+    ledgerRef.current = tillLedgerAfter(ledgerRef.current, e);
+    if (e.k === "out" || e.k === "threw") doubtMark.current = door?.readsResolved() ?? 0;
+  };
   // PD6 — the pad's `beforeOpen` is async: a second tap while it runs opens nothing twice.
   const opening = useRef(false);
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
@@ -321,7 +345,7 @@ export function CashSettleButton({
   // Render-time adjustment (React's guarded set-during-render, as FloorDetailLive's `seenDetail`):
   // the page caught up with the server's figure, so a later move BACK reads as the move it is.
   // Phase 2c · review (R1) — and a read that began after a refusal settles the refusal's figure.
-  const reconciled = reconcileQuote(quote, totalCents, readTicket);
+  const reconciled = totalCents === null ? quote : reconcileQuote(quote, totalCents, readTicket);
   // Codex round 2 (P2) — the tip base the percentage chips read is frozen WITH the quote: a
   // subtotal or discount moving under an open sheet must not move "20% · $8.42" while every other
   // figure holds. It follows the prop only where the quote itself moves (open, adopt, reconcile).
@@ -338,17 +362,32 @@ export function CashSettleButton({
   const [freezing, setFreezing] = useState(false);
   if (freezing) {
     setFreezing(false);
-    setQuote(openQuote(reconciled, totalCents));
-    setTipBaseAtOpen(tipBaseCents);
-    setSlipAtOpen(slip ?? null);
+    if (totalCents === null) {
+      // #334 C2 — the read the gate waited for priced nothing: the tray never opens over an
+      // invented due. The host's gate re-decides the hold on that read and says why; this is the
+      // type's own backstop (a quote is a number).
+      setConfirming(false);
+    } else {
+      setQuote(openQuote(reconciled, totalCents));
+      setTipBaseAtOpen(tipBaseCents);
+      setSlipAtOpen(slip ?? null);
+    }
   }
   const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;
   // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
-  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
-    .cents;
+  const figure =
+    confirming && reconciled
+      ? reconciled
+      : totalCents === null
+        ? null
+        : openQuote(reconciled, totalCents);
+  // Unpriced and closed, no figure exists: the trigger reads bare (below) and the tray cannot open,
+  // so the 0 here only keeps the arithmetic total — it is never drawn (#334 C2).
+  const priced = figure !== null;
+  const shownTotal = figure?.cents ?? 0;
   // The page's total moved off the quote while the sheet is open: said in the sheet's one alert,
   // naming both figures, and the next tap ADOPTS the new figure (it records nothing).
-  const drift = confirming ? quoteDrift(reconciled, totalCents) : null;
+  const drift = confirming && totalCents !== null ? quoteDrift(reconciled, totalCents) : null;
   const [tendered, setTendered] = useState("");
   // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
   // by a human, because nothing on the server can derive it: only the person who took the cash knows
@@ -422,6 +461,12 @@ export function CashSettleButton({
   useEffect(() => {
     if (kept > 0) settleRef.current?.focus();
   }, [kept]);
+  // PD6 (#334 a11y) — the slip's "tap to update" unmounts under its own tap (the slip re-frozen, no
+  // change left to mark): focus goes to Take, the next thing to do — Keep the change's rule.
+  const [requoted, setRequoted] = useState(0);
+  useEffect(() => {
+    if (requoted > 0) settleRef.current?.focus();
+  }, [requoted]);
   // Phase 2c · gate — a server `unsent` refusal (a guest's dish landed after the page's last read)
   // is said INSIDE the sheet (its one alert: the page's region is hidden behind the modal), and the
   // jump to the Send waits for the sheet to close — the close hands focus to the fix instead of back
@@ -437,12 +482,14 @@ export function CashSettleButton({
    * regardless: a settle that landed after the detail unmounted still hands its card up, since the
    * parent renders it outside the open-cart conditional this control lives in.
    */
-  function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap) {
-    // An answer came back: whatever it says, the outcome is KNOWN again — on a late answer too,
-    // and even after unmount (the page's closed-bounce hold must not outlive the question).
-    onOutcomeUnknown?.(false);
+  function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap, late = false) {
     if (!res.ok) {
-      attemptRef.current = "refused"; // PD6 — a definite refusal: nothing recorded
+      // A definite refusal: THIS attempt recorded nothing. It answers the doubt only when it is the
+      // late answer of the attempt that was out, and no other attempt's answer was lost — a refusal
+      // after a lost answer ("That table is closed.") is that settle LANDING, never "nothing"
+      // (the blind pass on #334, CRITICAL 1). Only then is the page's closed-bounce hold let go.
+      track({ k: "refused", late });
+      if (late && !tillDoubts(ledgerRef.current)) onOutcomeUnknown?.(false);
       onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
       // The sheet stays open with the refusal inside it — the cashier reads why where they
       // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
@@ -492,7 +539,10 @@ export function CashSettleButton({
     // The write is recorded — the sheet goes (unmounted, not closed: an exiting sheet with a
     // re-armed Settle inside it, or one held busy for a re-fetch this control does not own, is the
     // trap §16 names) and the trigger reads busy until the paid state lands.
-    attemptRef.current = "landed";
+    // The payment is recorded: every doubt is answered — on a late answer too, and even after
+    // unmount (the page's closed-bounce hold must not outlive the question).
+    track({ k: "landed" });
+    onOutcomeUnknown?.(false);
     setLanded(true);
     setConfirming(false);
     if (handoff || at.tenderAtTap != null) {
@@ -518,6 +568,7 @@ export function CashSettleButton({
   function requote() {
     haptic("pick");
     setSlipAtOpen(slip ?? null);
+    setRequoted((n) => n + 1);
     if (drift) {
       setQuote({ cents: drift.to, basis: drift.to });
       setTipBaseAtOpen(tipBaseCents);
@@ -554,7 +605,7 @@ export function CashSettleButton({
       "stalled",
     );
     if (refused !== null) {
-      attemptRef.current = refused; // PD6 — refused at the tap: "waiting" (own) or "stalled"
+      track({ k: "tapRefused", as: refused }); // PD6 — refused at the tap: nothing was sent
       setError({ kind: refused });
       return;
     }
@@ -567,7 +618,8 @@ export function CashSettleButton({
     // captured at the tap, so a refusal can name the one and keep the other as the quote's basis.
     const at: SettleTap = {
       quoted: shownTotal,
-      basis: totalCents,
+      // The prop the page read; an unpriced read under an open tray keeps the figure shown.
+      basis: totalCents ?? shownTotal,
       tenderAtTap: tenderedCents != null && tenderedCents > 0 ? tenderedCents : null,
     };
     try {
@@ -585,7 +637,7 @@ export function CashSettleButton({
         // control away; if not, Settle is live again (a retry cannot record twice — the cart is
         // no longer open once it has been paid).
         console.error("[CashSettleButton] settle rejected — outcome unknown", out.error);
-        attemptRef.current = "unknown";
+        track({ k: "threw", late: false });
         setError({ kind: "unknown" });
         onOutcomeUnknown?.(true);
         onSettleOutcome?.("unknown");
@@ -599,7 +651,7 @@ export function CashSettleButton({
       // truth; and it is FIFO, not FloorDetailLive's SETTLE_MAY_LAND_MS, that bounds a settle which
       // was queued unsent behind a hung head (register-math.ts `settleUnknownAfterRead`).
       ownLate.current = true;
-      attemptRef.current = "waiting";
+      track({ k: "out" });
       setError({ kind: "waiting" });
       onOutcomeUnknown?.(true);
       onSettleOutcome?.("unknown");
@@ -609,9 +661,9 @@ export function CashSettleButton({
         // `late` never rejects. A late ANSWER (ok or refusal) is applied exactly as an on-time one
         // — a late ok LANDS (the sheet unmounts and hands its card over) — and clears the unknown
         // even after unmount. A late THROW is still no answer: the outcome stays unknown.
-        if (late.kind === "answer") land(late.value, at);
+        if (late.kind === "answer") land(late.value, at, true);
         else {
-          attemptRef.current = "unknown";
+          track({ k: "threw", late: true });
           setError({ kind: "unknown" });
           // Codex r2 on #310 (A1) — and handed UP again: the bound's `unknown` reached a detail that
           // was still MOUNTED (it ignores one then — this control's own line said it), so if the
@@ -1075,7 +1127,7 @@ export function CashSettleButton({
           void openTray();
         }}
       >
-        {door && !door.showAmount ? (
+        {(door && !door.showAmount) || !priced ? (
           <Chrome
             lang={lang}
             k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
@@ -1138,8 +1190,14 @@ export function CashSettleButton({
             }
             triggerRef.current?.focus();
             // PD6 (m6 graft 5) — the tray is gone and the page is un-hidden: the pad's Toast
-            // reassures, only where doubt existed and was resolved as nothing (`tillCancelSays`).
-            if (door && tillCancelSays(attemptRef.current)) door.onCancelClean();
+            // reassures, only where an attempt came to nothing recorded and no attempt left a
+            // doubt (`tillCancelSays`) — a doubt the host's READ has since resolved is resolved —
+            // and the host itself holds no unknown outcome (#334, C1).
+            if (door) {
+              if (tillDoubts(ledgerRef.current) && door.readsResolved() > doubtMark.current)
+                track({ k: "readResolved" });
+              if (!door.outcomeOpen() && tillCancelSays(ledgerRef.current)) door.onCancelClean();
+            }
           }}
         >
           {till ? (
@@ -1163,8 +1221,11 @@ export function CashSettleButton({
                       <hr className="till-rule" aria-hidden="true" />
                       {/* THE SLIP: qty × dish, no amounts — the one figure is the frozen due
                           above, so there is never a second total beside it (decision 9). */}
+                      {/* The list's NAME (`aria-labelledby`): one script — the echo beside it is
+                          visual only (`SealEcho`, aria-hidden), never both tongues in one name. */}
                       <p id="till-slip-h" className="till-slip-h">
-                        <Chrome lang={lang} k="pad.ticket.title" echo="inline" />
+                        <Chrome lang={lang} k="pad.ticket.title" echo={false} />
+                        <SealEcho lang={lang} k="pad.ticket.title" className="till-slip-echo" />
                       </p>
                       <ul role="list" aria-labelledby="till-slip-h" className="till-slip">
                         {shownSlip.map((l) => (
@@ -1287,7 +1348,8 @@ export function CashSettleButton({
     if (!lateUnseenNow) setError(null);
     setLateUnseen(false);
     unsentJump.current = null;
-    attemptRef.current = "none";
+    // A new opening starts its own last attempt — and KEEPS every earlier doubt (#334, C1).
+    track({ k: "opened" });
     // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
     // the quote FREEZES with the open (`freezing`, in the next render). The tip is kept.
     setTendered("");

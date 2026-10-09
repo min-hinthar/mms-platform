@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
-import { ownWaitSlot } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, ownWaitSlot } from "@/lib/bounded-write";
 import { TILL_MEDIA, type TillSlipLine } from "@/lib/till";
 import type { TillDoor } from "./CashSettleButton";
 
@@ -60,9 +60,9 @@ const TEA: TillSlipLine = {
 const take = (m: string) => STAFF["settle.cash.settleAmount"].en.replace("{m}", m);
 
 type Props = Partial<Parameters<typeof CashSettleButton>[0]>;
-function mount(props: Props = {}) {
+function mount(props: Props = {}, lang: "en" | "my" = "en") {
   const view = (p: Props) => (
-    <StaffLangProvider lang="en">
+    <StaffLangProvider lang={lang}>
       <CashSettleButton
         sessionId="s1"
         totalCents={1989}
@@ -191,6 +191,9 @@ describe("the slip freezes with the quote (Codex round 3 on m6)", () => {
     // The mark is the way on: it re-freezes the slip and adopts the moved total (the moved
     // sentence names both figures), recording nothing.
     fireEvent.click(mark);
+    // #334 a11y — the mark unmounted under its own tap: focus goes to Take, never the dialog box.
+    // MUTATION till-ui/requote-drops-focus → red.
+    expect(document.activeElement).toBe(settle());
     expect(
       screen.getByRole("list", { name: STAFF["pad.ticket.title"].en }).querySelectorAll("li"),
     ).toHaveLength(3);
@@ -201,6 +204,20 @@ describe("the slip freezes with the quote (Codex round 3 on m6)", () => {
       STAFF["settle.cash.moved"].en.replace("{old}", "$19.89").replace("{m}", "$24.31"),
     );
     expect(settleCash).not.toHaveBeenCalled();
+  });
+
+  it("on a Burmese console the slip's NAME is one script — the English echo is drawn, never named (#334 a11y)", () => {
+    mount({}, "my");
+    // The door, in the console's tongue ("ငွေသားနဲ့ ရှင်း · $19.89").
+    fireEvent.click(
+      screen.getByRole("button", { name: (n) => n.startsWith(STAFF["settle.cash.title"].my) }),
+    );
+    // MUTATION till-ui/slip-name-both-scripts (the inline echo back in the name) → red.
+    const list = screen.getByRole("list", { name: STAFF["pad.ticket.title"].my });
+    expect(list).toBeTruthy();
+    expect(document.getElementById("till-slip-h")!.textContent).toContain(
+      STAFF["pad.ticket.title"].en,
+    );
   });
 
   it("a Send under the open tray (same lines, same quantities) is no change", () => {
@@ -220,6 +237,8 @@ describe("the pad host's door (K39) — the walk-up sale never leaves the pad", 
     beforeOpen: () => Promise.resolve(true),
     onHeldTap: vi.fn(),
     onCancelClean: vi.fn(),
+    outcomeOpen: () => false,
+    readsResolved: () => 0,
     ...over,
   });
 
@@ -341,5 +360,227 @@ describe("the pad host's door (K39) — the walk-up sale never leaves the pad", 
     });
     // MUTATION till-ui/cancel-clean-never-said (the hand-up dropped from the close): red.
     expect(onCancelClean).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** The pad host's door, as the pad hands it in (module scope: the doubt suites below use it too). */
+const padDoor = (over: Partial<TillDoor> = {}): TillDoor => ({
+  held: null,
+  busy: null,
+  showAmount: true,
+  beforeOpen: () => Promise.resolve(true),
+  onHeldTap: vi.fn(),
+  onCancelClean: vi.fn(),
+  outcomeOpen: () => false,
+  readsResolved: () => 0,
+  ...over,
+});
+
+describe("the till's doubt is sticky — 'Nothing was taken' never over a settle that may be recorded (#334, C1)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  /** A host modelled on the pad: it holds what it was told is unknown, and answers `outcomeOpen`. */
+  function host(opts: { remembers: boolean } = { remembers: true }) {
+    let unknown = false;
+    let resolved = 0;
+    const onOutcomeUnknown = vi.fn((u: boolean) => {
+      if (opts.remembers) unknown = u;
+    });
+    const onCancelClean = vi.fn();
+    return {
+      onOutcomeUnknown,
+      onCancelClean,
+      outcomeOpen: () => unknown,
+      readsResolved: () => resolved,
+      /** The pad's read showed the order open past the settle's life: nothing was recorded. */
+      readResolves: () => {
+        if (unknown) resolved += 1;
+        unknown = false;
+      },
+    };
+  }
+  const tap = (el: () => HTMLElement) =>
+    act(async () => {
+      fireEvent.click(el());
+    });
+  const settleIn = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+  it("a lost answer, then 'That table is closed.' in the same opening: nothing reassuring, and the page's unknown is never let go", async () => {
+    const h = host();
+    settleCash
+      .mockRejectedValueOnce(new Error("network dropped"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    const { trigger, settle } = mount({
+      onOutcomeUnknown: h.onOutcomeUnknown,
+      door: padDoor({
+        onCancelClean: h.onCancelClean,
+        outcomeOpen: h.outcomeOpen,
+        readsResolved: h.readsResolved,
+      }),
+    });
+    await tap(trigger);
+    await tap(settle); // the answer is lost after the settle may have committed
+    expect(h.onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    await tap(settle); // the re-tap meets the session the first settle closed
+    // MUTATION till-ui/refusal-frees-the-page-hold (every refusal hands up `false`, as before):
+    // the pad drops its hold, its next `closed` read bounces to the floor, and the cancel below
+    // reassures; red.
+    expect(h.onOutcomeUnknown).not.toHaveBeenCalledWith(false);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await settleIn();
+    expect(h.onCancelClean).not.toHaveBeenCalled();
+  });
+
+  it("…and with a host that remembers nothing, the till's own ledger still says nothing", async () => {
+    const h = host({ remembers: false });
+    settleCash
+      .mockRejectedValueOnce(new Error("network dropped"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    const { trigger, settle } = mount({
+      door: padDoor({
+        onCancelClean: h.onCancelClean,
+        outcomeOpen: h.outcomeOpen,
+        readsResolved: h.readsResolved,
+      }),
+    });
+    await tap(trigger);
+    await tap(settle);
+    await tap(settle);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await settleIn();
+    expect(h.onCancelClean).not.toHaveBeenCalled();
+  });
+
+  it("the doubt crosses openings: no answer at the bound → a late throw → reopen → refused says nothing", async () => {
+    vi.useFakeTimers();
+    const h = host();
+    let reject: (e: unknown) => void = () => {};
+    settleCash
+      .mockReturnValueOnce(
+        new Promise((_, rej) => {
+          reject = rej;
+        }),
+      )
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    const { trigger, settle } = mount({
+      onOutcomeUnknown: h.onOutcomeUnknown,
+      door: padDoor({
+        onCancelClean: h.onCancelClean,
+        outcomeOpen: h.outcomeOpen,
+        readsResolved: h.readsResolved,
+      }),
+    });
+    await tap(trigger);
+    await tap(settle);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    });
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      reject(new Error("dropped late"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(h.onCancelClean).not.toHaveBeenCalled();
+    // Reopened: the doubt the late throw left is still the till's.
+    await tap(trigger);
+    await tap(settle);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION till/opening-wipes-the-doubt (and till-ui's openTray reset) → red.
+    expect(h.onCancelClean).not.toHaveBeenCalled();
+  });
+
+  it("the attempt out past the bound answers REFUSED: that is the doubt resolved — the cancel may reassure", async () => {
+    vi.useFakeTimers();
+    const h = host();
+    let resolve: (v: unknown) => void = () => {};
+    settleCash.mockReturnValueOnce(
+      new Promise((res) => {
+        resolve = res;
+      }),
+    );
+    const { trigger, settle } = mount({
+      onOutcomeUnknown: h.onOutcomeUnknown,
+      door: padDoor({
+        onCancelClean: h.onCancelClean,
+        outcomeOpen: h.outcomeOpen,
+        readsResolved: h.readsResolved,
+      }),
+    });
+    await tap(trigger);
+    await tap(settle);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    });
+    expect(h.onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    await act(async () => {
+      resolve({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // The late refusal answers the attempt that was out, and no other doubt is left: the page's
+    // hold lets go, and the cancel reassures. MUTATION till/on-time-refusal-resolves-out cannot
+    // reach here; till-ui/late-refusal-never-frees (the late flag dropped) → red.
+    expect(h.onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(h.onCancelClean).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lost answer the pad's READ then resolved (the order still open past the settle's life): a later refusal may reassure", async () => {
+    const h = host();
+    settleCash
+      .mockRejectedValueOnce(new Error("network dropped"))
+      .mockResolvedValueOnce({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+    const { trigger, settle } = mount({
+      onOutcomeUnknown: h.onOutcomeUnknown,
+      door: padDoor({
+        onCancelClean: h.onCancelClean,
+        outcomeOpen: h.outcomeOpen,
+        readsResolved: h.readsResolved,
+      }),
+    });
+    await tap(trigger);
+    await tap(settle);
+    h.readResolves();
+    await tap(settle);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await settleIn();
+    // MUTATION till/read-never-resolves → red.
+    expect(h.onCancelClean).toHaveBeenCalledTimes(1);
+  });
+
+  it("the host still holds an unknown (a remount, another door): one refused attempt says nothing", async () => {
+    const onCancelClean = vi.fn();
+    settleCash.mockResolvedValueOnce({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+    const { trigger, settle } = mount({
+      door: padDoor({ onCancelClean, outcomeOpen: () => true }),
+    });
+    await tap(trigger);
+    await tap(settle);
+    await tap(() => screen.getByRole("button", { name: "Cancel" }));
+    await settleIn();
+    // MUTATION till-ui/cancel-ignores-the-host → red.
+    expect(onCancelClean).not.toHaveBeenCalled();
+  });
+});
+
+describe("an unpriced read never reaches the tray (#334, C2)", () => {
+  it("the gate passed, but the read priced nothing: the tray never opens, and no $0.00 is drawn", async () => {
+    const { trigger } = mount({ totalCents: null, door: padDoor({ showAmount: false }) });
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    // MUTATION till-ui/unpriced-freeze-opens → red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.textContent).not.toContain("$0.00");
+    expect(trigger().textContent).toBe(STAFF["settle.cash.title"].en);
   });
 });

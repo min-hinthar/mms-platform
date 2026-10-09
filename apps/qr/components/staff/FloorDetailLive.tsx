@@ -79,6 +79,7 @@ import {
   markHandoffFocus,
   paneFreezeSpoken,
   readHandoffStash,
+  markSealLanding,
   stashHandoff,
   lostWriteKind,
   type LateAnswer,
@@ -260,6 +261,9 @@ export function FloorDetailLive({
   const setHandoff = useCallback(
     (h: Handoff) => {
       stashHandoff(sessionId, h);
+      // PD6 (m6 B6) — a counter order's same-tab RELOAD lands its seal once more (a one-shot
+      // note the closed card takes); every later revisit is the calm seal (#334).
+      if (h.isCounter) markSealLanding(sessionId, h.orderId, Date.now());
       setHandoffState(h);
     },
     [sessionId],

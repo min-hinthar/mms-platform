@@ -7,7 +7,7 @@ import { laneHref } from "@/lib/staff-more";
 import { handoffRows, type HandoffRow } from "@/lib/register-math";
 import type { Handoff } from "@/lib/register-ui";
 import { handoffCode } from "@/lib/reader-collect";
-import { readHandoffStash, takeHandoffFocus } from "@/lib/floor-pane";
+import { readHandoffStash, takeHandoffFocus, takeSealLanding } from "@/lib/floor-pane";
 import { TILL_MEDIA, sealHeroTier, sealAdopt } from "@/lib/till";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { echoDrawn } from "@/lib/staff-labels";
@@ -42,11 +42,20 @@ const CODE_LABEL: { en: string; my: string } = {
  * "Change" keeps its English on a Burmese-only device; "Paid" does not) and hidden from assistive
  * tech, so the name keeps one script per run.
  */
-function SealEcho({ lang, k }: { lang: StaffLang; k: StaffKey }) {
+export function SealEcho({
+  lang,
+  k,
+  className = "staff-seal-echo",
+}: {
+  lang: StaffLang;
+  k: StaffKey;
+  /** The echo's own look (the seal's by default; the till's slip heading passes its own). */
+  className?: string;
+}) {
   const shown = echoDrawn(k, useEchoesShown());
   if (lang !== "my" || !shown) return null;
   return (
-    <span className="chrome-en staff-seal-echo" lang="en" aria-hidden="true">
+    <span className={`chrome-en ${className}`} lang="en" aria-hidden="true">
       {ts("en", k)}
     </span>
   );
@@ -320,16 +329,24 @@ export function ClosedHandoffCard({
   // PD6 (m6 decision 24, appendix C · Codex correction 4) — a same-tab reload (or a K23 unlock)
   // after the pad's walk-up landed: THIS tab's stash, for THIS order, brings back what the cashier
   // entered (Cash received → Change) over the server's persisted Total and Tip (`sealAdopt` — never
-  // the stash's total), and the seal lands again. Anywhere else (another device, cleared storage,
+  // the stash's total) — calm on every visit, and LANDING only on the first render after a same-tab
+  // reload (the one-shot note, below). Anywhere else (another device, cleared storage,
   // another order) the server card stands, calm, with no invented Change. Read after mount, from a
   // scheduled callback (the server render cannot see the tab's storage).
   const [adopted, setAdopted] = useState<Handoff | null>(null);
+  // The blind pass on #334 — the LANDING is a one-shot note beside the stash (`takeSealLanding`):
+  // the first render after a same-tab reload lands; every later revisit is the calm seal.
+  const [reLanded, setReLanded] = useState(false);
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (takeHandoffFocus(sessionId, Date.now())) cardRef.current?.focus();
   }, [sessionId]);
   useEffect(() => {
-    const id = setTimeout(() => setAdopted(sealAdopt(handoff, readHandoffStash(sessionId))), 0);
+    const id = setTimeout(() => {
+      const a = sealAdopt(handoff, readHandoffStash(sessionId));
+      setAdopted(a);
+      setReLanded(a !== null && takeSealLanding(sessionId, handoff.orderId, Date.now()));
+    }, 0);
     return () => clearTimeout(id);
   }, [sessionId, handoff]);
   return (
@@ -343,7 +360,7 @@ export function ClosedHandoffCard({
       <HandoffCard
         lang={lang}
         handoff={landed ?? adopted ?? handoff}
-        landing={landed === null && adopted !== null}
+        landing={landed === null && reLanded}
         headingLevel={2}
         ref={cardRef}
       />

@@ -2337,11 +2337,14 @@ readTicket)` settles it on a read with a LATER ticket; a read already in the air
   the question carries it; the slip: qty × dish, no amounts; the banknote tiles with an `::after`
   hairline frame, never a fill), and its band pins Cancel + Take under OWE + TIP and the inert readout
   (Take's description, "အကြွေ · Change" at `--fs-display`) in the money corner, so a second tap of the
-  door that opened it lands on inert text (`tillDoorLandsInert`). Below the width, the single-column
+  door that opened it lands on inert text (`tillDoorLandsInert` — a design-time check over the design's
+  door spans; the device sitting is the runtime proof). Below the width, the single-column
   sheet, unchanged. **The slip freezes with the quote**: a diverged cart marks it "The order changed —
   tap to update" (the mark is the control that re-freezes it) and holds Take through the ONE binding.
   On the pad host a held tap and the clean-cancel line ("Nothing was taken — the order is still
-  here.", only after a refused or stalled attempt) are said by the pad's ONE region.
+  here.", only after a refused or stalled attempt, and never while any attempt's answer — in this
+  opening or an earlier one — is lost or still out: the doubt is sticky until a read resolves it)
+  are said by the pad's ONE region.
 - **The seal (PD6, m6) is the paid card's grammar on every counter surface.** A solid ✓ disc (paid —
   never an approval), the HERO (the Change at `--till-fs-hand` wide; the Total when no tender was
   entered, with no Change and no Cash received), the count-back rows, the #CODE on the ONE PASS (a

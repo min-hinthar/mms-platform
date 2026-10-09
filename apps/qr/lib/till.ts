@@ -115,20 +115,79 @@ export function tillSlipDiverged(
 
 // ── the clean cancel (graft 5, narrowed by appendix C) ─────────────────────────────────────────
 
-/** What this opening's last attempt came to, as the tray closes. */
+/** What an attempt came to: the last one is what a clean cancel speaks about. */
 export type TillAttempt = "none" | "refused" | "stalled" | "waiting" | "unknown" | "landed";
 
 /**
- * Whether the pad's Toast says "Nothing was taken — the order is still here." after the tray is
- * gone. Only where doubt could exist AND was resolved as nothing recorded: an attempt from this
- * opening was definitely refused (the server said so and recorded nothing), or the tap was refused
- * before anything was sent (stalled). Never after `waiting` or `unknown` — the payment may still be
- * recorded, and reassurance would be a lie; never on a plain open-and-cancel (nothing was tried, the
- * order is visibly there: the critic's "a routine cancel stays silent"); never after `landed` (the
- * sheet unmounted into the seal).
+ * The till's LEDGER of attempts — what the last one came to, and the DOUBT every earlier one left
+ * (the blind pass on #334, CRITICAL 1). An attempt whose answer was lost (`unknown`) or is still out
+ * past the bound (`out`) may have RECORDED the payment, so its doubt is STICKY: a later attempt's
+ * refusal or a stalled tap never erases it ("That table is closed." after a lost answer is the
+ * settle landing, not nothing), and neither does a new opening of the tray. Only the late answer of
+ * the attempt that was out resolves `out`; a READ resolves both (the host's `settleUnknownAfterRead`:
+ * a read that started after a settle could last land — `SETTLE_MAY_LAND_MS`, the freeze's own life —
+ * and still shows the order open proves nothing was recorded); a landed attempt resolves both (the
+ * payment IS recorded — the seal follows).
  */
-export function tillCancelSays(attempt: TillAttempt): boolean {
-  return attempt === "refused" || attempt === "stalled";
+export type TillLedger = {
+  /** The last attempt, in this opening ("none" at an opening). */
+  last: TillAttempt;
+  /** An attempt is still out past the bound: its late answer may yet record the payment. */
+  out: boolean;
+  /** An attempt's answer was lost: only a read can tell whether it recorded the payment. */
+  unknown: boolean;
+};
+
+export const TILL_LEDGER_CLEAN: TillLedger = { last: "none", out: false, unknown: false };
+
+/** What happened to the till, in the order it happened. `late` marks the answer (or the loss) of
+ *  the attempt that was OUT — the only answer that resolves `out`. */
+export type TillEvent =
+  | { k: "opened" }
+  | { k: "tapRefused"; as: "waiting" | "stalled" }
+  | { k: "refused"; late: boolean }
+  | { k: "landed" }
+  | { k: "out" }
+  | { k: "threw"; late: boolean }
+  | { k: "readResolved" };
+
+/** The ledger after an event — pure, so every rule above is falsified by a value. */
+export function tillLedgerAfter(l: TillLedger, e: TillEvent): TillLedger {
+  switch (e.k) {
+    case "opened":
+      return { ...l, last: "none" };
+    case "tapRefused":
+      return { ...l, last: e.as };
+    case "refused":
+      return { ...l, last: "refused", out: e.late ? false : l.out };
+    case "landed":
+      return { last: "landed", out: false, unknown: false };
+    case "out":
+      return { ...l, last: "waiting", out: true };
+    case "threw":
+      return { last: "unknown", out: e.late ? false : l.out, unknown: true };
+    case "readResolved":
+      return { ...l, out: false, unknown: false };
+  }
+}
+
+/** Whether any attempt may still have recorded the payment. */
+export function tillDoubts(l: TillLedger): boolean {
+  return l.out || l.unknown;
+}
+
+/**
+ * Whether the pad's Toast says "Nothing was taken — the order is still here." after the tray is
+ * gone. Only where an attempt was tried and came to NOTHING RECORDED: the last attempt was
+ * definitely refused (the server said so and recorded nothing), or the tap was refused before
+ * anything was sent (stalled) — AND no attempt, in this opening or an earlier one, left a doubt
+ * (`tillDoubts`): after `waiting` or `unknown` the payment may still be recorded, and reassurance
+ * would be a lie the cashier acts on by taking the money twice. Never on a plain open-and-cancel
+ * (nothing was tried, the order is visibly there: the critic's "a routine cancel stays silent");
+ * never after `landed` (the sheet unmounted into the seal).
+ */
+export function tillCancelSays(l: TillLedger): boolean {
+  return !tillDoubts(l) && (l.last === "refused" || l.last === "stalled");
 }
 
 // ── the double-tap guard, by geometry (decision 6) ─────────────────────────────────────────────
@@ -171,8 +230,12 @@ export function tillBandsAt(viewportW: number): {
 }
 
 /**
- * Whether a door's spot — the dock button that opened the tray, as a horizontal span — lands on
- * INERT tray content under an open till: the GAVE column (whose foot is empty on purpose and whose
+ * A DESIGN-TIME check (the blind pass on #334: nothing at runtime calls it): whether a door's spot —
+ * the button that opened the tray, as a horizontal span the DESIGN gives (picked-m6-1 ② Dock,
+ * picked-m2-3 ③), never measured from the dock's CSS — lands on INERT tray content under an open
+ * till. The tray side IS bound to the stylesheet (till.test.ts parses its tracks, gutters and
+ * padding); the door side is the design's, so the runtime proof is the device sitting (ruling #12).
+ * Inert: the GAVE column (whose foot is empty on purpose and whose
  * band cell is the readout, a description) or the tray's right padding. Cancel and Take sit in the
  * OWE and TIP columns' band cells, so a second tap of the door that opened the tray can reach neither.
  * The y-axis holds by the band's own rule — the band pins to the tray's bottom edge, the door sits at

@@ -12,6 +12,10 @@ import {
   handoffFocusKey,
   markHandoffFocus,
   takeHandoffFocus,
+  markSealLanding,
+  sealLandingKey,
+  takeSealLanding,
+  SEAL_LANDING_TTL_MS,
   handoffStashKey,
   handoffSuperseded,
   liveTwinOf,
@@ -575,6 +579,43 @@ describe("closedCounterNote — the refund in words, the hedge only for what the
     expect(closedCounterNote({ refund: "partial", orderId: null })).toEqual({
       k: "floor.pane.closed.body",
     });
+  });
+});
+
+// ── PD6 (#334) ── the seal lands once more on a same-tab RELOAD, never on a revisit.
+describe("markSealLanding / takeSealLanding — one shot, this order, inside its TTL", () => {
+  const store = () => {
+    const m = new Map<string, string>();
+    return {
+      m,
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
+  };
+  it("taken ONCE for its order, then gone", () => {
+    const st = store();
+    expect(sealLandingKey(A)).toBe(`mms-seal-landing:${A}`);
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-every-visit (never cleared) → every revisit re-lands; red.
+    expect(takeSealLanding(A, "o-1", 1500, st)).toBe(true);
+    expect(takeSealLanding(A, "o-1", 1600, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+  });
+  it("another order's note, a stale note, or one from the future: no landing — and it is still cleared", () => {
+    const st = store();
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-any-order → another sale's note lands this seal; red.
+    expect(takeSealLanding(A, "o-2", 1500, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-no-ttl → a reload hours later replays the bloom; red.
+    expect(takeSealLanding(A, "o-1", 1000 + SEAL_LANDING_TTL_MS + 1, st)).toBe(false);
+    markSealLanding(A, "o-1", 5000, st);
+    expect(takeSealLanding(A, "o-1", 4000, st)).toBe(false);
+    markSealLanding(A, "o-1", 1000, st);
+    expect(takeSealLanding(A, "o-1", 1000 + SEAL_LANDING_TTL_MS, st)).toBe(true);
+    expect(takeSealLanding(A, "o-1", 1000, null)).toBe(false);
   });
 });
 

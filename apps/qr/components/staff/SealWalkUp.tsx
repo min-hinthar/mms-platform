@@ -54,7 +54,11 @@ export function SealWalkUp({
         aria-describedby={SEAL_WALKUP_NOTE_ID}
         onClick={() => {
           if (startHeld) {
-            // A tap on a held Walk-up is said, never silent (the line above is a description).
+            // Walk-up is the seal's ONLY start control (its provider wraps the seal alone), so a
+            // held Walk-up is ITS OWN start: still in flight — the button is busy ("Starting…") and
+            // the tap is the same press, unsaid, as on every start control — or unanswered past the
+            // bound, when the tap is said once more through the pad's one region (the line above
+            // is only its description).
             if (waited) say({ k: "pad.next.waiting" });
             return;
           }

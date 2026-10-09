@@ -4,7 +4,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableDetailResult } from "@/lib/floor-types";
 import type { Handoff } from "@/lib/register-ui";
-import { handoffFocusKey, handoffStashKey, markHandoffFocus } from "@/lib/floor-pane";
+import {
+  handoffFocusKey,
+  handoffStashKey,
+  markHandoffFocus,
+  markSealLanding,
+  sealLandingKey,
+} from "@/lib/floor-pane";
 
 /**
  * Phase 2g · P2em (D2) — the table page's CLOSED branch. A counter session closes behind its settle,
@@ -253,12 +259,14 @@ describe("PD6 — a same-tab reload after the pad's walk-up landing keeps Cash r
     act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
-  it("THIS tab's stash for THIS order: the seal lands again with the tender over the row's total", async () => {
-    // The pad's landing wrote it (`stashHandoff`), with the tap's tender — the row never stores one.
+  it("THIS tab's stash for THIS order, after a RELOAD: the seal lands again with the tender over the row's total", async () => {
+    // The pad's landing wrote it (`stashHandoff`), with the tap's tender — the row never stores one —
+    // and its one-shot landing note (`markSealLanding`) beside it.
     sessionStorage.setItem(
       handoffStashKey(ID),
       JSON.stringify({ ...CARD, totalCents: 1, tenderedCents: 5000 }),
     );
+    markSealLanding(ID, CARD.orderId, Date.now());
     await mount();
     await settle();
     // 5000 − 4210 = 790 (node -e 'console.log(5000-4210)'). MUTATION
@@ -269,6 +277,34 @@ describe("PD6 — a same-tab reload after the pad's walk-up landing keeps Cash r
     expect(seal.textContent).toContain("$50.00");
     // A landing again (B6: a matching same-tab reload), so it wears the wash.
     expect(seal.hasAttribute("data-landing")).toBe(true);
+  });
+  it("a reload lands ONCE: the next visit in the same tab is the calm seal — the tender still shown, no wash (#334)", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    markSealLanding(ID, CARD.orderId, Date.now());
+    await mount();
+    await settle();
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(true);
+    // The note was TAKEN: nothing re-lands it.
+    expect(sessionStorage.getItem(sealLandingKey(ID))).toBeNull();
+    cleanup();
+    // A later revisit (the reader chip's View, Back): the stash still brings the tender, calm.
+    await mount();
+    await settle();
+    const seal = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ });
+    // MUTATION seal-stash/landing-every-visit (the note never cleared) → the wash and the bloom
+    // replay on every revisit; red.
+    expect(seal.hasAttribute("data-landing")).toBe(false);
+  });
+  it("a stash with no landing note (a revisit, never a reload after this sale): calm, the tender shown", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    await mount();
+    await settle();
+    // MUTATION seal-stash/stash-alone-lands (landing read off the stash again) → red.
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(false);
   });
   it("another order's stash, or none: the server card stands, calm, with no invented Change", async () => {
     sessionStorage.setItem(
