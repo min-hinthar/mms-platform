@@ -251,9 +251,13 @@ export function OrderPad({
   // was it learned, or null. A `closed` read while it stands means the settle most likely landed
   // (the session closes behind it) — said in place, never a bounce to the floor (§29's hold, on the
   // pad). It ends on a read that started after the settle could last land and shows the cart open
-  // (`settleUnknownAfterRead`, the table page's own rule).
+  // (`settleUnknownAfterRead`, the table page's own rule). #334 (the last blind pass) — the mark is
+  // the NEWEST doubt: every `onOutcomeUnknown(true)` advances it, so a read that outlived only an
+  // earlier lost answer's window never clears a later one's.
   const unknownSince = useRef<number | null>(null);
-  const readsResolvedRef = useRef(0);
+  // The START of the latest committed read that showed the order OPEN — the till's `openReadAt`,
+  // which resolves its own doubts by the same rule (`tillLedgerRead`), so the two never disagree.
+  const openReadAtRef = useRef<number | null>(null);
   const [closedUnknown, setClosedUnknown] = useState(false);
   const onClosed = useCallback(() => {
     if (unknownSince.current === null) return false;
@@ -266,10 +270,13 @@ export function OrderPad({
       commitAdds(readStartSeq);
       setLineUnreadSeq((s) => unreadAfterCommit(s, readStartSeq));
       setCommitSeq(readStartSeq);
-      const before = unknownSince.current;
-      unknownSince.current = settleUnknownAfterRead(before, read);
-      // #334 C1 — a read RESOLVED an unknown settle (nothing was recorded): the till's positive signal.
-      if (before !== null && unknownSince.current === null) readsResolvedRef.current += 1;
+      unknownSince.current = settleUnknownAfterRead(unknownSince.current, read);
+      // Reads can commit out of order: the latest START is what an open read proves.
+      if (read.cartOpen)
+        openReadAtRef.current = Math.max(
+          openReadAtRef.current ?? read.startedAtMs,
+          read.startedAtMs,
+        );
     },
     [commitAdds],
   );
@@ -1066,9 +1073,10 @@ export function OrderPad({
     unknownSince.current = null;
     setSeal(handoff);
   };
+  // `true` ADVANCES the mark to now — the newest doubt (#334, the last blind pass: an earliest-kept
+  // mark let a read that cleared the first lost answer's window clear a later one's too).
   const onTillUnknown = useCallback((unknown: boolean) => {
-    if (!unknown) unknownSince.current = null;
-    else if (unknownSince.current === null) unknownSince.current = Date.now();
+    unknownSince.current = unknown ? Date.now() : null;
   }, []);
   // A push that never lands (dropped, or a page restored from the back-forward cache) must not leave
   // Take payment busy for good: it comes back to idle and a second tap goes again.
@@ -1187,7 +1195,6 @@ export function OrderPad({
     // #334 C1 — the pad's own view of a settle it was told is unknown: until a read resolves it
     // (`settleUnknownAfterRead`) or it lands, the tray says nothing reassuring.
     outcomeOpen: () => unknownSince.current !== null,
-    readsResolved: () => readsResolvedRef.current,
   };
   const tillNode = open ? (
     <div className="pad-settle">
@@ -1205,6 +1212,7 @@ export function OrderPad({
         onSettled={onTillSettled}
         onChanged={() => refreshRef.current()}
         onOutcomeUnknown={onTillUnknown}
+        openReadAt={() => openReadAtRef.current}
         readTicket={commitSeq}
         readsStarted={() => readsRef.current}
         slip={tillSlipFrom(detail.lines, lang)}

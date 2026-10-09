@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { startTransition } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SETTLE_MAY_LAND_MS } from "@/lib/register-math";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
@@ -2700,6 +2701,68 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     ).toContain(STAFF["settle.cash.unknownClosed"].en);
   });
 
+  it("#334 sequence a: two LOST answers a minute apart, reads past the FIRST one's window — C refused, Cancel: nothing reassuring, and B's close is still held", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    settleCash
+      .mockRejectedValueOnce(new Error("A lost"))
+      .mockRejectedValueOnce(new Error("B lost"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    const takeIt = () =>
+      act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+      });
+    await takeIt(); // A's answer is lost at t0
+    await flush(60_000);
+    await takeIt(); // B's, a minute later — B's server function may still be running
+    // The pad's reads keep showing the order open, past A's window (t0 + 10 min), inside B's.
+    await flush(SETTLE_MAY_LAND_MS - 60_000 + 30_000);
+    await takeIt(); // C is refused
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await flush();
+    expect(region().textContent).not.toBe(STAFF["settle.cash.cancelClean"].en);
+    // B lands: the session closes behind it — said in place, never a bounce to the floor.
+    getTableDetail.mockResolvedValue({ kind: "closed" });
+    await flush(6000);
+    // MUTATION pad-door/unknown-keeps-earliest (the pad's mark kept at A's instant): the read past
+    // A's window cleared it, and B's close bounces the cashier to the floor; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[aria-labelledby="pad-settle-closed-h"]')!.textContent,
+    ).toContain(STAFF["settle.cash.unknownClosed"].en);
+  });
+
+  it("#334: a LOST answer the pad's own reads then proved never landed (open past its window) — a later refusal reassures", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    settleCash
+      .mockRejectedValueOnce(new Error("A lost"))
+      .mockResolvedValueOnce({ ok: false, error: "Couldn’t take it.", code: "sentence" });
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    const takeIt = () =>
+      act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+      });
+    await takeIt(); // A's answer is lost
+    // The pad's reads keep showing the order open past A's window: A never landed.
+    await flush(SETTLE_MAY_LAND_MS + 30_000);
+    await takeIt(); // refused — nothing recorded, and no doubt is left
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await flush();
+    // MUTATION pad-door/open-read-not-fed (the pad never hands the till its open reads): the till
+    // keeps A's doubt for good, and no refusal after any lost answer is ever said; red.
+    expect(region().textContent).toBe(STAFF["settle.cash.cancelClean"].en);
+  });
+
   it("an EMPTY counter order: a dish tapped, Take cash accepted while it flies, the dish refused — no tray over $0.00; the hold's words (#334, C2)", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
@@ -2726,11 +2789,16 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     });
     await flush();
     await flush();
-    // MUTATION pad-door/gate-skips-the-recheck: "Take $0.00 in cash?" with a $0.00 hero; red.
+    // No tray, no figure, no charge — and these three hold WITH OR WITHOUT the gate's re-check:
+    // CashSettleButton's own null-total backstop refuses the freeze either way. They pin that
+    // backstop, not the re-check.
     expect(tray()).toBeNull();
     expect(document.body.textContent).not.toContain("$0.00");
     expect(settleCash).not.toHaveBeenCalled();
-    // The hold's own words, re-decided on the order as it now is (one binding, `padSettle`).
+    // What only the re-check does: SAY why — the hold's own words, re-decided on the order as it now
+    // is (one binding, `padSettle`). MUTATION pad-door/gate-skips-the-recheck: the gate answers
+    // true, the backstop refuses in silence, and nobody is told why Take cash did nothing; red on
+    // this assertion alone.
     expect(region().textContent).toBe(STAFF["pad.reason.empty"].en);
   });
 
@@ -2754,9 +2822,11 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     });
     await flush();
     await flush();
+    // No tray either way (the backstop, as above).
     expect(tray()).toBeNull();
-    // MUTATION pad-door/drain-reopens-unpriced (the "unpriced" arm dropped, judged here): the
-    // re-check passes and the tray is asked to open over a null total; red.
+    // MUTATION pad-door/gate-skips-the-recheck: the backstop refuses in silence — "reload the
+    // order" is never said; red on this assertion alone. (The "unpriced" arm itself is
+    // `pad/unpriced-never-held`, judged in lib/order-pad.test.ts.)
     expect(region().textContent).toBe(STAFF["pad.reason.unpriced"].en);
   });
 
