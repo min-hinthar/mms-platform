@@ -10,7 +10,8 @@ import { tf } from "@/lib/i18n/fill";
  * PD5 / m7 — "Table N left — stop cooking": the kitchen's half of a table clear, its SHAPE reserved
  * here (PATH_DESIGN reconciliation 1; m5 appendix A1/B1; m7 decision 20).
  *
- * A per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
+ * TODAY nothing draws it: a cleared table's cards simply leave the board on the next poll. Once PD7
+ * mounts it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
  * tier WITHOUT motion — the strip takes the Late tint and never the pulse — struck dish rows, the
  * one warn word, and "Got it" (`help.done`, the shipped word) in the bump's slot, until the cook
  * taps it. It is never dashed (that means held), never cream (that is the undo pill), and it never

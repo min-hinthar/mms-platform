@@ -8588,7 +8588,8 @@ a .chrome-en {
 }
 
 /* ── PD5 / m7 — "Table N left — stop cooking" (the shape, reserved; PATH_DESIGN reconciliation 1) ──
-   A per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
+   TODAY nothing draws it — a cleared table's cards leave the board on the next poll. Once PD7 mounts
+   it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
    tier WITHOUT motion — the strip takes the Late tint but never the pulse — struck dish rows, the
    one warn word in the strip, and "Got it" in the bump's slot, until the cook taps it. Never
    dashed (held), never cream (the pill), never a stub (m5 B1): the board's four marks never
