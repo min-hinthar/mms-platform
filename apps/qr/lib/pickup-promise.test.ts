@@ -8,8 +8,10 @@ import {
   LATE_AFTER_MIN,
   pickupCountdownMin,
   pickupDayBounds,
+  pickupDayBoundsAhead,
   pickupGuide,
   pickupIsToday,
+  slotLabel,
   type PickupGuideInput,
 } from "./pickup-promise";
 
@@ -171,6 +173,29 @@ describe("pickupIsToday / pickupDayBounds — the restaurant's calendar day", ()
     // MUTATION: `<` end → `<=` — the next day's midnight slot counts as today.
     expect(pickupIsToday("2026-10-09T07:00:00.000Z", now)).toBe(false);
     expect(pickupIsToday("2026-10-08T06:59:59.999Z", now)).toBe(false);
+  });
+});
+
+describe("slotLabel — 'Tomorrow' from the calendar, never from 24 hours (Codex r1 on #330)", () => {
+  it("the last hour of the spring-forward day: +24 h lands two dates ahead, the calendar does not", () => {
+    // Mar 13 2027, 23:30 PST (clocks go forward at 2 AM on the 14th). Tomorrow is the 14th.
+    const now = at("2027-03-14T07:30:00.000Z");
+    expect(pickupDayBoundsAhead(now, 1)).toEqual({
+      start: "2027-03-14T08:00:00.000Z", // midnight PST
+      end: "2027-03-15T07:00:00.000Z", // midnight PDT — a 23-hour day
+    });
+    // MUTATION: `nowMs + 86_400_000` → Mar 15 00:30 PDT, so a 6:20 PM pickup on the 14th lost its word.
+    expect(slotLabel("2027-03-15T01:20:00.000Z", now)).toBe("Tomorrow 6:20 PM");
+  });
+  it("the first hour of the fall-back day: +24 h stays on the same date, the calendar does not", () => {
+    // Nov 1 2026, 00:30 PDT (clocks go back at 2 AM). Tomorrow is the 2nd.
+    const now = at("2026-11-01T07:30:00.000Z");
+    expect(pickupDayBoundsAhead(now, 1)).toEqual({
+      start: "2026-11-02T08:00:00.000Z",
+      end: "2026-11-03T08:00:00.000Z",
+    });
+    expect(slotLabel("2026-11-03T02:20:00.000Z", now)).toBe("Tomorrow 6:20 PM");
+    expect(slotLabel(SLOT, at(SLOT, -60))).toBe("6:20 PM");
   });
 });
 

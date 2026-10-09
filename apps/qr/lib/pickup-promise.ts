@@ -160,10 +160,29 @@ function localMidnight(y: number, m: number, d: number): number {
 
 /** The restaurant's calendar day containing `nowMs`, as a half-open instant range [start, end). */
 export function pickupDayBounds(nowMs: number): { start: string; end: string } {
+  return dayBoundsFrom(nowMs, 0);
+}
+
+/** The restaurant's calendar day `daysAhead` days after the one containing `nowMs` — from the
+ *  calendar, never by adding 86 400 000 ms, which lands a day short or long across a clock change
+ *  (Codex r1 on #330). */
+export function pickupDayBoundsAhead(
+  nowMs: number,
+  daysAhead: number,
+): { start: string; end: string } {
+  return dayBoundsFrom(nowMs, daysAhead);
+}
+
+function dayBoundsFrom(nowMs: number, daysAhead: number): { start: string; end: string } {
   const { y, m, d } = wall(nowMs);
-  const start = localMidnight(y, m, d);
-  const end = localMidnight(y, m, d + 1); // Date.UTC rolls the month over
+  const start = localMidnight(y, m, d + daysAhead); // Date.UTC rolls the month over
+  const end = localMidnight(y, m, d + daysAhead + 1);
   return { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
+}
+
+function within(slotIso: string, b: { start: string; end: string }): boolean {
+  const at = Date.parse(slotIso);
+  return at >= Date.parse(b.start) && at < Date.parse(b.end);
 }
 
 /** Is the slot on the restaurant's calendar day that contains `nowMs`? */
@@ -177,7 +196,7 @@ export function pickupIsToday(slotIso: string, nowMs: number): boolean {
  *  prefixed the day before, else the short date. */
 export function slotLabel(slotIso: string, nowMs: number): string {
   if (pickupIsToday(slotIso, nowMs)) return formatSlot(slotIso);
-  if (pickupIsToday(slotIso, nowMs + 86_400_000)) return `Tomorrow ${formatSlot(slotIso)}`;
+  if (within(slotIso, pickupDayBoundsAhead(nowMs, 1))) return `Tomorrow ${formatSlot(slotIso)}`;
   const day = new Date(slotIso).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",

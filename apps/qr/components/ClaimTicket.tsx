@@ -22,6 +22,15 @@ import { trackFill, type TicketFace } from "@/lib/pickup-promise";
  * ticket once the code is the figure (PostHog autocapture is on). The code is spelt for assistive
  * tech (`figureSpoken`), never read as a word; the stub's small code keeps the sr twin.
  */
+type FaceProps = {
+  face: TicketFace;
+  slotLabel: string;
+  code: string;
+  name: string | null;
+  countdownMin: number | null;
+  pickedUpLabel: string | null;
+};
+
 export function ClaimTicket({
   face,
   turning,
@@ -47,6 +56,34 @@ export function ClaimTicket({
   /** The ticket's heading id (the pass names itself by it). */
   labelId: string;
 }) {
+  const shared = { slotLabel, code, name, countdownMin, pickedUpLabel };
+  // ONE footprint on every face (Codex r1 on #330): the Ready face carries a seam and a body the
+  // waiting face lacks, so the ticket used to GROW while its figure turned. Both faces now sit in
+  // one grid cell — the live face, and the OTHER face as an inert, hidden sizer (`CounterPass`'s
+  // own guide-picture mode: aria-hidden, `inert`, no ids) — so the ticket is always as tall as the
+  // taller face, at any font size, and nothing below it moves at the edge.
+  const other: TicketFace = face === "time" ? "code" : "time";
+  return (
+    <div
+      className={`claim-ticket vt-order-status${face === "time" ? "" : " ph-no-capture"}${face === "rest" ? " claim-ticket-rest" : ""}`}
+      data-face={face}
+      onAnimationEnd={(e) => {
+        // The primitive's TURN runs on the live figure; the host clears the hook when it lands.
+        if (turning && (e.target as HTMLElement).classList?.contains("ui-pass-figure")) onTurnEnd();
+      }}
+    >
+      {renderFace({ face, ...shared }, { id: labelId, turning })}
+      <div className="claim-sizer ph-no-capture" aria-hidden="true">
+        {renderFace({ face: other, ...shared }, { inert: true })}
+      </div>
+    </div>
+  );
+}
+
+function renderFace(
+  { face, slotLabel, code, name, countdownMin, pickedUpLabel }: FaceProps,
+  mode: { id?: string; turning?: boolean; inert?: boolean },
+) {
   const spaced = code.split("").join(" ");
   const forRow = name ? (
     <div className="claim-stub-row">
@@ -57,103 +94,91 @@ export function ClaimTicket({
 
   if (face === "time") {
     return (
-      // `.vt-order-status`: the header pill's morph partner lands on the ticket for pickup (B9 — the
-      // chip row is dropped on this page; the ticket is where the status lives).
-      <div className="claim-ticket vt-order-status" data-face="time">
-        <CounterPass
-          tier="holder"
-          figure={slotLabel}
-          figureKind="code"
-          label={TRACK.kickerPickup}
-          lang="en"
-          id={labelId}
-          head={
-            // The countdown is plain text: re-derived by the host's tick, never announced. From the
-            // slot onwards the slot is EMPTY (decision 14: "any minute now" retired).
-            countdownMin !== null ? (
-              <span className="claim-countdown">
-                <span className="claim-countdown-en">
-                  {trackFill("countdown", String(countdownMin)).en}
-                </span>
-                <span lang="my" className="claim-countdown-my">
-                  {trackFill("countdown", String(countdownMin)).my}
-                </span>
+      <CounterPass
+        tier="holder"
+        figure={slotLabel}
+        figureKind="code"
+        label={TRACK.kickerPickup}
+        lang="en"
+        id={mode.id}
+        inert={mode.inert}
+        head={
+          // The countdown is plain text: re-derived by the host's tick, never announced. From the
+          // slot onwards the slot is EMPTY (decision 14: "any minute now" retired).
+          countdownMin !== null ? (
+            <span className="claim-countdown">
+              <span className="claim-countdown-en">
+                {trackFill("countdown", String(countdownMin)).en}
               </span>
-            ) : undefined
-          }
-          stub={
-            <dl className="claim-stub ph-no-capture">
-              {forRow}
-              <div className="claim-stub-row">
-                <dt>Code</dt>
-                <dd className="claim-stub-code" aria-hidden>
-                  #{code}
-                </dd>
-                <dd className="sr-only">{`Order reference ${spaced}`}</dd>
-              </div>
-            </dl>
-          }
-        />
-      </div>
+              <span lang="my" className="claim-countdown-my">
+                {trackFill("countdown", String(countdownMin)).my}
+              </span>
+            </span>
+          ) : undefined
+        }
+        stub={
+          <dl className="claim-stub ph-no-capture">
+            {forRow}
+            <div className="claim-stub-row">
+              <dt>Code</dt>
+              <dd className="claim-stub-code" aria-hidden>
+                #{code}
+              </dd>
+              <dd className="sr-only">{`Order reference ${spaced}`}</dd>
+            </div>
+          </dl>
+        }
+      />
     );
   }
 
   const rest = face === "rest";
   return (
-    <div
-      className={`claim-ticket vt-order-status ph-no-capture${rest ? " claim-ticket-rest" : ""}`}
-      data-face={face}
-      onAnimationEnd={(e) => {
-        // The primitive's TURN runs on its figure; the host clears the hook when it lands so a later
-        // re-render never replays it (the key below already starts it exactly once per face).
-        if (turning && (e.target as HTMLElement).classList?.contains("ui-pass-figure")) onTurnEnd();
-      }}
+    <CounterPass
+      key={face}
+      tier="holder"
+      figure={`#${code}`}
+      figureKind="code"
+      figureSpoken={spaced}
+      label={TRACK.kickerPickup}
+      lang="en"
+      id={mode.id}
+      inert={mode.inert}
+      terminal={rest ? undefined : "ready"}
+      turning={mode.turning ? "figure" : undefined}
+      head={
+        <span className="claim-kicker">
+          <span className="claim-kicker-en">
+            {rest
+              ? pickedUpLabel
+                ? trackFill("kickerPickedUp", pickedUpLabel).en
+                : "Picked up"
+              : TRACK.kickerReady.en}
+          </span>
+          <span aria-hidden className="claim-kicker-dot">
+            {" · "}
+          </span>
+          <span lang="my" className="claim-kicker-my">
+            {rest ? TRACK.kickerPickedUp.my : TRACK.kickerReady.my}
+          </span>
+        </span>
+      }
+      stub={
+        <dl className="claim-stub">
+          {forRow}
+          <div className="claim-stub-row">
+            <dt>Pickup</dt>
+            <dd className="claim-stub-time">{slotLabel}</dd>
+          </div>
+        </dl>
+      }
     >
-      <CounterPass
-        key={face}
-        tier="holder"
-        figure={`#${code}`}
-        figureKind="code"
-        figureSpoken={spaced}
-        label={TRACK.kickerPickup}
-        lang="en"
-        id={labelId}
-        terminal={rest ? undefined : "ready"}
-        turning={turning ? "figure" : undefined}
-        head={
-          <span className="claim-kicker">
-            <span className="claim-kicker-en">
-              {rest
-                ? pickedUpLabel
-                  ? trackFill("kickerPickedUp", pickedUpLabel).en
-                  : "Picked up"
-                : TRACK.kickerReady.en}
-            </span>
-            <span aria-hidden className="claim-kicker-dot">
-              {" · "}
-            </span>
-            <span lang="my" className="claim-kicker-my">
-              {rest ? TRACK.kickerPickedUp.my : TRACK.kickerReady.my}
-            </span>
-          </span>
-        }
-        stub={
-          <dl className="claim-stub">
-            {forRow}
-            <div className="claim-stub-row">
-              <dt>Pickup</dt>
-              <dd className="claim-stub-time">{slotLabel}</dd>
-            </div>
-          </dl>
-        }
-      >
-        <p className="claim-sub">
-          {rest ? TRACK.pickedUpSub.en : TRACK.passSub.en}
-          <span lang="my" className="claim-sub-my">
-            {rest ? TRACK.pickedUpSub.my : TRACK.passSub.my}
-          </span>
-        </p>
-      </CounterPass>
-    </div>
+      <p className="claim-sub">
+        {rest ? TRACK.pickedUpSub.en : TRACK.passSub.en}
+        <span lang="my" className="claim-sub-my">
+          {rest ? TRACK.pickedUpSub.my : TRACK.passSub.my}
+        </span>
+      </p>
+    </CounterPass>
   );
 }

@@ -6352,8 +6352,26 @@ html[data-seen-surface] .mms-stagger {
 /* The claim ticket — the ONE PASS (`CounterPass`, @mms/ui/pass.css) at its holder tier. The paper,
    the seam, the notches, the stamp, the figure's tier and the TURN are the primitive's; these are the
    HOST's fields inside its slots, inked with the pass's constant tokens (never a theme token). */
+/* ONE footprint on every face (Codex r1 on #330): the live face and the other face's inert sizer
+   share one grid cell, so the ticket is always the taller face's height and nothing below it moves
+   at the TURN. The sizer is invisible, inert and aria-hidden (CounterPass's guide-picture mode). */
 .claim-ticket {
+  display: grid;
   margin-top: 20px;
+}
+.claim-ticket > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.claim-ticket > .ui-pass {
+  align-self: stretch;
+}
+.claim-ticket > .ui-pass .ui-pass-paper {
+  height: 100%;
+}
+.claim-sizer {
+  visibility: hidden;
+  pointer-events: none;
 }
 .claim-countdown {
   display: flex;
