@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { announceArrivalInput } from "@mms/db/schemas";
-import { assertSessionMember, getCallerUid } from "./authz";
+import { assertSessionMember, AuthzError, getCallerUid } from "./authz";
 import { assertMutationRate } from "./rate";
 import { pickupDayBounds } from "./pickup-promise";
 
@@ -17,9 +17,12 @@ import { pickupDayBounds } from "./pickup-promise";
  *
  * AuthZ (m3 decision 22): the caller is a member of the order's session (`assertSessionMember`, the
  * gate the order read rides via RLS) — or, once that session has lapsed (a pickup booked more than
- * four hours ahead, session-ttl.ts), the diner the order was EARNED BY (`earned_by`, stamped at
- * fulfilment, the authority `getMyOrderFallback` already reads). Without the second arm "I’m here"
- * refused every tap on exactly the far-booked pickup M65 is about.
+ * four hours ahead, session-ttl.ts), one of the DURABLE proofs the tracker's own fallback read
+ * accepts (`getMyOrderFallback`, lib/orders.ts; Codex r1 on #330): the diner the order was EARNED BY
+ * (`earned_by`, stamped at fulfilment), a split PAYER of it (`qr_order_payers`), or a seat in its
+ * session whatever that session's status now (`session_members`, the counter arm). Without these
+ * "I’m here" refused every tap on exactly the far-booked pickup M65 is about. A transport failure
+ * on any proof is `failed` — never a decided refusal that would retire the guest's pending record.
  *
  * The write is guarded IN THE STATEMENT, not only in the read above it (the CLAUDE.md W17 rule):
  *   - `.is("arrived_at", null)` — idempotent: a double-tap, a beacon AND a reconcile, a second tab
@@ -37,9 +40,10 @@ export type ArrivalWrite =
       ok: false;
       /** `unauthorized` — unknown, malformed or not the caller's (ONE answer: no existence oracle);
        *  `not_today` — the slot is on another day (or the order is not a pickup); `collected` — the
-       *  bag already left; `rate` — too many taps; `failed` — the UPDATE itself failed. Every value
-       *  but `failed` is a decided answer the client may act on. */
-      reason: "unauthorized" | "not_today" | "collected" | "rate" | "failed";
+       *  bag already left; `closed` — the order is no longer paid (refunded / failed); `rate` — too
+       *  many taps; `failed` — the UPDATE, or a proof it depends on, could not be read. Every value
+       *  but `rate` and `failed` is a decided answer the client may act on. */
+      reason: "unauthorized" | "not_today" | "collected" | "closed" | "rate" | "failed";
     };
 
 export async function stampArrival(raw: { orderId: string }, nowMs: number): Promise<ArrivalWrite> {
@@ -57,8 +61,9 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
   // success short-circuit, so a non-member replaying a leaked order id can't tell a stamped order
   // from an unknown one.
   if (!order) return { ok: false, reason: "unauthorized" };
-  const uid = await authorizedUid(order.session_id, order.earned_by);
-  if (!uid) return { ok: false, reason: "unauthorized" };
+  const authz = await authorizedUid(db, order);
+  if ("refused" in authz) return { ok: false, reason: authz.refused };
+  const { uid } = authz;
   // Same per-device flood guard as every diner mutation (P3.4) — hammering an unstamped order id
   // must not buy unbounded service-role work, even though the write surface is one timestamp.
   try {
@@ -75,6 +80,7 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
     .from("qr_orders")
     .update({ arrived_at: new Date(nowMs).toISOString() })
     .eq("id", orderId)
+    .eq("status", "paid") // a refunded or failed order never takes an arrival (Codex r1 on #330)
     .is("arrived_at", null) // idempotence in the statement, not just the read above
     .gte("pickup_slot", start)
     .lt("pickup_slot", end) // the pickup's own day — decision 5, enforced here, not only drawn
@@ -90,34 +96,65 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
     // or a race that stamped it meanwhile).
     const { data: after } = await db
       .from("qr_orders")
-      .select("arrived_at,togo_status")
+      .select("arrived_at,togo_status,status")
       .eq("id", orderId)
       .maybeSingle();
     if (after?.arrived_at) return { ok: true };
+    if (after && after.status !== "paid") return { ok: false, reason: "closed" };
     if (after?.togo_status === "picked_up") return { ok: false, reason: "collected" };
     return { ok: false, reason: "not_today" };
   }
   return { ok: true };
 }
 
-/** The session arm first (the live read's own gate), then the durable earned_by arm. Null = neither. */
+type Authz = { uid: string } | { refused: "unauthorized" | "failed" };
+
+/** A proof that could not be READ (the auth transport, a table) is not a refusal. */
+function unavailable(e: unknown): boolean {
+  return e instanceof AuthzError && e.code === "unavailable";
+}
+
+/** The session arm first (the live read's own gate), then the durable proofs the tracker's fallback
+ *  read accepts: `earned_by`, a split payer row, a seat in the order's session whatever its status. */
 async function authorizedUid(
-  sessionId: string | null,
-  earnedBy: string | null,
-): Promise<string | null> {
-  if (sessionId) {
+  db: ReturnType<typeof serviceClient>,
+  order: { id: string; session_id: string | null; earned_by: string | null },
+): Promise<Authz> {
+  if (order.session_id) {
     try {
-      const { uid } = await assertSessionMember(sessionId);
-      return uid;
-    } catch {
-      /* the session lapsed or the caller is not a member — the earned_by arm decides below */
+      const { uid } = await assertSessionMember(order.session_id);
+      return { uid };
+    } catch (e) {
+      if (unavailable(e)) return { refused: "failed" };
+      /* the session lapsed or the caller is not a member — the durable proofs decide below */
     }
   }
-  if (!earnedBy) return null;
+  let uid: string;
   try {
-    const uid = await getCallerUid();
-    return earnedBy === uid ? uid : null;
-  } catch {
-    return null;
+    uid = await getCallerUid();
+  } catch (e) {
+    return { refused: unavailable(e) ? "failed" : "unauthorized" };
   }
+  if (order.earned_by === uid) return { uid };
+  const { data: payer, error: payerErr } = await db
+    .from("qr_order_payers")
+    .select("order_id")
+    .eq("order_id", order.id)
+    .eq("payer_uid", uid)
+    .limit(1)
+    .maybeSingle();
+  if (payerErr) return { refused: "failed" };
+  if (payer) return { uid };
+  if (order.session_id) {
+    const { data: seat, error: seatErr } = await db
+      .from("session_members")
+      .select("seat_id")
+      .eq("session_id", order.session_id)
+      .eq("seat_id", uid)
+      .limit(1)
+      .maybeSingle();
+    if (seatErr) return { refused: "failed" };
+    if (seat) return { uid };
+  }
+  return { refused: "unauthorized" };
 }

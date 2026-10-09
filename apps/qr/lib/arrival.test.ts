@@ -27,10 +27,15 @@ type Row = {
   arrived_at: string | null;
   pickup_slot: string | null;
   togo_status: string | null;
+  status: string;
 };
 let row: Row;
 let member: { ok: true; uid: string } | { ok: false; code: string };
-let callerUid: string | null;
+/** The caller's uid, `null` for not signed in, `"unavailable"` for an auth-transport failure. */
+let callerUid: string | null | { unavailable: true };
+/** The durable proofs beside `earned_by` (Codex r1 on #330): split payers and seats. */
+let payers: { order_id: string; payer_uid: string }[];
+let seats: { session_id: string; seat_id: string }[];
 let updateErr: { message: string } | null;
 let selectedAfterUpdate: string | null;
 
@@ -46,15 +51,54 @@ function parseOr(expr: string): Filter {
   return (r) => alts.some((f) => f(r));
 }
 
+class FakeAuthzError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "AuthzError";
+  }
+}
 vi.mock("./authz", () => ({
+  AuthzError: FakeAuthzError,
   assertSessionMember: () =>
-    member.ok ? Promise.resolve({ uid: member.uid }) : Promise.reject(new Error(member.code)),
-  getCallerUid: () => (callerUid ? Promise.resolve(callerUid) : Promise.reject(new Error("no"))),
+    member.ok
+      ? Promise.resolve({ uid: member.uid })
+      : Promise.reject(
+          new FakeAuthzError(member.code, member.code === "unavailable" ? 503 : 403, member.code),
+        ),
+  getCallerUid: () =>
+    typeof callerUid === "string"
+      ? Promise.resolve(callerUid)
+      : callerUid === null
+        ? Promise.reject(new FakeAuthzError("Not signed in", 401, "unauthenticated"))
+        : Promise.reject(new FakeAuthzError("down", 503, "unavailable")),
 }));
 vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
+      if (table === "qr_order_payers" || table === "session_members") {
+        // The proof tables: every `.eq` must hold on a row for it to answer.
+        const eqs: [string, unknown][] = [];
+        const rows: Record<string, unknown>[] = table === "qr_order_payers" ? payers : seats;
+        const c: Record<string, unknown> = {
+          select: () => c,
+          eq: (col: string, val: unknown) => {
+            eqs.push([col, val]);
+            return c;
+          },
+          limit: () => c,
+          maybeSingle: () =>
+            Promise.resolve({
+              data: rows.find((r) => eqs.every(([k, v]) => r[k] === v)) ?? null,
+              error: null,
+            }),
+        };
+        return c;
+      }
       if (table !== "qr_orders") throw new Error(`unexpected table ${table}`);
       const filters: Filter[] = [];
       let patch: Partial<Row> | null = null;
@@ -111,9 +155,12 @@ beforeEach(() => {
     arrived_at: null,
     pickup_slot: SLOT,
     togo_status: "preparing",
+    status: "paid",
   };
   member = { ok: true, uid: UID };
   callerUid = UID;
+  payers = [];
+  seats = [];
   updateErr = null;
   selectedAfterUpdate = null;
 });
@@ -168,6 +215,18 @@ describe("stampArrival — the write, guarded IN the statement", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("a refunded or failed order never takes an arrival — the paid predicate rides the statement (Codex r1 on #330)", async () => {
+    // A commit delayed past a refund, or a direct call by an authorized member, would otherwise pin
+    // a stamp on a terminal order and ring a false "Here now" on Dad's lane.
+    // MUTATION: drop `.eq("status", "paid")`.
+    row.status = "refunded";
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "closed",
+    });
+    expect(row.arrived_at).toBeNull();
+  });
+
   it("a non-pickup order (no slot) never takes an arrival", async () => {
     row.pickup_slot = null;
     await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
@@ -186,6 +245,48 @@ describe("stampArrival — who may write (the session arm, then the durable earn
     await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
     expect(row.arrived_at).not.toBeNull();
   });
+  it("a lapsed session still stamps for a split PAYER and for a durable SEAT — the tracker's own proofs (Codex r1 on #330)", async () => {
+    // `getMyOrderFallback` lets a non-host payer (`qr_order_payers`) and a counter-paid seat
+    // (`session_members`, whatever the session's status) read the page; the arrival must accept
+    // the same proofs or their "I’m here" refuses every tap.
+    member = { ok: false, code: "session_expired" };
+    row.earned_by = "u-host";
+    callerUid = "u-payer";
+    payers = [{ order_id: ORDER, payer_uid: "u-payer" }];
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
+    row.arrived_at = null;
+    callerUid = "u-seat";
+    seats = [{ session_id: SESSION, seat_id: "u-seat" }];
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
+    // A payer row for ANOTHER order proves nothing.
+    row.arrived_at = null;
+    callerUid = "u-other";
+    payers = [{ order_id: "0b6c1e58-0000-4000-8000-00000000ffff", payer_uid: "u-other" }];
+    seats = [];
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it("an auth-transport failure is `failed`, never a decided refusal (Codex r1 on #330)", async () => {
+    // A decided `unauthorized` is a 200 the client clears its pending record on — so an identity
+    // service that is merely DOWN must not read as "not yours". MUTATION: map every throw to null.
+    member = { ok: false, code: "session_expired" };
+    callerUid = { unavailable: true };
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    member = { ok: false, code: "unavailable" };
+    callerUid = UID;
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(row.arrived_at).toBeNull();
+  });
+
   it("refuses a stranger: no membership and not the earner, with the one generic answer", async () => {
     member = { ok: false, code: "not_member" };
     callerUid = "u-stranger";
