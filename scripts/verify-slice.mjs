@@ -25680,6 +25680,31 @@ const MUTANTS = [
     replace: "                unsent={kitchenDraftQty > 0}",
   },
   {
+    id: "checkout/restored-ask-announced-as-new",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (critical 1) — a refused or failed withdraw's revert (and a read landing during it) writes the SAME ask back; announced as new, a phone that never asked says 'Your table asked to pay at the counter.' and `sayOutcome` wipes the real error",
+    find: "    if (seen != null && sameAsk(seen, counterAt)) {",
+    replace: "    if (false) {",
+  },
+  {
+    id: "checkout/promo-focus-outlives-the-form",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (critical 2) — React fires no blur for an input it removes in its own commit; the promo focus outliving the form leaves the Bill's ONLY door hidden after an ask lands and is withdrawn",
+    find: "  if (promoFocused && !showPayControls) setPromoFocused(false);\n",
+    replace: "",
+  },
+  {
+    id: "checkout/dock-padding-reads-the-split-mode",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The blind pass on #331 (critical 3) — ONE binding for the dock and the padding that clears it; the padding reading the split's mode leaves the promo form and RewardField under the dock on a split-read miss",
+    find: 'paddingBottom: dockShown ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)" : undefined,',
+    replace:
+      'paddingBottom: showPayControls && isDineIn && phonePayOff ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)" : undefined,',
+  },
+  {
     id: "checkout/door-ignores-the-parked-door",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",

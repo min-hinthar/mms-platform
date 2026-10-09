@@ -2505,6 +2505,82 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(document.body.textContent).not.toContain("splitting the bill");
   });
 
+  // ── The blind pass on #331 (head e90e4da): three criticals, each through the real interleaving ──
+
+  const ASKED = "2026-10-08T06:00:00.000Z";
+  for (const how of ["refused", "thrown"] as const) {
+    it(`a ${how} withdraw on a phone that did NOT ask restores the ask SILENTLY and keeps the real error (blind pass, critical 1)`, async () => {
+      // Phone B: the ask is a tablemate's (standing at mount, never this phone's tap).
+      if (how === "refused")
+        h.withdrawCounterPay.mockResolvedValue({
+          ok: false,
+          error: "This order’s already paid — there’s nothing to cancel.",
+        });
+      else h.withdrawCounterPay.mockRejectedValue(new Error("network"));
+      mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+      expect(counterCards()).toBe(1);
+      await press("We’re not done yet — cancel paying at the counter");
+      await settle();
+      await settle();
+      // RED before the fix: the optimistic null then the revert is a null→stamp edge, announced as
+      // a NEW ask — and `sayOutcome` cleared the pay error it had just set.
+      expect(regionText()).not.toContain("Your table asked");
+      expect(regionText()).toContain(
+        how === "refused"
+          ? "This order’s already paid — there’s nothing to cancel."
+          : "Couldn’t reach the counter just now — please try again.",
+      );
+      expect(counterCards()).toBe(1);
+    });
+  }
+
+  it("a read landing DURING the withdraw that carries the same ask is not a new ask (blind pass, critical 1)", async () => {
+    const answer = deferred<{ ok: true }>();
+    h.withdrawCounterPay.mockReturnValue(answer.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+    await press("We’re not done yet — cancel paying at the counter");
+    // A realtime echo / visibility read lands while the withdraw is out: it still shows the ask.
+    await syncFromServer();
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await act(async () => {
+      answer.resolve({ ok: true });
+    });
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+  });
+
+  it("an ask landing while the promo field has focus never strands the docked door hidden (blind pass, critical 2)", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    // The dock hides while the field has focus (it never rides the keyboard).
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    // A tablemate's ask lands: the pass replaces the form — React removes the focused input in its
+    // own commit, and fires no blur for it.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // …and is withdrawn: the Bill — and its ONE door — come back.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(0));
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a split-read miss draws the dock AND the padding that clears it — one binding (blind pass, critical 3)", () => {
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+    // MUTATION (checkout/dock-padding-reads-the-split-mode): the padding gated on the split's mode;
+    // the promo form and RewardField sit under the dock and cannot scroll clear; red.
+    expect(document.querySelector("main")!.style.paddingBottom).toContain("--cta-dock-h");
+  });
+
   // ── Codex round 2 on #331 (head 5c074e1) ──
 
   it("a missed split read cannot un-park the door: the cart view's mode answers it (comment 4226408727)", async () => {

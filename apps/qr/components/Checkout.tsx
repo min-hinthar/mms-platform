@@ -246,6 +246,12 @@ const lineSig = (i: CartItem) => JSON.stringify(i);
  * review breakdown from `getCartView`, the tip-inclusive grand total from create-intent. Never client
  * money math (the tip chip preview is a hint, confirmed server-side).
  */
+/** The blind pass on #331 — two `counterRequestedAt` stamps name the SAME ask when they name the
+ *  same instant (a view and the ask's own answer may format one instant differently). */
+function sameAsk(a: string, b: string): boolean {
+  return Date.parse(a) === Date.parse(b);
+}
+
 export function Checkout({
   cartId,
   initialItems,
@@ -2084,6 +2090,14 @@ export function Checkout({
    * this screen (the region must be on screen before its text changes).
    */
   const prevCounterAt = useRef(counterAt);
+  // The blind pass on #331 (critical 1) — the last ask this phone SAW. A withdraw is optimistic (the
+  // stamp goes null at the tap), so a refused or failed withdraw's revert — and a read landing during
+  // it that still carries the ask — writes the SAME stamp back: a null→stamp edge that is not a new
+  // ask. Announcing it told the table "Your table asked to pay at the counter." and, through
+  // `sayOutcome`, cleared the very error the revert had set. Only a stamp with a different instant
+  // is a new ask (compared as an instant, never as a string: a view and an action may format it
+  // differently).
+  const lastAsk = useRef(counterAt);
   // The remote ask's frame, cancelled on UNMOUNT only: the optimistic stamp is replaced by the
   // server's a beat later (one more run of the effect below, no edge), and a per-run cleanup would
   // cancel the frame the edge had just armed.
@@ -2097,7 +2111,15 @@ export function Checkout({
   useEffect(() => {
     const was = prevCounterAt.current;
     prevCounterAt.current = counterAt;
+    const seen = lastAsk.current;
+    if (counterAt != null) lastAsk.current = counterAt;
     if (was != null || counterAt == null || !phonePayOff) return;
+    if (seen != null && sameAsk(seen, counterAt)) {
+      // The SAME ask, restored: nothing to say. The withdraw control unmounted under the optimistic
+      // null and is back now — focus returns to the page's home only if it was lost with it.
+      if (focusWasLost()) headingRef.current?.focus();
+      return;
+    }
     if (ownAsk) {
       // This phone's own tap: the dock that held focus has unmounted — land on the heading now.
       headingRef.current?.focus();
@@ -2801,6 +2823,15 @@ export function Checkout({
   // server refuses the stamp on every other mode.
   const counterAsk = showPayFurniture && counterAt != null;
   const showPayControls = showPayFurniture && !counterAsk;
+  // The blind pass on #331 (critical 3) — ONE binding for the docked counter door, read by the dock
+  // AND by the page padding that clears it (the padding used to read the split's `isDineIn`, so a
+  // split-read miss drew the dock over the promo form with nothing to scroll it clear).
+  const dockShown = showPayControls && phonePayOff;
+  // The blind pass on #331 (critical 2) — the promo field's focus cannot outlive the form. React
+  // fires no `blur` for an input it removes in its own commit (an ask landing, the settle freeze),
+  // so the form's unmount is the blur: adjusted during render (React's derived-state pattern), or
+  // the docked door — the Bill's ONLY door — came back `hidden` with no way to un-hide it.
+  if (promoFocused && !showPayControls) setPromoFocused(false);
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -2836,10 +2867,7 @@ export function Checkout({
       // scrolls clear of the dock on a short phone.
       style={{
         padding: "24px 20px 40px",
-        paddingBottom:
-          showPayControls && isDineIn && phonePayOff
-            ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)"
-            : undefined,
+        paddingBottom: dockShown ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)" : undefined,
       }}
     >
       <PaperAmbient />
@@ -4355,7 +4383,7 @@ export function Checkout({
                 both. Held states are `aria-disabled` with the reason as the description, and every
                 blocked tap re-says it through the view's one region. No amount on the door: it
                 charges nothing, and the total sits on the slip above. */}
-            {showPayControls && phonePayOff && (
+            {dockShown && (
               <PayAtCounterDock
                 lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
                 reason={
