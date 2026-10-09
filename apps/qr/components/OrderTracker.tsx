@@ -387,7 +387,9 @@ export function OrderTracker({
   // PD3 — the pickup page: NOW once, the path, the claim ticket, the one question. It owns the J5
   // "I’m here" (now with the 6-second take-back, decision 5) and the view's live region; a to-go
   // or scan-and-go order keeps the rail and the ready card below.
-  const pickupPromise = arrived && isPickup && !refunded && !settleCanceled && !pureGrocery;
+  // Paid only (blind pass on #330, open question): a `pending` or `failed` row keeps the existing arms.
+  const pickupPromise =
+    arrived && order.status === "paid" && isPickup && !refunded && !settleCanceled && !pureGrocery;
 
   // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a

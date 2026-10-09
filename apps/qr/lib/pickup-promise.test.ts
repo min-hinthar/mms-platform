@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PICKED_UNDO_MS } from "./expo-rules";
 import {
+  ARRIVAL_LEAD_MIN,
   ARRIVAL_UNDO_MS,
   arrivalCommitDue,
   arrivalTapHeld,
@@ -12,6 +13,7 @@ import {
   pickupGuide,
   pickupIsToday,
   slotLabel,
+  stopClockLabel,
   type PickupGuideInput,
 } from "./pickup-promise";
 
@@ -132,11 +134,17 @@ describe("pickupGuide — ready and picked up", () => {
   });
 });
 
-describe("pickupGuide — 'I’m here' is offered on the pickup's own day, at every stage", () => {
-  it("offered while booked, cooking, late and ready on the day", () => {
+describe("pickupGuide — 'I’m here' is offered from ARRIVAL_LEAD_MIN before the slot, on its own day", () => {
+  it("is offered from 30 minutes before the slot — booked, cooking, late or ready — and not a minute earlier", () => {
+    // Blind pass on #330: offered the whole day, a 9 AM tap for a 6:20 PM slot rang the bell at
+    // 9 AM, pinned "Here now" above every due bag all day, and the real arrival could never be
+    // announced. The spec's own scene is 19 minutes early. MUTATION: drop the lead bound.
+    expect(ARRIVAL_LEAD_MIN).toBe(30);
     const held = { ...base, fireAt: "2026-10-09T01:08:00.000Z" };
-    expect(pickupGuide(held, at("2026-10-08T17:00:00.000Z")).arrivalOffered).toBe(true); // 10 AM
-    expect(pickupGuide(base, at(PAID)).arrivalOffered).toBe(true);
+    expect(pickupGuide(held, at("2026-10-08T17:00:00.000Z")).arrivalOffered).toBe(false); // 10 AM
+    expect(pickupGuide(base, at(SLOT, -ARRIVAL_LEAD_MIN) - 1).arrivalOffered).toBe(false);
+    expect(pickupGuide(held, at(SLOT, -ARRIVAL_LEAD_MIN)).arrivalOffered).toBe(true);
+    expect(pickupGuide(base, at(SLOT, -19)).arrivalOffered).toBe(true); // the spec's 6:01 PM
     expect(pickupGuide(base, at(SLOT, 20)).arrivalOffered).toBe(true);
     expect(pickupGuide({ ...base, togoStatus: "ready" }, at(SLOT)).arrivalOffered).toBe(true);
   });
@@ -145,13 +153,21 @@ describe("pickupGuide — 'I’m here' is offered on the pickup's own day, at ev
     // (Oct 9 01:20 UTC is Oct 8 in Covina). A UTC-keyed rule would offer it a day early.
     // MUTATION: compare UTC dates → offered.
     expect(pickupGuide(base, at("2026-10-08T06:00:00.000Z")).arrivalOffered).toBe(false);
-    // The morning of the pickup day, 1 AM PDT = 08:00 UTC: offered.
-    expect(pickupGuide(base, at("2026-10-08T08:00:00.000Z")).arrivalOffered).toBe(true);
-    // The day after, early: not offered.
+    // The day after, 1 AM PDT (08:00Z Oct 9): past the lead bound, NOT the day — so the day rule is
+    // the one deciding. MUTATION: drop the day rule → offered after midnight.
     expect(pickupGuide(base, at("2026-10-09T08:00:00.000Z")).arrivalOffered).toBe(false);
   });
   it("never once the order is refunded", () => {
     expect(pickupGuide({ ...base, status: "refunded" }, at(PAID)).arrivalOffered).toBe(false);
+  });
+});
+
+describe("stopClockLabel — a stop's real clock says its DAY when it is not today (blind pass on #330)", () => {
+  it("the clock alone on the restaurant's same day, and the weekday before it otherwise", () => {
+    // Placed 9:12 PM Oct 7, read at 2 PM Oct 8: a bare "9:12 PM" reads as this evening.
+    const placed = "2026-10-08T04:12:00.000Z"; // 9:12 PM PDT, Oct 7
+    expect(stopClockLabel(placed, at("2026-10-07T23:00:00.000Z"))).toBe("9:12 PM"); // 4 PM, Oct 7
+    expect(stopClockLabel(placed, at("2026-10-08T21:00:00.000Z"))).toBe("Wed 9:12 PM"); // 2 PM, Oct 8
   });
 });
 

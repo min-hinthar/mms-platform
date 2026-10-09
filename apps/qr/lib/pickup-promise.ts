@@ -3,7 +3,7 @@ import { TRACK, type TrackKey } from "./i18n/track";
 import type { Entry } from "./i18n/types";
 import { PICKED_UNDO_MS, pickedUndoOpen } from "./expo-rules";
 import { undoTapHeld } from "./send-grace";
-import { formatSlot, RESTAURANT_TZ } from "./pickupTime";
+import { formatClock, formatSlot, RESTAURANT_TZ } from "./pickupTime";
 
 /**
  * PD3 — the pickup promise, ONE pure derivation (docs/path-design-2026-10-07/m3-pickup-promise.md).
@@ -38,6 +38,16 @@ export function trackFill(key: TrackKey, slot: string): Entry {
  *  existing judgement (the old countdown's `mins < -15` drop), named once. */
 export const LATE_AFTER_MIN = 15;
 
+/**
+ * How long before the booked slot "I’m here" is offered — and accepted by the server, from the same
+ * constant (decided under the owner's delegation, post-pay, on the blind pass of #330; m3 §H4). The
+ * first build offered it the whole pickup day (decision 5's default): a 9 AM tap for a 6:20 PM slot
+ * rang Dad's bell at 9 AM, pinned "Here now" above every due bag all day, and — the stamp being set
+ * once — the guest's real arrival could never be announced. The spec's own scene arrives 19 minutes
+ * early; thirty covers it with room.
+ */
+export const ARRIVAL_LEAD_MIN = 30;
+
 /** The take-back window before an arrival is written: the lane's own six seconds (decision 10). */
 export const ARRIVAL_UNDO_MS = PICKED_UNDO_MS;
 
@@ -49,7 +59,7 @@ export function isFired(fireAt: string | null, nowMs: number): boolean {
   return Number.isFinite(at) && at <= nowMs;
 }
 
-export type PickupStage = "confirming" | "booked" | "cooking" | "late" | "ready" | "pickedUp";
+export type PickupStage = "booked" | "cooking" | "late" | "ready" | "pickedUp";
 export type TicketFace = "time" | "code" | "rest";
 
 export type PickupGuideInput = {
@@ -108,7 +118,11 @@ export function pickupGuide(o: PickupGuideInput, nowMs: number): PickupGuide {
   const sub: Entry | null =
     stage === "booked" ? TRACK.bookedSub : stage === "late" ? TRACK.lateSub : null;
   const face: TicketFace = stage === "pickedUp" ? "rest" : stage === "ready" ? "code" : "time";
-  const arrivalOffered = o.status === "paid" && !collected && pickupIsToday(o.pickupSlot, nowMs);
+  const arrivalOffered =
+    o.status === "paid" &&
+    !collected &&
+    pickupIsToday(o.pickupSlot, nowMs) &&
+    nowMs >= Date.parse(o.pickupSlot) - ARRIVAL_LEAD_MIN * 60_000;
   const countdownMin =
     stage === "booked" || stage === "cooking" ? pickupCountdownMin(o.pickupSlot, nowMs) : null;
   return { stage, step, now, sub, face, arrivalOffered, countdownMin, slotLabel: slot };
@@ -190,6 +204,18 @@ export function pickupIsToday(slotIso: string, nowMs: number): boolean {
   const { start, end } = pickupDayBounds(nowMs);
   const at = Date.parse(slotIso);
   return at >= Date.parse(start) && at < Date.parse(end);
+}
+
+/** A path stop's REAL clock, with its weekday when it was not the restaurant's today ("Wed 9:12 PM")
+ *  — a bare "9:12 PM" for an order placed the evening before reads as this evening (blind pass on
+ *  #330). */
+export function stopClockLabel(iso: string, nowMs: number): string {
+  if (pickupIsToday(iso, nowMs)) return formatClock(iso);
+  const day = new Date(iso).toLocaleDateString("en-US", {
+    weekday: "short",
+    timeZone: RESTAURANT_TZ,
+  });
+  return `${day} ${formatClock(iso)}`;
 }
 
 /** `formatSlotLong`'s rule with an injected clock: the time alone on the pickup day, "Tomorrow"

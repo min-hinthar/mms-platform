@@ -22,9 +22,9 @@ import {
   arrivalCommitDue,
   arrivalTapHeld,
   pickupGuide,
+  stopClockLabel,
   type PickupStage,
 } from "@/lib/pickup-promise";
-import { formatClock } from "@/lib/pickupTime";
 import type { TrackedOrder } from "@/lib/track-order";
 import { capRelease, heldFor, holdCapPhase, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
 import { ClaimTicket } from "./ClaimTicket";
@@ -459,7 +459,7 @@ export function PickupPromise({
               </span>
               <span className="pickup-stop-label">{title}</span>
               <span className="sr-only">{state}</span>
-              {clock && <span className="pickup-stop-clock">{formatClock(clock)}</span>}
+              {clock && <span className="pickup-stop-clock">{stopClockLabel(clock, nowTick)}</span>}
             </li>
           );
         })}
@@ -473,7 +473,7 @@ export function PickupPromise({
         code={code}
         name={order.customerName}
         countdownMin={guide.countdownMin}
-        pickedUpLabel={order.togoPickedUpAt ? formatClock(order.togoPickedUpAt) : null}
+        pickedUpLabel={order.togoPickedUpAt ? stopClockLabel(order.togoPickedUpAt, nowTick) : null}
         labelId={kickerId}
       />
 

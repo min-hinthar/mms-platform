@@ -39,6 +39,12 @@ let payers: { order_id: string; payer_uid: string }[];
 let seats: { session_id: string; seat_id: string }[];
 /** A transport failure on the FIRST lookup (the read that decides whether the order exists). */
 let lookupErr: { message: string } | null;
+/** A transport failure on the read that CLASSIFIES a refused UPDATE. */
+let classifyErr: { message: string } | null;
+/** Runs right after the first lookup answers — a racing writer between the read and the UPDATE. */
+let afterLookup: (() => void) | null;
+/** How many times `qr_orders` was touched — the flood guard runs before any of them. */
+let orderReads: number;
 let updateErr: { message: string } | null;
 let selectedAfterUpdate: string | null;
 
@@ -79,7 +85,12 @@ vi.mock("./authz", () => ({
         ? Promise.reject(new FakeAuthzError("Not signed in", 401, "unauthenticated"))
         : Promise.reject(new FakeAuthzError("down", 503, "unavailable")),
 }));
-vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
+/** The flood guard's answer; `false` refuses like the real limiter. */
+let rateOk = true;
+vi.mock("./rate", () => ({
+  assertMutationRate: () =>
+    rateOk ? Promise.resolve() : Promise.reject(new Error("Too many changes too fast")),
+}));
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
@@ -103,6 +114,7 @@ vi.mock("@mms/db/server", () => ({
         return c;
       }
       if (table !== "qr_orders") throw new Error(`unexpected table ${table}`);
+      orderReads += 1;
       const filters: Filter[] = [];
       let patch: Partial<Row> | null = null;
       let cols = "";
@@ -134,6 +146,10 @@ vi.mock("@mms/db/server", () => ({
           filters.push((r) => r[col] !== null && Date.parse(String(r[col])) >= Date.parse(val));
           return chain;
         },
+        lte: (col: keyof Row, val: string) => {
+          filters.push((r) => r[col] !== null && Date.parse(String(r[col])) <= Date.parse(val));
+          return chain;
+        },
         lt: (col: keyof Row, val: string) => {
           filters.push((r) => r[col] !== null && Date.parse(String(r[col])) < Date.parse(val));
           return chain;
@@ -142,13 +158,14 @@ vi.mock("@mms/db/server", () => ({
           filters.push(parseOr(expr));
           return chain;
         },
-        maybeSingle: () =>
-          lookupErr && cols.includes("earned_by")
-            ? Promise.resolve({ data: null, error: lookupErr })
-            : Promise.resolve({
-                data: filters.every((f) => f(row)) ? { ...row } : null,
-                error: null,
-              }),
+        maybeSingle: () => {
+          const lookup = cols.includes("earned_by");
+          if (lookup && lookupErr) return Promise.resolve({ data: null, error: lookupErr });
+          if (!lookup && classifyErr) return Promise.resolve({ data: null, error: classifyErr });
+          const data = filters.every((f) => f(row)) ? { ...row } : null;
+          if (lookup) afterLookup?.();
+          return Promise.resolve({ data, error: null });
+        },
       };
       return chain;
     },
@@ -173,6 +190,10 @@ beforeEach(() => {
   payers = [];
   seats = [];
   lookupErr = null;
+  classifyErr = null;
+  afterLookup = null;
+  orderReads = 0;
+  rateOk = true;
   updateErr = null;
   selectedAfterUpdate = null;
 });
@@ -186,6 +207,42 @@ describe("stampArrival — the write, guarded IN the statement", () => {
     const first = row.arrived_at;
     await expect(stampArrival({ orderId: ORDER }, NOW + 60_000)).resolves.toEqual({ ok: true });
     expect(row.arrived_at).toBe(first);
+  });
+
+  it("idempotence rides the STATEMENT: a racer stamps between the read and the UPDATE, and the first stamp stands", async () => {
+    // Blind pass on #330: the old test's second call returned at the pre-read's early exit, so the
+    // statement's `.is("arrived_at", null)` was never reached. Here the pre-read sees null and the
+    // row is stamped by the time the UPDATE runs. MUTATION: drop `.is("arrived_at", null)`.
+    const EARLIER = "2026-10-09T01:00:30.000Z";
+    afterLookup = () => {
+      row.arrived_at = EARLIER;
+    };
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
+    expect(row.arrived_at).toBe(EARLIER);
+  });
+
+  it("is TOO EARLY before the lead bound — the same rule the page offers by, enforced in the statement (blind pass on #330)", async () => {
+    // MUTATION: drop the statement's lead bound — a 9 AM call for a 6:20 PM slot stamps "Here now".
+    const lead = 30 * 60_000;
+    await expect(stampArrival({ orderId: ORDER }, Date.parse(SLOT) - lead - 1)).resolves.toEqual({
+      ok: false,
+      reason: "too_early",
+    });
+    expect(row.arrived_at).toBeNull();
+    await expect(stampArrival({ orderId: ORDER }, Date.parse(SLOT) - lead)).resolves.toEqual({
+      ok: true,
+    });
+  });
+
+  it("a failed CLASSIFICATION read is `failed`, never a decided `not_today` (blind pass on #330)", async () => {
+    // The statement refused (another day); the read that says WHICH guard fails. MUTATION: ignore
+    // that read's error.
+    row.pickup_slot = "2026-10-10T01:20:00.000Z";
+    classifyErr = { message: "connection reset" };
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "failed",
+    });
   });
 
   it("refuses a slot on another day — the restaurant's day, enforced by the statement", async () => {
@@ -310,6 +367,31 @@ describe("stampArrival — who may write (the session arm, then the durable earn
       reason: "failed",
     });
     expect(row.arrived_at).toBeNull();
+  });
+
+  it("throttles EVERY caller before any order read — a refused one too (blind pass on #330)", async () => {
+    // The flood guard used to run only after authorization succeeded, so a loop on a known order id
+    // bought several backend reads per request, unthrottled. MUTATION: drop the guard.
+    rateOk = false;
+    member = { ok: false, code: "not_member" };
+    callerUid = "u-stranger";
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "rate",
+    });
+    expect(orderReads).toBe(0);
+    expect(row.arrived_at).toBeNull();
+  });
+
+  it("an unverified caller (a token mid-refresh, no session) is `failed`, never a decided `unauthorized` (blind pass on #330)", async () => {
+    // A reconcile at mount can race the browser's token rotation; a decided refusal there retired
+    // the record. MUTATION: answer `unauthorized` when no caller is verified.
+    callerUid = null;
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(orderReads).toBe(0);
   });
 
   it("an auth-transport failure is `failed`, never a decided refusal (Codex r1 on #330)", async () => {

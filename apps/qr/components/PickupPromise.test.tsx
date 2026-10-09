@@ -456,6 +456,12 @@ describe("Ready and late", () => {
     expect(door?.getAttribute("aria-label")).toBe("Call (626) 665-5317");
   });
 
+  it("a stop's clock names its day when it was not today (blind pass on #330)", () => {
+    // Placed the evening before (9:12 PM Oct 7), read at 6:01 PM Oct 8.
+    const { container } = mount({ createdAt: "2026-10-08T04:12:00.000Z" });
+    expect(container.querySelector('[data-state="done"]')?.textContent).toContain("Wed 9:12 PM");
+  });
+
   it("never offers the arrival on another day", () => {
     vi.setSystemTime(Date.parse("2026-10-08T06:00:00.000Z")); // 11 PM PDT the night before
     const { container } = mount();
