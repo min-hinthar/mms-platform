@@ -1107,3 +1107,57 @@ served" are each corrected below.
   card-level "To-go" would claim a counter order on a table's card. A mixed Send would need a third
   badge state that the path design never drew. Round 3 D4's "their channel tag" is kept as the
   session's.
+
+#### H.4 · PD5b — the three owner items, decided and built (2026-10-09, `claude/fix/pd5b-settlement-batch-and-fold`)
+
+Decided under the owner's delegation (2026-10-09). One migration, `20261009120300_pd5b_settlement_batch_and_fold.sql`.
+Its prod apply waits on the owner's go: one file, through the Supabase MCP. Where this section and the
+lines above disagree, this section wins. That covers §H.2's "told apart by who paid", §H.3 C3's
+"recorded, not patched" and §H.3 item 8's "a known limit".
+
+- **Settlement food carries its own mark.**
+  - `mms_fire_pending_food` mints its batch as a version-8 UUID: a random v4 with character 15 set to
+    `8`. Every Send path mints `gen_random_uuid()`, which is version 4.
+  - The round read classifies a batch by that mark (`isSettlementBatch`, `lib/kitchen-rounds.ts`), and
+    no longer by when it fired. So it reads no orders at all: the orders leg and its two mutants
+    (`settlement-on-a-staff-settled-cart`, `round-orders-saturation-ignored`) are gone.
+  - Both residual sequences now keep their numbers:
+    - a Send landing in the 10 s before a guest's own card payment is recorded (§H.2);
+    - the same before a staff secure-tab close (§H.3 C3).
+  - `settled_by` is UNCHANGED, because it drives /staff/tips attribution.
+  - The mark sits on the batch rather than in a column. A batch-id mark cannot disagree with the
+    batch: seven other writers set or clear `fire_batch`, and a column would need every one of them,
+    and every future fire path, to reset it. A table of settlement batches would add a read to a
+    five-second poll.
+  - The SQL half is pinned by PD5B.1–3 and the TS half by `kitchen-rounds.test.ts`, as `tax.ts` and
+    `mms_line_tax` are.
+  - Batches fired before the migration carry no mark. A table that is live across the deploy and had
+    settlement food earlier can read one round high until its session ends.
+- **The fold keeps each Send whole.**
+  - `mms_merge_table_orders`' fold match now also compares `fire_batch` for fired and in-progress
+    lines, using `is not distinct from`, so two batchless legacy lines still fold.
+  - Two carts never share a batch. In practice, then, a cooking portion re-parents as its own row,
+    keeps its batch, and its card follows it to the target table.
+  - Drafts and served lines fold exactly as before. That includes two drafts carrying stale batches: a
+    dish Mom brought back to draft keeps its batch, because `mms_line_transition` never clears it.
+  - The `ticketKey` docblock's "re-parent OR fold" still describes drafts.
+- **Proof.**
+  - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9) went red on PD5B.1 against
+    the w3 drain and on PD5B.4 against the p2f merge, and is green after.
+  - `verify-mode-authority.mjs` has a new suite, `pd5b`: eight killed mutants, one per rule. M109's
+    and Phase 2f's merge mutants now patch the pd5b file. The battery accounts for all 205.
+  - `verify-counter-fire-race.mjs` gains the grace race as two orders on a dine-in table:
+    - **k:** the Send, then the payment and the drain, which waits on the Send's line lock and then
+      leaves it;
+    - **k2:** the reverse.
+
+    It also gains two mutants: the mark dropped, and the drain's draft guard dropped (that one
+    re-stamps the Send's dish). The harness now restores from the chain p2f → pd5b.
+
+  - `verify-merge-race` (plain and `--mutants`) and the M96/M97/M98/M109 fold tests are unchanged
+    and green.
+  - `kitchen-queue-counter.test.ts` pins the grace race end to end. It went red on the PD5 code.
+
+- **Stacking.** PD9 (`claude/feat/pd9-tv-board`) moves the round read into
+  `lib/kitchen-round-read.ts`. Whichever of PD5b and PD9 merges second carries this change into that
+  module: drop the orders leg there, and drop `paidAtByCart` from the `roundOrdinals` call.

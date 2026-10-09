@@ -3841,3 +3841,17 @@ first assignment in ONE edit, or re-read the declaration after the hook runs. Th
 also reflows a long `find:` anchor written before the format pass (LEARNINGS #106): write mutant
 anchors from the FORMATTED source, and run `check:mutant-anchors` after `pnpm format`, never only
 before it.
+
+## #252
+
+**A harness that hardcodes 127.0.0.1:54322 can run beside another stream's cluster on that port — in a
+private network namespace (2026-10-09, PD5b).** `verify-merge-race.mjs` takes no DSN on purpose, and on
+a container shared by parallel streams another agent's throwaway cluster already held 54322. Run your
+OWN cluster on 54322 inside `unshare -n` (bring `lo` up first: there is no `ip` binary, so a three-line
+`SIOCSIFFLAGS` ioctl in Python does it), start `pg_ctl` and the harness in that namespace, and stop the
+cluster on exit. Nothing the harness commits reaches the other stream's database, and its in-DB guards
+(loopback, TLS off, private address) still hold. Two traps from the same build: never `import()` a
+harness script to check its syntax, because it RUNS (`node --check` does not); and an in-place restore
+that replays one migration file must become a CHAIN the day a later migration restates one of its
+functions, or every mutant's restore reverts the newer body (`verify-counter-fire-race.mjs` now replays
+p2f → pd5b, and `statementFor` patches the LAST file that defines the function).

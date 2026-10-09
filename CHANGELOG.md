@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD5b — settlement food carries its own mark, and a merge keeps each Send whole (2026-10-09, `claude/fix/pd5b-settlement-batch-and-fold`)
+
+- **PD5's three owner items, decided under the owner's delegation and built** (m5 §H.4).
+  - One migration, `20261009120300_pd5b_settlement_batch_and_fold.sql`. Its prod apply waits on the
+    owner's go: one file, through the Supabase MCP.
+- **The settlement batch is marked.**
+  - `mms_fire_pending_food` (the drain that fires a paid cart's unsent drafts) mints its batch as a
+    version-8 UUID; every Send mints a version-4 one.
+  - The KDS round read classifies settlement food by that mark (`isSettlementBatch`) instead of by
+    when it fired, and no longer reads orders.
+  - A Send that lands in the 10 s before a guest's own card payment is recorded now keeps its round
+    number, and so does one before a staff secure-tab close. Before this, it read as settlement food
+    and the visit's later Sends counted one fewer.
+  - `settled_by` is unchanged: it drives /staff/tips.
+- **The fold keeps each Send whole.**
+  - `mms_merge_table_orders` folds a fired or in-progress line only into a line of the same batch, so
+    a cooking portion never moves onto another Send's card with no bump.
+  - Drafts and served lines fold exactly as before.
+- **Proof:**
+  - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9), registered in CI. It went
+    red on the old drain and on the old merge.
+  - `verify-mode-authority` gains suite `pd5b` with 8 killed mutants. The merge's 18 earlier mutants
+    now patch the pd5b file, and all 205 are accounted for.
+  - `verify-counter-fire-race` gains the grace race as orders k and k2, with 2 mutants, and restores
+    from the chain p2f → pd5b.
+  - `verify-merge-race` and the M96/M97/M98/M109 fold tests are green and unchanged.
+  - `kitchen-rounds/*` gains 3 mark mutants and retargets 1. Two `kitchen/*` mutants retire with the
+    orders leg.
+- **Known effect:** batches fired before the migration carry no mark, so a table live across the
+  deploy that had settlement food can read one round high until its session ends.
+
 ### PD5 — round two lands on a ticket that's still cooking: one Send, one kitchen card (2026-10-08, `claude/feat/pd5-kitchen-round-two`)
 
 - **The path design** (`docs/path-design-2026-10-07/m5-kitchen-round-two.md`, PATH_DESIGN moment 5,
