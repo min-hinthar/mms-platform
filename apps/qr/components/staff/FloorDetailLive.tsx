@@ -1657,6 +1657,9 @@ export function FloorDetailLive({
             handoff={shownCard}
             onDone={inPane ? () => nav.toFloor("user") : undefined}
             headingLevel={inPane ? 3 : 2}
+            // PD6 (m6 B6) — the wash and the one bloom only where it JUST landed (this tab's
+            // settle, in memory) — never a restored stash on a revisit, never the server's card.
+            landing={shownCard === handoff}
           />
         )}
         {detail.paymentInFlight && !panelUp && (

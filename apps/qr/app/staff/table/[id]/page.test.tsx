@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableDetailResult } from "@/lib/floor-types";
 import type { Handoff } from "@/lib/register-ui";
-import { handoffFocusKey, markHandoffFocus } from "@/lib/floor-pane";
+import { handoffFocusKey, handoffStashKey, markHandoffFocus } from "@/lib/floor-pane";
 
 /**
  * Phase 2g · P2em (D2) — the table page's CLOSED branch. A counter session closes behind its settle,
@@ -245,5 +245,41 @@ describe("the table page — the closed card takes focus ONCE, only when the det
     const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
     // MUTANT p2g-fix-code/closed-card-always-focused — every arrival pulls focus onto the card; red.
     expect(document.activeElement).not.toBe(card);
+  });
+});
+
+describe("PD6 — a same-tab reload after the pad's walk-up landing keeps Cash received and Change (Codex correction 4)", () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  it("THIS tab's stash for THIS order: the seal lands again with the tender over the row's total", async () => {
+    // The pad's landing wrote it (`stashHandoff`), with the tap's tender — the row never stores one.
+    sessionStorage.setItem(
+      handoffStashKey(ID),
+      JSON.stringify({ ...CARD, totalCents: 1, tenderedCents: 5000 }),
+    );
+    await mount();
+    await settle();
+    // 5000 − 4210 = 790 (node -e 'console.log(5000-4210)'). MUTATION
+    // till/seal-adopts-the-stash-total → the stash's $0.01 total; red.
+    const seal = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ });
+    expect(seal.textContent).toContain(ts("en", "table.detail.handoff.tendered"));
+    expect(seal.textContent).toContain("$42.10");
+    expect(seal.textContent).toContain("$50.00");
+    // A landing again (B6: a matching same-tab reload), so it wears the wash.
+    expect(seal.hasAttribute("data-landing")).toBe(true);
+  });
+  it("another order's stash, or none: the server card stands, calm, with no invented Change", async () => {
+    sessionStorage.setItem(
+      handoffStashKey(ID),
+      JSON.stringify({ ...CARD, orderId: "o-elsewhere", tenderedCents: 5000 }),
+    );
+    await mount();
+    await settle();
+    const seal = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    // MUTATION till/seal-adopts-another-order → another sale's Change on this seal; red.
+    expect(seal.textContent).not.toContain(ts("en", "settle.cash.changeLabel"));
+    expect(seal.hasAttribute("data-landing")).toBe(false);
   });
 });

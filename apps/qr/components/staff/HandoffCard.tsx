@@ -1,17 +1,21 @@
 "use client";
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
-import { buttonClass } from "@mms/ui";
+import { CounterPass, Icon, buttonClass } from "@mms/ui";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { laneHref } from "@/lib/staff-more";
 import { handoffRows, type HandoffRow } from "@/lib/register-math";
 import type { Handoff } from "@/lib/register-ui";
 import { handoffCode } from "@/lib/reader-collect";
-import { takeHandoffFocus } from "@/lib/floor-pane";
-import type { StaffKey } from "@/lib/i18n/staff";
+import { readHandoffStash, takeHandoffFocus } from "@/lib/floor-pane";
+import { TILL_MEDIA, sealHeroTier, sealAdopt } from "@/lib/till";
+import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
+import { echoDrawn } from "@/lib/staff-labels";
+import { STAFF, ts, type StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { ReaderShown } from "./ReaderCollectContext";
+import { useEchoesShown } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -25,21 +29,54 @@ const ROW_KEY: Record<HandoffRow["k"], StaffKey> = {
   collect: "table.detail.handoff.collect",
 };
 
+/** PD6 — the code stub's two-tongue label (the CounterPass's own label over its figure). */
+const CODE_LABEL: { en: string; my: string } = {
+  en: STAFF["table.detail.handoff.codeLabel"].en,
+  my: STAFF["table.detail.handoff.codeLabel"].my,
+};
+
 /**
- * The paid card (Phase 2c · register, DESIGN-LANGUAGE §29) — the moment after a settle, with its
- * two facts at the size a cashier reads across the counter: the CHANGE to hand back and, on a counter
- * order, the #CODE to call out.
+ * PD6 (m6 B5/B6 · D2) — a visual English echo that stays OUT of the accessible name: the seal's title
+ * and its hero word are `aria-labelledby` targets, so a `<Chrome>` echo would put both scripts in
+ * the name. The echo is drawn through Chrome's own decision (`echoDrawn` — a K15-HIGH word like
+ * "Change" keeps its English on a Burmese-only device; "Paid" does not) and hidden from assistive
+ * tech, so the name keeps one script per run.
+ */
+function SealEcho({ lang, k }: { lang: StaffLang; k: StaffKey }) {
+  const shown = echoDrawn(k, useEchoesShown());
+  if (lang !== "my" || !shown) return null;
+  return (
+    <span className="chrome-en staff-seal-echo" lang="en" aria-hidden="true">
+      {ts("en", k)}
+    </span>
+  );
+}
+
+/**
+ * The paid card — PD6's SEAL (m6 "Shape of the Sale", DESIGN-LANGUAGE §29): the moment after a
+ * settle, its two facts at the size a cashier reads across the counter — the CHANGE to hand back and,
+ * on a counter order, the #CODE to call out, on the ONE PASS (the CounterPass primitive, rendered,
+ * never redrawn: the stub on constant paper beside the seal's own green). A dine-in settle gets the
+ * same grammar with no stub, no #CODE and no Walk-up (reconciliation 4).
+ *
+ * The figures: Total and Tip are the persisted ones the settle returned; Cash received and Change are
+ * what the cashier entered, kept in this tab only (m6 B8). The hero is the Change (or what is still to
+ * collect) when a tender was entered, else the Total — and with no tender there is no Change and no
+ * Cash received at all (Codex round 4 on m6).
  *
  * Not a live region. It is FOCUSED when it appears (the parent's effect — the settle control it
  * replaced has unmounted), and its accessible NAME carries the facts: `aria-labelledby` = the title,
- * the change row (or what is still to collect, or the total when no tender was entered) and the
- * #CODE. The name is always spoken on focus; a description is a VoiceOver HINT, spoken after a pause
- * and silenced by the "Speak Hints" setting, so the facts are not left there. The old card was
- * `role="status"` AND focused — announced twice, and the third polite region on the page (P2r).
+ * the hero row and the #CODE. The name is always spoken on focus; a description is a VoiceOver HINT,
+ * spoken after a pause and silenced by the "Speak Hints" setting, so the facts are not left there.
  *
- * Rows come from `handoffRows` (the persisted figures, zero-gated): a table's card renders only when
- * a tender was entered (the parent decides), rows only; a counter card adds #CODE, the call-out and
- * the way back to the counter — a Link that promises only the navigation it does.
+ * `landing` — the in-place landing (or a same-tab reload whose stash names this order): the green
+ * wash, ONE bloom on the ✓ disc and the rise, each RM-escorted. Every other render (a revisit, a deep
+ * link, the reader chip's View) is the CALM seal: the same geometry on paper, the ✓ disc kept, no
+ * wash, no bloom, no rise — green is filled only on the screen where it just landed (m6 B6).
+ *
+ * Wide (the till's own viewport predicate, `TILL_MEDIA`, and never in the pane): the stub sits beside
+ * the green main and the actions take the till grid's money corner (track 5), so a late tap from the
+ * tray's Take (tracks 1–3) lands on inert space — the geometry `lib/till.ts` pins. Narrow: stacked.
  */
 export function HandoffCard({
   lang,
@@ -47,6 +84,9 @@ export function HandoffCard({
   ref,
   onDone,
   headingLevel = 2,
+  landing = false,
+  next,
+  nativeBack = false,
 }: {
   lang: StaffLang;
   handoff: Handoff;
@@ -57,13 +97,23 @@ export function HandoffCard({
   /** Phase 2d · review fixes — h3 inside the counter's pane (Table 7 › Paid), under the pane's own
    *  h2 like every other section there; h2 on the table page. The StaffPromoControl pattern. */
   headingLevel?: 2 | 3;
+  /** PD6 — this settle just landed here (or a matching same-tab stash came back on reload). */
+  landing?: boolean;
+  /** PD6 — the pad's quiet secondary (Walk-up, with its note); absent off the pad. One quiet
+   *  secondary only: a counter order whose food went early shows Takeaway bags in its place. */
+  next?: ReactNode;
+  /** PD6 — the next start is unanswered past its bound: "Back to the counter" becomes a
+   *  full-document `<a>`, so the way out also clears the stuck action queue. */
+  nativeBack?: boolean;
 }) {
   const Title = headingLevel === 3 ? "h3" : "h2";
+  const inPane = onDone !== undefined;
+  const wide = useMediaQuery(TILL_MEDIA) && !inPane;
   const rows = handoffRows(handoff.totalCents, handoff.tipCents, handoff.tenderedCents);
-  // The row the name speaks: the change (or what is still owed) when a tender was entered, else the
-  // total — the one figure a cashier needs from the card.
-  const key =
-    rows.find((r) => r.k === "change" || r.k === "collect")?.k ?? ("total" as HandoffRow["k"]);
+  // The HERO: the change (or what is still owed) when a tender was entered, else the total — the
+  // one figure a cashier needs from the seal. The rest are the count-back rows under it.
+  const hero = rows.find((r) => r.k === "change" || r.k === "collect") ?? rows[0]!;
+  const foot = rows.filter((r) => r !== hero);
   // The #CODE, derived ONCE (`handoffCode`) — the chip, this card and the refunded line agree.
   const code = handoffCode(handoff.orderId);
   // Phase 2f — a counter order whose food went to the kitchen BEFORE it was paid: the bag is already
@@ -72,94 +122,167 @@ export function HandoffCard({
   const sentEarly = handoff.isCounter && handoff.sentEarly === true;
   const labelledBy = [
     "handoff-title",
-    `handoff-row-${key}`,
+    `handoff-row-${hero.k}`,
     handoff.isCounter ? "handoff-code" : null,
     sentEarly ? "handoff-sent-early" : null,
   ]
     .filter(Boolean)
     .join(" ");
+  const heroText = fmt(hero.cents);
+  const callout = (
+    <p className="staff-seal-callout">
+      <Chrome lang={lang} k="table.detail.handoff.callout" echo="stack" />
+    </p>
+  );
+  const passHeading = headingLevel === 3 ? 4 : 3;
+  // A dine-in seal shows "Back to the counter" only in the counter's pane (where the counter is
+  // beside it); a server's phone page keeps the rows-only card's quiet (no promise of a counter).
+  const showBack = handoff.isCounter || inPane;
+  const backClass = buttonClass({
+    variant: "primary",
+    size: "xl",
+    className: "staff-handoff-done",
+  });
+  const backLabel = (
+    <>
+      <span>
+        <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
+      </span>
+      <span aria-hidden="true" className="ui-btn-arrow-fwd">
+        →
+      </span>
+    </>
+  );
   return (
     <section
       ref={ref}
       tabIndex={-1}
       aria-labelledby={labelledBy}
-      className={`card card-textured staff-handoff mms-rise${handoff.isCounter ? " staff-handoff-counter" : ""}`}
+      className={`staff-seal${landing ? " mms-rise" : ""}`}
+      data-landing={landing ? "" : undefined}
+      data-counter={handoff.isCounter ? "" : undefined}
+      data-wide={wide ? "" : undefined}
     >
-      <div className="staff-handoff-rows">
-        {/* `echo={false}`: an aria-labelledby target — an echo would put both scripts in the name. */}
-        <Title id="handoff-title" className="staff-handoff-title">
-          <span className="staff-handoff-check" aria-hidden="true">
-            ✓
-          </span>{" "}
-          <Chrome lang={lang} k="table.detail.handoff.title" echo={false} />
-        </Title>
-        <dl className="staff-handoff-dl">
-          {rows.map((r) => (
-            <div
-              key={r.k}
-              id={`handoff-row-${r.k}`}
-              className={`checkout-leader-row staff-handoff-row staff-handoff-row-${r.k}`}
-            >
+      <div className="staff-seal-body">
+        <div className="staff-seal-main">
+          <div className="staff-seal-head">
+            {/* The solid ✓ disc: "paid" on the counter (never an approval). Decorative — the title
+                word is the state. Its one breath plays only on a landing. */}
+            <span className="staff-seal-disc" aria-hidden="true">
+              <Icon name="check" size={wide ? 44 : 28} strokeWidth={2.25} />
+            </span>
+            {/* `echo={false}`: an aria-labelledby target — the visual echo stays out of the name. */}
+            <Title id="handoff-title" className="staff-seal-title">
+              <Chrome lang={lang} k="table.detail.handoff.title" echo={false} />
+              <SealEcho lang={lang} k="table.detail.handoff.title" />
+            </Title>
+          </div>
+          <dl className="staff-seal-hero" data-row={hero.k}>
+            <div id={`handoff-row-${hero.k}`}>
               <dt>
-                <Chrome lang={lang} k={ROW_KEY[r.k]} echo={false} />
+                {hero.k === "collect" && <Icon name="alert" size={28} aria-hidden />}
+                <Chrome lang={lang} k={ROW_KEY[hero.k]} echo={false} />
+                <SealEcho lang={lang} k={ROW_KEY[hero.k]} />
               </dt>
-              <dd>{fmt(r.cents)}</dd>
+              <dd data-tier={sealHeroTier(heroText, wide)}>{heroText}</dd>
             </div>
+          </dl>
+          {foot.length > 0 && (
+            <dl className="staff-seal-rows">
+              {foot.map((r) => (
+                <div
+                  key={r.k}
+                  className={`checkout-leader-row staff-seal-row staff-seal-row-${r.k}`}
+                >
+                  <dt>
+                    <Chrome lang={lang} k={ROW_KEY[r.k]} echo="inline" />
+                  </dt>
+                  <dd>{fmt(r.cents)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+        {/* The #CODE stub IS the CounterPass (m6 B2 · round 3 D): constant paper in both themes, the
+            code face at `--fs-pass` in landscape (a portrait paper steps a long code down), its
+            notches cut to the seal's own ground (`--pass-hole`). */}
+        {handoff.isCounter &&
+          (wide ? (
+            <CounterPass
+              tier="counter"
+              orientation="landscape"
+              figure={code}
+              figureKind="code"
+              label={CODE_LABEL}
+              lang={lang}
+              id="handoff-code"
+              headingLevel={passHeading}
+              stub={callout}
+              className="staff-seal-pass"
+            />
+          ) : (
+            <CounterPass
+              tier="counter"
+              orientation="portrait"
+              figure={code}
+              figureKind="code"
+              label={CODE_LABEL}
+              lang={lang}
+              id="handoff-code"
+              headingLevel={passHeading}
+              className="staff-seal-pass"
+            >
+              {callout}
+            </CounterPass>
           ))}
-        </dl>
       </div>
-      {handoff.isCounter && (
-        <div className="staff-handoff-call">
-          <p id="handoff-code" className="staff-handoff-code">
-            {code}
-          </p>
-          <p className="staff-handoff-callout">
-            <Chrome lang={lang} k="table.detail.handoff.callout" echo="stack" />
-          </p>
+      {(sentEarly || next != null || showBack) && (
+        <div className="staff-seal-actions">
+          <div className="staff-seal-actions-in">
+            {sentEarly && (
+              <div className="staff-handoff-early">
+                {/* `echo={false}`: an aria-labelledby target — an echo would put both scripts in the name. */}
+                <p id="handoff-sent-early" className="staff-handoff-callout">
+                  <Chrome lang={lang} k="table.detail.handoff.sentEarly" echo={false} />
+                </p>
+                {/* A NATIVE <a> (A4·3): the lane is a zone of the counter screen reached by its
+                    fragment, which a client-side Link would not focus; in the pane it is a
+                    same-page jump. */}
+                <a
+                  href={laneHref(onDone !== undefined)}
+                  className={buttonClass({ variant: "secondary", size: "xl", block: true })}
+                >
+                  <Chrome lang={lang} k="expo.title" echo="stack" />
+                </a>
+              </div>
+            )}
+            {/* One quiet secondary only: Takeaway bags outranks Walk-up (m6 decision 20). */}
+            {!sentEarly && next}
+            {showBack &&
+              (nativeBack ? (
+                <a href={STAFF_DOOR_TARGET.counter} className={backClass}>
+                  {backLabel}
+                </a>
+              ) : (
+                <Link
+                  href={STAFF_DOOR_TARGET.counter}
+                  onClick={
+                    onDone
+                      ? (e) => {
+                          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+                            return;
+                          e.preventDefault();
+                          onDone();
+                        }
+                      : undefined
+                  }
+                  className={backClass}
+                >
+                  {backLabel}
+                </Link>
+              ))}
+          </div>
         </div>
-      )}
-      {sentEarly && (
-        <div className="staff-handoff-early">
-          {/* `echo={false}`: an aria-labelledby target — an echo would put both scripts in the name. */}
-          <p id="handoff-sent-early" className="staff-handoff-callout">
-            <Chrome lang={lang} k="table.detail.handoff.sentEarly" echo={false} />
-          </p>
-          {/* A NATIVE <a> (A4·3): the lane is a zone of the counter screen reached by its fragment,
-              which a client-side Link would not focus; in the pane it is a same-page jump. */}
-          <a
-            href={laneHref(onDone !== undefined)}
-            className={buttonClass({ variant: "secondary", size: "xl", block: true })}
-          >
-            <Chrome lang={lang} k="expo.title" echo="stack" />
-          </a>
-        </div>
-      )}
-      {handoff.isCounter && (
-        <Link
-          href={STAFF_DOOR_TARGET.counter}
-          onClick={
-            onDone
-              ? (e) => {
-                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                  e.preventDefault();
-                  onDone();
-                }
-              : undefined
-          }
-          className={buttonClass({
-            variant: "primary",
-            size: "xl",
-            block: true,
-            className: "staff-handoff-done",
-          })}
-        >
-          <span>
-            <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
-          </span>
-          <span aria-hidden="true" className="ui-btn-arrow-fwd">
-            →
-          </span>
-        </Link>
       )}
     </section>
   );
@@ -194,10 +317,21 @@ export function ClosedHandoffCard({
   handoff: Handoff;
 }) {
   const [landed, setLanded] = useState<Handoff | null>(null);
+  // PD6 (m6 decision 24, appendix C · Codex correction 4) — a same-tab reload (or a K23 unlock)
+  // after the pad's walk-up landed: THIS tab's stash, for THIS order, brings back what the cashier
+  // entered (Cash received → Change) over the server's persisted Total and Tip (`sealAdopt` — never
+  // the stash's total), and the seal lands again. Anywhere else (another device, cleared storage,
+  // another order) the server card stands, calm, with no invented Change. Read after mount, from a
+  // scheduled callback (the server render cannot see the tab's storage).
+  const [adopted, setAdopted] = useState<Handoff | null>(null);
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (takeHandoffFocus(sessionId, Date.now())) cardRef.current?.focus();
   }, [sessionId]);
+  useEffect(() => {
+    const id = setTimeout(() => setAdopted(sealAdopt(handoff, readHandoffStash(sessionId))), 0);
+    return () => clearTimeout(id);
+  }, [sessionId, handoff]);
   return (
     <>
       <ReaderShown
@@ -206,7 +340,13 @@ export function ClosedHandoffCard({
           if (h) setLanded(h);
         }}
       />
-      <HandoffCard lang={lang} handoff={landed ?? handoff} headingLevel={2} ref={cardRef} />
+      <HandoffCard
+        lang={lang}
+        handoff={landed ?? adopted ?? handoff}
+        landing={landed === null && adopted !== null}
+        headingLevel={2}
+        ref={cardRef}
+      />
     </>
   );
 }

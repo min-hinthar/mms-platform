@@ -14206,83 +14206,183 @@ html[data-reloading] body::after {
   font-size: var(--fs-body);
 }
 
-/* The paid card: a focused region (never a status region) whose name carries its facts. Stacked on a
-   phone; from 40em a counter card sets the rows beside the #CODE and its call-out, with the way back
-   spanning below. */
-.staff-handoff {
+/* PD6 — THE SEAL (m6 screen 2, `HandoffCard`): the paid card's grammar on every counter surface. A
+   focused region (never a status region) whose name carries its facts: a solid ✓ disc + the title,
+   the HERO (the Change handed back, or the Total when no tender was entered) and the count-back rows
+   under it, the #CODE on the ONE PASS (a CounterPass stub on constant paper, its notches cut to the
+   seal's own ground), and one quiet secondary beside "Back to the counter". CALM by default (paper,
+   no motion); `[data-landing]` — the in-place landing only — adds the green wash with the card's
+   dots, the rise (`.mms-rise`, RM-gated) and ONE breath of the ok bloom on the disc (RM: none). */
+.staff-seal {
+  --seal-ground: var(--cd);
+  --pass-hole: var(--seal-ground);
   display: grid;
   gap: var(--s4);
   margin-top: var(--s4);
   padding: var(--s5);
+  border: 1px solid color-mix(in oklab, var(--ok) 30%, transparent);
+  border-radius: var(--r-card);
+  background-color: var(--seal-ground);
+  box-shadow: var(--sh-paper);
+}
+.staff-seal:focus:not(:focus-visible) {
   outline: none;
 }
-.staff-handoff-rows {
+.staff-seal[data-landing] {
+  --seal-ground: var(--okb);
+  background-image: radial-gradient(var(--tex-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.staff-seal-body {
   display: grid;
-  gap: var(--s3);
+  gap: var(--s4);
   min-width: 0;
 }
-.staff-handoff-title {
+.staff-seal-main {
+  display: grid;
+  align-content: start;
+  gap: var(--s4);
+  min-width: 0;
+}
+.staff-seal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.staff-seal-disc {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  color: var(--oa);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.staff-seal[data-landing] .staff-seal-disc {
+  filter: var(--bloom-ok);
+  animation: mmsCheckBloom 760ms var(--ease-out) 120ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-seal[data-landing] .staff-seal-disc {
+    animation: none;
+  }
+}
+.staff-seal-title {
+  display: flex;
+  flex-direction: column;
   margin: 0;
-  font-size: var(--fs-h3);
+  font-size: var(--fs-h1);
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
-.staff-handoff-check {
-  color: var(--ok);
+/* The visual echo of an aria-labelledby target (aria-hidden — the name keeps one script). */
+.staff-seal-echo {
+  color: var(--t2);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
 }
-.staff-handoff-dl {
-  display: grid;
-  gap: var(--s1);
+.staff-seal-hero {
   margin: 0;
 }
-.staff-handoff-row {
+.staff-seal-hero dt {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  font-size: var(--fs-body);
+  gap: var(--s3);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
 }
-.staff-handoff-row dd {
+.staff-seal-hero .staff-seal-echo {
+  font-size: var(--fs-lead);
+}
+.staff-seal-hero dd {
   margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-pass);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.staff-seal-hero dd[data-tier="hand"] {
+  font-size: var(--till-fs-hand);
+}
+.staff-seal-hero dd[data-tier="display"] {
+  font-size: var(--fs-display);
+}
+/* Still to collect (a belt): the word and the figure in warn, with the alert glyph — never colour
+   alone. */
+.staff-seal-hero[data-row="collect"] dt,
+.staff-seal-hero[data-row="collect"] dd {
+  color: var(--warn);
+}
+.staff-seal-rows {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+}
+.staff-seal-row {
+  display: flex;
+  align-items: baseline;
+  font-size: var(--fs-h3);
+}
+.staff-seal-row dd {
+  margin: 0;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
-.staff-handoff-row-change dt {
-  font-weight: var(--fw-bold);
-}
-.staff-handoff-row-change dd {
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-weight: var(--fw-heavy);
-}
-.staff-handoff-row-collect dt,
-.staff-handoff-row-collect dd {
-  color: var(--warn);
-  font-weight: var(--fw-bold);
-}
-.staff-handoff-call {
-  display: grid;
-  gap: var(--s1);
-  align-content: center;
-  text-align: center;
-}
-.staff-handoff-code {
+.staff-seal-callout {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-weight: var(--fw-heavy);
-  letter-spacing: var(--track-caps);
+  color: var(--pass-ink-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
-.staff-handoff-callout {
+.staff-seal-actions-in {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: var(--s3);
+}
+/* The quiet secondary's own note (Walk-up's description) sits over the buttons, full width. */
+.staff-seal-note {
+  flex-basis: 100%;
   margin: 0;
   color: var(--t2);
   font-size: var(--fs-sm);
 }
-@media (min-width: 40em) {
-  .staff-handoff-counter {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: center;
+.staff-seal-pass {
+  min-width: 0;
+}
+/* Wide — the till's own viewport predicate (lib/till.ts `TILL_MEDIA`; seal.test pins this block to
+   it): the seal sits where the tray stood (the same gutters and padding), the stub beside the green
+   main, and the actions take the till grid's money corner — track 5 — so a late tap from the tray's
+   Take (tracks 1–3) lands on inert space (m6 decision 7). */
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .staff-seal[data-wide] {
+    margin-inline: var(--s5);
+    padding: var(--s8);
   }
-  .staff-handoff-counter .staff-handoff-done {
-    grid-column: 1 / -1;
+  .staff-seal[data-wide] .staff-seal-body {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: var(--s8);
+  }
+  .staff-seal[data-wide] .staff-seal-disc {
+    width: 88px;
+    height: 88px;
+  }
+  .staff-seal[data-wide] .staff-seal-title {
+    font-size: var(--fs-display);
+  }
+  .staff-seal[data-wide] .staff-seal-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+  }
+  .staff-seal[data-wide] .staff-seal-actions > .staff-seal-actions-in {
+    grid-column: 5;
   }
 }
 
@@ -15148,15 +15248,16 @@ html[data-reloading] body::after {
   overflow-wrap: anywhere;
 }
 /* The paid card's "went to the kitchen before they paid" line and its lane link (a counter order
-   sent unpaid): full width under the #CODE call-out on the two-column tablet layout. */
+   sent unpaid): the seal's ONE quiet secondary, full width over "Back to the counter". */
 .staff-handoff-early {
   display: grid;
+  flex-basis: 100%;
   gap: var(--s2);
 }
-@media (min-width: 40em) {
-  .staff-handoff-counter .staff-handoff-early {
-    grid-column: 1 / -1;
-  }
+.staff-handoff-callout {
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
 }
 /* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
    only the glyph beside it is its own. */

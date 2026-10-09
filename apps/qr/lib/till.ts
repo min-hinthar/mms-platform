@@ -1,5 +1,6 @@
 import { padDishName } from "./order-pad";
 import type { TableLineView } from "./floor-types";
+import type { Handoff } from "./register-ui";
 import type { StaffLang } from "./staff-lang";
 
 /**
@@ -181,4 +182,35 @@ export function tillDoorLandsInert(door: TillBand, viewportW: number): boolean {
   if (viewportW < tillMinWidthPx()) return false;
   const b = tillBandsAt(viewportW);
   return door.x0 >= b.gave.x0 && door.x1 <= b.padRight.x1 && door.x0 < door.x1;
+}
+
+// ── the seal (m6 screen 2) ─────────────────────────────────────────────────────────────────────
+
+/** At pane or phone width the seal's hero tops out at `--fs-pass`; six tabular 88px glyphs (≈320px)
+ *  fit the pane's 431px content, a seventh reaches the edge of a 390px phone's column. */
+export const SEAL_NARROW_MAX_CHARS = 6;
+
+/** The seal's hero tier: wide, the Change handed back at `--till-fs-hand` (stepping down past seven
+ *  characters, `tillHeroTier`); narrow, `--fs-pass` while it fits, else `--fs-display`. */
+export function sealHeroTier(text: string, wide: boolean): TillHeroTier {
+  if (wide) return tillHeroTier(text, "hand");
+  return text.length > SEAL_NARROW_MAX_CHARS ? "display" : "pass";
+}
+
+/**
+ * The pad's walk-up landing offers Walk-up as the seal's quiet secondary (PATH_DESIGN decision 8,
+ * the owner default for moment 6). ONE constant, so the device sitting (ruling #12) can drop it if
+ * Dad chaining walk-ups leaves bags waiting on the counter page (m6's open risk).
+ */
+export const SEAL_OFFERS_WALKUP = true;
+
+/**
+ * A closed counter order's server card ADOPTS this tab's stash only for the SAME order (m6
+ * decision 24, appendix C): the money stays the order row's — its persisted total and tip — and only
+ * what the cashier entered (the tender, never recorded) and the tap's "went out unpaid" come from the
+ * stash. Another order, a table's stash, or none: null, and the server card stands with no Change.
+ */
+export function sealAdopt(server: Handoff, stash: Handoff | null): Handoff | null {
+  if (stash === null || !stash.isCounter || stash.orderId !== server.orderId) return null;
+  return { ...server, tenderedCents: stash.tenderedCents, sentEarly: stash.sentEarly === true };
 }

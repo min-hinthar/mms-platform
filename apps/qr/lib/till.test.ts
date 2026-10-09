@@ -17,7 +17,12 @@ import {
   tillMinWidthPx,
   tillSlipDiverged,
   tillSlipFrom,
+  sealAdopt,
+  sealHeroTier,
+  SEAL_NARROW_MAX_CHARS,
+  SEAL_OFFERS_WALKUP,
 } from "./till";
+import type { Handoff } from "./register-ui";
 
 /**
  * PD6 · counter-floor — the till tray's pure rules, pinned. Red-first by mutant (verify:slice
@@ -173,5 +178,44 @@ describe("the double-tap guard, by geometry (decision 6)", () => {
     expect(b.gave.x0 - b.tip.x1).toBe(32);
     // The dock at 1920 keeps its right edge on the gutter and its 384px width (962→1346 at 1366).
     expect(tillDoorLandsInert({ x0: 1920 - 20 - 384, x1: 1900 }, 1920)).toBe(true);
+  });
+});
+
+describe("the seal's rules (m6 screen 2)", () => {
+  const SERVER: Handoff = {
+    orderId: "o-3f9a2c",
+    totalCents: 1989,
+    tipCents: 0,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: "c1",
+    sentEarly: false,
+  };
+  it("sealHeroTier: wide, the Change at --till-fs-hand (stepping down past seven); narrow, --fs-pass up to six", () => {
+    expect(sealHeroTier("$30.11", true)).toBe("hand");
+    expect(sealHeroTier("$9,999.99", true)).toBe("pass");
+    expect(SEAL_NARROW_MAX_CHARS).toBe(6);
+    expect(sealHeroTier("$30.11", false)).toBe("pass");
+    // MUTATION till/seal-narrow-never-steps: "$999.99" at 88px overruns a 390px phone; red.
+    expect(sealHeroTier("$999.99", false)).toBe("display");
+  });
+  it("sealAdopt: THIS order's stash brings back the tender; the money stays the order row's", () => {
+    const stash: Handoff = {
+      ...SERVER,
+      totalCents: 1,
+      tipCents: 999,
+      tenderedCents: 5000,
+      sentEarly: true,
+    };
+    // MUTATION till/seal-adopts-the-stash-total: the stash's figures over the persisted ones; red.
+    expect(sealAdopt(SERVER, stash)).toEqual({ ...SERVER, tenderedCents: 5000, sentEarly: true });
+    // MUTATION till/seal-adopts-another-order: another order's change on this order's seal; red.
+    expect(sealAdopt(SERVER, { ...stash, orderId: "o-other" })).toBeNull();
+    // A table's stash is never a counter seal's.
+    expect(sealAdopt(SERVER, { ...stash, isCounter: false })).toBeNull();
+    expect(sealAdopt(SERVER, null)).toBeNull();
+  });
+  it("Walk-up is offered — ONE constant the device sitting can turn off", () => {
+    expect(SEAL_OFFERS_WALKUP).toBe(true);
   });
 });

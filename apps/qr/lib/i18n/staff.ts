@@ -815,6 +815,9 @@ export const STAFF = {
     en: "Paying by card? The guest closes the running bill from their phone — it’s paid when that payment goes through.",
     my: "ကတ်နဲ့ ရှင်းမလား။ ဧည့်သည်က သူ့ဖုန်းကနေ စာရင်းပိတ်ပါမယ် — ငွေရောက်တာနဲ့ ရှင်းပြီးပါမယ်။",
   },
+  // PD6 — the seal's #CODE stub is the CounterPass, whose figure sits under a two-tongue label: the
+  // callout's own first words (its fragment, a K15 draft as a label).
+  "table.detail.handoff.codeLabel": { en: "Call number", my: "ခေါ်မယ့် နံပါတ်" },
   "table.detail.handoff.callout": {
     en: "The number we call when it’s ready — it’s on the kitchen ticket and the ready board.",
     my: "လာယူဖို့ ခေါ်မယ့် နံပါတ် — မီးဖိုချောင် အော်ဒါစာရွက်နဲ့ အော်ဒါ ဘုတ်မှာ ပါပါတယ်။",
