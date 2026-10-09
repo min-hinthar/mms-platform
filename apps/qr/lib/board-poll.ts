@@ -114,7 +114,21 @@ export type BoardPollState =
    * correctly (`staff-outage.ts` documents the skew bug that taught this).
    */
   | { kind: "offline"; since: number; fails: number; escalated: boolean }
-  | { kind: "live"; stale: boolean };
+  /**
+   * PD9 — `lastGoodAt` is the device-clock instant of the last good poll, and `frozenExpired` is
+   * decided HERE (the fold holds both endpoints in one clock domain; a `Date.now()` at render is
+   * impure): a stale wall may keep its frozen table passes only for `FROZEN_TABLES_MS`, because
+   * past the linger any of those tables may be a party that has gone (m9 critic B7).
+   */
+  | { kind: "live"; stale: boolean; lastGoodAt?: number; frozenExpired?: boolean };
+
+/**
+ * PD9 (m9 critic B7) — how long a stale wall may keep showing its last table passes, frozen: the
+ * linger after which a table leaves a LIVE wall. Past it a frozen pass could name a party that has
+ * left, under a number a new party may now hold, so the kitchen half drops to its one sentence.
+ * Codes and dish names do not rot; a table's presence does.
+ */
+export const FROZEN_TABLES_MS = PULSE_PASS_LINGER_MS;
 
 /**
  * How long a board with nothing on screen waits before it stops implying the outage is momentary.
@@ -123,6 +137,7 @@ export type BoardPollState =
  */
 export { STAFF_OUTAGE_ESCALATE_MS } from "./staff-outage";
 import { STAFF_OUTAGE_ESCALATE_MS } from "./staff-outage";
+import { PULSE_PASS_LINGER_MS } from "./board-pulse";
 
 /** How many consecutive misses before a board is allowed to say anything is wrong. */
 export const BOARD_FAIL_THRESHOLD = 2;
@@ -145,7 +160,12 @@ export function nextBoardStateOnFailure(
   now: number,
 ): BoardPollState {
   if (prev.kind === "live") {
-    return fails >= BOARD_FAIL_THRESHOLD ? { ...prev, stale: true } : prev;
+    if (fails < BOARD_FAIL_THRESHOLD) return prev;
+    return {
+      ...prev,
+      stale: true,
+      frozenExpired: prev.lastGoodAt !== undefined && now - prev.lastGoodAt >= FROZEN_TABLES_MS,
+    };
   }
   if (fails < BOARD_FAIL_THRESHOLD) return prev.kind === "offline" ? prev : { kind: "loading" };
   const since = prev.kind === "offline" ? prev.since : now;

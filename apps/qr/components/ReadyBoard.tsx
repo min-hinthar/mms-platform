@@ -1,48 +1,75 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { BRAND_NAME } from "@/lib/brand";
-import { shelfWait } from "@/lib/kds-time";
-import { boardColumnFit } from "@/lib/board-fit";
+import {
+  boardColumnFit,
+  stepDownTables,
+  tablesFitStart,
+  viewTables,
+  type FitRow,
+  type FitTable,
+  type TablesView,
+} from "@/lib/board-fit";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { raceFetch } from "@/lib/staff-outage";
 import {
+  BOARD_FAIL_THRESHOLD,
   nextBoardStateOnFailure,
   readBoardRefusal,
   type BoardVerdictReason,
 } from "@/lib/board-poll";
+import {
+  MOTION_STEP_MS,
+  planBoardMotion,
+  rowKey,
+  type MotionMemory,
+  type MotionStep,
+} from "@/lib/board-motion";
+import type { BoardDishStage, BoardTable } from "@/lib/board-tables";
 import { STAFF, ts } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome } from "@/components/staff/Chrome";
-import type { BoardPulse, PulseDish, PulseTable } from "@/lib/board-pulse";
 import type { StaffLang } from "@/lib/staff-lang";
 import type React from "react";
 import { KdsChime } from "@/lib/kds-sound";
-import { buttonClass } from "@mms/ui";
+import { buttonClass, CounterPass, KitchenTrack } from "@mms/ui";
 
 /** Where an unlinked wall sends its manager — back to this board once signed in. */
 const BOARD_SIGNIN_PATH = "/staff/login?next=/board";
 
 /**
- * W3e: the order-ready board client — Preparing | Ready on any smart-TV browser. Polls the sanitized
- * /api/board read every 5s (the TV can't join the private realtime channels); the ONLY write that moves
- * a card is the expo's bump. Gold flash (+ optional gesture-armed chime, TVs with a remote can tap once)
- * on the Preparing→Ready transition; picked-up cards linger 10 minutes server-side then auto-clear.
- * Bilingual headings (EN/MY — the community the house serves). Keeps the last good snapshot through
- * blips with an honest "Reconnecting…" note; a missing/unauthorized token renders the not-linked state,
- * never a spinner forever.
+ * The dining room's wall TV (/board on any smart-TV browser). W3e built it as the order-ready board
+ * — Preparing | Ready for the pickup codes; PD9 (the owner's 2026-10-07 message; PATH_DESIGN decision
+ * 11; m9) adds the KITCHEN: every dine-in table with food in the kitchen as a landscape CounterPass,
+ * its dishes on the ONE KITCHEN TRACK (Sent · Cooking · Served), beside the codes.
+ *
+ * Polls the sanitized /api/board read every 5 s (the TV can't join the private realtime channels).
+ * What the wall shows is the payload's and nothing more: a table number and dish names, a code and
+ * its status — no guest name, price, count, clock, age, ETA, approval or Undo word (the boundary is
+ * `lib/board-tables.ts`'s type and the route's allowlist; this component may only render LESS).
+ *
+ * It never nags: Sent and Cooking are marks, Served is calm (green), and the pickup Ready pass is the
+ * wall's only call. It moves only when food changes state, one thing at a time (`lib/board-motion.ts`):
+ * a segment FILLs, a table TURNs once per visit when its last dish is served (after Mom's 6-second
+ * Undo — the server's `KDS_UNDO_MS`), a code is issued Ready with the shipped FLASH and chime. A first
+ * read and the first read after a frozen spell play nothing. A stale feed dims the wall and says so:
+ * codes and dish names do not rot and stay, drawn frozen; every stage, roll-up and flash goes; and a
+ * table's presence rots on the linger clock, so past it the kitchen half keeps only its sentence.
+ *
+ * A missing/unauthorized token renders the not-linked state, never a spinner forever.
  */
 
-type BoardOrder = {
-  code: string;
-  name: string | null;
-  status: "preparing" | "ready";
-  readyAt: string | null;
-  /** K32 (A4·1) — minutes on the Ready shelf, derived by the server from the DB clock. Optional
-   *  because a TV is the longest-lived client in the building and may poll a server that
-   *  predates the field; absent means "do not draw a wait", never 0. */
-  readyMinutes?: number | null;
-};
+/** One bag on the wall: its code and its status. No name, no wait, no time (m9 decision 19, B4). */
+type BoardOrder = { code: string; status: "preparing" | "ready" };
 
 type BoardState =
   | { kind: "loading" }
@@ -50,66 +77,69 @@ type BoardState =
    * A verdict about THIS DEVICE, carrying the server's own sentence. The message matters because the
    * two verdicts need different instructions and the board cannot tell them apart on its own: a
    * `denied` board has a device link it is not using, a `not_configured` board has none to use and
-   * its operator must sign in instead. Rendering one hardcoded "open the board with its device link"
-   * for both told a staff-signed-in TV to go find a link that does not exist.
+   * its operator must sign in instead.
    */
   | { kind: "unlinked"; reason: BoardVerdictReason; message: string | null }
   /**
    * We could not reach the server AT ALL and have no snapshot to fall back on — a board that booted
-   * into an outage. Distinct from `loading`, which claims we are still connecting, and distinct from
-   * a stale `live`, which has real orders to keep showing. Without this state such a board sat on
-   * "Connecting…" forever under a Ready column promising "Ready orders light up here."
-   *
-   * `escalated` is computed by the fold rather than at render — `Date.now()` in a render body is
-   * impure and React Compiler rejects it, and measuring a duration across two clock domains is the
-   * skew bug `staff-outage.ts` already documents.
+   * into an outage. `escalated` is computed by the fold rather than at render (`Date.now()` in a
+   * render body is impure and React Compiler rejects it).
    */
   | { kind: "offline"; since: number; fails: number; escalated: boolean }
   /**
-   * P6 — `pulse` is `BoardPulse | null`, and the null is LOAD-BEARING: it is the route's answer when
-   * a kitchen read dropped, and it must render as "we can't read the kitchen", never as a zeroed
-   * band. A band drawn from `{tickets: 0}` over a full wok is the same lie `lib/kitchen.ts` refuses
-   * (an empty KDS reading "all clear" over a room of cooking food), one screen further out.
-   *
-   * ⚠️ There is deliberately NO `serverNow` here. An earlier cut carried one, with a docblock
-   * saying the oldest-ticket age was measured against it — and by then the age had already moved
-   * server-side as an integer, so the field was read by nothing. Worse if a later reader had used
-   * it: the route stamps `serverNow` from the APP clock while `oldestMinutes` comes from `mms_now`,
-   * which is precisely the two-clock-domain error the removed comment claimed to prevent.
+   * `tables` is `BoardTable[] | null`, and the null is LOAD-BEARING: it is the route's answer when a
+   * kitchen read dropped (or an older server that sends none), and it renders as "can't read the
+   * kitchen", never as "all clear" over a full wok. `lastGoodAt` / `frozenExpired`: the fold's
+   * bound on how long a stale wall keeps its frozen passes (`lib/board-poll.ts`).
    */
-  | { kind: "live"; orders: BoardOrder[]; pulse: BoardPulse | null; stale: boolean };
+  | {
+      kind: "live";
+      orders: BoardOrder[];
+      tables: BoardTable[] | null;
+      stale: boolean;
+      lastGoodAt?: number;
+      frozenExpired?: boolean;
+    };
+
+/** The stage words — the ONE KITCHEN TRACK's keys, identical on every surface (the KDS's Served). */
+const STAGE_KEY = {
+  sent: "table.line.state.fired",
+  cooking: "table.line.state.inProgress",
+  served: "table.line.state.served",
+} as const satisfies Record<BoardDishStage, string>;
+const stageWord = (s: BoardDishStage) => STAFF[STAGE_KEY[s]];
 
 export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) {
   // A tokenless board is no longer knowably unlinked at mount: a staff sign-in on the device is now
   // a credential too (`authorizeDevice`), and that lives in a cookie the client can't read. So it
-  // starts LOADING and lets the server answer — the old initializer short-circuited to "unlinked"
-  // and the documented `/staff/login?next=/board` flow could never leave that screen
-  // (Codex round 1, P1).
+  // starts LOADING and lets the server answer (Codex round 1, P1).
   const [state, setState] = useState<BoardState>({ kind: "loading" });
-  const [flashes, setFlashes] = useState<Map<string, number>>(new Map());
-  const flashNonce = useRef(0);
-  const prevReady = useRef<Set<string>>(new Set());
-  const seeded = useRef(false); // first poll = baseline only, never a flash storm (LOW-2)
+  /**
+   * PD9 — the motion memory (`planBoardMotion`) and the queue it fills. `null` until the first good
+   * poll, which therefore SEEDS (no storm after a reboot); reset to `null` whenever the feed went
+   * stale, so the first good poll after a frozen spell seeds again (m9 critic B6).
+   */
+  const memory = useRef<MotionMemory | null>(null);
+  const [motion, setMotion] = useState<{ steps: MotionStep[]; i: number; nonce: number }>({
+    steps: [],
+    i: 0,
+    nonce: 0,
+  });
   const fails = useRef(0);
   /**
    * The concurrent-poll lock every other staff board already has (`lib/staff-outage.ts` documents the
-   * idiom). Without it the 5s interval fires regardless of whether the previous poll is still out,
-   * and `prevReady` — the ONLY memory the flash/chime machinery has — is whatever response lands
-   * LAST. A slow poll overtaken by a newer one rewinds that set, so the next tick re-announces an
-   * order already called: a second gold flash and a second chime for a bag someone collected, which
-   * sends that customer back to the counter. This diff made it likelier, not less: a board on the
-   * staff-session path pays a `getUser()` round-trip per poll before the orders read.
+   * idiom). Without it a slow poll overtaken by a newer one rewinds the motion memory, so the next
+   * tick re-announces a bag already called: a second flash and a second chime for a bag someone
+   * collected.
    */
   const inFlight = useRef(false);
-  // board-4 — the sound chip is a TOGGLE that stays mounted (it used to unmount on the tap that
-  // armed it, dropping focus to <body> with no mute afterwards). `soundOn` drives the chip; the ref
-  // is what the poll reads, because `poll` is a `useCallback` over `token` alone and a state read
-  // inside it would be the value from the render that created it.
+  // board-4 — the sound chip is a TOGGLE that stays mounted. `soundOn` drives the chip; the ref is
+  // what the poll reads (`poll` is a `useCallback` over `token` alone).
   const [soundOn, setSoundOn] = useState(false);
   const soundOnRef = useRef(false);
   // The TV's browser refused audio: said ONCE through the one status node, then the node goes back
-  // to the poll state. The chip stays live — a refusal is the browser's, and a manager who fixes the
-  // TV's audio must be able to try again (over-blocking is the same defect as under-blocking).
+  // to the poll state. The chip stays live — a manager who fixes the TV's audio must be able to try
+  // again.
   const [soundNote, setSoundNote] = useState(false);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // One arm at a time: two taps inside `await arm()` both took the arm path and both played the
@@ -164,44 +194,34 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         throw new Error("board poll: no verdict available");
       }
       if (!res.ok) throw new Error(`board poll ${res.status}`);
-      // P6 — `pulse` and `serverNow` are read DEFENSIVELY (`?? null`) rather than trusted to be
-      // present. A TV is the longest-lived client in the building: it can be running a build from
-      // before this field existed, or be served a cached older deploy mid-rollout, and an
-      // `undefined` reaching the band's `pulse.tickets` would throw inside render — taking the
-      // Ready column, which is the customer-facing half, down with it.
-      const data = (await res.json()) as {
-        orders: BoardOrder[];
-        pulse?: BoardPulse | null;
-      };
+      // `tables` is read DEFENSIVELY (`?? null`): a TV is the longest-lived client in the building
+      // and can be served an older deploy mid-rollout, which sends no `tables` — and an `undefined`
+      // there must read "can't read the kitchen", never throw inside render.
+      const data = (await res.json()) as { orders?: BoardOrder[]; tables?: BoardTable[] | null };
+      const orders = (data.orders ?? []).map((o) => ({ code: o.code, status: o.status }));
+      const tables = data.tables ?? null;
       fails.current = 0;
-
-      // Gold-flash the NEWLY ready. The card remounts as it moves columns (same key, different <ul>),
-      // so the flash class animates once on arrival; prune departed codes so the map stays bounded.
-      // The FIRST successful poll only seeds the baseline — a TV reboot must not flash (and chime for)
-      // the whole existing Ready column as if every bag just came up (adversarial LOW-2).
-      const codesNow = new Set(data.orders.map((o) => o.code));
-      const readyNow = new Set(data.orders.filter((o) => o.status === "ready").map((o) => o.code));
-      const newlyReady = seeded.current
-        ? [...readyNow].filter((c) => !prevReady.current.has(c))
-        : [];
-      seeded.current = true;
-      prevReady.current = readyNow;
-      setFlashes((prev) => {
-        if (newlyReady.length === 0 && prev.size === 0) return prev;
-        const next = new Map<string, number>();
-        for (const [code, nonce] of prev) if (codesNow.has(code)) next.set(code, nonce);
-        for (const c of newlyReady) next.set(c, ++flashNonce.current);
-        return next;
-      });
-      // Muted (the toggle off) is silent; armed-but-muted keeps the engine so the next tap is instant.
-      if (newlyReady.length > 0 && soundOnRef.current) chime.current?.play("pickup");
-
-      setState({ kind: "live", orders: data.orders, pulse: data.pulse ?? null, stale: false });
+      const plan = planBoardMotion(
+        memory.current,
+        tables,
+        orders.filter((o) => o.status === "ready").map((o) => o.code),
+      );
+      memory.current = plan.memory;
+      // Muted (the toggle off) is silent; a table going all served never chimes (m9 decision 15) —
+      // only a bag turning Ready, the shipped pickup tone.
+      if (plan.steps.some((s) => s.kind === "flash") && soundOnRef.current)
+        chime.current?.play("pickup");
+      // The next poll lands any backlog as final frames: a new plan replaces the queue.
+      setMotion((m) => ({ steps: plan.steps, i: 0, nonce: m.nonce + 1 }));
+      setState({ kind: "live", orders, tables, stale: false, lastGoodAt: Date.now() });
     } catch {
       fails.current += 1;
+      // A stale wall re-seeds its motion on recovery: what went out while it was blind is drawn at
+      // its final frame, never celebrated late.
+      if (fails.current >= BOARD_FAIL_THRESHOLD) memory.current = null;
       // The fold lives in `lib/board-poll.ts` so it can be tested: keep a live board's snapshot and
-      // admit staleness after two misses; move a board that has NO snapshot to `offline` rather than
-      // letting it claim forever that it is still connecting.
+      // admit staleness after two misses (bounding the frozen passes to the linger); move a board
+      // that has NO snapshot to `offline`.
       setState((prev) => nextBoardStateOnFailure(prev, fails.current, Date.now()) as BoardState);
     } finally {
       inFlight.current = false; // released on EVERY exit, including the verdict return above
@@ -217,6 +237,19 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       clearInterval(id);
     };
   }, [poll]);
+
+  // The motion player: ONE step at a time, each for its own duration (`MOTION_STEP_MS`); a new
+  // poll's plan replaces the queue (`nonce`), so nothing queues behind a frozen tab.
+  const active: MotionStep | null = motion.steps[motion.i] ?? null;
+  useEffect(() => {
+    if (active === null) return;
+    const nonce = motion.nonce;
+    const id = setTimeout(
+      () => setMotion((m) => (m.nonce === nonce ? { ...m, i: m.i + 1 } : m)),
+      MOTION_STEP_MS[active.kind],
+    );
+    return () => clearTimeout(id);
+  }, [active, motion.nonce]);
 
   const toggleSound = async () => {
     if (soundOnRef.current) {
@@ -293,42 +326,34 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
   }
 
   const orders = state.kind === "live" ? state.orders : [];
-  // A stale snapshot keeps its names and codes (they do not rot) and drops every AGE — the pulse's
-  // below, and each card's wait minutes (Codex round 1 on A4·1).
+  // A stale snapshot keeps its codes and dish names (they do not rot) and drops every stage, roll-up
+  // and flash; past the linger it drops the tables too (`frozenExpired`).
   const stale = state.kind === "live" && state.stale;
-  // board-1 — the cut falls on the end that matters least in each column. The route sends the
-  // newest order first (`created_at` desc), which for PREPARING puts the bag about to come up at the
-  // BOTTOM; reversed, the next bag up leads and the cut hides what was just placed — those parties
-  // are told by the `+N more` row that they are in the queue.
-  const preparing = orders.filter((o) => o.status === "preparing").reverse();
-  // Freshest call-outs at the top — the person walking up scans the top of the Ready column.
-  const ready = orders
-    .filter((o) => o.status === "ready")
-    .sort((a, b) => (b.readyAt ?? "").localeCompare(a.readyAt ?? ""));
+  const ready = orders.filter((o) => o.status === "ready"); // the route's order: newest readiness first
+  const preparing = orders.filter((o) => o.status === "preparing"); // next up first
+  const tables =
+    state.kind !== "live" || (state.stale && state.frozenExpired) ? null : state.tables;
 
   return (
-    // board-2 — `data-stale` is the tell at three metres: the cards fall to the secondary ink and the
-    // status line grows (globals.css); the ONE live region is unchanged, so nothing announces twice.
+    // board-2 — `data-stale` is the tell at three metres: the passes fall to dashed outlines and the
+    // secondary ink, and the status line grows (globals.css); the ONE live region is unchanged.
     <div className="orb-root dark" data-stale={stale || undefined}>
       <header className="orb-head">
         <h1 className="orb-title">
           <span aria-hidden="true">✦</span> {BRAND_NAME}
         </h1>
-        {/* ONE polite region: poll state only (card moves are visual + chime; a TV isn't an SR surface,
-            but the region keeps the page honest for anyone on a browser). */}
-        {/* ONE polite region, single-voice: a bilingual live region would announce everything twice. */}
+        {/* ONE polite region, single-voice: poll state only. Pass changes are ambient and never
+            announced — a TV is not a screen-reader surface, and one region keeps the page honest. */}
         <p className="orb-status" role="status" lang={lang === "my" ? "my" : undefined}>
           {soundNote
             ? ts(lang, "board.sound.refused")
             : state.kind === "loading"
               ? ts(lang, "board.connecting")
-              : state.kind === "live" && state.stale
+              : stale
                 ? ts(lang, "board.reconnecting")
                 : tf(lang, "board.status", { n: ready.length, total: preparing.length })}
         </p>
-        {/* board-4 — one chip, both states: the pressed word is `Sound on` under the shared lit cap
-            (`.kds-chip[aria-pressed="true"]`), a second tap mutes; focus never leaves the element.
-            The visible text IS the name (no aria-label — rule 3's containment pair). */}
+        {/* board-4 — one chip, both states, under the shared lit cap; the visible text IS the name. */}
         <button
           type="button"
           className="kds-chip staff-press"
@@ -340,46 +365,35 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         </button>
       </header>
 
-      <div className="orb-cols">
-        <BoardColumn
+      <div className="orb-main">
+        <KitchenSection
           lang={lang}
-          k="board.col.preparing"
-          orders={preparing}
-          empty={<p className="orb-empty">—</p>}
-          flashes={null}
-          stale={stale}
+          known={state.kind === "live"}
+          tables={tables}
+          frozen={stale}
+          active={active}
         />
-        <BoardColumn
-          lang={lang}
-          k="board.col.ready"
-          orders={ready}
-          empty={
-            <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
-              {ts(lang, "board.empty")}
-            </p>
-          }
-          flashes={flashes}
-          stale={stale}
-        />
+        <div className="orb-pickup">
+          <BoardColumn
+            lang={lang}
+            k="board.col.ready"
+            orders={ready}
+            empty={
+              <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
+                {ts(lang, "board.empty")}
+              </p>
+            }
+            flash={!stale && active?.kind === "flash" ? active.code : null}
+          />
+          <BoardColumn
+            lang={lang}
+            k="board.col.preparing"
+            orders={preparing}
+            empty={<p className="orb-empty">—</p>}
+            flash={null}
+          />
+        </div>
       </div>
-
-      {/* ⚠️ `stale` NULLS THE PULSE, and that asymmetry with the Ready column is the point. The
-          stale fold keeps `kind: "live"` and carries the whole snapshot forward (`board-poll.ts`),
-          which is right for a name and a pickup code — those do not rot. Every value in this band
-          does: a count of what is on the wok NOW, an age in minutes, and a `Food up` announcement
-          whose five-minute window is enforced SERVER-side and therefore lapses the moment the server
-          stops answering. Left carried, forty minutes into an outage the wall showed `9 Oldest` and
-          a lit-gold `Table 3 · Food up` — the "act on this" vocabulary — and sent a runner to the
-          pass for a plate that went out half an hour ago.
-          The cost, stated: `stale` needs only two consecutive misses (~15s), so a brief blip blanks
-          the band and it self-heals on the next good poll. A band that says it cannot read the
-          kitchen for fifteen seconds is cheaper than one that lies for forty minutes, and it is the
-          same `null`-is-unknown contract the route already uses for a dropped kitchen read. */}
-      <KitchenPulse
-        lang={lang}
-        pulse={state.kind === "live" && !state.stale ? state.pulse : null}
-        known={state.kind === "live"}
-      />
     </div>
   );
 }
@@ -432,40 +446,55 @@ function useColumnFit(orders: readonly BoardOrder[]): {
   return { ref, cap };
 }
 
+/**
+ * The pickup column's two lists. Ready codes are issued as passes — the landscape CounterPass at the
+ * TV's 54px code row, the same face the guest's claim ticket shows (m3) — and arrive with the shipped
+ * FLASH (on the pass's edge: a gold wash over paper would vanish, m9 critic C). Preparing codes are
+ * plain rows: a code becomes a pass when it turns Ready. Each list keeps board-1's measured cut and
+ * its "+N more" row.
+ */
 function BoardColumn({
   lang,
   k,
   orders,
   empty,
-  flashes,
-  stale,
+  flash,
 }: {
   lang: StaffLang;
   k: "board.col.preparing" | "board.col.ready";
   orders: BoardOrder[];
   empty: React.ReactNode;
-  flashes: Map<string, number> | null;
-  stale: boolean;
+  flash: string | null;
 }) {
   const { ref, cap } = useColumnFit(orders);
   const fit = boardColumnFit(orders.length, cap);
+  const isReady = k === "board.col.ready";
   return (
-    <section
-      className={k === "board.col.ready" ? "orb-col orb-col-ready" : "orb-col"}
-      aria-label={ts(lang, k)}
-    >
+    <section className={isReady ? "orb-col orb-col-ready" : "orb-col"} aria-label={ts(lang, k)}>
       <BilingualHeading lang={lang} k={k} />
       {orders.length === 0 && empty}
       <ul role="list" ref={ref}>
-        {orders.slice(0, fit.shown).map((o) => (
-          <BoardCard
-            key={o.code}
-            order={o}
-            flash={flashes?.get(o.code) ?? null}
-            lang={lang}
-            stale={stale}
-          />
-        ))}
+        {orders.slice(0, fit.shown).map((o) =>
+          isReady ? (
+            <CounterPass
+              key={o.code}
+              as="li"
+              tier="tv"
+              orientation="landscape"
+              figure={`#${o.code}`}
+              figureKind="code"
+              figureSpoken={o.code.split("").join(" ")}
+              label={{ en: STAFF["board.pass.code"].en, my: STAFF["board.pass.code"].my }}
+              lang={lang}
+              headingLevel={3}
+              className={`orb-ready${flash === o.code ? " orb-ready-flash" : ""}`}
+            />
+          ) : (
+            <li key={o.code} className="orb-card">
+              <span className="orb-name">#{o.code}</span>
+            </li>
+          ),
+        )}
         {fit.more > 0 && (
           // The room is told what the cut hid — the KDS's own `+N more` words, no new copy.
           <li className="orb-more" lang={lang === "my" ? "my" : undefined}>
@@ -478,224 +507,342 @@ function BoardColumn({
 }
 
 /**
- * P6 — the KITCHEN PULSE band: the second audience on the one screen.
- *
- * WHAT IS ON IT AND WHY EACH IS ALLOWED (the boundary is argued in full in `lib/board-pulse.ts`;
- * this component may only ever render LESS than the payload carries, never derive more):
- *   · a ticket count and the oldest ticket's age — load, attached to nobody;
- *   · an all-day dish rail — unattributed, and the route withholds it entirely below three live
- *     tickets, because at one or two it is one party's order in the clear;
- *   · dine-in as TABLE NUMBER + `cooking`/`up` — the number is printed on the tent card and
- *     called across the room all night; the status is what a runner walking past already sees.
- * Nothing here reaches for a guest name, a per-table dish, a modifier, an amount or an id, because
- * `BoardPulse` has no field for one.
- *
- * The oldest age arrives as WHOLE MINUTES rather than as a fire timestamp, and that is a boundary
- * decision made in `lib/board-pulse.ts`, not a formatting one: at one live ticket beside one table
- * on the strip, an exact `fire_at` would state that party's order instant to the room. The screen
- * therefore has no clock arithmetic to do and no drift to clamp.
- *
- * `known` vs `pulse === null` are DIFFERENT unknowns and the band says so: `known: false` is a
- * board that has no snapshot at all (loading, or the offline/unlinked screens above never reach
- * here), and `pulse: null` is a live board whose kitchen read dropped. Only the second gets the
- * "can't read the kitchen" sentence — saying it while merely connecting would call an outage on a
- * board that is simply starting up.
- *
- * NO MOTION, deliberately, and it is a design decision rather than an omission. The Ready column's
- * gold flash marks a transition a customer is waiting for; a band that animated its own numbers on
- * a screen hanging in a dining room would pull every guest's eye to the kitchen's workload every
- * five seconds. The band earns its place typographically — the same lit-gold vocabulary the Ready
- * column already owns marks a `ready` table, static.
+ * PD9 — the kitchen half. Its heading row carries the KEY — the three tracks and their words, both
+ * tongues, taught once and never repeated per row (the guests' static step guide; aria-hidden: each
+ * dish's word carries its state) — or, when the kitchen cannot be read, the one sentence in its
+ * place. The passes are sorted by number and flow down the left column, then the right, by INDEX
+ * (`viewTables`); nothing re-sorts on status.
  */
-function KitchenPulse({
+function KitchenSection({
   lang,
-  pulse,
   known,
+  tables,
+  frozen,
+  active,
 }: {
   lang: StaffLang;
-  pulse: BoardPulse | null;
+  /** False before the first answer (loading): neither the key's promise nor an outage is said. */
   known: boolean;
+  tables: BoardTable[] | null;
+  frozen: boolean;
+  active: MotionStep | null;
 }) {
   const my = lang === "my";
+  const unreadable = known && (tables === null || frozen);
   return (
-    <section className="orb-pulse" aria-label={ts(lang, "kds.title")}>
-      <BilingualHeading lang={lang} k="kds.title" />
-      {!known ? null : pulse === null ? (
-        <p className="orb-pulse-note" lang={my ? "my" : undefined}>
-          {ts(lang, "board.pulse.unavailable")}
-        </p>
-      ) : pulse.tickets === 0 && pulse.tables.length === 0 ? (
-        <p className="orb-pulse-note" lang={my ? "my" : undefined}>
+    <section className="orb-kitchen" aria-labelledby="orb-kitchen-h">
+      <div className="orb-kitchen-head">
+        <BilingualHeading lang={lang} k="kds.title" id="orb-kitchen-h" />
+        {unreadable ? (
+          <p className="orb-kitchen-note" lang={my ? "my" : undefined}>
+            {ts(lang, "board.pulse.unavailable")}
+          </p>
+        ) : (
+          <TrackKey lang={lang} />
+        )}
+      </div>
+      {!known || tables === null ? null : tables.length === 0 ? (
+        <p className="orb-empty" lang={my ? "my" : undefined}>
           {ts(lang, "kds.allclear")}
         </p>
       ) : (
-        <div className="orb-pulse-body">
-          <div className="orb-pulse-stats">
-            {/* The KDS stat-row idiom, verbatim: the VALUE is a plain number in its own element, so
-                it is Latin by construction rather than by discipline — it never passes through a
-                `{n}` slot, which is where `fill.ts` localizes numerals. The two screens a cook reads
-                in one shift therefore render a count the same way. */}
-            <p className="orb-stat">
-              <b>{pulse.tickets}</b>
-              <span lang={my ? "my" : undefined}>{ts(lang, "kds.line.cooking")}</span>
-            </p>
-            <p className="orb-stat">
-              <b>{pulse.oldestMinutes === null ? "—" : pulse.oldestMinutes}</b>
-              <span lang={my ? "my" : undefined}>{ts(lang, "board.pulse.oldest")}</span>
-            </p>
-          </div>
-
-          {pulse.tables.length > 0 && (
-            <ul className="orb-tables" role="list" aria-label={sx(lang, "board.a11y.tables")}>
-              {pulse.tables.map((t) => (
-                <PulseTableChip key={t.table} lang={lang} table={t} />
-              ))}
-            </ul>
-          )}
-
-          {pulse.allDay.length > 0 && (
-            <div className="orb-rail">
-              <h3 className="orb-rail-head">
-                <span lang={my ? "my" : undefined}>{ts(lang, "kds.allday.title")}</span>
-                <small lang={my ? undefined : "my"}>
-                  {my ? STAFF["kds.allday.title"].en : STAFF["kds.allday.title"].my}
-                </small>
-              </h3>
-              <ul role="list" aria-label={sx(lang, "kds.a11y.allDay")}>
-                {pulse.allDay.map((d) => (
-                  <li key={d.name} className="orb-rail-row">
-                    <PulseDishName lang={lang} dish={d} />
-                    {/* `×4` — a multiplicity, not a prose count, and Latin in both tongues for the
-                        same reason the stat values are: it is scanned, not read. */}
-                    <b className="orb-rail-qty">×{d.qty}</b>
-                  </li>
-                ))}
-              </ul>
-              {pulse.allDayMore > 0 && (
-                <p className="orb-rail-more" lang={my ? "my" : undefined}>
-                  {tf(lang, "kds.more", { n: pulse.allDayMore })}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+        <TablePasses lang={lang} tables={tables} frozen={frozen} active={active} />
       )}
     </section>
   );
 }
 
-/**
- * One dine-in chip: the tent-card number and one of two coarse statuses.
- *
- * `echo={false}` on the number follows PR A's echo policy verbatim — "no echo on 44px chips and
- * badges, because two scripts cannot legibly stack in a chip". The BAND's heading carries both
- * tongues, which is where the room learns what it is looking at; the chips stay terse. `<Chrome>`
- * is also what wraps the Latin table number in `lang="en"` inside a Burmese run, so `စားပွဲ 2`
- * keeps the body face and cannot break mid-value.
- */
-function PulseTableChip({ lang, table }: { lang: StaffLang; table: PulseTable }) {
-  const my = lang === "my";
+/** The key: the three tracks at the glyph size, each with its word in both tongues (lead first). */
+function TrackKey({ lang }: { lang: StaffLang }) {
   return (
-    <li className={`orb-table orb-table-${table.status}`}>
-      <span className="orb-table-no">
-        <Chrome lang={lang} k="kds.table" vars={{ id: table.table }} />
-      </span>
-      <span className="orb-table-state" lang={my ? "my" : undefined}>
-        {ts(lang, table.status === "cooking" ? "kds.line.cooking" : "board.pulse.up")}
-      </span>
-    </li>
+    <div className="orb-key" aria-hidden="true">
+      {(["sent", "cooking", "served"] as const).map((s) => (
+        <KitchenTrack
+          key={s}
+          stage={s}
+          size="glyph"
+          surface="theme"
+          word={stageWord(s)}
+          lang={lang}
+        />
+      ))}
+    </div>
   );
 }
 
 /**
- * A rail dish, both tongues, as SIBLINGS.
- *
- * The KDS's `RailRowText` nests its English fallback inside the Burmese run (marked `lang="en"`),
- * which is right for a ticket. The wall holds itself to the stricter shape its own suite already
- * pins — no English text inside a `lang="my"` element at all — because that property is what stops
- * the next heading refactor from typesetting an English word in Padauk on the one staff screen
- * guests read. So: the lead carries the tongue it actually contains, and the echo is a sibling.
- *
- * A dish with no catalog Burmese renders its English name ALONE and unmarked, exactly as the rail
- * would have looked with no `name_my` at all — never an English word wearing a Burmese mark.
+ * board-fit, for the passes — measured, never a constant (m9 "Order and fit"): every snapshot starts
+ * full and steps down BEFORE PAINT (layout effects) while the list overflows its box — (a) collapse
+ * the all-served, (b) fold the served dishes, (c) cut the highest numbers behind "+N more". A list
+ * whose box cannot be measured (no layout yet) shows everything; the CSS clip holds it meanwhile.
  */
-function PulseDishName({ lang, dish }: { lang: StaffLang; dish: PulseDish }) {
-  const my = lang === "my" && dish.nameMy !== null;
+function useTablesFit(tables: BoardTable[]): {
+  ref: RefObject<HTMLUListElement | null>;
+  view: TablesView;
+} {
+  const ref = useRef<HTMLUListElement>(null);
+  const [fit, setFit] = useState(() => tablesFitStart(tables.length));
+  const [seen, setSeen] = useState(tables);
+  // A new snapshot starts full again (the adjust-state-from-a-prop idiom: set during render, so the
+  // stale fit never paints).
+  if (seen !== tables) {
+    setSeen(tables);
+    setFit(tablesFitStart(tables.length));
+  }
+  const [resized, setResized] = useState(0);
+  useLayoutEffect(() => {
+    const ul = ref.current;
+    if (!ul) return;
+    const over = ul.scrollHeight > ul.clientHeight + 1 || ul.scrollWidth > ul.clientWidth + 1;
+    if (over && !(fit.level === 2 && fit.shown === 0)) setFit((f) => stepDownTables(f));
+  }, [fit, tables, resized]);
+  useEffect(() => {
+    const ul = ref.current;
+    if (!ul || typeof ResizeObserver === "undefined") return;
+    // A TV that changes zoom re-fits from the top.
+    const ro = new ResizeObserver(() => {
+      setFit(tablesFitStart(tables.length));
+      setResized((n) => n + 1);
+    });
+    ro.observe(ul);
+    return () => ro.disconnect();
+  }, [tables]);
+  return { ref, view: viewTables(tables, fit) };
+}
+
+function TablePasses({
+  lang,
+  tables,
+  frozen,
+  active,
+}: {
+  lang: StaffLang;
+  tables: BoardTable[];
+  frozen: boolean;
+  active: MotionStep | null;
+}) {
+  const { ref, view } = useTablesFit(tables);
+  const [left, right] = view.columns;
   return (
-    <span className="orb-rail-name">
-      <span lang={my ? "my" : undefined}>{my ? dish.nameMy : dish.name}</span>
-      {dish.nameMy !== null && (
-        <small lang={my ? undefined : "my"}>{my ? dish.name : dish.nameMy}</small>
+    <ul role="list" ref={ref} className="orb-passes" aria-label={sx(lang, "board.a11y.tables")}>
+      {[...left, ...right].map((t, i) => (
+        <TablePass
+          key={t.table}
+          lang={lang}
+          table={t}
+          // Columns by INDEX (Codex round 4 on #319): the right column starts at a forced break.
+          breakBefore={i === left.length && right.length > 0}
+          frozen={frozen}
+          active={active}
+        />
+      ))}
+      {view.more > 0 && (
+        // It counts TABLES, never dishes — the KDS's own `+N more` words.
+        <li className="orb-more" lang={lang === "my" ? "my" : undefined}>
+          {tf(lang, "kds.more", { n: view.more })}
+        </li>
       )}
-    </span>
+    </ul>
+  );
+}
+
+/**
+ * One table pass: the CounterPass in landscape at the TV tier — the table figure once at `--fs-pass`
+ * under "စားပွဲ · Table", a 4px dotted seam, and the dish rows on the paper. When every dish is served
+ * its STATUS CELL carries the roll-up (the Served track and word) and TURNs once; the rows drop their
+ * tracks (no fact is marked twice). Frozen: the same geometry, dashed, with no stage at all.
+ */
+function TablePass({
+  lang,
+  table: t,
+  breakBefore,
+  frozen,
+  active,
+}: {
+  lang: StaffLang;
+  table: FitTable;
+  breakBefore: boolean;
+  frozen: boolean;
+  active: MotionStep | null;
+}) {
+  const id = `${t.table}`;
+  const name = tf(lang, "kds.table", { id });
+  const showStages = !frozen && !t.out;
+  return (
+    <CounterPass
+      as="li"
+      tier="tv"
+      orientation="landscape"
+      figure={id}
+      figureKind="table"
+      label={{ en: STAFF["board.pass.table"].en, my: STAFF["board.pass.table"].my }}
+      lang={lang}
+      headingLevel={3}
+      className={`orb-pass${breakBefore ? " orb-pass-break" : ""}`}
+      head={
+        t.out && !frozen ? (
+          <KitchenTrack
+            stage="served"
+            size="glyph"
+            word={stageWord("served")}
+            lang={lang}
+            echo={false}
+          />
+        ) : undefined
+      }
+      turning={!frozen && active?.kind === "turn" && active.table === t.table ? "head" : undefined}
+    >
+      {t.collapsed ? null : (
+        <>
+          {t.folded && (
+            <ul
+              role="list"
+              className="orb-dishes"
+              aria-label={tf(lang, "kds.a11y.lines", { x: name })}
+            >
+              <DishRow
+                lang={lang}
+                row={t.folded}
+                stage="served"
+                showStage={showStages}
+                filling={false}
+              />
+            </ul>
+          )}
+          {t.rounds.map((r, i) => {
+            const stub =
+              r.n !== null && r.n >= 2
+                ? { kind: "n" as const, n: r.n }
+                : r.next
+                  ? { kind: "next" as const }
+                  : null;
+            const listName =
+              stub === null
+                ? name
+                : `${name} · ${stub.kind === "n" ? tf(lang, "kds.round", { id: stub.n }) : ts(lang, "kds.round.next")}`;
+            return (
+              <Fragment key={`${r.n ?? "u"}-${i}`}>
+                {/* THE ROUND STUB (m5's, at the wall's scale): a label, never a control; round 1 never
+                    carries one; "next round" only beside an older round on this pass. The digit is
+                    Latin (`kds.round`'s identifier slot). */}
+                {stub !== null && (
+                  <p className="orb-round">
+                    {stub.kind === "n" ? (
+                      <Chrome lang={lang} k="kds.round" vars={{ id: stub.n }} />
+                    ) : (
+                      <Chrome lang={lang} k="kds.round.next" />
+                    )}
+                  </p>
+                )}
+                <ul
+                  role="list"
+                  className="orb-dishes"
+                  aria-label={tf(lang, "kds.a11y.lines", { x: listName })}
+                >
+                  {r.rows.map((row) => {
+                    const dish = row.kind === "dish" ? row.dish : null;
+                    const key =
+                      dish === null
+                        ? null
+                        : rowKey(t.table, i, { n: r.n, next: r.next, dishes: [] }, dish);
+                    return (
+                      <DishRow
+                        key={key ?? "folded"}
+                        lang={lang}
+                        row={row}
+                        stage={dish?.stage ?? "served"}
+                        showStage={showStages}
+                        filling={!frozen && active?.kind === "fill" && active.row === key}
+                      />
+                    );
+                  })}
+                </ul>
+              </Fragment>
+            );
+          })}
+        </>
+      )}
+    </CounterPass>
+  );
+}
+
+/**
+ * One dish row: the house's own names — the catalog Burmese on top at the larger size, the English
+ * snapshot name beneath, in BOTH board languages (m9 decision 18; a dish with no catalog Burmese
+ * draws its English alone, unmarked) — and its track with ONE word in the lead tongue (two scripts
+ * cannot stack in a chip). A to-go dish wears the KDS's "To-go" tag beside its name. Folded (fit
+ * level 2): the table's served dishes joined with " · " on each line behind one Served track.
+ */
+function DishRow({
+  lang,
+  row,
+  stage,
+  showStage,
+  filling,
+}: {
+  lang: StaffLang;
+  row: FitRow;
+  stage: BoardDishStage;
+  showStage: boolean;
+  filling: boolean;
+}) {
+  const dishes = row.kind === "dish" ? [row.dish] : row.dishes;
+  const mys = dishes.map((d) => d.nameMy);
+  const allMy = mys.every((m) => m !== null);
+  const togo = row.kind === "dish" && row.dish.togo;
+  return (
+    <li className={`orb-dish${row.kind === "folded" ? " orb-dish-folded" : ""}`}>
+      <span className="orb-dish-names">
+        <span className="orb-dish-line">
+          {allMy ? (
+            <span className="orb-dish-my" lang="my">
+              {mys.join(" · ")}
+            </span>
+          ) : (
+            <span className="orb-dish-lead">{dishes.map((d) => d.name).join(" · ")}</span>
+          )}
+          {togo && (
+            <span className="orb-togo" lang={lang === "my" ? "my" : undefined}>
+              {ts(lang, "kds.channel.togo")}
+            </span>
+          )}
+        </span>
+        {allMy && <span className="orb-dish-en">{dishes.map((d) => d.name).join(" · ")}</span>}
+      </span>
+      {showStage && (
+        <KitchenTrack
+          stage={stage}
+          size="tv"
+          word={stageWord(stage)}
+          lang={lang}
+          echo={false}
+          filling={filling}
+        />
+      )}
+    </li>
   );
 }
 
 /**
  * P2 — a section heading, both tongues, ALWAYS. The wall serves a mixed room and cannot choose for
- * it; `lang` decides only which one LEADS. The Burmese of the two column headings is verbatim from
- * W3e and this slice does not reword it.
- *
- * ⚠️ WHY THE LEAD SITS IN ITS OWN SPAN AND `lang` NEVER GOES ON THE `<h2>`. The first cut wrote
- * `<h2 lang="my">…<small>English</small></h2>`: under a Burmese board that nests the English echo
- * INSIDE the Burmese element, which typesets it in Padauk and announces it to a screen reader as
- * Burmese. That is exactly the violation `Chrome`'s rule 2 exists to prevent ("the English echo is a
- * SIBLING, never a child"), and the heading is the one staff surface guests read. Two sibling spans,
- * each marked for what it actually contains — and the `<h2>` itself stays unmarked, because it
- * contains both.
- *
- * P6 renamed it from `ColumnHeading` and widened `k` by exactly one key: the pulse band is a third
- * section on the same wall and must not grow a second, subtly different heading shape. The type
- * stays an explicit union rather than `StaffKey`, so the set of things that can be a heading here
- * remains something a reader can enumerate.
+ * it; `lang` decides only which one LEADS. The lead sits in its own span and `lang` never goes on the
+ * `<h2>`: the English echo is a SIBLING, never a child of a Burmese run (Chrome's rule 2), and the
+ * `<h2>` itself stays unmarked because it contains both.
  */
 function BilingualHeading({
   lang,
   k,
+  id,
 }: {
   lang: StaffLang;
   k: "board.col.preparing" | "board.col.ready" | "kds.title";
+  id?: string;
 }) {
   const my = lang === "my";
   return (
-    <h2>
+    <h2 id={id}>
       <span lang={my ? "my" : undefined}>{ts(lang, k)}</span>
       <small lang={my ? undefined : "my"}>{my ? STAFF[k].en : STAFF[k].my}</small>
     </h2>
-  );
-}
-
-function BoardCard({
-  order,
-  flash,
-  lang,
-  stale,
-}: {
-  order: BoardOrder;
-  flash: number | null;
-  lang: StaffLang;
-  stale: boolean;
-}) {
-  // K32 (A4·1) — how long a bag has waited, drawn from the server's own minute count (never a
-  // subtraction from this screen's clock). The ROUTE decides which cards carry one — Ready only,
-  // never a collected bag — and pins that in its suite; this card draws the number it was sent.
-  // An older server sends no count at all, and then nothing is drawn rather than "0". A STALE
-  // snapshot draws none either: the count is an age, and carried through an outage it would read
-  // "5 min" an hour later beside a note saying the board is reconnecting (Codex round 1 on A4·1).
-  const wait = order.readyMinutes ?? null;
-  return (
-    <li className={`orb-card${flash != null ? " orb-card-flash" : ""}`}>
-      <span className="orb-name">{order.name ?? `#${order.code}`}</span>
-      {order.name && <span className="orb-code">#{order.code}</span>}
-      {wait !== null && !stale && (
-        <span className="orb-wait" lang={lang === "my" ? "my" : undefined}>
-          {/* K28(b) — the ceiling lives in `shelfWait`; this card renders the key it is handed. */}
-          {(() => {
-            const w = shelfWait(wait);
-            return w.k === "board.card.wait" ? tf(lang, w.k, { mins: w.mins }) : ts(lang, w.k);
-          })()}
-        </span>
-      )}
-    </li>
   );
 }

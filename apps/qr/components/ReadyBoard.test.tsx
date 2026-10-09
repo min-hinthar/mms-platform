@@ -32,41 +32,43 @@ const { tf } = await import("@/lib/i18n/fill");
 const { STAFF } = await import("@/lib/i18n/staff");
 const { readFileSync } = await import("node:fs");
 const { join } = await import("node:path");
-const { PULSE_RAIL_MIN_PARTIES } = await import("@/lib/board-pulse");
-const { BOARD_FAIL_THRESHOLD } = await import("@/lib/board-poll");
-type BoardPulse = import("@/lib/board-pulse").BoardPulse;
+const { BOARD_FAIL_THRESHOLD, FROZEN_TABLES_MS } = await import("@/lib/board-poll");
+type BoardTable = import("@/lib/board-tables").BoardTable;
+type BoardDish = import("@/lib/board-tables").BoardDish;
 
 /**
- * P2 · G12 — the wall TV.
+ * P2 · G12 · PD9 — the wall TV.
  *
- * Two rules this suite exists for:
+ * The rules this suite exists for:
  *
  * 1. **Both tongues are ALWAYS on the wall.** The dining room is mixed and the screen cannot choose
- *    for it; `lang` decides only which one leads. A conversion that renders `ts(lang, …)` alone
- *    would look right on whichever language the author tested and silently drop the other half.
- * 2. **A refusal renders OUR copy, keyed on the reason** — never the server's English sentence
- *    translated, which is impossible, and never a Burmese sentence invented for a reason this client
- *    has not learned. An English sentence that is true beats a Burmese one that is guessed.
+ *    for it; `lang` decides only which one leads.
+ * 2. **A refusal renders OUR copy, keyed on the reason** — never the server's English sentence.
+ * 3. **PD9 — the wall shows only what the payload carries, and never nags.** A table number and dish
+ *    names, each dish's stage word; no guest name, no count, no age. A stale wall drops every stage
+ *    and says so; a first read, a revisit and a frozen spell celebrate nothing.
  */
 afterEach(cleanup);
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ status: 200, ok: true, json: async () => ({ orders: [] }) })),
+    vi.fn(async () => ({ status: 200, ok: true, json: async () => ({ orders: [], tables: [] }) })),
   );
 });
 
 const SERVER_NOW = "2026-09-05T19:00:00.000Z";
 
-const pulse = (over: Partial<BoardPulse> = {}): BoardPulse => ({
-  tickets: 3,
-  oldestMinutes: 9,
-  allDay: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 4 }],
-  allDayMore: 0,
-  tables: [
-    { table: 2, status: "cooking" },
-    { table: 3, status: "up" },
-  ],
+const dish = (over: Partial<BoardDish> = {}): BoardDish => ({
+  name: "Mohinga",
+  nameMy: "မုန့်ဟင်းခါး",
+  stage: "cooking",
+  togo: false,
+  ...over,
+});
+const tableOf = (n: number, dishes: BoardDish[], over: Partial<BoardTable> = {}): BoardTable => ({
+  table: n,
+  out: dishes.every((d) => d.stage === "served"),
+  rounds: [{ n: 1, next: false, dishes }],
   ...over,
 });
 
@@ -76,7 +78,7 @@ const READY_MY = "ယူသွားနိုင်ပါပြီ";
 async function renderBoard(
   lang: "en" | "my",
   refusal?: { status: number; body: unknown },
-  body?: { orders?: unknown[]; pulse?: BoardPulse | null; serverNow?: string },
+  body?: { orders?: unknown[]; tables?: BoardTable[] | null; serverNow?: string },
 ) {
   if (refusal)
     vi.stubGlobal(
@@ -93,25 +95,20 @@ async function renderBoard(
       vi.fn(async () => ({
         status: 200,
         ok: true,
-        json: async () => ({ orders: [], serverNow: SERVER_NOW, ...body }),
+        json: async () => ({ orders: [], tables: [], serverNow: SERVER_NOW, ...body }),
       })),
     );
   const out = render(<ReadyBoard token="t" lang={lang} />);
   return out;
 }
 
-/**
- * Render a live board carrying a pulse, and wait for the FIRST POLL to land.
- *
- * ⚠️ Not `findByRole("region")`: the band's heading mounts immediately, before any poll, so waiting
- * on the region resolves against the LOADING board and every assertion below it then races the
- * fetch. The band's body (or its note) is the first thing that exists only once a snapshot has
- * arrived, so that is what the wait is anchored to.
- */
-async function renderPulse(lang: "en" | "my", p: BoardPulse | null) {
-  const out = await renderBoard(lang, undefined, { pulse: p });
+/** Render a live board with tables, and wait for the FIRST POLL to land (a pass, or a sentence). */
+async function renderTables(lang: "en" | "my", tables: BoardTable[] | null) {
+  const out = await renderBoard(lang, undefined, { tables });
   await waitFor(() =>
-    expect(out.container.querySelector(".orb-pulse-body, .orb-pulse-note")).not.toBeNull(),
+    expect(
+      out.container.querySelector(".orb-passes, .orb-kitchen-note, .orb-kitchen .orb-empty"),
+    ).not.toBeNull(),
   );
   return out;
 }
@@ -133,17 +130,18 @@ describe("the two column headings", () => {
 
   it("English leads, Burmese follows — and BOTH are present", async () => {
     const { container } = await renderBoard("en");
+    // PD9 — Ready leads the pickup column (the room's one call), Preparing beneath it.
     const heads = [...container.querySelectorAll<HTMLElement>(".orb-col h2")];
     expect(heads).toHaveLength(2);
-    expect(heads[0]!.textContent).toContain("Preparing");
-    expect(heads[0]!.textContent).toContain(PREPARING_MY);
-    expect(heads[1]!.textContent).toContain("Ready");
-    expect(heads[1]!.textContent).toContain(READY_MY);
-    const { lead, small } = halves(heads[0]!);
+    expect(heads[1]!.textContent).toContain("Preparing");
+    expect(heads[1]!.textContent).toContain(PREPARING_MY);
+    expect(heads[0]!.textContent).toContain("Ready");
+    expect(heads[0]!.textContent).toContain(READY_MY);
+    const { lead, small } = halves(heads[1]!);
     expect(lead.textContent).toBe("Preparing");
     expect(lead.hasAttribute("lang")).toBe(false); // English is the document's ambient tongue
     expect(small.getAttribute("lang")).toBe("my");
-    expect(heads[0]!.hasAttribute("lang")).toBe(false);
+    expect(heads[1]!.hasAttribute("lang")).toBe(false);
   });
 
   it("Burmese leads, English follows — and BOTH are still present", async () => {
@@ -151,13 +149,13 @@ describe("the two column headings", () => {
     const heads = [...container.querySelectorAll<HTMLElement>(".orb-col h2")];
     // The heading spans two tongues, so it carries neither mark; the CSS companion reaches the
     // Burmese half through a DESCENDANT selector and gives that half — and only it — Padauk.
-    expect(heads[0]!.hasAttribute("lang")).toBe(false);
-    const first = halves(heads[0]!);
+    expect(heads[1]!.hasAttribute("lang")).toBe(false);
+    const first = halves(heads[1]!);
     expect(first.lead.getAttribute("lang")).toBe("my");
     expect(first.lead.textContent).toBe(PREPARING_MY);
     expect(first.small.textContent).toBe("Preparing");
     expect(first.small.hasAttribute("lang")).toBe(false);
-    const second = halves(heads[1]!);
+    const second = halves(heads[0]!);
     expect(second.lead.getAttribute("lang")).toBe("my");
     expect(second.lead.textContent).toBe(READY_MY);
     expect(second.small.textContent).toBe("Ready");
@@ -220,250 +218,6 @@ describe("the status line", () => {
   });
 });
 
-describe("P6 — the kitchen pulse band", () => {
-  /**
-   * The band's whole subject is what a room full of guests can read off a wall. So these assert the
-   * ANSWER on screen, not the payload: the payload is already pinned in `lib/board-pulse.test.ts`
-   * and `app/api/board/route.test.ts`, and a client that quietly rendered a field the shaper
-   * withheld — or invented a sentence for a state it does not know — would pass both of those.
-   */
-  it("shows the table strip by number and status, and never a dish beside a table", async () => {
-    const { container } = await renderPulse("en", pulse());
-    const chips = [...container.querySelectorAll(".orb-table")].map((c) => c.textContent);
-    expect(chips).toEqual([
-      `Table 2${STAFF["kds.line.cooking"].en}`,
-      `Table 3${STAFF["board.pulse.up"].en}`,
-    ]);
-    // NOT "Ready". Nothing records that a plate reached a table — `bumped_at` means the pass
-    // finished the food — and on a screen a dining room reads, "Ready" is an instruction aimed at a
-    // guest who has nothing to do about it. The word must stay what the stamp supports.
-    // Blind review (2026-09-24) — the WHOLE board, whitespace-tolerant, as before the plain-words
-    // pass narrowed it to one exact chip string: the ONE phrase allowed to contain the word is the
-    // runner's "Ready to serve" (the stamp's own meaning), so it is struck first and the bare column
-    // word "Ready" must then appear after "Table 3" nowhere.
-    const ready = STAFF["board.col.ready"].en;
-    expect(container.textContent!.replaceAll(STAFF["board.pulse.up"].en, "")).not.toMatch(
-      new RegExp(`Table 3\\s*${ready}`),
-    );
-    // The lit-gold cap marks only the table a runner must act on — the ONE selection vocabulary.
-    expect(container.querySelectorAll(".orb-table-up")).toHaveLength(1);
-    expect(container.querySelector(".orb-table-up")!.textContent).toContain("Table 3");
-  });
-
-  it("renders the oldest age the SERVER measured, and does no clock arithmetic of its own", async () => {
-    const { container } = await renderPulse("en", pulse());
-    const stats = [...container.querySelectorAll(".orb-stat")].map((s) => s.textContent);
-    expect(stats).toEqual(["3Cooking", "9Oldest (min)"]);
-  });
-
-  it("says nothing about an age the server could not measure", async () => {
-    const { container } = await renderPulse("en", pulse({ tickets: 1, oldestMinutes: null }));
-    expect(container.querySelectorAll(".orb-stat")[1]!.textContent).toBe("—Oldest (min)");
-  });
-
-  it("renders no rail at all when the route withheld it", async () => {
-    // The exposure floor is enforced server-side; this is the client half of the same fact — an
-    // empty `allDay` must mount nothing rather than an empty list that reads as "no dishes".
-    const { container } = await renderPulse("en", pulse({ allDay: [], allDayMore: 0 }));
-    expect(container.querySelector(".orb-rail")).toBeNull();
-    expect(PULSE_RAIL_MIN_PARTIES).toBeGreaterThan(1);
-  });
-
-  it("says how many rail rows the cap dropped, rather than truncating in silence", async () => {
-    const { container } = await renderPulse("en", pulse({ allDayMore: 3 }));
-    expect(container.querySelector(".orb-rail-more")!.textContent).toBe("+3 more");
-  });
-
-  it("a NULL pulse says it cannot read the kitchen — it never draws an empty band", async () => {
-    // The lie this exists to refuse: `{tickets: 0}` over a full wok. `null` is "we could not ask".
-    const { container } = await renderPulse("my", null);
-    const note = container.querySelector(".orb-pulse-note")!;
-    expect(note.textContent).toContain("မဖတ်နိုင်သေး");
-    expect(container.querySelector(".orb-pulse-stats")).toBeNull();
-  });
-
-  it("a genuinely quiet kitchen says ALL CLEAR, which is a different sentence", async () => {
-    const { container } = await renderPulse("en", pulse({ tickets: 0, allDay: [], tables: [] }));
-    expect(container.querySelector(".orb-pulse-note")!.textContent).toBe("All clear");
-  });
-
-  it("adds no second live region — a wall that announces twice announces nothing", async () => {
-    const { container } = await renderPulse("my", pulse());
-    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
-    expect(container.querySelectorAll("[aria-live]")).toHaveLength(0);
-  });
-
-  it("names every region and list it adds", async () => {
-    await renderPulse("en", pulse());
-    expect(screen.getByRole("region", { name: "Kitchen" })).toBeTruthy();
-    expect(screen.getByRole("list", { name: "Table status" })).toBeTruthy();
-    expect(screen.getByRole("list", { name: STAFF["kds.a11y.allDay"].en })).toBeTruthy();
-  });
-
-  describe("the bilingual rules hold on the new markup too", () => {
-    /**
-     * ⚠️ THE REASON THESE RE-RUN THE PROPERTY ABOVE. The `lang="my"` sweep in the first block renders
-     * a board whose poll returns `{orders: []}` and NO pulse — so it never saw one byte of this band
-     * and would have stayed green through every typographic defect in it. A guard that cannot reach
-     * the code it guards is decorative; this is the same property, aimed at markup that exists.
-     */
-    it('no English text sits inside a lang="my" element, in ANY state the band can mount', async () => {
-      // ⚠️ Swept over every branch rather than the one fixture the first draft used. A property
-      // test only holds for the markup it actually renders, and three of these states — the
-      // overflow line, the outage note and the all-clear note — mount elements no other case does.
-      const states: (BoardPulse | null)[] = [
-        pulse(),
-        pulse({ allDayMore: 3 }),
-        pulse({ allDay: [{ name: "Mohinga", nameMy: null, qty: 4 }] }),
-        pulse({ tickets: 0, allDay: [], tables: [] }),
-        pulse({ oldestMinutes: null }),
-        null,
-      ];
-      for (const lang of ["en", "my"] as const) {
-        for (const state of states) {
-          cleanup();
-          const { container } = await renderPulse(lang, state);
-          const marked = [...container.querySelectorAll('[lang="my"]')];
-          expect(marked.length).toBeGreaterThan(0);
-          for (const el of marked) expect(el.textContent ?? "").not.toMatch(/[A-Za-z]/);
-        }
-      }
-    });
-
-    it("a dish with NO catalog Burmese renders its English name unmarked, never in Padauk", async () => {
-      // The render rule the data layer cannot enforce: `nameMy: null` means the rail shows the
-      // English snapshot ALONE. `{my ?? en}` under a Burmese mark is the exact defect P1's blind
-      // pass rejected one screen over, and it is invisible to every data-layer guard.
-      const { container } = await renderPulse(
-        "my",
-        pulse({
-          allDay: [{ name: "Mohinga", nameMy: null, qty: 4 }],
-        }),
-      );
-      const name = container.querySelector(".orb-rail-name")!;
-      expect(name.textContent).toBe("Mohinga");
-      expect(name.querySelector('[lang="my"]')).toBeNull();
-      expect(name.querySelector("small")).toBeNull();
-    });
-
-    it("a dish WITH catalog Burmese carries both tongues, each marked for what it holds", async () => {
-      const { container } = await renderPulse("my", pulse());
-      const name = container.querySelector(".orb-rail-name")!;
-      expect(name.querySelector('[lang="my"]')!.textContent).toBe("မုန့်ဟင်းခါး");
-      expect(name.querySelector("small")!.textContent).toBe("Mohinga");
-      expect(name.querySelector("small")!.hasAttribute("lang")).toBe(false);
-    });
-
-    it("the table number stays LATIN inside a Burmese chip", async () => {
-      // `{id}` is an identifier slot, never a count: a tent card reads `3`, so the wall must too.
-      const { container } = await renderPulse("my", pulse());
-      const chip = container.querySelector(".orb-table")!;
-      expect(chip.textContent).toContain("2");
-      expect(chip.textContent).not.toContain("၂");
-      expect(chip.querySelector('[lang="en"]')!.textContent).toBe("2");
-    });
-  });
-
-  describe("a stale board BLANKS the band, and only the band", () => {
-    /**
-     * ⚠️ THE ASYMMETRY IS THE POINT, and the first cut did not have it. `nextBoardStateOnFailure`
-     * keeps `kind: "live"` and carries the whole snapshot forward after two misses, flipping only
-     * `stale` — right for the Ready column, whose rows are a name and a pickup code and do not rot.
-     * Every value in this band does: a count of what is on the wok NOW, an age in minutes, and a
-     * `Food up` announcement whose five-minute window is enforced SERVER-side and therefore lapses
-     * the instant the server stops answering. Carried, the wall reads `9 Oldest` and a lit-gold
-     * `Table 3 · Food up` forty minutes into an outage, and a runner is sent to the pass for a plate
-     * that went out half an hour ago.
-     */
-    const withOrder = () => ({
-      orders: [{ code: "A1B2C3", name: "Nilar", status: "ready", readyAt: SERVER_NOW }],
-      serverNow: SERVER_NOW,
-      pulse: pulse(),
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("keeps the Ready column and drops the kitchen numbers after the fail threshold", async () => {
-      vi.useFakeTimers();
-      let answering = true;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          if (!answering) throw new Error("network");
-          return { status: 200, ok: true, json: async () => withOrder() };
-        }),
-      );
-      const { container } = render(<ReadyBoard token="t" lang="en" />);
-      // `act` around every advance: the poll's setState lands in a timer callback, and React 19
-      // batches those outside act into a warning and an unflushed render.
-      const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
-      await tick(1);
-
-      // Live: the band is showing real numbers and the announcement this test exists to expire.
-      expect(container.querySelector(".orb-pulse-body")).not.toBeNull();
-      expect(container.textContent).toContain(STAFF["board.pulse.up"].en);
-      expect(container.textContent).toContain("A1B2C3");
-
-      answering = false;
-      // ONE miss under the threshold: still fresh, still showing. Asserted so the test cannot pass
-      // by blanking the band on any failure at all.
-      for (let i = 0; i < BOARD_FAIL_THRESHOLD - 1; i++) await tick(5_000);
-      expect(container.querySelector(".orb-pulse-body")).not.toBeNull();
-
-      await tick(5_000); // the miss that makes it stale
-      expect(container.querySelector(".orb-pulse-body")).toBeNull();
-      expect(container.textContent).not.toContain(STAFF["board.pulse.up"].en);
-      // …and the note replaces it, so the band says it cannot read the kitchen rather than going
-      // silently absent — the same `null`-is-unknown contract the route uses for a dropped read.
-      expect(container.querySelector(".orb-pulse-note")).not.toBeNull();
-      // The Ready column is untouched: this is not a blanket blank, it is a claim-by-claim one.
-      expect(container.textContent).toContain("A1B2C3");
-    });
-
-    it("drops the wait minutes with the band — a stale count would tick on for hours (Codex round 1 on A4·1)", async () => {
-      // `readyMinutes` is a server-derived age, and an age rots exactly as the pulse's do: carried
-      // through an outage, a bag reads "5 min" an hour later while the note beside it says the
-      // board is reconnecting. The name and code stay (they do not rot); the count goes.
-      vi.useFakeTimers();
-      let answering = true;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          if (!answering) throw new Error("network");
-          return {
-            status: 200,
-            ok: true,
-            json: async () => ({
-              orders: [
-                {
-                  code: "A1B2C3",
-                  name: "Nilar",
-                  status: "ready",
-                  readyAt: SERVER_NOW,
-                  readyMinutes: 5,
-                },
-              ],
-              serverNow: SERVER_NOW,
-              pulse: pulse(),
-            }),
-          };
-        }),
-      );
-      const { container } = render(<ReadyBoard token="t" lang="en" />);
-      const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
-      await tick(1);
-      expect(container.querySelector(".orb-wait")?.textContent).toBe("5 min");
-
-      answering = false;
-      for (let i = 0; i < BOARD_FAIL_THRESHOLD; i++) await tick(5_000);
-      expect(container.textContent).toContain("A1B2C3");
-      expect(container.querySelector(".orb-wait")).toBeNull();
-    });
-  });
-});
-
 /** A poll sequence: each call to `fetch` answers the next body in the list (the last one repeats). */
 function pollSequence(bodies: object[]) {
   let i = 0;
@@ -475,18 +229,358 @@ function pollSequence(bodies: object[]) {
       return {
         status: 200,
         ok: true,
-        json: async () => ({ serverNow: SERVER_NOW, pulse: pulse(), ...body }),
+        json: async () => ({ serverNow: SERVER_NOW, orders: [], tables: [], ...body }),
       };
     }),
   );
 }
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
-const order = (code: string, status: "preparing" | "ready", readyMinutes?: number) => ({
-  code,
-  name: `Guest ${code}`,
-  status,
-  readyAt: status === "ready" ? SERVER_NOW : null,
-  ...(readyMinutes === undefined ? {} : { readyMinutes }),
+/** A bag as the route publishes it since PD9: its code and its status — no name, no wait. */
+const order = (code: string, status: "preparing" | "ready") => ({ code, status });
+
+describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
+  /**
+   * The subject is what a room full of guests reads off a wall. So these assert the ANSWER on
+   * screen: the payload is pinned in `lib/board-tables.test.ts` and the route's suite, and a client
+   * that drew a field the shaper withheld, or a sentence for a state it does not know, passes both.
+   */
+  it("each table is a pass: the figure once under 'စားပွဲ · Table', its dishes in both tongues, ONE stage word in the lead tongue", async () => {
+    const { container } = await renderTables("my", [
+      tableOf(4, [dish(), dish({ name: "Tea", nameMy: "လက်ဖက်ရည်", stage: "sent" })]),
+    ]);
+    const pass = container.querySelector<HTMLElement>(".orb-passes > li.ui-pass")!;
+    expect(pass.getAttribute("data-tier")).toBe("tv");
+    expect(pass.getAttribute("data-orientation")).toBe("landscape");
+    expect(pass.querySelector(".ui-pass-figure")!.textContent).toBe("4");
+    // The heading names the pass ONCE, in the lead tongue (the two-tongue label is decorative).
+    expect(pass.querySelector("h3")!.textContent).toContain(STAFF["board.pass.table"].my);
+    const rows = [...pass.querySelectorAll(".orb-dish")];
+    expect(rows.map((r) => r.querySelector(".orb-dish-my")?.textContent)).toEqual([
+      "မုန့်ဟင်းခါး",
+      "လက်ဖက်ရည်",
+    ]);
+    expect(rows.map((r) => r.querySelector(".orb-dish-en")?.textContent)).toEqual([
+      "Mohinga",
+      "Tea",
+    ]);
+    // ONE word per row, the lead tongue only (two scripts cannot stack in a chip).
+    expect(rows.map((r) => r.querySelector(".ui-track-word")!.textContent)).toEqual([
+      STAFF["table.line.state.inProgress"].my,
+      STAFF["table.line.state.fired"].my,
+    ]);
+    expect(rows[0]!.querySelector(".ui-track")!.getAttribute("data-stage")).toBe("cooking");
+  });
+
+  it("dish names keep Burmese on top under an ENGLISH board too; a dish with no catalog Burmese draws its English alone, unmarked", async () => {
+    const { container } = await renderTables("en", [
+      tableOf(2, [dish(), dish({ name: "Faluda", nameMy: null })]),
+    ]);
+    const [withMy, enOnly] = [...container.querySelectorAll(".orb-dish")];
+    expect(withMy!.querySelector(".orb-dish-my")!.getAttribute("lang")).toBe("my");
+    expect(withMy!.querySelector(".orb-dish-en")!.textContent).toBe("Mohinga");
+    expect(enOnly!.querySelector(".orb-dish-my")).toBeNull();
+    expect(enOnly!.querySelector(".orb-dish-lead")!.textContent).toBe("Faluda");
+    expect(enOnly!.querySelector(".orb-dish-lead")!.hasAttribute("lang")).toBe(false);
+    expect(withMy!.querySelector(".ui-track-word")!.textContent).toBe(
+      STAFF["table.line.state.inProgress"].en,
+    );
+  });
+
+  it("a to-go dish wears the KDS's 'To-go' tag beside its name", async () => {
+    const { container } = await renderTables("en", [tableOf(3, [dish({ togo: true })])]);
+    expect(container.querySelector(".orb-togo")!.textContent).toBe(STAFF["kds.channel.togo"].en);
+  });
+
+  it("round 2 wears the stub with a LATIN digit, round 1 none, an unknown later round 'next round' (`board-wall/stub-on-round-one`)", async () => {
+    const { container } = await renderTables("my", [
+      {
+        table: 4,
+        out: false,
+        rounds: [
+          { n: 1, next: false, dishes: [dish()] },
+          {
+            n: 2,
+            next: false,
+            dishes: [dish({ name: "Tea", nameMy: "လက်ဖက်ရည်", stage: "sent" })],
+          },
+          { n: null, next: true, dishes: [dish({ name: "Sago", nameMy: null, stage: "sent" })] },
+        ],
+      },
+    ]);
+    const stubs = [...container.querySelectorAll(".orb-round")];
+    expect(stubs).toHaveLength(2);
+    expect(stubs[0]!.textContent).toBe(tf("my", "kds.round", { id: 2 }));
+    expect(stubs[0]!.querySelector('[lang="en"]')?.textContent).toBe("2");
+    expect(stubs[1]!.textContent).toBe(STAFF["kds.round.next"].my);
+    // Each round's list is named for its table and round.
+    const lists = [...container.querySelectorAll("ul.orb-dishes")].map((u) =>
+      u.getAttribute("aria-label"),
+    );
+    expect(lists[1]).toContain(tf("my", "kds.round", { id: 2 }));
+  });
+
+  it("a table ALL served carries the one roll-up in its status cell, and its rows drop their tracks — no fact marked twice (`board-wall/rows-keep-tracks-when-out`)", async () => {
+    const { container } = await renderTables("en", [
+      tableOf(5, [
+        dish({ stage: "served" }),
+        dish({ name: "Faluda", nameMy: null, stage: "served" }),
+      ]),
+    ]);
+    const pass = container.querySelector(".orb-passes > li.ui-pass")!;
+    const head = pass.querySelector(".ui-pass-status .ui-track")!;
+    expect(head.getAttribute("data-stage")).toBe("served");
+    expect(head.textContent).toBe(STAFF["table.line.state.served"].en);
+    expect(pass.querySelectorAll(".orb-dish .ui-track")).toHaveLength(0);
+    // Never a ✓ on the TV, and never gold on a table.
+    expect(pass.querySelector(".ui-pass-stamp")).toBeNull();
+    expect(container.querySelector(".orb-table-up")).toBeNull();
+  });
+
+  it("the passes run by NUMBER down the left column then the right — the break by index, never by status", async () => {
+    const { container } = await renderTables("en", [
+      tableOf(2, [dish()]),
+      tableOf(3, [dish({ stage: "served" })]),
+      tableOf(5, [dish()]),
+      tableOf(7, [dish()]),
+      tableOf(9, [dish()]),
+    ]);
+    const passes = [...container.querySelectorAll<HTMLElement>(".orb-passes > li.ui-pass")];
+    expect(passes.map((p) => p.querySelector(".ui-pass-figure")!.textContent)).toEqual([
+      "2",
+      "3",
+      "5",
+      "7",
+      "9",
+    ]);
+    expect(passes.map((p) => p.classList.contains("orb-pass-break"))).toEqual([
+      false,
+      false,
+      false,
+      true,
+      false,
+    ]);
+  });
+
+  it("an empty kitchen says ALL CLEAR under the key; an UNREADABLE one says it cannot read the kitchen, never 'all clear' (`board-wall/unread-kitchen-reads-all-clear`)", async () => {
+    const quiet = await renderTables("en", []);
+    expect(quiet.container.querySelector(".orb-kitchen .orb-empty")!.textContent).toBe(
+      STAFF["kds.allclear"].en,
+    );
+    expect(quiet.container.querySelector(".orb-key")).not.toBeNull();
+    cleanup();
+    const blind = await renderTables("en", null);
+    expect(blind.container.querySelector(".orb-kitchen-note")!.textContent).toBe(
+      STAFF["board.pulse.unavailable"].en,
+    );
+    expect(blind.container.querySelector(".orb-key")).toBeNull();
+    expect(blind.container.textContent).not.toContain(STAFF["kds.allclear"].en);
+  });
+
+  it("an OLDER server that sends no `tables` reads as unreadable — and a `name` it still sends is never drawn", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          orders: [{ code: "A1B2C3", name: "Nilar", status: "ready", readyMinutes: 5 }],
+          pulse: { tickets: 0 },
+        }),
+      })),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await waitFor(() => expect(container.querySelector(".orb-kitchen-note")).not.toBeNull());
+    expect(container.textContent).toContain("#A1B2C3");
+    expect(container.textContent).not.toContain("Nilar");
+    expect(container.textContent).not.toContain("5 min");
+  });
+
+  it("the key teaches the three marks once, both tongues, aria-hidden; each row's own word carries its state", async () => {
+    const { container } = await renderTables("en", [tableOf(4, [dish()])]);
+    const key = container.querySelector(".orb-key")!;
+    expect(key.getAttribute("aria-hidden")).toBe("true");
+    expect([...key.querySelectorAll(".ui-track")].map((t) => t.getAttribute("data-stage"))).toEqual(
+      ["sent", "cooking", "served"],
+    );
+    expect(key.textContent).toContain(STAFF["table.line.state.served"].en);
+    expect(key.textContent).toContain(STAFF["table.line.state.served"].my);
+    // The list of passes is named; one live region on the page.
+    expect(screen.getByRole("list", { name: STAFF["board.a11y.tables"].en })).toBeTruthy();
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it("nothing a guest's privacy forbids reaches the wall: no count, no price, no clock beside a dish", async () => {
+    const { container } = await renderTables("en", [
+      tableOf(4, [dish(), dish({ name: "Tea", nameMy: null })]),
+    ]);
+    const pass = container.querySelector(".orb-passes")!.textContent ?? "";
+    expect(pass).not.toMatch(/×|\$|\d+\s*min|\d{1,2}:\d{2}/);
+  });
+});
+
+describe("PD9 — the wall moves only when food changes state, one thing at a time", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    chime.play.mockReset();
+  });
+
+  it("a first read celebrates nothing; a table whose last dish is served TURNs once, and never again that visit (`board-wall/turn-every-poll`)", async () => {
+    vi.useFakeTimers();
+    const cooking = [tableOf(7, [dish({ stage: "cooking" })])];
+    const out = [tableOf(7, [dish({ stage: "served" })])];
+    pollSequence([{ tables: out }]);
+    const first = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    // A reboot mid-rush: the all-served table is drawn at its final frame, with no TURN.
+    expect(first.container.querySelector('[data-turning="head"]')).toBeNull();
+    first.unmount();
+
+    pollSequence([{ tables: cooking }, { tables: out }, { tables: out }]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    await tick(5_000); // the last dish is served
+    expect(container.querySelector('.ui-pass[data-turning="head"]')).not.toBeNull();
+    await tick(480); // the TURN's two halves
+    expect(container.querySelector('[data-turning="head"]')).toBeNull();
+    await tick(5_000); // the same snapshot again: nothing turns twice
+    expect(container.querySelector('[data-turning="head"]')).toBeNull();
+  });
+
+  it("a dish that advances FILLs its newly reached segment; a row seen for the first time does not", async () => {
+    vi.useFakeTimers();
+    pollSequence([
+      { tables: [tableOf(4, [dish({ stage: "sent" })])] },
+      {
+        tables: [
+          tableOf(4, [
+            dish({ stage: "cooking" }),
+            dish({ name: "Tea", nameMy: null, stage: "sent" }),
+          ]),
+        ],
+      },
+    ]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelector(".ui-track[data-filling]")).toBeNull();
+    await tick(5_000);
+    const filling = [...container.querySelectorAll(".orb-dish .ui-track[data-filling]")];
+    expect(filling).toHaveLength(1);
+    expect(filling[0]!.closest(".orb-dish")!.textContent).toContain("Mohinga");
+  });
+
+  it("a bag turning Ready is issued as a pass with the arrival on its edge — after the table's TURN, never at the same time", async () => {
+    vi.useFakeTimers();
+    pollSequence([
+      {
+        orders: [order("4C1A9E", "preparing")],
+        tables: [tableOf(7, [dish({ stage: "cooking" })])],
+      },
+      { orders: [order("4C1A9E", "ready")], tables: [tableOf(7, [dish({ stage: "served" })])] },
+    ]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    await tick(5_000);
+    // One thing at a time: the TURN first (tables by number), then the pickup.
+    expect(container.querySelector('[data-turning="head"]')).not.toBeNull();
+    expect(container.querySelector(".orb-ready-flash")).toBeNull();
+    await tick(480);
+    expect(container.querySelector('[data-turning="head"]')).toBeNull();
+    const ready = container.querySelector<HTMLElement>(
+      ".orb-col-ready li.ui-pass.orb-ready-flash",
+    )!;
+    expect(ready.querySelector(".ui-pass-figure")!.textContent).toBe("#4C1A9E");
+  });
+});
+
+describe("PD9 — a frozen wall drops what rots and keeps what does not", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("past the fail threshold the passes keep their numbers and names but drop every stage and the roll-up; the sentence replaces the key (`board-wall/frozen-keeps-stages`)", async () => {
+    vi.useFakeTimers();
+    let answering = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!answering) throw new Error("network");
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            orders: [order("A1B2C3", "ready")],
+            tables: [tableOf(3, [dish({ stage: "served" })]), tableOf(4, [dish()])],
+          }),
+        };
+      }),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelectorAll(".ui-track")).not.toHaveLength(0);
+    answering = false;
+    for (let i = 0; i < BOARD_FAIL_THRESHOLD - 1; i++) await tick(5_000);
+    expect(container.querySelector(".orb-root[data-stale]")).toBeNull(); // one miss: say nothing
+    await tick(5_000);
+    expect(container.querySelector(".orb-root[data-stale]")).not.toBeNull();
+    // The identities stay: numbers and dish names.
+    expect(container.querySelectorAll(".orb-passes > li.ui-pass")).toHaveLength(2);
+    expect(container.querySelector(".orb-passes")!.textContent).toContain("Mohinga");
+    // Every stage goes — the dish words, the tracks, the roll-up — and the key's promise with them.
+    expect(container.querySelectorAll(".orb-kitchen .ui-track")).toHaveLength(0);
+    expect(container.querySelector(".orb-kitchen-note")!.textContent).toBe(
+      STAFF["board.pulse.unavailable"].en,
+    );
+    // The code column keeps its code.
+    expect(container.textContent).toContain("#A1B2C3");
+  });
+
+  it("a frozen pass rots on the linger clock: past it the kitchen keeps only its sentence (m9 critic B7; `board-wall/frozen-forever`)", async () => {
+    vi.useFakeTimers();
+    let answering = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!answering) throw new Error("network");
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({ orders: [], tables: [tableOf(4, [dish()])] }),
+        };
+      }),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    answering = false;
+    await tick(FROZEN_TABLES_MS - 5_000);
+    expect(container.querySelectorAll(".orb-passes > li.ui-pass")).toHaveLength(1);
+    await tick(10_000);
+    expect(container.querySelector(".orb-passes")).toBeNull();
+    expect(container.querySelector(".orb-kitchen-note")!.textContent).toBe(
+      STAFF["board.pulse.unavailable"].en,
+    );
+  });
+
+  it("the first good poll after a frozen spell re-seeds: what went out meanwhile is drawn final, never celebrated late", async () => {
+    vi.useFakeTimers();
+    let answering = true;
+    let tables = [tableOf(7, [dish({ stage: "cooking" })])];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!answering) throw new Error("network");
+        return { status: 200, ok: true, json: async () => ({ orders: [], tables }) };
+      }),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    answering = false;
+    for (let i = 0; i < BOARD_FAIL_THRESHOLD; i++) await tick(5_000);
+    tables = [tableOf(7, [dish({ stage: "served" })])];
+    answering = true;
+    await tick(5_000);
+    expect(container.querySelector(".orb-root[data-stale]")).toBeNull();
+    expect(container.querySelector('[data-turning="head"]')).toBeNull();
+  });
 });
 
 describe("board-1 — the rush cut: a column shows what fits and says what it hid", () => {
@@ -556,7 +650,7 @@ describe("board-1 — the rush cut: a column shows what fits and says what it hi
     const codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"];
     await renderBoard("en", undefined, { orders: codes.map((c) => order(c, "ready")) });
     const readyCol = () => screen.getByRole("region", { name: "Ready" });
-    await waitFor(() => expect(readyCol().querySelectorAll(".orb-card")).toHaveLength(5));
+    await waitFor(() => expect(readyCol().querySelectorAll("li.ui-pass")).toHaveLength(5));
     // MUTATION: `shown = cap` in boardColumnFit — six cards and the row pushed past the box, red.
     const more = readyCol().querySelector("ul > li.orb-more");
     expect(more?.textContent).toBe(tf("en", "kds.more", { n: 4 }));
@@ -568,7 +662,9 @@ describe("board-1 — the rush cut: a column shows what fits and says what it hi
     await renderBoard("en", undefined, {
       orders: ["B1", "B2", "B3"].map((c) => order(c, "ready")),
     });
-    await waitFor(() => expect(document.querySelectorAll(".orb-card")).toHaveLength(3));
+    await waitFor(() =>
+      expect(document.querySelectorAll(".orb-col-ready li.ui-pass")).toHaveLength(3),
+    );
     expect(document.querySelector(".orb-more")).toBeNull();
   });
 
@@ -577,7 +673,7 @@ describe("board-1 — the rush cut: a column shows what fits and says what it hi
     const codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"];
     await renderBoard("en", undefined, { orders: codes.map((c) => order(c, "ready")) });
     const readyCol = () => screen.getByRole("region", { name: "Ready" });
-    const cards = () => readyCol().querySelectorAll(".orb-card");
+    const cards = () => readyCol().querySelectorAll("li.ui-pass");
     const more = () => readyCol().querySelector("li.orb-more")?.textContent;
     await waitFor(() => expect(cards()).toHaveLength(5));
     boxes.ul = 300; // the TV zoomed in: three slots now
@@ -594,17 +690,16 @@ describe("board-1 — the rush cut: a column shows what fits and says what it hi
     expect(more()).toBe(tf("en", "kds.more", { n: 8 }));
   });
 
-  it("Preparing leads with the bag about to come up — the route's newest-first order reversed", async () => {
+  it("Preparing keeps the route's order — the bag about to come up leads — and draws the code alone", async () => {
     await renderBoard("en", undefined, {
-      orders: [order("NEW", "preparing"), order("MID", "preparing"), order("OLD", "preparing")],
+      orders: [order("OLD", "preparing"), order("MID", "preparing"), order("NEW", "preparing")],
     });
     const prep = () => screen.getByRole("region", { name: "Preparing" });
     await waitFor(() => expect(prep().querySelectorAll(".orb-card")).toHaveLength(3));
-    // MUTATION: drop `.reverse()` — the just-placed bag leads and the cut would hide the next one up; red.
     expect([...prep().querySelectorAll(".orb-card")].map((c) => c.textContent)).toEqual([
-      "Guest OLD#OLD",
-      "Guest MID#MID",
-      "Guest NEW#NEW",
+      "#OLD",
+      "#MID",
+      "#NEW",
     ]);
   });
 });
@@ -704,7 +799,7 @@ describe("board-4 — the sound chip is a toggle that stays", () => {
   });
 });
 
-describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", () => {
+describe("board-2 · board-5 — the tell and the tongue", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -720,9 +815,9 @@ describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", 
           status: 200,
           ok: true,
           json: async () => ({
-            orders: [order("D1", "ready", 3)],
+            orders: [order("D1", "ready")],
             serverNow: SERVER_NOW,
-            pulse: pulse(),
+            tables: [],
           }),
         };
       }),
@@ -774,15 +869,26 @@ describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", 
     // The first block asserts no Latin under a Burmese mark; this is the other direction, so the
     // fix cannot regress into the mirror-image defect — a Myanmar-script text node with no
     // `lang="my"` ancestor is Burmese set in the Latin face and announced as English. Rendered
-    // with a pulse AND a shelf so the headings' echoes, the rail, the table chips and the cards
-    // all exist; the unlinked screen under `en` is English alone by `Chrome`'s rule 1 and would
-    // satisfy this vacuously.
+    // with tables AND both columns so the headings' echoes, the key, the pass labels, the dish
+    // names, the round stub and the codes all exist; the unlinked screen under `en` is English
+    // alone by `Chrome`'s rule 1 and would satisfy this vacuously.
     await renderBoard("en", undefined, {
-      orders: [order("F1", "ready", 5), order("F2", "preparing")],
-      pulse: pulse(),
+      orders: [order("F1", "ready"), order("F2", "preparing")],
+      tables: [
+        {
+          table: 4,
+          out: false,
+          rounds: [
+            { n: 1, next: false, dishes: [dish()] },
+            { n: 2, next: false, dishes: [dish({ togo: true })] },
+          ],
+        },
+      ],
     });
-    await waitFor(() => expect(document.querySelector(".orb-pulse-body")).not.toBeNull());
-    await waitFor(() => expect(document.querySelectorAll(".orb-card")).toHaveLength(2));
+    await waitFor(() => expect(document.querySelector(".orb-passes")).not.toBeNull());
+    await waitFor(() =>
+      expect(document.querySelectorAll(".orb-col-ready li.ui-pass")).toHaveLength(1),
+    );
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const bare: string[] = [];
     let marked = 0;
@@ -793,20 +899,6 @@ describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", 
     }
     expect(bare).toEqual([]);
     expect(marked).toBeGreaterThan(0); // rule 1 — both tongues are on the wall under `en` too
-  });
-
-  it("the shelf wait has a ceiling on the wall: `Over an hour`, never `1440 min`", async () => {
-    await renderBoard("en", undefined, {
-      orders: [order("E1", "ready", 1440), order("E2", "ready", 5), order("E3", "ready", 0)],
-    });
-    await waitFor(() => expect(document.querySelectorAll(".orb-wait")).toHaveLength(3));
-    const waits = [...document.querySelectorAll(".orb-wait")].map((w) => w.textContent);
-    // MUTATION: render `tf(lang, "board.card.wait", { mins: wait })` again — `1440 min`; red.
-    expect(waits).toEqual([
-      STAFF["board.card.waitLong"].en,
-      "5 min",
-      STAFF["board.card.justNow"].en,
-    ]);
   });
 });
 
@@ -880,11 +972,15 @@ describe("board-1 · 6 · 9 — the stylesheet, parsed (comments stripped, at-ru
     return values[0]!;
   };
 
-  it("the root IS the screen and the band cannot be squeezed off it", () => {
-    // MUTATION: `min-height: 100dvh` again — the root grows past the TV and the band leaves; red.
+  it("the root IS the screen, and the passes clip inside their own box", () => {
+    // MUTATION: `min-height: 100dvh` again — the root grows past the TV; red.
     expect(one(".orb-root", "height")).toBe("100dvh");
     expect(one(".orb-root", "overflow")).toBe("hidden");
-    expect(one(".orb-pulse", "flex")).toBe("none");
+    // PD9 — the passes' list takes the kitchen's REMAINING height and clips; the fit measures it.
+    expect(one(".orb-passes", "flex")).toMatch(/^1\b/);
+    expect(one(".orb-passes", "overflow")).toBe("hidden");
+    expect(one(".orb-passes", "columns")).toBe("2");
+    expect(one(".orb-pass-break", "break-before")).toBe("column");
   });
 
   it("board-1 — the list takes the column's REMAINING height, and every row is one line", () => {
@@ -901,19 +997,15 @@ describe("board-1 · 6 · 9 — the stylesheet, parsed (comments stripped, at-ru
     expect(one(".orb-name", "min-width")).toBe("0");
   });
 
-  it("the flash animates opacity on an overlay BEHIND the text, never the card's paint, and reduced motion hides it", () => {
+  it("the Ready arrival animates opacity on a ring at the pass's EDGE — a gold wash over paper would vanish — and reduced motion hides it", () => {
     const kf = all.filter((b) => b.prelude === "@keyframes orbFlash");
     expect(kf).toHaveLength(1);
-    // MUTATION: animate `background` in the keyframes again — red.
     expect(kf[0]!.body).toMatch(/opacity/);
     expect(kf[0]!.body).not.toMatch(/background/);
-    expect(one(".orb-card-flash::before", "animation")).toMatch(/^orbFlash\b/);
-    // MUTATION: drop `z-index: -1` (or the card's `isolation: isolate`) — the overlay paints OVER
-    // the name and the code for the two seconds a guest is looking for exactly those; red.
-    expect(one(".orb-card-flash::before", "z-index")).toBe("-1");
-    expect(one(".orb-card", "isolation")).toBe("isolate");
-    expect(one(".orb-card", "position")).toBe("relative");
-    expect(rm(".orb-card-flash::before").flatMap((b) => decl(b, "display"))).toEqual(["none"]);
+    expect(one(".orb-ready-flash::after", "animation")).toMatch(/^orbFlash\b/);
+    expect(one(".orb-ready-flash::after", "box-shadow")).toContain("var(--gold)");
+    expect(rule(".orb-ready-flash::after").flatMap((b) => decl(b, "background"))).toEqual([]);
+    expect(rm(".orb-ready-flash::after").flatMap((b) => decl(b, "display"))).toEqual(["none"]);
   });
 
   it("board-6 — the READY heading keeps gold on its TEXT alone; the rule under both headings is a hairline", () => {
@@ -924,25 +1016,17 @@ describe("board-1 · 6 · 9 — the stylesheet, parsed (comments stripped, at-ru
     expect(one(".orb-col h2", "border-bottom")).toBe("1px solid var(--bd)");
     expect(rule(".orb-col-ready h2").flatMap((b) => decl(b, "border-bottom"))).toEqual([]);
     expect(one(".orb-col-ready h2", "color")).toBe("var(--gold)");
-    for (const sel of [".orb-head", ".orb-cols", ".orb-pulse"])
+    for (const sel of [".orb-head", ".orb-main", ".orb-kitchen", ".orb-passes"])
       expect(
         rule(sel).flatMap((b) => decl(b, "animation")),
         sel,
       ).toEqual([]);
   });
 
-  it("the `Food up` chip wears the shared cap (one fill block names it) and its ink follows the fill", () => {
-    const fills = rule(".orb-table-up").filter((b) => decl(b, "background").length);
-    expect(fills).toHaveLength(1);
-    expect(fills[0]!.prelude).toContain('.kds-chip[aria-pressed="true"]');
-    // MUTATION: `color: var(--gold)` on the runs again — gold on gold; red.
-    expect(one(".orb-table-up .orb-table-no", "color")).toBe("var(--oa)");
-    expect(one(".orb-table-up .orb-table-state", "color")).toBe("var(--oa)");
-  });
-
-  it("name + code are one identity: the code's auto margin, no three-way space-between", () => {
-    expect(one(".orb-code", "margin-right")).toBe("auto");
-    expect(rule(".orb-card").flatMap((b) => decl(b, "justify-content"))).toEqual([]);
+  it("PD9 — the wall spends no gold on a table: the retired chip is out of the shared pressed rule, and a frozen pass is dashed", () => {
+    expect(rule(".orb-table-up")).toEqual([]);
+    expect(one(".orb-root[data-stale] .ui-pass-paper", "border")).toBe("2px dashed var(--t2)");
+    expect(one(".orb-root[data-stale] .ui-pass", "--pass-paper")).toBe("transparent");
   });
 });
 

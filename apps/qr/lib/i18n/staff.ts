@@ -1926,14 +1926,9 @@ export const STAFF = {
   // unchecked on K15, and this slice does not reword them.
   "board.col.preparing": { en: "Preparing", my: "ပြင်ဆင်နေသည်" },
   "board.col.ready": { en: "Ready", my: "ယူသွားနိုင်ပါပြီ" },
-  // K32 (A4·1) — how long a Ready bag has waited, a count the SERVER derives from the DB clock.
-  // `{mins}` is NOT a count slot, so the digits stay Latin in both languages — the pulse's minute
-  // count beside it is Latin by construction, and one wall renders a duration one way.
-  "board.card.wait": { en: "{mins} min", my: "{mins} မိနစ်" },
-  "board.card.justNow": { en: "Just now", my: "ခုလေးတင်" },
-  // K28(b) — the shelf wait's ceiling on the guest wall: past an hour the figure is not information
-  // (`shelfWait`, lib/kds-time.ts). Claude-authored draft pending K15.
-  "board.card.waitLong": { en: "Over an hour", my: "တစ်နာရီကျော်" },
+  // PD9 retired the Ready bag's shelf wait from the wall (`board.card.wait` · `.justNow` ·
+  // `.waitLong`, K32(a) / K28(b)): an age that ticks with no food changing state is a clock, and the
+  // wall shows none (m9 critic B4).
   "board.connecting": { en: "Connecting…", my: "ဆက်သွယ်နေပါတယ်…" },
   "board.reconnecting": {
     en: "Reconnecting — showing the last update",
@@ -2067,7 +2062,7 @@ export const STAFF = {
   //
   // What genuinely has no twin at the pass is below. Every MY value is a Claude-authored working
   // draft pending Min's native check (K15).
-  "board.pulse.oldest": { en: "Oldest (min)", my: "အကြာဆုံး (မိနစ်)" },
+  // (`board.pulse.oldest` retired with the band, PD9: lateness is the KDS's alone.)
   // ⚠️ NOT "Ready", in either tongue, and the word IS the design decision. Nothing in this schema
   // records that a plate reached a table — `bumped_at` means the PASS finished the food and there is
   // no runner event anywhere — so "Ready" would assert a fact the database does not hold. It is also
@@ -2085,6 +2080,11 @@ export const STAFF = {
   },
   // Aria-only (no visible text of its own), so it goes through `sx()` — see lib/staff-labels.ts.
   "board.a11y.tables": { en: "Table status", my: "စားပွဲ အခြေအနေ" },
+  // PD9 — the two labels the wall's passes print over their ONE figure (the CounterPass's two-tongue
+  // label, "စားပွဲ · Table" / "ကုဒ် · Code"). No new word: each is a shipped key's own value, grounded
+  // below, so a K15 correction lands in both places together.
+  "board.pass.table": { en: "Table", my: "စားပွဲ" }, // grounded: table.appr.table
+  "board.pass.code": { en: "Code", my: "ကုဒ်" }, // grounded: promo.field
 
   // ── P5 · the pilot loop: the printed word-check sheet and tonight's numbers ────────────────
   // Two surfaces, one namespace. `pilot.gloss.*` is the sheet Mom and Dad mark up over dessert —
@@ -3632,7 +3632,7 @@ export const STAFF = {
   // staff keys: expo.err.stale, floor.settled.stale). Every MY value is a Claude-authored K15 draft
   // pending Min's native check. {n} in the badge and the page's note is the HOURS (a count —
   // Burmese numerals); in the floor's segment {n} is the ORDERS and {h} the hours, localized at the
-  // call site because only {n}/{total} are count slots. Words: ကျော် "over" (board.card.waitLong
+  // call site because only {n}/{total} are count slots. Words: ကျော် "over" (the retired board.card.waitLong
   // တစ်နာရီကျော်), နာရီ "hour" (kds.age.hm), လာမယူ "not collected" (table.noshow.btn), အဟောင်း
   // "old" (floor.counter.truncated, table.appr.empty.hint's အဟောင်းက အရင်ပြပါတယ်).
   // EN singular/plural pair on the HOURS — ONE Burmese value (see STAFF_PLURAL_PAIRS).

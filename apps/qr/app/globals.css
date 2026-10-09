@@ -7846,8 +7846,7 @@ a .chrome-en {
 .staff-chip[aria-pressed="true"],
 .staff-circ[aria-pressed="true"],
 .staff-zone-chip[aria-current="location"],
-.floor-card[aria-current="true"] .floor-card-label,
-.orb-table-up {
+.floor-card[aria-current="true"] .floor-card-label {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -8681,6 +8680,14 @@ a .chrome-en {
      A TV wants its own scale anyway: the chip's tier is sized in viewport units like every other
      word on this screen, not borrowed from a tablet's 15px. */
   --kfs-meta: clamp(15px, 1.2vw, 22px);
+  /* PD9 — the wall's TV tiers for the table passes (m9 "THE DISH ROW"), declared once here like the
+     KDS's `--kfs-*`: a dish's Burmese, its English beneath, the to-go tag, the round stub's word. The
+     table figure itself is `--fs-pass`, pinned (the CounterPass's own tier). */
+  --tv-dish: clamp(18px, 1.4vw, 26px);
+  --tv-dish-en: clamp(15px, 1.05vw, 20px);
+  --tv-tag: clamp(13px, 0.85vw, 16px);
+  --tv-round: clamp(16px, 1.25vw, 24px);
+  --tv-key: clamp(14px, 1.05vw, 20px);
   /* board-1 — the root IS the screen (height, not min-height): a wall TV cannot scroll, so a column
      that outgrew a growing root pushed the runner's `Food up` band and the oldest bags off the
      bottom in silence. Each column clips and the component cuts to a MEASURED row count, ending in
@@ -8713,11 +8720,19 @@ a .chrome-en {
   color: var(--t2);
   font-weight: var(--fw-semibold);
 }
-.orb-cols {
+/* PD9 — the wall's two halves: the kitchen (the table passes, in two columns of their own) and the
+   pickup column (Ready above Preparing), the larger box to the kitchen. */
+.orb-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
   gap: clamp(16px, 2.5vw, 44px);
+  min-height: 0;
+}
+.orb-pickup {
+  display: grid;
+  grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  gap: clamp(12px, 1.6vw, 32px);
   min-height: 0;
 }
 .orb-col {
@@ -8726,7 +8741,8 @@ a .chrome-en {
   min-height: 0;
   overflow: hidden;
 }
-.orb-col h2 {
+.orb-col h2,
+.orb-kitchen h2 {
   flex: none;
   margin: 0 0 clamp(8px, 1vw, 16px);
   font-size: clamp(22px, 2.4vw, 36px);
@@ -8737,7 +8753,8 @@ a .chrome-en {
   border-bottom: 1px solid var(--bd);
   padding-bottom: 10px;
 }
-.orb-col h2 small {
+.orb-col h2 small,
+.orb-kitchen h2 small {
   display: block;
   font-size: 0.62em;
   font-weight: var(--fw-semibold);
@@ -8779,16 +8796,11 @@ a .chrome-en {
   font-size: clamp(18px, 1.8vw, 30px);
   font-weight: var(--fw-bold);
 }
+/* A Preparing row (PD9): the code alone, the phone pass's code face at the board's row tier — no
+   name and no wait; it becomes a pass when it turns Ready. */
 .orb-card {
-  /* board-9 — the flash is a `::before` overlay BEHIND the text: the card is its own stacking
-     context so the overlay's `z-index: -1` sits between the card's background and its content
-     (a positioned pseudo-element with `z-index: auto` paints OVER in-flow text — the blind pass). */
-  position: relative;
-  isolation: isolate;
   display: flex;
   align-items: baseline;
-  /* board-8 — name + code are ONE identity at the leading edge (`.orb-code`'s auto margin), the
-     wait alone at the trailing edge; a three-way space-between drifted the code to mid-row. */
   gap: 20px;
   padding: clamp(10px, 1.2vw, 20px) 6px;
   border-bottom: 1px solid var(--bd);
@@ -8796,43 +8808,16 @@ a .chrome-en {
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
 }
-/* board-1 — EVERY row is one line: the fit divides the box by a row's height, so a wrapped name
-   would push the `+N more` row under the clip with nothing to say so. A very long name ends in an
-   ellipsis on the wall; the code beside it is what the guest matches against their receipt. */
+/* board-1 — EVERY row is one line: the fit divides the box by a row's height, so a wrapped row
+   would push the `+N more` row under the clip with nothing to say so. */
 .orb-name {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.orb-code {
-  flex: none;
-  margin-right: auto;
-  color: var(--t2);
-  font-size: 0.58em;
-  font-weight: var(--fw-bold);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-caps);
-}
-/* K32 (A4·1): minutes on the shelf — the server's count, quiet beside the code. */
-.orb-wait {
-  flex: none;
-  color: var(--t2);
-  font-size: 0.5em;
-  font-weight: var(--fw-bold);
-  font-variant-numeric: tabular-nums;
-}
-/* board-9 — the flash animates OPACITY on an overlay (§3: transform/opacity only), never the card's
-   own paint. `forwards` holds it at 0 for the class's life; reduced motion hides the overlay. */
-.orb-card-flash::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--gold) 32%, transparent);
-  animation: orbFlash 2s var(--ease-out) forwards;
-}
+/* board-9 — the flash animates OPACITY (§3: transform/opacity only), never a paint; `forwards` holds
+   it at 0 for the class's life. PD9 moved it to the Ready pass's edge (`.orb-ready-flash`). */
 @keyframes orbFlash {
   from {
     opacity: 1;
@@ -8891,194 +8876,218 @@ a .chrome-en {
    linear sub-pixel translate that can rasterize every glyph off the pixel grid on a TV compositor —
    a visible cost the "2px nobody sees" argument does not cover. Filed for a device check. */
 @media (prefers-reduced-motion: reduce) {
-  .orb-card-flash::before {
+  .orb-ready-flash::after {
     display: none;
   }
 }
 
-/* ── P6: the KITCHEN PULSE band — the second audience on the same wall ─────────────────────────────
-   A footer band under the two columns: load, the dine-in table strip, the all-day rail. It ANIMATES
-   NOTHING and therefore joins no reduced-motion list — deliberately, not by omission. The gold flash
-   above marks a transition a customer is waiting for; a band that moved its own numbers on a screen
-   hanging in a dining room would pull every guest's eye to the kitchen's workload every five seconds.
-
-   EVERY text×surface pair here is one `contrast-audit.test.ts` already asserts in DARK, which is the
-   only theme this band renders in (`.orb-root` is Night-forced): `--tx` on `--pg` is `.orb-root`'s own
-   declared pair, `--t2` on `--pg` is asserted, and `--gold` on `--pg` is the 12.29:1 pair the READY
-   column heading already pins. So the chips sit on the page ground with a hairline border rather than
-   on a filled surface — a new fill would be a new pairing with no coverage, and flat high-contrast is
-   what reads across a room anyway.
-
-   GOLD IS THE SELECTION VOCABULARY AND IT IS NOT SPENT ELSEWHERE. `.orb-table-up` is the only new
-   gold in this block; the rail's quantity stays `--tx` precisely so the one lit thing on the band is
-   the one a runner has to act on. board-9 made it the cap itself: `.orb-table-up` is the SEVENTH
-   selector in the shared pressed rule (accent fill, `--oa` ink, the sheen, the gold halo — the pair
-   `contrast-audit.test.ts` asserts for every pressed KDS chip), where it had been a gold OUTLINE,
-   which is §2's IDLE idiom. Extending the lit-gold cap, never inventing a parallel one
-   (DESIGN-LANGUAGE §"ONE selection vocabulary").
-
-   board-3 / K27 — sized for the wall: the band is the only "act now" text a runner reads, and it sat
-   at phone size beside 54px cards. Every clamp below is on the columns' viewport scale now.
-
-   It ANIMATES NOTHING and therefore joins no reduced-motion list — deliberately, not by omission.
-
-   The uppercase + tracked labels below are the KDS's chrome idiom, and Burmese needs neither: the
-   `.orb-root [lang="my"]` rule at the bottom of this file is (0,2,0) and beats `.orb-stat span`
-   (0,1,1) and `.orb-table-state` (0,1,0), restoring Padauk, normal tracking and no case transform on
-   every marked run. That is why these rules may state them at all. */
-.orb-pulse {
-  flex: none; /* board-1 — never squeezed off the screen by a growing column */
-  border-top: 1px solid var(--bd);
-  padding-top: clamp(10px, 1.2vw, 20px);
-  display: grid;
-  gap: clamp(8px, 1vw, 16px);
-}
-.orb-pulse h2 {
-  margin: 0;
+/* ── PD9: the KITCHEN half — every table with food in the kitchen, as a pass (m9) ─────────────────
+   The owner's 2026-10-07 reversal of the P6 band (OPEN-ITEMS K32(b), P6a): each dine-in table is the
+   ONE PASS (`@mms/ui` CounterPass, landscape, the TV tier) with its dishes on the ONE KITCHEN TRACK.
+   Every colour ON a pass is a constant `--pass-*` ink (pass.css); this block only lays the passes out
+   and sets the TV tiers. The wall never nags: Sent and Cooking are marks, Served is calm (`--pass-ok`
+   on the paper, `--ok` in the key), and gold is spent only on the pickup call — the Ready heading,
+   the Ready pass's arrival and the sound chip's pressed cap. Nothing here moves on its own: the only
+   motion is the track's FILL and the pass's TURN (pass.css, host-triggered, each escorted there) and
+   the Ready arrival below (escorted above). */
+.orb-kitchen {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: clamp(14px, 1.3vw, 22px);
-  font-weight: var(--fw-heavy);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--t2);
+  flex-direction: column;
+  gap: clamp(10px, 1.2vw, 24px);
+  min-height: 0;
+  /* The passes' notches show the HOST's ground: the wall's page, never a theme guess. */
+  --pass-hole: var(--pg);
 }
-.orb-pulse h2 small {
-  font-size: 0.78em;
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--track-snug);
-  text-transform: none;
-}
-.orb-pulse-note {
-  margin: 0;
-  color: var(--t2);
-  font-size: clamp(15px, 1.4vw, 24px);
-  font-weight: var(--fw-semibold);
-}
-.orb-pulse-body {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: clamp(14px, 2.2vw, 40px);
-}
-.orb-pulse-stats {
+.orb-kitchen-head {
   flex: none;
   display: flex;
-  gap: clamp(14px, 1.8vw, 32px);
-  font-variant-numeric: tabular-nums;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  border-bottom: 1px solid var(--bd);
+  padding-bottom: 10px;
 }
-.orb-stat {
+.orb-kitchen-head h2 {
+  border-bottom: 0;
+  padding-bottom: 0;
   margin: 0;
-  display: grid;
-  justify-items: start;
-  gap: 2px;
 }
-.orb-stat b {
-  font-size: clamp(24px, 2.6vw, 40px);
-  font-weight: var(--fw-heavy);
-  line-height: 1;
+/* The KEY — the three tracks taught once (the guests' static step guide; aria-hidden). Night ink:
+   the key sits on the page, so the track takes the theme's palette (`data-surface="theme"`). */
+.orb-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: clamp(12px, 1.6vw, 32px);
+  padding-bottom: 6px;
+  font-size: var(--tv-key);
 }
-.orb-stat span {
-  font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: var(--fw-bold);
-  letter-spacing: var(--track-wide);
-  text-transform: uppercase;
+.orb-kitchen-note {
+  margin: 0;
   color: var(--t2);
+  font-size: var(--tv-round);
+  font-weight: var(--fw-bold);
 }
-.orb-tables {
+/* The passes: sorted by number, the first ⌈n/2⌉ down the left column and the rest down the right —
+   by INDEX (the forced break), never by height, so a pass that collapses never moves another table
+   across (Codex round 4 on #319). `column-fill: auto` with the list's own height: an overflow shows
+   as a third column, which is what the fit's measurement steps down from. */
+.orb-passes {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  columns: 2;
+  column-gap: clamp(16px, 1.8vw, 32px);
+  column-fill: auto;
+}
+.orb-passes > .ui-pass,
+.orb-passes > .orb-more {
+  break-inside: avoid;
+  margin-bottom: clamp(10px, 1.1vw, 20px);
+}
+.orb-pass-break {
+  break-before: column;
+}
+.orb-dishes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.orb-dish {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4);
+  min-height: 44px;
+}
+/* Every line is ONE line (the fit's measurement assumes it): a long name ends in an ellipsis. */
+.orb-dish-names {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.orb-dish-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.orb-dish-my,
+.orb-dish-lead,
+.orb-dish-en {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Burmese on top at the larger size in BOTH board languages (m9 decision 18): these are the house's
+   own dish names, and Burmese is never smaller. */
+.orb-dish-my,
+.orb-dish-lead {
+  color: var(--pass-ink);
+  font-size: var(--tv-dish);
+  font-weight: var(--fw-bold);
+}
+.orb-dish-en {
+  color: var(--pass-ink-2);
+  font-size: var(--tv-dish-en);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+/* The to-go tag: the KDS's own "To-go" word, an outline chip (a MARK — never a fill). */
+.orb-togo {
+  flex: none;
+  padding: 0 10px;
+  border: 1.5px solid var(--pass-ink-2);
+  border-radius: var(--r-full);
+  color: var(--pass-ink-2);
+  font-size: var(--tv-tag);
+  font-weight: var(--fw-bold);
+}
+.orb-dish > .ui-track {
+  flex: none;
+  font-size: var(--tv-key);
+}
+/* THE ROUND STUB at the wall's scale (m5's shape on paper): an outline with a dotted perforation and
+   two coupon notches, never filled, never a control; the digit is Latin (`kds.round`'s identifier
+   slot). Pass inks — it sits on the paper. */
+.orb-round {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 40px;
+  margin: 8px 0;
+  padding: 0 16px 0 14px;
+  border: 2px solid var(--pass-ink-2);
+  border-right: 4px dotted var(--pass-ink-2);
+  border-radius: 10px 0 0 10px;
+  color: var(--pass-ink);
+  font-size: var(--tv-round);
+  font-weight: var(--fw-bold);
+}
+.orb-round::before,
+.orb-round::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  background: var(--pass-paper);
+  border: 2px solid var(--pass-ink-2);
+}
+.orb-round::before {
+  top: -7px;
+}
+.orb-round::after {
+  bottom: -7px;
+}
+/* A Ready pickup code is issued as a pass; the Ready list stacks them. */
+.orb-col-ready ul {
+  display: grid;
+  align-content: start;
   gap: clamp(8px, 0.9vw, 14px);
 }
-.orb-table {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: clamp(5px, 0.6vw, 10px) clamp(10px, 1vw, 18px);
-  border: 1px solid var(--bd);
-  border-radius: var(--r-full);
-  font-size: clamp(22px, 2.1vw, 36px);
-  line-height: var(--lh-tight);
+.orb-ready {
+  position: relative;
 }
-.orb-table-no {
-  font-weight: var(--fw-heavy);
+/* The ARRIVAL (the shipped 2 s FLASH, moved to the pass's EDGE): a gold wash over the paper would
+   peak at 1.15:1 and vanish (m9 critic C), so the ring sits on the page ground beside the paper —
+   `--gold` on `--pg`, the 12.29:1 pair the Ready heading already pins. Opacity only. */
+.orb-ready-flash::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: calc(var(--r-card) + 5px);
+  box-shadow: 0 0 0 3px var(--gold);
+  pointer-events: none;
+  animation: orbFlash 2s var(--ease-out) forwards;
 }
-.orb-table-state {
-  font-size: 0.8em;
-  font-weight: var(--fw-bold);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--t2);
+/* board-2 / m9 — a FROZEN wall keeps its passes' geometry, text and rounds and drops every stage:
+   no paper (a dashed outline — PATH_DESIGN's "dashed edge: provisional … a frozen count"), the
+   names in the secondary inks, no notch. The inks are re-pinned on the frozen pass to the page's own
+   asserted pairs (`--t2` / `--t3` on `--pg`), because the constant pass inks are dark-on-paper. */
+.orb-root[data-stale] .ui-pass {
+  --pass-paper: transparent;
+  --pass-ink: var(--t2);
+  --pass-ink-2: var(--t3);
+  --pass-ink-3: var(--t3);
+  --pass-seam: transparent;
 }
-/* board-9 — the up-chip wears the cap (the fill lives in the shared pressed rule); the ink follows
-   the FILL (§2), so both runs are `--oa`, never `--t2` or gold on gold. */
-.orb-table-up .orb-table-no,
-.orb-table-up .orb-table-state {
-  color: var(--oa);
+.orb-root[data-stale] .ui-pass-paper {
+  border: 2px dashed var(--t2);
+  box-shadow: none;
 }
-.orb-rail {
-  flex: 1 1 clamp(220px, 26vw, 460px);
-  min-width: 0;
-}
-.orb-rail h3 {
-  margin: 0 0 4px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: var(--fw-bold);
-  letter-spacing: var(--track-wide);
-  text-transform: uppercase;
-  color: var(--t2);
-}
-.orb-rail h3 small {
-  font-size: 0.9em;
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--track-snug);
-  text-transform: none;
-}
-.orb-rail ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 2px;
-}
-.orb-rail-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 14px;
-  font-size: clamp(18px, 1.7vw, 30px);
-  line-height: var(--lh-tight);
-}
-.orb-rail-name {
-  min-width: 0;
-  font-weight: var(--fw-bold);
-  overflow-wrap: anywhere;
-}
-.orb-rail-name small {
-  display: block;
-  font-size: 0.64em;
-  font-weight: var(--fw-semibold);
-  color: var(--t2);
-}
-.orb-rail-qty {
-  flex: none;
-  font-weight: var(--fw-heavy);
-  font-variant-numeric: tabular-nums;
-}
-.orb-rail-more {
-  margin: 4px 0 0;
-  font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: var(--fw-bold);
-  color: var(--t2);
+.orb-root[data-stale] .ui-pass-notch,
+.orb-root[data-stale] .orb-round::before,
+.orb-root[data-stale] .orb-round::after {
+  display: none;
 }
 
 /* ── P2f — EVERY marked Burmese run on a staff surface gets the Burmese treatment ─────────────────
