@@ -22,7 +22,7 @@ import { GroceryNameSheet } from "@/components/grocery/GroceryNameSheet";
 import { GroceryResultRow } from "@/components/grocery/GroceryResultRow";
 import { ScanStage } from "@/components/grocery/ScanStage";
 import { DoorSheet } from "@/components/DoorSheet";
-import { ScanResult } from "@/components/grocery/ScanResult";
+import { ScanResult, type ScanHandoff } from "@/components/grocery/ScanResult";
 import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
 import {
   fromCamera,
@@ -158,7 +158,7 @@ export default function Grocery() {
   const [slot, setSlot] = useState<ScanSlot>(null);
   const slotSeq = useRef(0);
   // Carries focus across the result bar's per-outcome re-key (see ScanResult's docblock).
-  const resultFocusRef = useRef(false);
+  const resultFocusRef = useRef<ScanHandoff>(false);
   const noteOutcome = useCallback(
     (outcome: ScanOutcome, via: "scan" | "rescan" | "search" | "browse", barcode: string) => {
       const key = ++slotSeq.current; // taken OUTSIDE the updater (StrictMode re-runs updaters)

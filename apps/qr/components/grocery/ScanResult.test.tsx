@@ -3,7 +3,7 @@ import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ScanSlot } from "@/lib/scan-notice";
-import { ScanResult, type ScanChip } from "./ScanResult";
+import { ScanResult, type ScanChip, type ScanHandoff } from "./ScanResult";
 
 /**
  * Phase 1c → PD4 — the in-stage result: the TAG (a miss) and the DISC (in your basket).
@@ -44,7 +44,7 @@ function Harness({
   slot: NonNullable<ScanSlot>;
   chipOver?: Partial<ScanChip>;
 }) {
-  const handoffRef = useRef(false);
+  const handoffRef = useRef<ScanHandoff>(false);
   return (
     <div>
       <button type="button">elsewhere</button>
@@ -86,6 +86,18 @@ describe("the result bar keeps focus across its own re-key", () => {
     expect(document.activeElement?.className).toContain("scan-tag");
   });
 
+  it("focus on the bar ITSELF (the post-add landing) stays on the bar — never moved onto the Undo", () => {
+    // Blind pass 2 on #329. MUTATION: every hand-off goes to the first button → the Undo takes a
+    // programmatic focus that inherits the sheet input's :focus-visible, and its window holds for a
+    // touch shopper who never chose it; red.
+    const undo = { secondsLeft: 6, removing: false, onUndo: () => {}, onHold: () => {} };
+    const { rerender } = render(<Harness slot={chipSlot(1)} chipOver={{ action: "undo", undo }} />);
+    (document.querySelector(".scan-chip") as HTMLElement).focus();
+    rerender(<Harness slot={chipSlot(2)} chipOver={{ action: "undo", undo }} />);
+    expect(document.activeElement?.classList.contains("scan-chip")).toBe(true);
+    expect(document.activeElement?.tagName).not.toBe("BUTTON");
+  });
+
   it("never pulls focus when it was elsewhere", () => {
     // RED if the new bar focuses itself unconditionally (a camera sighting would yank focus).
     const { rerender } = render(<Harness slot={chipSlot(1)} />);
@@ -97,7 +109,7 @@ describe("the result bar keeps focus across its own re-key", () => {
 
   it("a handoff nobody takes expires — a LATER bar does not steal focus", async () => {
     function Toggle({ show, k }: { show: boolean; k: number }) {
-      const handoffRef = useRef(false);
+      const handoffRef = useRef<ScanHandoff>(false);
       return (
         <div>
           <button type="button">elsewhere</button>
@@ -127,7 +139,7 @@ describe("the result bar keeps focus across its own re-key", () => {
 describe("PD4 — the tag: one primary, the quiet line, no ✕", () => {
   it("an unknown code: the headline, 'Search by name' as a dialog opener, and the quiet counter line", () => {
     const onSearch = vi.fn();
-    const handoffRef = { current: false };
+    const handoffRef: { current: ScanHandoff } = { current: false };
     render(
       <ScanResult slot={notice(1)} chip={null} onSearch={onSearch} focusHandoffRef={handoffRef} />,
     );

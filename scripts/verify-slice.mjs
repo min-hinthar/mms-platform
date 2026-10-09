@@ -7002,6 +7002,22 @@ const MUTANTS = [
     replace: "            {false && refusal.my && (",
   },
   {
+    id: "scan-result/every-handoff-lands-on-the-action",
+    file: "apps/qr/components/grocery/ScanResult.tsx",
+    suite: "components/grocery/ScanResult.test.tsx",
+    why: "Blind pass 2 on #329 (open question) — after an add the close-restore lands on the chip itself; a re-key that then hands focus to the first button puts a programmatic focus on the Undo, which inherits the sheet input's :focus-visible and holds the window for a touch shopper who never chose it",
+    find: '        handoff === "control" ? (root?.querySelector<HTMLElement>("button") ?? root) : root;',
+    replace: '        root?.querySelector<HTMLElement>("button") ?? root;',
+  },
+  {
+    id: "scan-result/a-pairing-chip-draws-add-another",
+    file: "apps/qr/components/grocery/ScanResult.tsx",
+    suite: "components/grocery/ScanResult.test.tsx",
+    why: "Blind pass 2 on #329 (critical 5) — the slot draws exactly what the page's chipAction names; drawing 'Add another' on any chip without an Undo puts a one-tap charge on a chip reached through a pairing",
+    find: '        ) : chip.action === "add-another" ? (',
+    replace: "        ) : true ? (",
+  },
+  {
     id: "scan-notice/a-re-read-jar-re-rises",
     file: "apps/qr/lib/scan-notice.ts",
     suite: "lib/scan-notice.test.ts",

@@ -34,10 +34,16 @@ import { t as kioskT, type KioskStringKey } from "@/lib/kiosk/strings";
  * shopper who activates "Add another" would land on <body> after every add. `focusHandoffRef`
  * carries focus across the bar's own remount, and only then: the leaving bar marks the hand-off in
  * its layout-effect CLEANUP (it runs before React removes the DOM, while `activeElement` is still
- * inside); the arriving bar, mounted in the SAME commit, takes it and focuses its first action — or
- * itself, when it has none (a weighed tag). A hand-off nobody takes expires in a microtask, so a
- * bar that arrives LATER never pulls focus from wherever the shopper went.
+ * inside); the arriving bar, mounted in the SAME commit, takes it. Like for like: focus that was ON
+ * a control goes to the new bar's first action (or the bar itself, when it has none — a weighed
+ * tag); focus that was on the bar itself — where the Name sheet's close-restore lands after an add —
+ * stays on the bar, never moved onto the Undo, where a programmatic focus carrying the sheet input's
+ * `:focus-visible` would hold the window for a touch shopper (blind pass 2 on #329). A hand-off
+ * nobody takes expires in a microtask, so a bar that arrives LATER never pulls focus from wherever
+ * the shopper went.
  */
+/** What the leaving bar hands the arriving one: nothing, the bar itself, or a control in it. */
+export type ScanHandoff = false | "bar" | "control";
 const KIOSK_COPY: Record<"weighed" | "unavailable", KioskStringKey> = {
   weighed: "scanWeighed",
   unavailable: "scanUnavailable",
@@ -80,18 +86,21 @@ export function ScanResult({
   /** Opens the Name sheet for this miss. */
   onSearch: () => void;
   /** One flag per page, shared by every bar the page mounts (see the docblock). */
-  focusHandoffRef: RefObject<boolean>;
+  focusHandoffRef: RefObject<ScanHandoff>;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (focusHandoffRef.current) {
+    const handoff = focusHandoffRef.current;
+    if (handoff) {
       focusHandoffRef.current = false;
-      (root?.querySelector<HTMLElement>("button") ?? root)?.focus({ preventScroll: true });
+      const target =
+        handoff === "control" ? (root?.querySelector<HTMLElement>("button") ?? root) : root;
+      target?.focus({ preventScroll: true });
     }
     return () => {
       if (!root || !root.contains(document.activeElement)) return;
-      focusHandoffRef.current = true;
+      focusHandoffRef.current = document.activeElement === root ? "bar" : "control";
       queueMicrotask(() => {
         focusHandoffRef.current = false;
       });
