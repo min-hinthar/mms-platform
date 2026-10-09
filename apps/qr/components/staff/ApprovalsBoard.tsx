@@ -16,7 +16,13 @@ import {
   type PendingApproval,
   type RefundNeeded,
 } from "@/lib/approvals";
-import { requestCardState, type RequestCardState } from "@/lib/approval-state";
+import {
+  changedNote,
+  requestCardState,
+  type RequestCardState,
+  type RequestLineNow,
+} from "@/lib/approval-state";
+import type { StaffLang } from "@/lib/staff-lang";
 import { leaveForHome, leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
@@ -125,6 +131,9 @@ export function ApprovalsBoard({
   // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
+  // The blind pass on #333 — whether THIS page has read the queue: the render did unless it failed
+  // (`initialOutage`), else the first poll that lands. `initial` is `[]` on that failure, never a read.
+  const [queueRead, setQueueRead] = useState(!initialOutage);
   const [roster, setRoster] = useState(approvers);
   const [refunds, setRefunds] = useState(initialRefunds);
   // A ledger read that failed AFTER a good one (Codex round 3 on #283, P1): the last rows stay,
@@ -281,6 +290,7 @@ export function ApprovalsBoard({
         return;
       }
       setSnap(poll.rows);
+      setQueueRead(true);
       setAsOfIso(new Date().toISOString());
       fails.current = 0;
       setDegraded(null);
@@ -342,11 +352,12 @@ export function ApprovalsBoard({
 
   const count = snap.length;
   // PD8 (m8 decisions 3 · 4) — the bar's circle reads THIS snapshot: one poll. A frozen queue is a
-  // dashed ring with the as-of sentence; the count is never a false 0.
+  // dashed ring with the as-of sentence; the count is never a false 0 — a queue this page never read
+  // (`queueRead` false: the render's read failed and no poll has landed) claims no number at all.
   useApprovalsCountPublish({
+    read: queueRead,
     count,
     frozen: degraded !== null,
-    unknown: false,
     frozenCopy: degraded
       ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", degraded.cause)
       : null,
@@ -678,25 +689,11 @@ function RequestCard({
           <p className="appr-changed">
             <Icon name="alert" size={16} />
             <span>
-              {request.lineNow ? (
-                <Chrome
-                  lang={lang}
-                  k="table.appr.changed.note"
-                  vars={{
-                    x: request.initiatorName,
-                    n: request.lineNow.qty,
-                    m: fmt(request.lineNow.qty * request.lineNow.unitPriceCents),
-                  }}
-                  echo="stack"
-                />
-              ) : (
-                <Chrome
-                  lang={lang}
-                  k="table.appr.changed.goneNote"
-                  vars={{ x: request.initiatorName }}
-                  echo="stack"
-                />
-              )}
+              <ChangedNoteText
+                lang={lang}
+                asker={request.initiatorName}
+                lineNow={request.lineNow}
+              />
             </span>
           </p>
         )}
@@ -740,6 +737,30 @@ function RequestCard({
   );
 }
 
+/** PD8 — what a changed request says, from the ONE choice (`changedNote`, lib/approval-state.ts) the
+ *  card body and its close-only decision both read: gone · already off · now N× at the live figure. */
+function ChangedNoteText({
+  lang,
+  asker,
+  lineNow,
+}: {
+  lang: StaffLang;
+  asker: string;
+  lineNow: RequestLineNow;
+}) {
+  const note = changedNote(lineNow);
+  return note.k === "table.appr.changed.note" ? (
+    <Chrome
+      lang={lang}
+      k={note.k}
+      vars={{ x: asker, n: note.qty, m: fmt(note.amountCents) }}
+      echo="stack"
+    />
+  ) : (
+    <Chrome lang={lang} k={note.k} vars={{ x: asker }} echo="stack" />
+  );
+}
+
 /**
  * PD8 — THE DECISION: the slip and the keys that ARE the decision. Shared by the request card and the
  * pane's centred sheet ("Decide it here"). `state` picks the keys: an OPEN request offers Deny and
@@ -772,6 +793,7 @@ export function ApprovalDecision({
     | "initiatorStaffId"
     | "tableNumber"
     | "tableLabel"
+    | "lineNow"
   >;
   state: RequestCardState;
   approvers: Approver[] | null;
@@ -788,7 +810,14 @@ export function ApprovalDecision({
   /** PD8 — "Decide it here": host the decision in the shipped centred Sheet (the pane's one primary
    *  stays Take cash, untouched behind the scrim — appendix B2). `busy` while the decision is out
    *  (M82: the resolve spends a PIN attempt and takes a dish off the bill); the ✕ is the way out. */
-  sheet?: { open: boolean; onOpenChange: (open: boolean) => void; title: ReactNode };
+  sheet?: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: ReactNode;
+    /** Where focus goes once the sheet has unmounted (the page's call: an APPLIED decision lands on
+     *  the settle heading, any other close returns to "Decide it here"). */
+    onCloseAutoFocus?: (event: Event) => void;
+  };
 }) {
   const lang = useStaffLang();
   const echoes = useEchoesShown();
@@ -889,6 +918,8 @@ export function ApprovalDecision({
         void onResolved();
         break;
       case "not_open":
+        // The table paid (or was cleared) under an open card: the sentence names Close it, and the
+        // re-read draws the close-only keys in this same form (its region keeps the sentence).
         setMsg({ k: "table.appr.msg.notOpen" });
         void onResolved();
         break;
@@ -1033,11 +1064,12 @@ export function ApprovalDecision({
             ) : state === "cleared" ? (
               <Chrome lang={lang} k="table.appr.cleared.note" echo="stack" />
             ) : (
-              <Chrome
+              // The SAME sentence the card body says (one choice, `changedNote`): never "no longer on
+              // the order" over a line the card shows at its new qty (the blind pass on #333).
+              <ChangedNoteText
                 lang={lang}
-                k="table.appr.changed.goneNote"
-                vars={{ x: request.initiatorName }}
-                echo="stack"
+                asker={request.initiatorName}
+                lineNow={request.lineNow}
               />
             )}
           </p>
@@ -1070,8 +1102,9 @@ export function ApprovalDecision({
       {zero === null && (
         <div className="appr-keys">
           {closeOnly ? (
-            // ONE paper key: Close it (→ superseded). Never an Approve, so "no longer open — deny it"
-            // can no longer be reached.
+            // ONE paper key: Close it (→ superseded). The keys follow `state` on EVERY render, so an
+            // Approve tapped on a card the poll had not yet re-drawn answers `not_open` once, the re-read
+            // draws this key, and the region's sentence names it (never "deny it" — round 3 D2).
             <button
               type="button"
               onClick={() => void decide("close")}
@@ -1190,6 +1223,7 @@ export function ApprovalDecision({
       busy={pending}
       closeLabel={sheetCloseLabel(lang)}
       title={sheet.title}
+      onCloseAutoFocus={sheet.onCloseAutoFocus}
     >
       {form}
     </Sheet>

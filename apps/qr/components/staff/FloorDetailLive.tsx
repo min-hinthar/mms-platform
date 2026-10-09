@@ -38,6 +38,7 @@ import { surfaceOpen } from "@/lib/surfaces";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
 import { ApprovalFlagCard, FLAG_CONSEQUENCE_ID } from "./ApprovalFlagCard";
 import type { PendingFlag } from "@/lib/settle-approvals";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { Chrome, OutageText } from "./Chrome";
@@ -203,6 +204,14 @@ export function FloorDetailLive({
   // optimistic: the client never subtracts.
   const [totalPendingSince, setTotalPendingSince] = useState<number | null>(null);
   const totalPending = totalPendingSince !== null && readTicket <= totalPendingSince;
+  // BOUNDED (the blind pass on #333): a read that never lands must not hold Take cash busy — the
+  // payment is never blocked (decision 4). At STAFF_HANG_MS the trigger is live again; the door's
+  // own quote compare refuses a total that moved under it (P2c), so nothing is charged stale.
+  useEffect(() => {
+    if (totalPendingSince === null) return;
+    const t = setTimeout(() => setTotalPendingSince(null), STAFF_HANG_MS);
+    return () => clearTimeout(t);
+  }, [totalPendingSince]);
   // ── Phase 2d · split ── the pane's root (focus ownership is "inside it", not "anywhere but
   // <body>"), its heading level (Tables › Table 7 › Order), the exits, and the freeze it shares.
   const inPane = variant === "pane";
@@ -870,12 +879,18 @@ export function FloorDetailLive({
   const settleHeadingRef = useRef<HTMLHeadingElement>(null);
   // PD8 — a decision landed in the pane's sheet: the re-read is asked for now, the trigger says
   // "Updating the total…" until it lands, and focus goes to the settle heading (A11Y, screen 3).
-  const onApprovalDecided = useCallback(() => {
-    setTotalPendingSince(reads.current);
-    setWriteError(null);
-    onChange();
+  const onApprovalDecided = useCallback(
+    ({ totalMoves }: { totalMoves: boolean }) => {
+      // Only an approve moves the total (a deny or a close leaves every figure where it was).
+      if (totalMoves) setTotalPendingSince(reads.current);
+      setWriteError(null);
+      onChange();
+    },
+    [onChange],
+  );
+  const focusSettleHeading = useCallback(() => {
     settleHeadingRef.current?.focus({ preventScroll: true });
-  }, [onChange]);
+  }, []);
   const arrival = useRef<"send" | "settle" | null>(
     focusSettle ? "settle" : arrivedToSend ? "send" : null,
   );
@@ -1543,6 +1558,8 @@ export function FloorDetailLive({
                 headingLevel={inPane ? 4 : 3}
                 serverNow={detail.serverNow}
                 onDecided={onApprovalDecided}
+                onRefresh={onChange}
+                focusAfterDecision={focusSettleHeading}
               />
             )}
             {runningClose && (

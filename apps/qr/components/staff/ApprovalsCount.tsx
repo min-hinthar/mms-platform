@@ -1,7 +1,13 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@mms/ui";
-import type { PendingCount } from "@/lib/approvals-count";
+import {
+  circleFromBoard,
+  circleSeed,
+  type ApprovalsCircle,
+  type BoardReading,
+  type PendingCount,
+} from "@/lib/approvals-count";
 import { localizeCount } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
@@ -15,26 +21,15 @@ import { Chrome } from "./Chrome";
  *   · `unknown` — the count could not be read at all: a dashed ring with no number, and the name
  *     "Approvals — couldn't check".
  * The server render seeds it (`countPendingApprovals`'s verdict); on a page with no board (the
- * doors) that seed is all the circle ever shows.
+ * doors) that seed is all the circle ever shows, and a board whose queue was never read on this page
+ * leaves it standing (`circleFromBoard`).
  */
-export type ApprovalsCountState = {
-  count: number | null;
-  frozen: boolean;
-  unknown: boolean;
-  /** The frozen board's as-of sentence, already in the device language. */
-  frozenCopy: string | null;
-};
+export type ApprovalsCountState = ApprovalsCircle;
 
 const Ctx = createContext<{
   state: ApprovalsCountState;
-  publish: (s: ApprovalsCountState) => void;
+  publish: (s: BoardReading) => void;
 } | null>(null);
-
-function seedFromCount(initial: PendingCount): ApprovalsCountState {
-  return initial.ok
-    ? { count: initial.count, frozen: false, unknown: false, frozenCopy: null }
-    : { count: null, frozen: true, unknown: true, frozenCopy: null };
-}
 
 export function ApprovalsCountProvider({
   initial,
@@ -43,27 +38,30 @@ export function ApprovalsCountProvider({
   initial: PendingCount;
   children: ReactNode;
 }) {
-  const [state, setState] = useState<ApprovalsCountState>(() => seedFromCount(initial));
-  const publish = useCallback((s: ApprovalsCountState) => {
-    setState((prev) =>
-      prev.count === s.count &&
-      prev.frozen === s.frozen &&
-      prev.unknown === s.unknown &&
-      prev.frozenCopy === s.frozenCopy
+  const [state, setState] = useState<ApprovalsCountState>(() => circleSeed(initial));
+  // The board's reading folds into the seed (`circleFromBoard`): a queue this page never read claims
+  // no number, so the server's count — or its "couldn't check" — stands (the blind pass on #333).
+  const publish = useCallback((b: BoardReading) => {
+    setState((prev) => {
+      const s = circleFromBoard(prev, b);
+      return prev.count === s.count &&
+        prev.frozen === s.frozen &&
+        prev.unknown === s.unknown &&
+        prev.frozenCopy === s.frozenCopy
         ? prev
-        : s,
-    );
+        : s;
+    });
   }, []);
   return <Ctx.Provider value={{ state, publish }}>{children}</Ctx.Provider>;
 }
 
-/** The board publishes its snapshot after every poll; a no-op where no provider is mounted. */
-export function useApprovalsCountPublish(s: ApprovalsCountState): void {
+/** The board publishes its reading after every poll; a no-op where no provider is mounted. */
+export function useApprovalsCountPublish(b: BoardReading): void {
   const ctx = useContext(Ctx);
   const publish = ctx?.publish;
   useEffect(() => {
-    publish?.(s);
-  }, [publish, s.count, s.frozen, s.unknown, s.frozenCopy]); // eslint-disable-line react-hooks/exhaustive-deps
+    publish?.(b);
+  }, [publish, b.read, b.count, b.frozen, b.frozenCopy]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** The circle itself — the bar's trailing slot. */

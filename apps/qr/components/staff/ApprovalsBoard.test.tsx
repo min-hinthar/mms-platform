@@ -50,6 +50,7 @@ vi.mock("@/lib/staff-leave", () => ({
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ApprovalsBoard } = await import("./ApprovalsBoard");
+const { ApprovalsCountProvider, ApprovalsCircle } = await import("./ApprovalsCount");
 
 afterEach(() => {
   cleanup();
@@ -710,5 +711,112 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     // tablet to the login from the screen the manager moved to; red.
     expect(leaveForLogin).not.toHaveBeenCalled();
     leaveForLogin.mockClear();
+  });
+});
+
+describe("the blind pass on #333 — the circle, the changed sentence, and a table that paid under an open card", () => {
+  const manager: Approver = {
+    staffId: "m1",
+    displayName: "Daw Aye",
+    role: "manager",
+    active: true,
+    hasPin: true,
+    self: false,
+  };
+  function mountWithCircle(
+    seed: { ok: true; count: number } | { ok: false },
+    initialOutage: boolean,
+  ) {
+    return render(
+      <StaffLangProvider lang="en">
+        <ApprovalsCountProvider initial={seed}>
+          <ApprovalsCircle lang="en" href="#appr-zone" />
+          <ApprovalsBoard
+            initial={[]}
+            approvers={[manager]}
+            initialRefunds={[]}
+            initialOutage={initialOutage}
+          />
+        </ApprovalsCountProvider>
+      </StaffLangProvider>,
+    );
+  }
+  const circle = () => document.querySelector(".staff-circ") as HTMLAnchorElement;
+
+  it("an initial queue outage never publishes a 0: the circle still says it couldn't check", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {}); // no poll lands
+    mountWithCircle({ ok: false }, true);
+    await tick(0);
+    // MUTATION (approval-board/unread-queue-publishes-read · approvals-count/unread-queue-claims-its-count):
+    // the unread `[]` publishes count 0 and the circle reads "Approvals" — a false all-clear; red.
+    expect(circle().textContent).toContain(STAFF["floor.nav.approvalsUnknown"].en);
+    expect(circle().getAttribute("data-approvals-count")).toBe("unknown");
+    expect(circle().getAttribute("data-frozen")).toBe("true");
+  });
+
+  it("an initial queue outage keeps the server's own head count, dashed — and a landed poll takes over", async () => {
+    vi.useFakeTimers();
+    let land: ((v: ApprovalsPoll) => void) | null = null;
+    pollAnswer = () => new Promise((r) => (land = r));
+    mountWithCircle({ ok: true, count: 2 }, true);
+    await tick(0);
+    expect(circle().getAttribute("data-approvals-count")).toBe("2");
+    expect(circle().getAttribute("data-frozen")).toBe("true");
+    // The first poll lands an empty queue: now the board HAS read it, and 0 is the truth.
+    await tick(5_000);
+    await act(async () => {
+      land!({ ok: true, rows: [] });
+    });
+    await tick(0);
+    // MUTATION (approval-board/read-never-recorded): the landed read is never marked, and the seed's
+    // stale 2 stands over an empty queue; red.
+    expect(circle().getAttribute("data-approvals-count")).toBe("0");
+    expect(circle().getAttribute("data-frozen")).toBeNull();
+  });
+
+  it("a changed request's close-only decision says the SAME sentence as its card: the live qty, never 'no longer on the order'", async () => {
+    const moved: PendingApproval = {
+      ...pending("r1"),
+      lineNow: { qty: 2, unitPriceCents: 1200, offTheBill: false },
+    };
+    mount([moved], [manager]);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Decide/ }).click();
+    });
+    const form = document.getElementById("appr-msg-r1")!.closest("form")!;
+    const said = tf("en", "table.appr.changed.note", { x: "Aye", n: 2, m: "$24.00" });
+    // MUTATION (approval-board/inset-says-gone): the inset's own goneNote under the card's "now 2×"; red.
+    expect(form.textContent).toContain(said);
+    expect(form.textContent).not.toContain(tf("en", "table.appr.changed.goneNote", { x: "Aye" }));
+  });
+
+  it("an Approve the table's payment beat: not_open names Close it, and the SAME form re-draws close-only", async () => {
+    vi.useFakeTimers();
+    resolveApproval.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, reason: "not_open" }),
+    );
+    // The re-read after the refusal: the cart paid.
+    approvalsAnswer = () => Promise.resolve([{ ...pending("r1"), cartStatus: "paid" }]);
+    mount([pending("r1")], [manager]);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Decide/ }).click();
+    });
+    await act(async () => {
+      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: /^Approve/ }).click();
+    });
+    await tick(0);
+    // The sentence steers to the D2 arm, never to the `denied` record.
+    expect(document.getElementById("appr-msg-r1")!.textContent).toBe(
+      STAFF["table.appr.msg.notOpen"].en,
+    );
+    expect(STAFF["table.appr.msg.notOpen"].en).not.toMatch(/deny/i);
+    // The keys follow the re-read state on THIS render: no Deny or Approve outlives the paid cart.
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Deny/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Close it/ })).toBeTruthy();
   });
 });

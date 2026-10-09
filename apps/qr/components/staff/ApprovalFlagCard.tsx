@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type CSSProperties } from "react";
 import { Icon } from "@mms/ui";
+import { requestCardState, type RequestCardState } from "@/lib/approval-state";
 import type { PendingFlag } from "@/lib/settle-approvals";
 import { listApprovers } from "@/lib/voids";
 import { padDishName } from "@/lib/order-pad";
@@ -29,7 +30,25 @@ export const FLAG_CONSEQUENCE_ID = "flag-consequence";
  * the consequence becomes the Help sentence on the counter pane (the standalone table page has no
  * Help, so it keeps the consequence). An UNREADABLE roster still offers Decide — it never fails
  * closed (decision 25). Plain text, never a live region; the pane's one region speaks.
+ *
+ * The blind pass on #333: the sheet decides the request's REAL state (`flagCardState` — the queue's
+ * one derivation over the flag's live line), so a changed request offers Close it, never only Deny.
+ * A refusal (`changed`, `not_open`, `still_open`, an outage) keeps the sheet open with its reason and
+ * asks the page to re-read (`onRefresh`); only an APPLIED decision closes it (`onDecided`), and only
+ * an approve says the total is moving (a deny or a close leaves every figure where it was).
  */
+export function flagCardState(flag: PendingFlag): RequestCardState {
+  // Take payment renders over an OPEN cart only, so the line alone decides open vs changed. A line
+  // that could not be read offers the open keys: the write's own M184 compare refuses a changed line,
+  // and that refusal now stays in the sheet with its reason.
+  if (flag.lineNow === "unknown") return "open";
+  return requestCardState({
+    cartStatus: "open",
+    qty: flag.qty,
+    amountCents: flag.amountCents,
+    lineNow: flag.lineNow,
+  });
+}
 export function ApprovalFlagCard({
   requests,
   tableText,
@@ -37,6 +56,8 @@ export function ApprovalFlagCard({
   headingLevel,
   serverNow,
   onDecided,
+  onRefresh,
+  focusAfterDecision,
 }: {
   /** The open cart's pending requests, oldest first (the detail's `pendingRequests`). */
   requests: PendingFlag[];
@@ -46,16 +67,28 @@ export function ApprovalFlagCard({
   hasHelp: boolean;
   headingLevel: 3 | 4;
   serverNow: string;
-  /** A verdict landed: the page re-reads (and says "Updating the total…" until it lands). */
-  onDecided: () => void;
+  /** A decision was APPLIED: the page re-reads and moves focus; `totalMoves` — an approve took the
+   *  dish off or made it free, so the trigger says "Updating the total…" until a later read lands. */
+  onDecided: (o: { totalMoves: boolean }) => void;
+  /** A refusal (or any answer): re-read the detail; the sheet stays where it is. */
+  onRefresh: () => void;
+  /** Focus after an APPLIED decision — the page's settle heading (A11Y, screen 3). Run once the sheet
+   *  has unmounted: a modal sheet traps focus while it is up, and restores its opener after. */
+  focusAfterDecision: () => void;
 }) {
   const lang = useStaffLang();
-  const [deciding, setDeciding] = useState(false);
+  // The request the sheet is open for — by id, so a request decided elsewhere (gone on the re-read)
+  // closes the sheet instead of handing it to the next one.
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  // An APPLIED decision closed the sheet: its unmount hands focus to the page, not back to the opener.
+  const applied = useRef(false);
   const decideRef = useRef<HTMLButtonElement>(null);
   // The roster, read on mount (the fresh-mount rule) — an unreadable one is `failed`, never empty.
   const roster = useApproverRoster(listApprovers);
   const oldest = requests[0];
   if (!oldest) return null;
+  const deciding = decidingId === oldest.id;
+  const state = flagCardState(oldest);
   const eligible = signersFor(roster.approvers, oldest.initiatorStaffId);
   // Nobody here can decide: a READ roster with no signer. A failed read keeps Decide (fail open).
   const nobody = !roster.failed && eligible !== null && eligible.length === 0;
@@ -125,7 +158,7 @@ export function ApprovalFlagCard({
           style={decideBtn}
           aria-expanded={deciding}
           aria-controls={deciding ? "flag-decide" : undefined}
-          onClick={() => setDeciding(true)}
+          onClick={() => setDecidingId(oldest.id)}
         >
           <Chrome lang={lang} k="settle.flag.decide" echo="stack" />
         </button>
@@ -154,24 +187,40 @@ export function ApprovalFlagCard({
               initiatorStaffId: oldest.initiatorStaffId,
               tableNumber: null,
               tableLabel: tableText,
+              lineNow: oldest.lineNow === "unknown" ? null : oldest.lineNow,
             }}
-            state="open"
+            state={state}
             approvers={roster.approvers}
             rosterFailed={roster.failed}
             retrying={roster.retrying}
             onRetry={roster.retry}
             hideCancel
-            onCancel={() => setDeciding(false)}
-            onResolved={() => {
-              setDeciding(false);
-              onDecided();
+            onCancel={() => setDecidingId(null)}
+            // Every answer re-reads the detail; a REFUSAL keeps the sheet open with its reason.
+            onResolved={onRefresh}
+            onVerdict={(v) => {
+              applied.current = true;
+              setDecidingId(null);
+              onDecided({ totalMoves: v.decision === "approve" });
             }}
-            onVerdict={() => {}}
-            onClosed={() => {}}
+            onClosed={() => {
+              applied.current = true;
+              setDecidingId(null);
+              onDecided({ totalMoves: false });
+            }}
             sheet={{
               open: true,
               onOpenChange: (open) => {
-                if (!open) setDeciding(false);
+                if (!open) setDecidingId(null);
+              },
+              onCloseAutoFocus: (e) => {
+                e.preventDefault();
+                if (applied.current) {
+                  applied.current = false;
+                  focusAfterDecision();
+                } else {
+                  decideRef.current?.focus({ preventScroll: true });
+                }
               },
               title: <Chrome lang={lang} k="table.loss.managerLegend" echo="stack" />,
             }}

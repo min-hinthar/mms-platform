@@ -543,10 +543,12 @@ export const STAFF = {
     en: "That item has since changed — refreshing.",
     my: "ဒီပစ္စည်း ပြောင်းသွားပြီ — ပြန်ဖတ်နေပါတယ်။",
   },
+  // PD8 (the blind pass on #333) — re-worded: "deny it" steered to the `denied` record round 3's D2
+  // retired; the card re-draws as close-only, so the sentence names Close it. A K15 draft (K46).
   "table.appr.msg.notOpen": {
-    en: "That table is no longer open — deny it (a refund after payment is handled separately).",
-    my: "ဒီစားပွဲ ပိတ်သွားပြီ — ငြင်းပယ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
-  },
+    en: "That table is no longer open — close this request instead (a refund after payment is handled separately).",
+    my: "ဒီစားပွဲ ပိတ်သွားပြီ — ဒီတောင်းဆိုချက်ကို ပိတ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
+  }, // K15-HIGH — what a manager does with a request on a paid table
   "table.appr.msg.inFlight": {
     en: "That table is mid-payment — try again once they’ve finished.",
     my: "ဒီစားပွဲ ငွေရှင်းနေဆဲ — ပြီးမှ ထပ်ကြိုးစားပါ။",
@@ -633,6 +635,12 @@ export const STAFF = {
     en: "The item changed after {x} asked — it is no longer on the order. Nothing was taken off.",
     my: "{x} တောင်းပြီးမှ ပစ္စည်း ပြောင်းသွားတယ် — အော်ဒါထဲမှာ မရှိတော့ပါ။ ဘာမှ မနုတ်ရသေးပါ။",
   }, // K15-HIGH
+  // The blind pass on #333 — a line a manager already removed or made free with their own PIN: the
+  // loss is recorded once, so this request only closes.
+  "table.appr.changed.doneNote": {
+    en: "Already removed or made free after {x} asked — close this request.",
+    my: "{x} တောင်းပြီးမှ ဖျက်ပြီး ဒါမှမဟုတ် အခမဲ့ ပေးပြီးသား — ဒီတောင်းဆိုချက်ကို ပိတ်လိုက်ပါ။",
+  }, // K15-HIGH — a dish already off the bill
   "table.appr.verb.close": { en: "Close it", my: "ပိတ်မယ်" },
   "table.appr.msg.stillOpen": {
     en: "This request still needs a decision — approve or deny it.",
@@ -664,9 +672,12 @@ export const STAFF = {
     my: "{x} — မန်နေဂျာ ဆုံးဖြတ်ချက် စောင့်နေတယ်",
   }, // K15-HIGH — read just before money is taken
   "settle.flag.decide": { en: "Decide it here", my: "ဒီမှာ ဆုံးဖြတ်မယ်" },
+  // The blind pass on #333 — re-worded: it promised a manager could approve AFTER payment, which the
+  // resolve refuses (`not_open`); once the table pays, the request only closes and a refund is its
+  // own decision, made in Today's payments & refunds.
   "settle.flag.consequence": {
-    en: "{x} is charged as it is. The request stays open; if a manager approves it later, refund it from Today’s payments & refunds.",
-    my: "{x} ကို လက်ရှိအတိုင်း ငွေယူပါမယ်။ တောင်းဆိုချက် ဖွင့်ထားဆဲ — နောက်မှ မန်နေဂျာ ခွင့်ပြုရင် “ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ” ကနေ ပြန်အမ်းပါ။",
+    en: "{x} is charged as it is. Once the table pays, this request can only be closed — any refund is a manager’s call in Today’s payments & refunds.",
+    my: "{x} ကို လက်ရှိအတိုင်း ငွေယူပါမယ်။ ငွေရှင်းပြီးရင် ဒီတောင်းဆိုချက်ကို ပိတ်ရုံပဲ ရပါမယ် — ပြန်အမ်းမလား ဆိုတာ “ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ” မှာ မန်နေဂျာ ဆုံးဖြတ်ပါမယ်။",
   }, // K15-HIGH — the money sentence at arm's length
   "settle.flag.nobody": {
     en: "Nobody here can decide {x}. Take payment now and the guest pays for it — report it from Help with {t}.",
@@ -4519,6 +4530,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.appr.cleared.note",
   "table.appr.changed.note",
   "table.appr.changed.goneNote",
+  "table.appr.changed.doneNote",
+  "table.appr.msg.notOpen",
   "floor.nav.approvalsUnknown",
   "pin.sendToQueue",
   "settle.flag.title",
