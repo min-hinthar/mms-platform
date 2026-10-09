@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  COUNTER_CARD_OUTSIDE_APP,
   COUNTER_PAY_REFUSAL_COPY,
+  REGISTER_SETTLING_COPY,
+  sameAsk,
+  splitBoardShown,
   counterAskLive,
   counterPayRefusal,
+  counterPayRefusalCopy,
+  counterTakesCard,
   counterUnsentTapCopy,
 } from "./counter-pay-state";
 
@@ -108,5 +114,69 @@ describe("counterAskLive", () => {
     expect(counterAskLive(null)).toBe(false);
     expect(counterAskLive(undefined)).toBe(false);
     expect(counterAskLive("")).toBe(false);
+  });
+});
+
+describe("PD2 (m2 decision 15) — the settling sentence names who holds the freeze", () => {
+  it("with the self-serve split PARKED, a settling refusal is the register's sentence", () => {
+    // MUTATION (counter/settling-sentence-names-a-parked-split): the flag ignored — a family whose
+    // bill Dad is taking in cash reads "The table's splitting the bill", a door no phone can open; red.
+    expect(counterPayRefusalCopy("settling", false)).toBe(REGISTER_SETTLING_COPY);
+    expect(REGISTER_SETTLING_COPY).toBe(
+      "The counter is taking your table’s payment right now — this screen updates when it’s done.",
+    );
+  });
+  it("with the split OPEN the shipped split sentence stands, and every other refusal is unchanged either way", () => {
+    expect(counterPayRefusalCopy("settling", true)).toBe(COUNTER_PAY_REFUSAL_COPY.settling);
+    for (const r of ["not_dinein", "paying", "empty", "unsent"] as const) {
+      expect(counterPayRefusalCopy(r, false)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
+      expect(counterPayRefusalCopy(r, true)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
+    }
+  });
+});
+
+describe("PD2 (m2 decision 7) — the tender truth is derived, never a literal", () => {
+  it("the counter is cash-only by default (ruling #11; no reader, #26), and a configured reader takes a card", () => {
+    expect(COUNTER_CARD_OUTSIDE_APP).toBe(false);
+    expect(counterTakesCard(false)).toBe(false);
+    // MUTATION (counter/reader-ignored-by-the-tender-sentence): the reader dropped — a register
+    // with a card reader still tells every table "The counter takes cash."; red.
+    expect(counterTakesCard(true)).toBe(true);
+  });
+});
+
+describe("splitBoardShown — the split board is the SPLIT's screen (the last blind pass on #331)", () => {
+  const on = { isGroup: true, settling: true, hasSplit: true, selfServeSplitOpen: true };
+  it("a group's freeze shows the board only while the self-serve split door is open", () => {
+    expect(splitBoardShown(on)).toBe(true);
+    // MUTATION (counter/split-board-ignores-the-split-door): the split door dropped — the register's
+    // cash settle flips a whole table to "splitting the bill"; red.
+    expect(splitBoardShown({ ...on, selfServeSplitOpen: false })).toBe(false);
+  });
+  it("never for a solo table, a cart that is not settling, or a missing split context", () => {
+    expect(splitBoardShown({ ...on, isGroup: false })).toBe(false);
+    expect(splitBoardShown({ ...on, settling: false })).toBe(false);
+    expect(splitBoardShown({ ...on, hasSplit: false })).toBe(false);
+  });
+});
+
+describe("REGISTER_SETTLING_COPY — one sentence in two homes, pinned equal (the blind passes on #331)", () => {
+  it("is the diner dictionary's registerSettling, verbatim", async () => {
+    const { t } = await import("./i18n");
+    // RED if either copy is edited alone: the refusal and the dock would say two sentences.
+    expect(REGISTER_SETTLING_COPY).toBe(t("en", "registerSettling"));
+  });
+});
+
+describe("sameAsk — one ask in two formats is the same ask (the blind passes on #331)", () => {
+  it("compares instants: the action's ISO 'Z' and PostgREST's '+00:00' name the same ask", () => {
+    expect(sameAsk("2026-10-08T06:00:00.123Z", "2026-10-08T06:00:00.123+00:00")).toBe(true);
+    expect(sameAsk("2026-10-08T06:00:00.123Z", "2026-10-08T06:05:00.000Z")).toBe(false);
+  });
+  it("a stamp Date.parse cannot read falls back to string equality, never 'a new ask' by default", () => {
+    // MUTATION (counter/same-ask-nan-is-a-new-ask): the fallback dropped — NaN !== NaN, so the SAME
+    // unreadable stamp restored reads as a tablemate's new ask; red.
+    expect(sameAsk("not-a-time", "not-a-time")).toBe(true);
+    expect(sameAsk("not-a-time", "other")).toBe(false);
   });
 });

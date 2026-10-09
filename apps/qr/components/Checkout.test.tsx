@@ -93,8 +93,14 @@ vi.mock("./nav/TransitionNav", () => ({
 // the two `confirmedWrite` call sites M227 named, and a stub would guard a button this screen might
 // no longer be wiring. The module is pure presentation (two buttons and a card).
 vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
-vi.mock("./SplitSection", () => ({ SplitSection: () => null }));
-vi.mock("./SettlementBoard", () => ({ SettlementBoard: () => null }));
+// PD2 (Codex round 1 on #331) — a MARKER, not null: the pass replaces the Bill, so whether the split
+// chooser still renders beneath it is a question this suite asks; the marker carries no text.
+vi.mock("./SplitSection", () => ({ SplitSection: () => <div data-testid="split-section" /> }));
+// The blind pass on #331 (guard 6) — a MARKER carrying the board's subject, not null: whether a group
+// table under the register's freeze flips to the split board is a question this suite asks.
+vi.mock("./SettlementBoard", () => ({
+  SettlementBoard: () => <div data-testid="settlement-board">Your table is splitting the bill</div>,
+}));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
 vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
 vi.mock("./SecureTabButton", () => ({ SecureTabButton: () => null }));
@@ -105,6 +111,28 @@ vi.mock("./WalletChip", () => ({ WalletChip: () => null }));
 vi.mock("./menu/BlurUpImage", () => ({ BlurUpImage: () => null }));
 vi.mock("./menu/PhotoPlaceholder", () => ({ PhotoPlaceholder: () => null }));
 vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart }));
+/**
+ * PD2 — `SURFACES.dineInPhonePay` is PARKED in production (pinned by lib/surfaces.test.ts), and the
+ * parked Bill is the "PD2" describe at the end of this file. Every OTHER dine-in case here pins the
+ * Bill that returns verbatim after C2's flip (the card hero, the tip ask, "Pay on your phone"), so
+ * those run with the door OPEN: the code behind it stays alive and tested, exactly as lib/surfaces
+ * promises. The other surfaces answer as shipped.
+ */
+// `splitOpen` — the self-serve split door, OPEN for the legacy cases for the same reason (they pin
+// the world after both flips); the parked cases set it as shipped.
+const flags = vi.hoisted(() => ({ phonePayOpen: true, splitOpen: true }));
+vi.mock("@/lib/surfaces", async (orig) => {
+  const real = await orig<typeof import("@/lib/surfaces")>();
+  return {
+    ...real,
+    surfaceOpen: (k: Parameters<typeof real.surfaceOpen>[0]) =>
+      k === "dineInPhonePay"
+        ? flags.phonePayOpen
+        : k === "selfServeSplit"
+          ? flags.splitOpen
+          : real.surfaceOpen(k),
+  };
+});
 
 const { Checkout } = await import("./Checkout");
 
@@ -170,6 +198,7 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: 7,
+    mode: "dinein",
     ...over,
   } satisfies View;
 }
@@ -183,7 +212,9 @@ function view(over: Partial<View> = {}): View {
  * `aria-labelledby="counter-h"` region on this screen, so counting it answers exactly the question.
  */
 function counterCards(): number {
-  return document.querySelectorAll('[aria-labelledby="counter-h"]').length;
+  // PD2 — while phone pay is parked the ask renders the counter PASS (`[data-counter-ask]`, named by
+  // its table and total); after the flip, today's card (`counter-h`). One landmark either way.
+  return document.querySelectorAll('[aria-labelledby="counter-h"], [data-counter-ask]').length;
 }
 
 /** The review step's single live region, as a screen reader would read it. */
@@ -1308,6 +1339,7 @@ describe("#300 — /cart keeps the header's count honest", () => {
     myRole: "host" as const,
     members: [],
     tableNumber: null,
+    qrCode: null,
   };
 
   it("publishes the CONFIRMED count, and a server-emptied cart publishes zero", async () => {
@@ -1348,6 +1380,7 @@ describe("Phase 1b — the browser's Back walks the checkout's own steps", () =>
     myRole: "host" as const,
     members: [],
     tableNumber: 7,
+    qrCode: null,
   };
 
   it("View bill pushes a #bill entry, and Back returns to the Order stage", async () => {
@@ -1386,6 +1419,7 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
+    qrCode: null,
   });
 
   it("a guest with unsent dishes sees the host's name where Send would be", () => {
@@ -1420,6 +1454,7 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
+    qrCode: null,
   };
 
   it("locks Pay while a dish is unsent, says why, and never starts a charge", async () => {
@@ -1455,6 +1490,7 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
+    qrCode: null,
   };
 
   it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
@@ -1544,6 +1580,7 @@ describe("Phase 1b — the bill says which table it is", () => {
         myRole: "host",
         members: [],
         tableNumber: 7,
+        qrCode: null,
       },
     });
     expect(screen.getByText("Table 7")).toBeTruthy();
@@ -1562,6 +1599,7 @@ describe("Phase 1b — a stale history entry is replaced, never stacked (blind p
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
+        qrCode: null,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1589,6 +1627,7 @@ describe("Phase 1b — the pay gate needs someone who can send", () => {
         myRole: "guest",
         members: [],
         tableNumber: 7,
+        qrCode: null,
       },
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
@@ -1614,6 +1653,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
+        qrCode: null,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1641,6 +1681,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
+        qrCode: null,
       },
       initialItems: [{ ...ITEM, lineState: "draft" }],
     });
@@ -2043,6 +2084,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
+    qrCode: null,
   };
   /** Mutations inside the Bill's one polite region, from the moment this is called. */
   function watchRegion(text: string) {
@@ -2135,6 +2177,7 @@ describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", ()
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
+    qrCode: null,
   });
 
   it("a GUEST with unsent dishes is told WHO sends — the reason, never the label", () => {
@@ -2187,6 +2230,7 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
+    qrCode: null,
   };
 
   it("with a tip previewed, the door's figure, its name and the Bill's hero total agree — a tip-less second sum separates", async () => {
@@ -2304,5 +2348,420 @@ describe("Phase 3c-i (D17) — the line is a receipt row; its choices live behin
     expect(h.setLineFulfillment).not.toHaveBeenCalled();
     // The sheet carries its OWN single region (Radix hides the page's under an open dialog).
     expect(within(dialog).getAllByRole("status")).toHaveLength(1);
+  });
+});
+
+describe("PD2 — the counter-only Bill: one docked door, no card hero, and the pass after the ask", () => {
+  const FIRED: CartItem = { ...ITEM, lineState: "fired" };
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const GUEST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "guest" as const,
+    members: [
+      { seat: PEER_SEAT, name: "Aye", role: "host" as const },
+      { seat: MY_SEAT, name: "Me", role: "guest" as const },
+    ],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const dockLine = () => document.getElementById("counter-door-line")?.textContent ?? "";
+  // The doors as SHIPPED: phone pay parked, the self-serve split parked.
+  beforeEach(() => {
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+  });
+  afterEach(() => {
+    flags.phonePayOpen = true;
+    flags.splitOpen = true;
+  });
+
+  it("everything sent: no Pay, no tip ask, no separate total — the slip's own foot carries the total and the docked door says the next step once", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    // Land on the Bill (the stage picks it: everything is with the kitchen).
+    expect(screen.queryByRole("button", { name: /^Pay( the whole order)? · / })).toBeNull();
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    expect(screen.queryByText(/Estimated total/)).toBeNull();
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.classList.contains("checkout-cta")).toBe(true);
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+    // The one line slot, at rest, directly above the door.
+    expect(dockLine()).toContain("The counter takes cash.");
+    expect(door.getAttribute("aria-describedby")).toBeNull();
+    // No card words anywhere on the Bill.
+    expect(document.body.textContent).not.toMatch(/card/i);
+    // The slip's foot is the total — the server's figure, once.
+    expect(screen.getByText("Total")).toBeTruthy();
+  });
+
+  it("a dish still to send HOLDS the door with the reason in the slot, never a count — and the host's tap re-says it", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, qty: 2 }, FIRED] });
+    await press("Total · $12.00 — View bill");
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(door.hasAttribute("disabled")).toBe(false);
+    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
+    expect(dockLine()).toContain("Send everything to the kitchen first — then pay at the counter.");
+    // The mark above the slip: the console's two words, no number (DESIGN-LANGUAGE §21).
+    expect(screen.getByText("Not sent yet")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\d+ items? (haven’t|not sent)/);
+    expect(screen.getByRole("button", { name: /Back to send them/ })).toBeTruthy();
+    await press(/^Pay at the counter/);
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    await settle();
+    expect(regionText()).toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
+  it("a GUEST's held door names who sends (checkout/unsent-counter-guest-told-to-send)", async () => {
+    mount({ splitContext: GUEST, initialItems: [ITEM, FIRED] });
+    // A guest with drafts: the Bill door is the Order stage's hero (D13), named by its verb.
+    await press(/^View bill · \$12\.00$/);
+    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
+    // a guest is told to send dishes only Aye can; red.
+    expect(dockLine()).toContain(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    expect(screen.queryByRole("button", { name: /Back to send them/ })).toBeNull();
+  });
+
+  it("the Order stage's door reads 'View bill', never '& pay', while phone pay is parked (checkout/door-ignores-the-parked-door)", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    // Back to the order: everything is sent, nothing blocks — the one arm that used to say "& pay".
+    await press(/Back to your order/);
+    // MUTATION (checkout/door-ignores-the-parked-door): the flag handed in as always-open — the
+    // door promises a Pay the counter-only Bill does not have; red.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^View bill · \$12\.00$/ })).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: /View bill & pay/ })).toBeNull();
+  });
+
+  it("the ask: the phone becomes the pass — the heading, the rail's Pay, the figure, the total, the withdraw last; the dock is gone", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    // The re-read after the ask carries the stamp the server confirmed.
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-09-18T06:00:00.000Z" }),
+    );
+    await press(/^Pay at the counter/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Pay at the counter");
+    // The pass is post-pay's CounterPass, named by its heading: the lead tongue's label + the
+    // figure ONCE ("Table 7"), the figure printed once at the counter tier.
+    expect(screen.getByRole("heading", { level: 2, name: "Table 7" })).toBeTruthy();
+    expect(document.querySelector('.ui-pass[data-tier="counter"]')).toBeTruthy();
+    expect(
+      screen.queryByText("Show this to whoever’s at the register — they take cash."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    expect(document.getElementById("counter-door-line")).toBeNull();
+    // The rail: Order done, Bill done, Pay current — the ask IS the paying step.
+    const current = document.querySelector('[aria-current="step"]');
+    expect(current?.textContent).toContain("Pay");
+    // The withdraw, last, named by its visible words first.
+    const withdraw = screen.getByRole("button", {
+      name: "We’re not done yet — cancel paying at the counter",
+    });
+    expect(withdraw.textContent).toContain("We’re not done yet");
+    // The receipt is folded into "View bill".
+    const disclose = screen.getByRole("button", { name: /^View bill/ });
+    expect(disclose.getAttribute("aria-expanded")).toBe("false");
+    await press(/^View bill/);
+    expect(disclose.getAttribute("aria-expanded")).toBe("true");
+    // Focus went to the heading on THIS phone's own ask.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 })),
+    );
+  });
+
+  it("the withdraw says 'No rush' — never the parked tip-and-Pay sentence", async () => {
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    await press("We’re not done yet — cancel paying at the counter");
+    await settle();
+    expect(regionText()).toContain("No rush — your bill’s here when you’re ready.");
+    expect(regionText()).not.toContain("pick a tip");
+    await waitFor(() => expect(counterCards()).toBe(0));
+  });
+
+  it("a TABLEMATE's ask lands as a view flip and is said once; a standing ask at mount is not an event", async () => {
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    expect(regionText()).not.toContain("Your table asked");
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-10-08T06:00:00.000Z" }),
+    );
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    await settle();
+    expect(regionText()).toContain("Your table asked to pay at the counter.");
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+  });
+
+  it("a GROUP table under the register's freeze keeps the Bill and its held door — never the split board (blind pass, guard 6)", () => {
+    // While phone pay is parked no phone pays a share (the self-serve split is parked too, and its
+    // shares are phone payments), so a group's freeze is the REGISTER's. RED before the fix: the
+    // group flipped to the split board — "splitting the bill" — during the counter's cash settle.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    // MUTATION (checkout/split-board-reads-the-phone-door): the wiring hands the rule an always-open
+    // split door; red.
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(dockLine()).toContain("The counter is taking your table’s payment right now");
+    cleanup();
+    // PD10's flip opens phone pay WITHOUT reopening the split: the freeze is still the register's.
+    // RED on the previous gate (`!phonePayOff`), which put the board back here.
+    flags.phonePayOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    cleanup();
+    // …and only an OPEN split door shows the split's own board.
+    flags.splitOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).not.toBeNull();
+  });
+
+  it("the register mid-settle holds the door with its own sentence, never the split's", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED], initialSettling: true });
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(dockLine()).toContain("The counter is taking your table’s payment right now");
+    expect(document.body.textContent).not.toContain("splitting the bill");
+  });
+
+  // ── The blind pass on #331 (head e90e4da): three criticals, each through the real interleaving ──
+
+  const ASKED = "2026-10-08T06:00:00.000Z";
+  for (const how of ["refused", "thrown"] as const) {
+    it(`a ${how} withdraw on a phone that did NOT ask restores the ask SILENTLY and keeps the real error (blind pass, critical 1)`, async () => {
+      // Phone B: the ask is a tablemate's (standing at mount, never this phone's tap).
+      if (how === "refused")
+        h.withdrawCounterPay.mockResolvedValue({
+          ok: false,
+          error: "This order’s already paid — there’s nothing to cancel.",
+        });
+      else h.withdrawCounterPay.mockRejectedValue(new Error("network"));
+      mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+      expect(counterCards()).toBe(1);
+      await press("We’re not done yet — cancel paying at the counter");
+      await settle();
+      await settle();
+      // RED before the fix: the optimistic null then the revert is a null→stamp edge, announced as
+      // a NEW ask — and `sayOutcome` cleared the pay error it had just set.
+      expect(regionText()).not.toContain("Your table asked");
+      expect(regionText()).toContain(
+        how === "refused"
+          ? "This order’s already paid — there’s nothing to cancel."
+          : "Couldn’t reach the counter just now — please try again.",
+      );
+      expect(counterCards()).toBe(1);
+    });
+  }
+
+  it("a read landing DURING the withdraw that carries the same ask is not a new ask (blind pass, critical 1)", async () => {
+    const answer = deferred<{ ok: true }>();
+    h.withdrawCounterPay.mockReturnValue(answer.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+    await press("We’re not done yet — cancel paying at the counter");
+    // A realtime echo / visibility read lands while the withdraw is out: it still shows the ask.
+    await syncFromServer();
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await act(async () => {
+      answer.resolve({ ok: true });
+    });
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+  });
+
+  it("an ask landing while the promo field has focus never strands the docked door hidden (blind pass, critical 2)", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    // The dock hides while the field has focus (it never rides the keyboard).
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    // A tablemate's ask lands: the pass replaces the form — React removes the focused input in its
+    // own commit, and fires no blur for it.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // …and is withdrawn: the Bill — and its ONE door — come back.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(0));
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a tablemate EMPTYING and refilling the cart while the promo field has focus never strands the door (last blind pass, critical)", async () => {
+    // The exact path the last pass found: the empty-cart branch returns before any in-render reset,
+    // so the focused input unmounts with no blur; `stage` stays "bill", so the refilled Bill came
+    // back with `promoFocused` still true and the ONE door hidden over a blank band.
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /promo/i })).toBeNull());
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    await syncFromServer();
+    // MUTATION (checkout/promo-focus-outlives-the-form): the input's unmount no longer clears the
+    // flag — the door stays hidden on this path AND the ask path above; red.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy(),
+    );
+  });
+
+  it("a split-read miss draws the dock AND the padding that clears it — one binding (blind pass, critical 3)", () => {
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+    // MUTATION (checkout/dock-padding-reads-the-split-mode): the padding gated on the split's mode;
+    // the promo form and RewardField sit under the dock and cannot scroll clear; red.
+    expect(document.querySelector("main")!.style.paddingBottom).toContain("--cta-dock-h");
+  });
+
+  it("the amount the register reads is the SERVER's total — on the parked slip's foot and on the pass (blind pass, guard 5)", async () => {
+    // Total ≠ subtotal (tax), so a binding that reads the wrong figure separates.
+    const TAXED: CartTotals = { ...TOTALS, taxCents: 126, totalCents: 1326 };
+    mount({ splitContext: HOST, initialItems: [FIRED], initialTotals: TAXED });
+    // MUTATION (checkout/parked-foot-reads-the-subtotal): the slip's foot reads `subtotalCents`; red.
+    const slip = document.querySelector(".checkout-receipt")!;
+    expect(slip.textContent).toContain("13.26");
+    cleanup();
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED],
+      initialTotals: TAXED,
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    expect(counterCards()).toBe(1);
+    // MUTATION (checkout/pass-total-reads-the-subtotal): the pass reads `subtotalCents`; red.
+    expect(document.querySelector(".counter-pass-amount")!.textContent).toBe("13.26");
+  });
+
+  // ── Codex round 2 on #331 (head 5c074e1) ──
+
+  it("a missed split read cannot un-park the door: the cart view's mode answers it (comment 4226408727)", async () => {
+    // `app/cart/page.tsx` passes `null` on any getSplitContext failure; the view's mode comes from
+    // the fail-closed authorization read. RED before the fix: the door asked the split's mode, saw
+    // null, and drew the card hero + tip ask at a table create-intent refuses (410).
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.queryByRole("button", { name: /^Pay( the whole order)? · / })).toBeNull();
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a TO-GO draft added after the ask keeps the pass's 'Not sent yet' — it reaches the kitchen only when the counter settles (comment 4226408743)", async () => {
+    // RED before the fix: the pass read the dine-in-only `kitchenDraftQty`, so a to-go dish (which
+    // fires only when payment lands) dropped the mark the pre-ask Bill showed for it.
+    const TOGO: CartItem = { ...ITEM_B, fulfillment: "togo", lineState: "draft" };
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED, TOGO],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    // A to-go draft lands the page on the Order stage; the door leads to the Bill (and the pass).
+    if (!counterCards()) await press(/View bill/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // MUTATION (checkout/pass-drops-a-togo-draft): the pass reads `kitchenDraftQty`; red.
+    const marks = screen.getAllByText("Not sent yet");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest(".ui-track")).not.toBeNull();
+  });
+
+  // ── Codex round 1 on #331 (head c253013): three P2s, each pinned red-first ──
+
+  it("a tablemate's withdrawal ends this phone's claim on the ask: the NEXT ask is said as theirs (comment 4222692016)", async () => {
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    // This phone asks; the re-read confirms the stamp.
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-10-08T06:00:00.000Z" }),
+    );
+    await press(/^Pay at the counter/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+    // A tablemate withdraws it — the view says no ask.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(0));
+    // …and asks again. RED before the fix: `ownAsk` still true from this phone's earlier tap, so
+    // the edge was read as this phone's own — silent, focus moved unconditionally.
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-10-08T06:05:00.000Z" }),
+    );
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    await settle();
+    expect(regionText()).toContain("Your table asked to pay at the counter.");
+  });
+
+  it("the pass replaces the Bill: the split chooser does not sit under its withdraw (comment 4222692029)", async () => {
+    // A group table (two members) with everything sent: the Bill, with the split chooser.
+    mount({ splitContext: GUEST, initialItems: [FIRED] });
+    expect(screen.getByTestId("split-section")).toBeTruthy();
+    cleanup();
+    // The same table under a standing ask: the pass, and nothing after its withdraw.
+    mount({
+      splitContext: GUEST,
+      initialItems: [FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    expect(counterCards()).toBe(1);
+    expect(screen.queryByTestId("split-section")).toBeNull();
+    const withdraw = screen.getByRole("button", {
+      name: "We’re not done yet — cancel paying at the counter",
+    });
+    // The withdraw is the LAST control on the screen (the dialogs' and the header's aside).
+    const controls = Array.from(
+      document.querySelectorAll<HTMLElement>("main button, main a, main input"),
+    );
+    expect(controls[controls.length - 1]).toBe(withdraw);
+  });
+
+  it("the unsent state is said ONCE while the pass shows — the pass's head owns it (comment 4222692039)", async () => {
+    // A draft added after the ask (a tablemate's late dish): the mark above the slip AND the pass's
+    // head both drew "Not sent yet" — twice for every reader.
+    mount({
+      splitContext: HOST,
+      initialItems: [ITEM, FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    await press("Total · $12.00 — View bill");
+    await waitFor(() => expect(counterCards()).toBe(1));
+    const marks = screen.getAllByText("Not sent yet");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest(".ui-track")).not.toBeNull();
+    expect(document.querySelector(".checkout-unsent-mark")).toBeNull();
   });
 });

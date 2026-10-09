@@ -19,6 +19,7 @@ import type { KdsThresholds } from "./kitchen-types";
 import type { CounterArm as CounterArmOf } from "./counter-order";
 import type { Handoff } from "./register-ui";
 import type { ReceiptBreakdownish } from "./receipt-view";
+import type { PendingFlag } from "./settle-approvals";
 
 /** Phase 2f — how a counter order was started (re-exported for the client components). */
 export type CounterArm = CounterArmOf;
@@ -298,6 +299,13 @@ export type TableDetail = {
    *  in one place, quoted in another" drift the W17 rules name. Null when there is no open cart with
    *  items (there is no total for it to belong to). */
   settlePromoCents: number | null;
+  /** PD8 — the open cart's PENDING approval requests (`readPendingApprovalFlags`, the ONE read the
+   *  three settle doors compare against), oldest first. The flag card at Take payment draws these,
+   *  and every settle door sends exactly the ids IT displayed at ITS tap (Codex correction 13).
+   *  Empty with no open cart — and on an UNREADABLE read (a deliberate degrade: the dish stays
+   *  charged, the safe state, and the door's own server read re-warns if a request is really there;
+   *  the lines' `pendingApproval` degrades the same way, as shipped). */
+  pendingRequests: PendingFlag[];
   /** Tab lifecycle (S3.1) — `none`/`trust`/`secure`. When not `none`, the drill-down shows a "Tab
    *  open" badge + the open-since time, and the settle action reads "Close tab". */
   tab: "none" | "trust" | "secure";

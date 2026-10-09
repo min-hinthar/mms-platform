@@ -119,6 +119,7 @@ const line = (id: string, name: string): TableLineView => ({
 const DETAIL: TableDetail = {
   sessionId: "s1",
   settled: false,
+  pendingRequests: [],
   cartId: "c1",
   label: "T4",
   tableNumber: 4,
@@ -1935,6 +1936,7 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
   const SETTLED: TableDetail = {
     ...COUNTER,
     settled: true,
+    pendingRequests: [],
     cartId: null,
     settleTotalCents: null,
     status: "paid",
