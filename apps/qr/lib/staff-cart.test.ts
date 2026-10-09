@@ -102,6 +102,9 @@ vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(pay
 const acquireOwners: string[] = [];
 const releaseOwners: string[] = [];
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: (_cartId: string, owner: string) => {
     acquireOwners.push(owner);
     return Promise.resolve("acquired");

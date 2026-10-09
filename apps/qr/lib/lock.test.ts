@@ -67,12 +67,14 @@ let statusError: { message: string } | null = null;
  *  (and whether it calls at all) is the assertable surface. */
 let rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 let rpcError: { message: string } | null = null;
+/** M268 — what an RPC answers as `data` (the settlement release returns its row count). */
+let rpcData: unknown = undefined;
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     rpc: (fn: string, args: Record<string, unknown>) => {
       rpcCalls.push({ fn, args });
-      return Promise.resolve({ error: rpcError });
+      return Promise.resolve({ data: rpcError ? null : rpcData, error: rpcError });
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
@@ -152,6 +154,7 @@ beforeEach(() => {
   queries = [];
   rpcCalls = [];
   rpcError = null;
+  rpcData = undefined;
   updateCount = 0;
   updateError = null;
   statusRow = { status: "open" };
@@ -350,6 +353,45 @@ describe("releasePromoGrantFor — the next attempt clears the previous pin, era
   it("surfaces the write error instead of swallowing it", async () => {
     rpcError = { message: "boom" };
     expect(await releasePromoGrantFor("cart-1", "era-A")).toEqual({ message: "boom" });
+  });
+});
+
+describe("releasePromoGrantFor — M268: a SETTLEMENT holder, proved by its freeze and its row count", () => {
+  it("releases through the settlement RPC, keyed by THIS request's freeze owner", async () => {
+    rpcData = 1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toBeNull();
+    // MUTATION: the era RPC → on an unlocked cart any era matches, the cart-wide clear the era rule
+    // refuses — and a stale lock's era is one this request never held; red.
+    expect(rpcCalls).toEqual([
+      {
+        fn: "mms_release_promo_grant_for_settlement",
+        args: { p_cart_id: "cart-1", p_owner: "owner-A" },
+      },
+    ]);
+  });
+
+  it("a BLOCKED write (0 rows) is a refusal, never ok — the settle would price from the pin it failed to clear", async () => {
+    // MUTATION: trust any answer without its row count → another freeze, a closed cart or a live
+    // link reads as released; red.
+    rpcData = 0;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "the settlement's promo-pin release matched 0 rows",
+    });
+    rpcData = null;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+  });
+
+  it("no owner is no proof — a refusal, and nothing is called", async () => {
+    // MUTATION: a quiet no-op (the era form's answer) → the settle reads the pin as if released; red.
+    expect(await releasePromoGrantFor("cart-1", { settlement: "" })).not.toBeNull();
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("surfaces the write error", async () => {
+    rpcError = { message: "boom" };
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "boom",
+    });
   });
 });
 

@@ -34,6 +34,9 @@ let inFlight: "mid_payment" | null = null;
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inFlight) }));
 const lockCalls: { op: "acquire" | "release"; owner: string }[] = [];
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: (_cart: string, owner: string) => {
     lockCalls.push({ op: "acquire", owner });
     return Promise.resolve("acquired");

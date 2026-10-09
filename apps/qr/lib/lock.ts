@@ -423,8 +423,59 @@ export async function releaseStaleSettlement(
  * Lives here rather than inline in the route deliberately: `app/api/**` sits outside
  * `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s mutant set, so a money rule
  * written there cannot be guarded at all (the W17 lesson, in CLAUDE.md).
+ *
+ * ## M268 — the SETTLEMENT doors are a next attempt too
+ *
+ * The same rule — the attempt about to replace a pin clears it, under the mutex it holds, before it
+ * reads a total — applies on the other side of the table. The register's settle (cash, the Terminal,
+ * the secure-tab close) holds a SETTLEMENT freeze, not a pay-lock era, and before M268 it released
+ * nothing: `mms_promo_discount` honours any non-null pin outright (m70: "a granted pin wins
+ * outright"), so a pin an abandoned card attempt left behind — both client exits failed, or an
+ * attempt from before the cart→intent link existed — priced the counter's total with a discount a
+ * different basket earned. While phone pay is parked (PD2) the counter is a table's only door.
+ *
+ * So the holder is one of two proofs, and each has its own era-equivalent:
+ *   · a PAY attempt — the era its own `acquireCartLock` wrote (create-intent), through
+ *     `mms_release_promo_grant`, whose predicate is the era;
+ *   · a SETTLEMENT attempt — the request-unique owner its freeze wrote, through
+ *     `mms_release_promo_grant_for_settlement`, whose predicate is `settle_by = owner` on an OPEN
+ *     cart naming NO live intent. That freeze is what excludes every pay attempt (`acquireCartLock`
+ *     refuses under a fresh `settle_at`), so under it a pin no intent names belongs to nobody.
+ * The era RPC cannot serve the settlement: on an unlocked cart it would need an era nobody holds, and
+ * a cart-wide clear is the successor-wiping hazard above.
+ *
+ * ⚠️ THE SETTLEMENT FORM CHECKS THE ROW COUNT. Its RPC returns how many rows it wrote, and only ONE
+ * is a release: the freeze is ours, the cart is open and unlinked, and its pin is null now. Zero is
+ * a BLOCKED write — another freeze, a closed cart, or a live link — and answering ok there would
+ * hand the caller a total priced from the pin it failed to clear (CLAUDE.md: `.update()` returns no
+ * row count; a blocked write reports success). Called from ONE place: `acquireSettlementSuperseding`,
+ * before it answers `acquired` (lib/supersede.ts).
  */
-export async function releasePromoGrantFor(cartId: string, attempt: string): Promise<ReleaseError> {
+export type PromoGrantHolder =
+  /** A PAY attempt's era (create-intent). */
+  | string
+  /** A SETTLEMENT attempt's request-unique owner (`acquireSettlementSuperseding`). */
+  | { settlement: string };
+
+export async function releasePromoGrantFor(
+  cartId: string,
+  holder: PromoGrantHolder,
+): Promise<ReleaseError> {
+  if (typeof holder === "object") {
+    // No owner, no proof — and unlike the era form this is a REFUSAL, not a quiet no-op: the
+    // settlement reads a total next, and a pin left on the row would price it.
+    if (!holder.settlement)
+      return { message: "no settlement owner to release the promo pin under" };
+    const { data, error } = await serviceClient().rpc("mms_release_promo_grant_for_settlement", {
+      p_cart_id: cartId,
+      p_owner: holder.settlement,
+    });
+    if (error) return error;
+    return data === 1
+      ? null
+      : { message: `the settlement's promo-pin release matched ${Number(data ?? 0)} rows` };
+  }
+  const attempt = holder;
   // No era, no release. The caller passes the era ITS OWN acquisition wrote; an empty one means we
   // cannot show the cart is ours, and a cart-wide clear is exactly the successor-wiping hazard
   // above — so the pin stays and the next honest re-derivation (or the cart closing) settles it.

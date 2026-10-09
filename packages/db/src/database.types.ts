@@ -2152,6 +2152,10 @@ export type Database = {
         Args: { p_cart_id: string; p_uid: string }
         Returns: undefined
       }
+      mms_release_promo_grant_for_settlement: {
+        Args: { p_cart_id: string; p_owner: string }
+        Returns: number
+      }
       mms_request_approval: {
         Args: {
           p_action: string
