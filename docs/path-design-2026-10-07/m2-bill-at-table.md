@@ -1106,7 +1106,17 @@ stage="unsent"` in its head; the total, the "View bill" disclosure and the recei
    never reaches a drawn surface.
 
 **Residuals filed.** A stale promo pin can reach the register's cash settle (`mms_promo_discount`
-honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**. The group table
+honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**, **built in #338**
+(stacked on #331; decided under the owner's delegation, 2026-10-09): every settlement door — cash, the
+Terminal, the secure-tab close — runs create-intent's sequence on its ordinary path.
+`acquireSettlementSuperseding` releases the pin under the freeze it just took, awaited, before it
+answers `acquired`, through the ONE binding (`releasePromoGrantFor`, now taking a settlement owner as
+its proof) and a new RPC, `mms_release_promo_grant_for_settlement` (migration `20261009120000`), whose
+guards all sit in its WHERE (`status = 'open'`, `settle_by = p_owner`, `live_payment_intent_id is
+null`) and whose row count the caller checks. A refusal by a live link supersedes that intent under the
+settlement rules first; any other refusal answers `unavailable`, never a total priced from the pin. A
+promo applied at the register still discounts, re-derived live — the release touches the pin, never
+`promo_code`. The group table
 that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind
 passes on #331: the board shows only while the self-serve split door is open (`splitBoardShown`,
 lib/counter-pay-state — the same door the register's refusal sentence reads).

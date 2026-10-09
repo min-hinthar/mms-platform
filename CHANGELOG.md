@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M268 — the register's settle releases a dead card attempt's promo pin before it reads a total (2026-10-09, #338)
+
+- **The hole (filed by the blind pass on #331):** `mms_promo_discount` honours any non-null pin
+  outright (m70), and only create-intent released a predecessor's. A pin an abandoned card attempt
+  left — both client exits failed, or an attempt from before the cart→intent link — reached the
+  register, whose settle charged a discount a different basket earned. With phone pay parked (PD2)
+  the counter is a dine-in table's only door.
+- **The fix:** the settlement doors (cash, the Terminal, the secure-tab close) run create-intent's
+  sequence on their ordinary path. `acquireSettlementSuperseding` releases the pin under the freeze
+  it just took, awaited, before it answers `acquired`, through the ONE binding
+  (`releasePromoGrantFor`, now holder-aware) and `mms_release_promo_grant_for_settlement` (migration
+  `20261009120000`: every guard in the WHERE, the row count checked, service_role only). A live link
+  is superseded first under the settlement rules; any other refusal answers `unavailable`. A promo
+  applied at the register still discounts, re-derived live.
+- **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
+  the legitimate promo, four refusals, privileges, a mutant per guard built from the live
+  definition); `lib/settle-stale-pin.test.ts` on the real `settleCash`; eight `m268/…` mutants.
+
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 
 - **The owner's pick (PATH_DESIGN_2026-10-07 decision 2):** until the live Stripe keys are switched on
