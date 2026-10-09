@@ -3569,7 +3569,10 @@ export function Checkout({
                 totalCents={totals.totalCents}
                 sentenceKey={counterCard ? "counterBody" : "counterShowCash"}
                 settling={settling}
-                unsent={kitchenDraftQty > 0}
+                // Codex round 2 on #331 — EVERY dish the kitchen has not got (`unsentFoodQty`: dine-in
+                // AND to-go drafts; a to-go dish fires only when the counter's payment lands), never
+                // the dine-in-only send count: a tablemate's to-go dish after the ask is not underway.
+                unsent={unsentQty > 0}
                 busy={counterBusy}
                 rise={ownAsk}
                 onWithdraw={withdrawCounter}

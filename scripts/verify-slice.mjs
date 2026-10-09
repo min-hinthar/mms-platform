@@ -25672,6 +25672,14 @@ const MUTANTS = [
     replace: "    sessionMode,",
   },
   {
+    id: "checkout/pass-drops-a-togo-draft",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 on #331 — the pass's 'Not sent yet' covers EVERY dish the kitchen has not got; reading the dine-in-only send count drops a to-go draft added after the ask, which fires only when the counter's payment lands, and the pass reads as if everything were underway",
+    find: "                unsent={unsentQty > 0}",
+    replace: "                unsent={kitchenDraftQty > 0}",
+  },
+  {
     id: "checkout/door-ignores-the-parked-door",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",

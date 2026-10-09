@@ -2517,6 +2517,24 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
   });
 
+  it("a TO-GO draft added after the ask keeps the pass's 'Not sent yet' — it reaches the kitchen only when the counter settles (comment 4226408743)", async () => {
+    // RED before the fix: the pass read the dine-in-only `kitchenDraftQty`, so a to-go dish (which
+    // fires only when payment lands) dropped the mark the pre-ask Bill showed for it.
+    const TOGO: CartItem = { ...ITEM_B, fulfillment: "togo", lineState: "draft" };
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED, TOGO],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    // A to-go draft lands the page on the Order stage; the door leads to the Bill (and the pass).
+    if (!counterCards()) await press(/View bill/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // MUTATION (checkout/pass-drops-a-togo-draft): the pass reads `kitchenDraftQty`; red.
+    const marks = screen.getAllByText("Not sent yet");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest(".ui-track")).not.toBeNull();
+  });
+
   // ── Codex round 1 on #331 (head c253013): three P2s, each pinned red-first ──
 
   it("a tablemate's withdrawal ends this phone's claim on the ask: the NEXT ask is said as theirs (comment 4222692016)", async () => {
