@@ -9,6 +9,7 @@ import {
   recordSoldOut,
   type SoldOutOverride,
 } from "./kds-line";
+import { ticketKey } from "./kitchen-rounds";
 import type { KitchenLine, KitchenTicket } from "./kitchen-types";
 
 /**
@@ -32,8 +33,12 @@ const line = (over: Partial<KitchenLine> = {}): KitchenLine => ({
   ...over,
 });
 const ticket = (cartId: string, lines: KitchenLine[]): KitchenTicket => ({
+  key: ticketKey({ cart_id: cartId, fire_batch: `batch-${cartId}`, fire_at: null }),
   cartId,
   sessionId: `s-${cartId}`,
+  fireBatch: `batch-${cartId}`,
+  round: { kind: "n", n: 1 },
+  stampIso: "2026-09-20T18:00:00.000Z",
   channel: "dinein",
   label: "T4",
   tableNumber: 4,

@@ -168,6 +168,24 @@ export const STAFF = {
   // ── KDS: the card ──────────────────────────────────────────────────────────
   // {id} is the table number from the physical tent — Latin in both tongues, always.
   "kds.table": { en: "Table {id}", my: "စားပွဲ {id}" }, // grounded: kiosk `tableNumber`
+  // PD5 — the round stub on a table's second (and later) Send, and the composed label's round
+  // ("Table 4 · Round 2"). {id} is an identifier-class slot ON PURPOSE (round 3 D4): the round
+  // number is read against the card beside it like a table number, so it stays a Latin digit in both
+  // tongues here and on the TV board ({n} would render ၂ on the wall). The word is the guest strip's
+  // own "next round" root (TableTimeline.tsx). Claude-authored MY draft pending Min's native check
+  // (K15 · kitchen-ops); the ruling-#12 device sitting confirms Mom and Dad read the Burmese-only stub.
+  "kds.round": { en: "Round {id}", my: "အလှည့် {id}" },
+  // PD5 — the stub when the round NUMBER cannot be read and an older card of the same table is live
+  // (m5 decision 10): the guest's own word, with no number. The word ships inside
+  // `TableTimeline.tsx`'s sentence; as a standalone label it is a Claude-authored MY draft (K15).
+  "kds.round.next": { en: "Next round", my: "နောက်တစ်လှည့်" },
+  // PD5 / m7 — the "stop cooking" card's one warn word (ALARM tier without motion; the card's shape
+  // is reserved here, its durable stop record lands with the table-clear migration, PD7). {id} is
+  // the table number. Claude-authored MY draft from m7's appendix B4 (K15 · kitchen-ops).
+  "kds.stop": {
+    en: "Table {id} left — stop cooking",
+    my: "စားပွဲ {id} ထွက်သွားပြီ — ချက်တာ ရပ်ပါ",
+  }, // K15-HIGH — read wrong, a departed table's food keeps cooking
   "kds.held": { en: "Later · ", my: "ဆိုင်းထား · " }, // K15-HIGH — a held card read as live is food cooked an hour early
   "kds.slot": {
     en: "Pickup {t} — starts cooking on its own",
@@ -255,6 +273,14 @@ export const STAFF = {
   "kds.undo": { en: "Undo", my: "ပြန်ဖျက်" }, // K15-HIGH — the only way back inside 6 seconds
   // K15 draft (blind review 2026-09-24) — names the ticket action, "All done"; was “{x} ပြီးသွားပြီ”.
   "kds.undo.bumped": { en: "{x} all done", my: "{x} အားလုံး ပြီးသွားပြီ" },
+  // PD5 — the pill's second line and the region's second sentence after a bump, only while it is
+  // true: another card of the SAME table session is still on the board (m5 decision 12, the maître
+  // d's one quiet line). {x} is the table label ("Table 4" — a ticket id, `fill.ts`'s label slot).
+  // Claude-authored MY draft, the brief's m5 guided screen 2 (K15 · kitchen-ops).
+  "kds.undo.stillOn": {
+    en: "{x} still has a card on the board.",
+    my: "{x} ရဲ့ ကတ်တစ်ခု ဘုတ်ပေါ်မှာ ကျန်သေးတယ်။",
+  },
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} မီနူးက ဖြုတ်ပြီ”.
   "kds.undo.86": { en: "{x} sold out", my: "{x} ကုန်သွားပြီ" }, // K15-HIGH — the undo bar's copy after an 86
   "kds.page": { en: "Page {n} of {total}", my: "စာမျက်နှာ {n} / {total}" },
@@ -4230,6 +4256,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.recall",
   "kds.slot",
   "kds.stat.late",
+  "kds.stop",
   "kds.undo",
   "kds.undo.86",
   "out.err.body",
