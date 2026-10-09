@@ -47,24 +47,39 @@ export function kitchenTrackLit(stage: KitchenStage): 0 | 1 | 2 | 3 {
   }
 }
 
+/**
+ * What carries the state: the visible `word` (the segments are then decorative), OR an
+ * `aria-label` naming the whole track as one image, OR neither (decorative beside the caller's own
+ * words). A word AND a label would be two names for one fact, so the type refuses the pair.
+ */
+export type KitchenTrackName =
+  | {
+      /** The stage word, both tongues, from the caller's dictionary (`table.line.state.*`). */
+      word: KitchenTrackWord;
+      /** The lead tongue: it prints first. Default English. */
+      lang?: "en" | "my";
+      /** `false` prints the lead tongue only (the TV's rows: two scripts cannot stack in a chip). */
+      echo?: boolean;
+      "aria-label"?: undefined;
+    }
+  | {
+      word?: undefined;
+      lang?: undefined;
+      echo?: undefined;
+      /** Accessible name for a track drawn with no word (`role="img"`). */
+      "aria-label"?: string;
+    };
+
 export type KitchenTrackProps = {
   stage: KitchenStage;
   size: KitchenTrackSize;
   /** The surface the track sits on: constant pass inks (default) or the theme's own. */
   surface?: KitchenTrackSurface;
-  /** The stage word, both tongues, from the caller's dictionary (`table.line.state.*`). */
-  word?: KitchenTrackWord;
-  /** The lead tongue: it prints first. Default English. */
-  lang?: "en" | "my";
-  /** `false` prints the lead tongue only (the TV's rows: two scripts cannot stack in a chip). */
-  echo?: boolean;
   /** The caller observed this stage LAND: the new segment FILLs once. Ignored for the ring and the
    *  dashed grace (nothing lands). */
   filling?: boolean;
-  /** Accessible name for a track drawn with no word (`role="img"`). */
-  "aria-label"?: string;
   className?: string;
-};
+} & KitchenTrackName;
 
 export function KitchenTrack({
   stage,
@@ -80,6 +95,8 @@ export function KitchenTrack({
   const lit = kitchenTrackLit(stage);
   const ring = stage === "unsent";
   const dashed = stage === "sending";
+  // A landing exists only while a FILL plays; an un-fill, a first read or a revisit marks nothing.
+  const landing = filling && lit > 0;
   const hasWord = word != null;
   const img = !hasWord && ariaLabel != null;
   const decorative = !hasWord && !img;
@@ -91,7 +108,7 @@ export function KitchenTrack({
       data-stage={stage}
       data-size={size}
       data-surface={surface}
-      data-filling={filling && lit > 0 ? "" : undefined}
+      data-filling={landing ? "" : undefined}
       role={img ? "img" : undefined}
       aria-label={img ? ariaLabel : undefined}
       aria-hidden={decorative || undefined}
@@ -106,7 +123,7 @@ export function KitchenTrack({
               className="ui-track-seg"
               data-lit={i < lit ? "" : undefined}
               data-dashed={dashed && i === 0 ? "" : undefined}
-              data-landing={lit > 0 && i === lit - 1 ? "" : undefined}
+              data-landing={landing && i === lit - 1 ? "" : undefined}
             />
           ))}
         </span>
