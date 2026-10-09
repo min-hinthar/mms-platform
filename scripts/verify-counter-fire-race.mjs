@@ -22,7 +22,7 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the thirteen orderings below, on one cart (two, for the merge). The
+ * WHAT THIS PROVES, and no more: the fifteen orderings below, on one cart (two, for the merge). The
  * no-show, the undo and a settle claim take the same cart-row lock, but no scenario here interleaves
  * THEM — those orderings are argued from construction and pinned single-session (P2F.15e, P2F.18),
  * not proven here. The no-show IS interleaved with a void, a request (h, h2) and a kitchen Start (j).
@@ -100,6 +100,19 @@
  *       Without the no-show's lines lock B reads the line as merely fired, decides a solo write-off,
  *       waits at the void, and voids a started dish with no manager.
  *
+ *   M184 (the blind passes on #333) restates `mms_request_approval` to refuse 'in_flight' while the
+ *   cart is pay-locked or settling, so no request lands between a settle door's freeze and its read
+ *   of the pending set. The freeze is `acquireSettlement`'s UPDATE (lib/lock.ts), written out here;
+ *   B's request runs in an open transaction so its commit can land after the door's read. Two orders:
+ *   (r1) freeze-before-request — A freezes the cart inside an open transaction; B's request on a draft
+ *       over the ceiling must BLOCK on A (the cart FOR SHARE) and, once A commits, answer 'in_flight'
+ *       with nothing pending. Without the lock, or with the freeze read before it, B asks a manager
+ *       about a bill the door is already charging, and its request commits after the door's read.
+ *   (r2) request-before-freeze — B asks ('ok') inside an open transaction; A's freeze must BLOCK on B
+ *       and, once B commits, land; the door's read (after A commits) must see the request. Without the
+ *       lock the freeze lands first, the read sees nothing, and B's request then commits behind it.
+ *   In both, every request pending at the end is one the door's read saw.
+ *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
  *
@@ -108,6 +121,7 @@
  * For each function, re-create it from THIS migration's text with its cart-row lock deleted. Each
  * mutant asserts the pattern matched exactly once, the apply succeeded and `md5(prosrc)` changed,
  * and that EXACTLY its expected scenarios went red; the restore re-applies the whole migration file
+ * (plus each function a later migration restates, from that file — `LATER`)
  * (idempotent) and asserts every body is byte-identical to the baseline. A green baseline runs
  * first, and before anything is written the live bodies are compared with what the migration
  * produces INSIDE A ROLLED-BACK TRANSACTION — if a later migration redefines one of these
@@ -137,6 +151,18 @@ const MIGRATION = path.join(
   ROOT,
   "supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql",
 );
+/**
+ * Functions a LATER migration restates, each read from its LAST defining file — the fingerprint,
+ * the mutation and the byte-identical restore alike. Reading them from p2f's file would compare the
+ * live database against a body it no longer runs, and the restore would revert the later fix.
+ * M184 (PD8, the blind pass on #333) restates `mms_request_approval` with the settle-freeze refusal.
+ */
+const LATER = {
+  mms_request_approval: path.join(
+    ROOT,
+    "supabase/migrations/20261008120000_m184_approval_refuses_when_changed.sql",
+  ),
+};
 const TAG = "P2FR";
 const CODE_PREFIX = `reg-${TAG}-`;
 /** The merge target: a diner's pickup, deliberately NOT `reg-` (a counter target is refused). */
@@ -538,6 +564,31 @@ const counterLine = (f) =>
        from public.qr_cart_items ci join public.qr_carts c on c.id = '${f.cart}'
       where ci.id = '${f.line}';`);
 
+/** A counter order with one more draft, over the loss ceiling — a request on it needs a manager. */
+function bigFixture(id) {
+  const f = fixture(id);
+  const big = q(`insert into public.qr_cart_items
+      (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+    values ('${f.cart}', '${TAG}-dish', 'Feast platter', 1, 2500, 262, 'togo') returning id;`);
+  if (!big) throw new Error(`${TAG} big fixture ${id} did not resolve`);
+  return { ...f, big };
+}
+/** A settle door's freeze — `acquireSettlement`'s UPDATE (apps/qr/lib/lock.ts) with its two windows
+ *  written out (the pay-lock's 5 minutes, the settle's 10): the cart row's settle stamp, taken only on
+ *  an open cart with no live pay-lock and no live settle. Answers the rows it froze. */
+const freeze = (f) => `with w as (
+    update public.qr_carts set settle_at = now(), settle_by = '${MGR}'::uuid
+     where id = '${f.cart}' and status = 'open'
+       and (locked = false or (locked_at <= now() - interval '5 minutes' and live_payment_intent_id is null))
+       and (settle_at is null or settle_at <= now() - interval '10 minutes')
+     returning 1)
+  select count(*) from w;`;
+/** The door's next read after its freeze — `readPendingApprovalFlags`' filter (lib/approvals-read.ts). */
+const pendingOn = (f) =>
+  q(
+    `select count(*) from public.mms_approvals where cart_id = '${f.cart}' and status = 'pending';`,
+  );
+
 /** Each scenario returns [label, got, want] triples; any mismatch reddens it. */
 const SCENARIOS = {
   async a() {
@@ -891,6 +942,79 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  async r1() {
+    const f = bigFixture("r1");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // B's request runs in its own open transaction so its commit can land AFTER the door's read —
+      // the window a request that did not wait would use.
+      await a.run("begin;");
+      const froze = await a.run(freeze(f));
+      await b.run("begin;");
+      b.fire(requestApproval(f.big));
+      const how = await blockedOrDone(b, a);
+      let asked;
+      let seen;
+      if (how === "blocked") {
+        await a.run("commit;");
+        seen = pendingOn(f); // the door's read, after its freeze commits
+        asked = await b.collect();
+      } else {
+        // B decided against A's UNCOMMITTED freeze — the real race: the door commits and reads first.
+        asked = await b.collect();
+        await a.run("commit;");
+        seen = pendingOn(f);
+      }
+      await b.run("commit;");
+      return [
+        ["A froze the cart for settlement", froze, "1"],
+        ["B's request waited for the freeze", how, "blocked"],
+        ["B refused: the cart is settling", asked, "in_flight"],
+        ["every pending request is one the door's read saw", pendingOn(f), seen],
+        ["nothing pending behind the settle", pendingOn(f), "0"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async r2() {
+    const f = bigFixture("r2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await b.run("begin;");
+      const asked = await b.run(requestApproval(f.big));
+      await a.run("begin;");
+      a.fire(freeze(f));
+      const how = await blockedOrDone(a, b);
+      let froze;
+      let seen;
+      if (how === "blocked") {
+        await b.run("commit;");
+        froze = await a.collect();
+        await a.run("commit;");
+        seen = pendingOn(f); // the door's read, after its freeze commits
+      } else {
+        // A froze past B's UNCOMMITTED request — the real race: the door commits and reads first.
+        froze = await a.collect();
+        await a.run("commit;");
+        seen = pendingOn(f);
+        await b.run("commit;");
+      }
+      return [
+        ["B asked a manager", asked, "ok"],
+        ["A's freeze waited for the request", how, "blocked"],
+        ["A froze the cart once the request landed", froze, "1"],
+        ["the door's read saw the request", seen, "1"],
+        ["every pending request is one the door's read saw", pendingOn(f), seen],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
 /** Run every scenario; returns the ids that went red (printing when `loud`). */
@@ -917,6 +1041,8 @@ async function battery(loud) {
         i: "clear-before-resolve",
         i2: "resolve-mid-clear",
         j: "kitchen-start-before-no-show",
+        r1: "freeze-before-request",
+        r2: "request-before-freeze",
       }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
@@ -951,6 +1077,9 @@ function cleanup() {
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
 const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
+const LATER_TEXT = Object.fromEntries(
+  Object.entries(LATER).map(([fn, file]) => [fn, readFileSync(file, "utf8")]),
+);
 /** Every function this migration defines — the restore re-applies them all, so all are compared. */
 const FNS = [
   "mms_bump_ticket",
@@ -970,20 +1099,35 @@ const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
   where n.nspname = 'public' and p.proname in (${FNS.map((f) => `'${f}'`).join(", ")})
   order by 1;`;
 
-/** This migration's `create or replace` statement for `fn`, exactly once or not at all. */
-function statementFor(fn) {
+/** `fn`'s `create or replace` statement in `text`, exactly once or not at all. */
+function statementIn(text, fn) {
   const head = `create or replace function public.${fn}(`;
-  const at = MIGRATION_TEXT.indexOf(head);
-  if (at < 0 || MIGRATION_TEXT.indexOf(head, at + 1) >= 0) return null;
+  const at = text.indexOf(head);
+  if (at < 0 || text.indexOf(head, at + 1) >= 0) return null;
   // The sweeper is restated in its original file's style (`end; $$;`); the rest end `end $$;`.
   const ends = ["\nend $$;", "\nend; $$;"]
-    .map((t) => [MIGRATION_TEXT.indexOf(t, at), t])
+    .map((t) => [text.indexOf(t, at), t])
     .filter(([i]) => i >= 0)
     .sort((x, y) => x[0] - y[0]);
   if (!ends.length) return null;
   const [end, term] = ends[0];
-  return MIGRATION_TEXT.slice(at, end + term.length);
+  return text.slice(at, end + term.length);
 }
+/** `fn`'s statement from its LAST defining file (`LATER`, else this migration). */
+function statementFor(fn) {
+  return statementIn(LATER_TEXT[fn] ?? MIGRATION_TEXT, fn);
+}
+/**
+ * What the live functions should be: this migration, then each later restatement — the drift check
+ * applies it rolled back, the restore applies it for real. Only the restated FUNCTION is replayed
+ * from the later file (its grants are this migration's, and `create or replace` keeps them).
+ */
+const LATER_STATEMENTS = Object.keys(LATER).map((fn) => {
+  const stmt = statementFor(fn);
+  if (!stmt) refuse(`${fn} is not defined exactly once in ${path.basename(LATER[fn])}`);
+  return stmt;
+});
+const RESTORE_TEXT = [MIGRATION_TEXT, ...LATER_STATEMENTS].join("\n");
 
 const MUTANTS = [
   {
@@ -1091,8 +1235,43 @@ const MUTANTS = [
     fn: "mms_request_approval",
     find: "    perform 1 from public.qr_carts where id = v_req_cart for share;\n",
     replace: "",
-    expect: ["h2"],
+    // Since M184 restates the function, this deletes the lock in M184's body (`LATER`). (h2) as before;
+    // (r1) the request reads the cart past an uncommitted freeze and asks anyway; (r2) the freeze
+    // lands past an uncommitted request, so the door's read misses a request that then commits.
+    // Measured 2026-10-09: all three.
+    expect: ["h2", "r1", "r2"],
     why: "a request racing a no-show leaves a manager a pending loss on a cancelled cart",
+  },
+  {
+    // The lock kept, but taken AFTER the read that decides the freeze — so it orders nothing. (r1):
+    // B waits on the lock, but has already read the cart without the freeze and asks anyway. (h2): B
+    // waits on the no-show's line lock, resumes with its snapshot's 'open' cart, and asks on the
+    // cancelled one. (r2) stays green: B holds the lock before A's freeze reaches the row.
+    // Measured 2026-10-09.
+    id: "m184/request-reads-the-freeze-before-the-lock",
+    fn: "mms_request_approval",
+    find:
+      "    perform 1 from public.qr_carts where id = v_req_cart for share;\n" +
+      "    select ci.cart_id, c.session_id, ci.state, ci.qty, ci.unit_price_cents, ci.name, ci.comped, c.status,\n" +
+      "           c.locked, c.locked_at, c.settle_at\n" +
+      "      into v_cart, v_session, v_state, v_qty, v_price, v_name, v_comped, v_status,\n" +
+      "           v_locked, v_locked_at, v_settle_at\n" +
+      "      from public.qr_cart_items ci\n" +
+      "      join public.qr_carts c on c.id = ci.cart_id\n" +
+      "      where ci.id = p_line and ci.cart_id = v_req_cart\n" +
+      "      for update of ci;\n",
+    replace:
+      "    select ci.cart_id, c.session_id, ci.state, ci.qty, ci.unit_price_cents, ci.name, ci.comped, c.status,\n" +
+      "           c.locked, c.locked_at, c.settle_at\n" +
+      "      into v_cart, v_session, v_state, v_qty, v_price, v_name, v_comped, v_status,\n" +
+      "           v_locked, v_locked_at, v_settle_at\n" +
+      "      from public.qr_cart_items ci\n" +
+      "      join public.qr_carts c on c.id = ci.cart_id\n" +
+      "      where ci.id = p_line and ci.cart_id = v_req_cart\n" +
+      "      for update of ci;\n" +
+      "    perform 1 from public.qr_carts where id = v_req_cart for share;\n",
+    expect: ["h2", "r1"],
+    why: "a request that reads the cart before it waits on a settle's freeze asks a manager about a bill already being charged",
   },
   {
     id: "p2f/clear-counter-supersede-dropped",
@@ -1129,21 +1308,21 @@ const MUTANTS = [
 ];
 
 function restoreMigration() {
-  q(MIGRATION_TEXT, "restore");
+  q(RESTORE_TEXT, "restore");
 }
 
 async function runMutants() {
   // Drift first, with NOTHING written: what would this migration produce, rolled back?
   const live = q(HASHES);
-  const expected = q(`begin;\n${MIGRATION_TEXT}\n${HASHES}\nrollback;`)
+  const expected = q(`begin;\n${RESTORE_TEXT}\n${HASHES}\nrollback;`)
     .split("\n")
     .filter((l) => /^mms_\w+=/.test(l))
     .join("\n");
   if (live !== expected || live.split("\n").length !== FNS.length) {
     throw new Error(
       `${TAG} REFUSED — ` +
-        `the live bodies are not what ${path.basename(MIGRATION)} produces — a later migration ` +
-        `redefines one (or a mutant is live). Restoring from this file would revert it, so every ` +
+        `the live bodies are not what ${path.basename(MIGRATION)} and its LATER restatements ` +
+        `produce — another migration redefines one (or a mutant is live). Restoring would revert it, so every ` +
         `verdict would be about dead code.\n  live:\n${live}\n  migration:\n${expected}`,
     );
   }
@@ -1262,7 +1441,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show · freeze-before-request · request-before-freeze\n`,
       ),
     );
   }
