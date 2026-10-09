@@ -171,9 +171,15 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
     test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
   },
+  // M182 · P2hf · PD7 — `mms_clear_table` and `mms_ack_table_clear_stop`, two NEW functions (no
+  // earlier definition), so the chain only grows by its own file.
+  m182: {
+    migration: path.join(ROOT, "supabase/migrations/20261009120000_m182_table_clear.sql"),
+    test: path.join(ROOT, "supabase/tests/m182_table_clear_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "m182"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2304,6 +2310,267 @@ const MUTANTS = [
         "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
     },
   ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
+  // ── M182 · P2hf · PD7 — the table clear (ruling #6) and the kitchen's "Got it" ───────────────
+  // One killed mutant per named `M182.<n> ·` case — every refusal deleted or widened, ruling #6's
+  // loss rows and their gate, the M198 voids, the D2 supersede, the durable stop record, the PIN
+  // seam both ways. NO documented survivor is claimed: the function's four row locks (the open
+  // cart, its pending approvals, its lines, the session) order it against a settle, a resolve, a
+  // kitchen Start and a Send — two-session work with no harness yet (filed under OPEN-ITEMS M182).
+  ...[
+    {
+      id: "clear/counter-refusal-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.1 · a reg- pickup order",
+      why: "a counter order cleared as a table: its sent food written off as a table loss and its own exits (the no-show, the counter clear) bypassed",
+      find: "  if v_sess_mode = 'pickup' and v_sess_code like 'reg-%' then\n    return jsonb_build_object('status', 'counter');\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/counter-predicate-any-pickup",
+      fn: "mms_clear_table",
+      expect: "M182.1 · a diner pickup session clears",
+      why: "the counter predicate widened to every pickup session — a diner's pickup table can no longer be cleared at all",
+      find: "  if v_sess_mode = 'pickup' and v_sess_code like 'reg-%' then\n",
+      replace: "  if v_sess_mode = 'pickup' then\n",
+    },
+    {
+      id: "clear/closed-refusal-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.1 · a closed table answers closed",
+      why: "a closed table cleared again: a second clear row and a second loss over food already written off",
+      find: "  if v_sess_status = 'closed' then return jsonb_build_object('status', 'closed'); end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/pay-lock-leg-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.2 · a fresh pay lock refuses",
+      why: "a table cleared while a guest's phone holds the pay lock — the charge lands on a cancelled cart with no order",
+      find: "    if (v_cart_locked and v_cart_locked_at > now() - interval '5 minutes')\n       or (v_cart_settle_at",
+      replace: "    if (false)\n       or (v_cart_settle_at",
+    },
+    {
+      id: "clear/pay-lock-window-unbounded",
+      fn: "mms_clear_table",
+      expect: "M182.2 · a stale pay lock clears",
+      why: "every lock refuses, fresh or abandoned — a table whose guest walked away from the pay sheet can never be cleared",
+      find: "    if (v_cart_locked and v_cart_locked_at > now() - interval '5 minutes')\n",
+      replace: "    if (v_cart_locked)\n",
+    },
+    {
+      id: "clear/settle-freeze-leg-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.2 · a fresh settle freeze refuses",
+      why: "a table cleared under a split's settle freeze — captured shares stranded on a cancelled cart",
+      find: "       or (v_cart_settle_at is not null and v_cart_settle_at > now() - interval '10 minutes') then\n      return jsonb_build_object('status', 'in_flight');",
+      replace: "       or (false) then\n      return jsonb_build_object('status', 'in_flight');",
+    },
+    {
+      id: "clear/card-live-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.2 · a live card attempt refuses",
+      why: "M163 — a card attempt that may still capture loses its cart: Stripe takes the money and fulfilment finds a cancelled order",
+      find: "    if v_live_pi is not null then return jsonb_build_object('status', 'card_live'); end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/joined-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.3 · a member newer than the look refuses",
+      why: "a next party who scanned the sticker during the Undo window is closed out under their own phones",
+      find: "  if exists (select 1 from public.session_members m\n              where m.session_id = p_session and m.created_at > p_seen_at) then",
+      replace:
+        "  if false and exists (select 1 from public.session_members m\n              where m.session_id = p_session and m.created_at > p_seen_at) then",
+    },
+    {
+      id: "clear/joined-at-the-look",
+      fn: "mms_clear_table",
+      expect: "M182.3 · a member the look already saw does not block",
+      why: "the look's own members read as new — every seated table refuses its clear",
+      find: "m.created_at > p_seen_at",
+      replace: "m.created_at >= p_seen_at",
+    },
+    {
+      id: "clear/added-dish-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.4 · a dish added after the look refuses",
+      why: "a dish a new party ordered during the window is cancelled with the table",
+      find: "    if exists (select 1 from public.qr_cart_items ci\n                where ci.cart_id = v_cart and ci.created_at > p_seen_at) then",
+      replace:
+        "    if false and exists (select 1 from public.qr_cart_items ci\n                where ci.cart_id = v_cart and ci.created_at > p_seen_at) then",
+    },
+    {
+      id: "clear/set-compare-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.4 · a sent set missing a dish refuses",
+      why: "the loss written is not the loss shown — a dish fired after the look is written off unseen",
+      find: "  if (select array_agg(distinct e order by e) from unnest(p_expected_line_ids) e)\n       is distinct from v_sent then\n    return jsonb_build_object('status', 'changed');\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/loss-compare-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.4 · the right set at the wrong figure refuses",
+      why: "a re-priced or re-counted dish writes a figure nobody saw on the slip",
+      find: "  if v_loss is distinct from p_loss_cents then return jsonb_build_object('status', 'changed'); end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/sent-counts-comps",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the loss clear answers ok",
+      why: "a comped dish (already an audited loss) is written off a second time",
+      find: "        and ci.fulfillment <> 'grocery'\n        and not ci.comped\n        and (ci.fire_at is null or ci.fire_at <= now());\n    -- The kitchen's lines",
+      replace:
+        "        and ci.fulfillment <> 'grocery'\n        and (ci.fire_at is null or ci.fire_at <= now());\n    -- The kitchen's lines",
+    },
+    {
+      id: "clear/sent-counts-in-grace",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the loss clear answers ok",
+      why: "a dish still inside its send grace (never on the KDS) is written off as cooked-for-nobody",
+      find: "        and not ci.comped\n        and (ci.fire_at is null or ci.fire_at <= now());",
+      replace: "        and not ci.comped;",
+    },
+    {
+      id: "clear/sent-counts-drafts",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the loss clear answers ok",
+      why: "drafts the kitchen never got join the loss list",
+      find: "        and ci.state in ('fired', 'in_progress', 'served')\n        and ci.fulfillment <> 'grocery'\n        and not ci.comped",
+      replace:
+        "        and ci.state in ('draft', 'fired', 'in_progress', 'served')\n        and ci.fulfillment <> 'grocery'\n        and not ci.comped",
+    },
+    {
+      id: "clear/loss-rows-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.6 · one unapproved table_cleared void per SENT line",
+      why: "M182's defect itself — food destroyed with no row on the owner's loss list",
+      find: "    if v_sent is not null then\n      insert into public.mms_approvals",
+      replace: "    if false then\n      insert into public.mms_approvals",
+    },
+    {
+      id: "clear/gate-not-unapproved",
+      fn: "mms_clear_table",
+      expect: "M182.6 · one unapproved table_cleared void per SENT line",
+      why: "ruling #6 — an unstamped clear reads as a solo, policy-cleared void; the owner's list loses 'not approved'",
+      find: "      v_gate := 'unapproved';\n",
+      replace: "      v_gate := 'solo';\n",
+    },
+    {
+      id: "clear/amount-not-times-qty",
+      fn: "mms_clear_table",
+      expect: "M182.6 · each row is unit × qty",
+      why: "the ledger records one portion of a ×2 line — the loss list under-reports by the qty",
+      find: "               ci.unit_price_cents * ci.qty, 'table_cleared'",
+      replace: "               ci.unit_price_cents, 'table_cleared'",
+    },
+    {
+      id: "clear/supersede-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the cart's pending request is superseded",
+      why: "D2 — a pending void on a cancelled cart can still be approved, and m8 reads a request no clear answered",
+      find: "    update public.mms_approvals a set status = 'superseded', resolved_at = now()\n      where a.cart_id = v_cart and a.status = 'pending';\n",
+      replace: "",
+    },
+    {
+      id: "clear/kitchen-comp-not-voided",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the SENT lines and the comped dish still cooking are voided",
+      why: "M198 — a comped dish the kitchen is still cooking stays in_progress on a cancelled cart forever",
+      find: " or ci.id = any(coalesce(v_stop, '{}'::uuid[])));",
+      replace: ");",
+    },
+    {
+      id: "clear/in-grace-not-reverted",
+      fn: "mms_clear_table",
+      expect: "M182.6 · a line still inside its grace never reached the KDS",
+      why: "a dish inside its grace stays fired with a future fire_at — a ticket that would surface on the KDS for a table that left",
+      find: "    update public.qr_cart_items ci set state = 'draft', fire_at = null, fire_batch = null\n      where ci.cart_id = v_cart and ci.state = 'fired' and ci.fire_at > now();\n",
+      replace: "",
+    },
+    {
+      id: "clear/stop-record-empty",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the stop record is the KDS",
+      why: "Codex correction 12 — the clear voids the KDS's lines and leaves no durable record: the ticket vanishes before the cook sees why",
+      find: "            v_units, v_loss, coalesce(v_stop, '{}'::uuid[]))",
+      replace: "            v_units, v_loss, '{}'::uuid[])",
+    },
+    {
+      id: "clear/cart-not-cancelled",
+      fn: "mms_clear_table",
+      expect: "M182.5 · the cart is cancelled and the session closed",
+      why: "a cleared table's cart stays open: the diner guards still admit writes to it",
+      find: "    update public.qr_carts c set status = 'cancelled' where c.id = v_cart and c.status = 'open';\n",
+      replace: "",
+    },
+    {
+      id: "clear/session-not-closed",
+      fn: "mms_clear_table",
+      expect: "M182.5 · the cart is cancelled and the session closed",
+      why: "the session stays active — is_member still true for the party that left",
+      find: "  update public.table_sessions s set status = 'closed' where s.id = p_session and s.status <> 'closed';\n",
+      replace: "",
+    },
+    {
+      id: "clear/self-approve-allowed",
+      fn: "mms_clear_table",
+      expect: "M182.7 · nobody approves their own clear",
+      why: "a manager stamps their own write-off",
+      find: "      if p_approver = p_initiator then return jsonb_build_object('status', 'self_approve'); end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/approver-role-unchecked",
+      fn: "mms_clear_table",
+      expect: "M182.7 · a server cannot approve",
+      why: "any active staff member's id passes as a manager's stamp",
+      find: "      if not coalesce(v_active, false) or v_role not in ('manager', 'owner') then\n        return jsonb_build_object('status', 'bad_approver');",
+      replace:
+        "      if not coalesce(v_active, false) then\n        return jsonb_build_object('status', 'bad_approver');",
+    },
+    {
+      id: "clear/stamp-recorded-unapproved",
+      fn: "mms_clear_table",
+      expect: "M182.7 · an approved clear records the gate it met",
+      why: "a manager's stamp is thrown away — the loss list still reads 'not approved'",
+      find: "      v_gate := case when v_cooked then 'cooked' when v_loss > v_max_loss then 'ceiling' else 'solo' end;\n",
+      replace: "      v_gate := 'unapproved';\n",
+    },
+    {
+      id: "clear/seam-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.8 · the seam on: sent food needs a manager",
+      why: "the owner switches the PIN on and nothing changes",
+      find: "    if coalesce(v_requires_pin, false) and p_approver is null then\n",
+      replace: "    if false and p_approver is null then\n",
+    },
+    {
+      id: "clear/seam-holds-free-clear",
+      fn: "mms_clear_table",
+      expect: "M182.8 · the seam never holds a free clear",
+      why: "with the PIN on, an empty or paid table cannot be cleared without a manager",
+      find: "  if v_sent is not null then\n    select l.max_loss_cents",
+      replace: "  if true then\n    select l.max_loss_cents",
+    },
+    {
+      id: "ack/second-got-it-rewrites",
+      fn: "mms_ack_table_clear_stop",
+      expect: "M182.9 · a second Got it is already",
+      why: "a second tablet's Got it overwrites who acknowledged the stop",
+      find: "   where t.id = p_clear and t.stop_acknowledged_at is null and cardinality(t.stop_line_ids) > 0;",
+      replace: "   where t.id = p_clear and cardinality(t.stop_line_ids) > 0;",
+    },
+    {
+      id: "ack/nothing-reads-already",
+      fn: "mms_ack_table_clear_stop",
+      expect: "M182.9 · a free clear has nothing to stop",
+      why: "a clear that stopped nothing answers 'already' — the KDS reads an acknowledgement nobody made",
+      find: "  if v_stops = 0 then return 'nothing_to_stop'; end if;\n",
+      replace: "",
+    },
+  ].map((m) => ({ ...m, src: "m182", suite: "m182" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2365,6 +2632,8 @@ const TARGETS = [
   "mms_shell_untouched",
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
+  "mms_clear_table",
+  "mms_ack_table_clear_stop",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.
