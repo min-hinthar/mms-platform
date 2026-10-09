@@ -826,3 +826,92 @@ null` (and `basketOpen`), which turns false at the start of the exit while Radix
   are now `lib/grocery-focus.ts` (four mutants), each with the fresh-basket button ahead of the stage.
   The parking chain's case was a PD4 regression: the Scan door lost its search field, so the basket
   sheet closing on a finished basket parked on an unmounted stage.
+
+#### H.4 · The second capped blind pass on #329 (`1f35ba3..f23b77c`, REJECT) — fix-or-justify, item by item
+
+The last agent round on this PR (WORKFLOW §Review step 5(g), Codex out of quota). Every mechanism was
+verified against source first. These notes win over H.1–H.3 where they differ.
+
+- **The Undo writes from the add's OWN confirmed qty** (critical 1). `undoAdd` took "one fewer" of the
+  client view (`linesRef`), which a read issued after the add can leave a unit short — so it could write
+  0 over a line the basket held at ×1 BEFORE the add. `setQty` is absolute: `undoFromAdd` now builds the
+  record from the add's own response (`scanAdd`'s `lines`) and keeps that qty (`confirmedQty`), and
+  `undoTargetQty` writes exactly one fewer. No confirmed view, no Undo (its target would be a guess).
+- **The Undo's words come from the follow-up read's lines** (critical 2): `undoOutcome` — "Removed X"
+  only when X is absent there, "X × n" only when it shows exactly n, "Undo saved — checking your
+  basket…" otherwise (an interleaved write, a failed or refused read). The silent `!line` branch is
+  gone with the client view, and a window whose write is in flight never expires under its pill.
+  `check:scan-repeat` **proposition 6** pins the page's wiring (one live `setQty(…, undoTargetQty(<the
+record>))`, no client-view reference, no hand-written past tense, `undoOutcome` live, every
+  `setUndo` built by `undoFromAdd` over the add's own response).
+- **"Add another" is named only where it is drawn** (critical 3): `lib/scan-chip.ts`'s `chipAction` is
+  the ONE predicate for the chip's action slot (the Undo while its window is open, else "Add another",
+  else nothing), over `chipFactsFor` — the chip reads it from state, the repeat toast from that state's
+  ref mirrors — and `repeatSentence` speaks the clause only when the predicate draws the control. This
+  also retires the "your list is out of date" toast's clause (no chip is drawn for a code the view does
+  not show). **H decision 4's last sentence is superseded:** a re-scan inside the Undo window shows the
+  Undo (the slot's one control) and says no "Add another"; a second copy waits for the window to close,
+  or comes from the basket's stepper or a Browse row.
+- **The Name sheet re-announces an identical refusal** (critical 4): `lib/sheet-refusal.ts` keys every
+  refusal on a sequence and the sheet keys the sentence's node on it, so a second identical refusal
+  arrives as a new node in the live region; the page's `say()` now carries the Burmese half (`my`),
+  which it used to drop.
+- **Critical 5 — the pairing. Decided under the owner's delegation (decided by: the grocery stream).**
+  Any item added from a miss-opened sheet pairs, related to the jar or not; the shopper may have
+  searched for something else entirely. So the pairing is recorded as a note of the shopper's OWN act,
+  never as the jar's identity: a re-read through it is announced "You added {name} for this code —
+  it’s in your basket (×{qty})." and its chip offers NO "Add another" (a one-tap charge of an item the
+  camera never sighted). `addAnother` is gated on the same `chipNow` the chip's `action` reads, so the
+  claim in `lib/scan-pairing.ts` now holds without a caveat: no charge ever takes a judged code. The
+  alternatives were weighed and refused: dropping the pairing (the rescued jar re-reads as a second miss
+  for an item already in the basket — the whole graft-3 problem back), or asking "Is this {name}?" on
+  every re-read (a modal question at the shelf, for a confirmation the shopper already gave by adding it).
+- **Guards.** Proposition 4 gained provenance: every call of `add` is accounted for with a literal door —
+  one `"scan"` door in the function `<ScanStage>` is handed, passing its own untouched parameter; one
+  `"rescan"` door in `addAnother`, charging `lastScanned.code` behind a top-level early return on the
+  chip's predicate; `add` never escapes as a value; a `for (… of/in …)` head and a destructuring target
+  count as assignments; no hand-written "Add another" clause. Proposition 5 now covers EVERY sheet (no
+  exemption), refuses an exit end on a reported sheet, requires the exit-end call to be ONE reachable
+  top-level statement of its handler and referenced nowhere else (an alias or a call at the close's
+  start is refused), and refuses a handler name declared twice instead of picking by position. All
+  three propositions' evasions are **committed fixtures** in `apps/qr/lib/check-scan-repeat.test.ts`,
+  which runs the gate (`SCAN_REPEAT_ROOT`) against a mutated copy of the tree in CI, plus a clean
+  baseline.
+- **The DoorSheet's exit is covered** (guard 8): the page passes its reported state to a third
+  `useStageCover(doorSheetOpen)`; with no exit end, the hook's fail-safe (above `--dur-sheet`) lifts it.
+  DoorSheet (shared with /menu) is unchanged; OPEN-ITEMS `PD4 · door` is closed. The fail-safe errs long
+  (≤ ~1 s of a held camera after the door sheet closes); an `onExitEnd` on DoorSheet would trim it to the
+  exit — a nice-to-do, not a hole. H.3's exemption is superseded.
+- **The `initialFocus` allowlist** (guard 9) sweeps every `.ts`/`.tsx` under the app's `components/`,
+  `app/` and `lib/` and under `packages/ui/src`, resolves deep and relative imports of the primitive, and
+  refuses a spread, `createElement(Sheet, …)`, a local alias, a prop or a re-export outside the barrel;
+  `sheet.tsx`'s comment says so. Both allowlist suites parse each file once; their sweep timeouts fell
+  from 60 s to 15 s (one full parse measured 1.4 s at load 8.5) (guard 12).
+- **`useStageCover`'s stale-exit test** now asserts after the re-opened sheet's own close and before its
+  exit end (guard 11); a new mutant (the cover raised only on the open edge) survives the old assertion
+  and dies to the new one.
+
+**The open questions.**
+
+1. _The arm is a one-shot timer against a coarsened clock_ — **fixed.** The timer at `SAME_GESTURE_MS`
+   arms the chip unconditionally (`setTimeout` never fires early); re-asking a coarsened
+   `performance.now()` could answer "not yet" and never arm.
+2. _A touch user's Undo held by a carried `:focus-visible`_ — **fixed, on both routes.** After an add the
+   close-restore lands on the chip itself, never on its action (the Undo is one Tab on); and the result
+   bar's re-key hands focus off like for like (bar → bar, control → first action), so a re-key cannot
+   move a programmatic focus onto the Undo either.
+3. _A sheet dismissed mid-write while a new miss's sheet is open confirms the add behind the keyboard_ —
+   **justified.** The add's "Added X" is the PAGE's announcement (the Toast is the page's live region and
+   speaks under the modal); routing it into the new sheet's state line would label that sheet's search
+   with another sheet's add. The basket figures and, once the sheet closes, the chip show it too.
+4. _The Undo's silent `!line` branch_ — **gone** (the record carries its own line and qty).
+5. _The Burmese half of a refusal dropped in the sheet_ — **fixed** (critical 4's commit).
+6. _The Undo window expiring mid-write_ — **fixed** (`undoOpen`'s `removing`, one mutant).
+7. _A malformed selector throwing after `preventDefault()`_ — **fixed**: `sheetInitialFocusTarget`
+   treats a selector the browser cannot parse as one that matches nothing (the container), red-first in
+   the ui suite.
+8. _On reconnect the sheet's "Search unavailable" and the drain's Toast announce together_ —
+   **justified.** They are two regions saying two true things: the sheet's own line (its last search
+   failed; "Try again" runs it now) and the page's Toast (what the queued scans came to). Polite
+   announcements queue; neither interrupts the other. Re-running the failed search on `online` is a
+   nice-to-do (filed under PD4's row), not a correctness fix.

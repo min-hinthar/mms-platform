@@ -76,6 +76,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the shared DoorSheet named as the one exempt sheet and filed (`PD4 · door`); a refused removal no
   longer spends the miss→item pairing (`pairingAfterRemoval`); and a finished basket hands focus to
   "Start a fresh basket" from the Name sheet and the basket sheet (`lib/grocery-focus.ts`).
+- **The second capped blind pass on #329 (REJECT), fixed in seven commits** (the spec's §H.4): the
+  add-Undo writes one fewer than the add's OWN confirmed qty and speaks only what the follow-up read
+  shows (`undoFromAdd` · `undoOutcome`, proposition 6); the chip's action slot and the repeat toast's
+  "Add another" clause read ONE predicate (`lib/scan-chip.ts`), and a chip reached through a pairing
+  offers no "Add another" — a re-read is announced as the shopper's own act ("You added X for this
+  code"), so no charge ever takes a judged code (proposition 4 now proves every caller's provenance);
+  the Name sheet re-announces an identical refusal and keeps its Burmese half (`lib/sheet-refusal.ts`);
+  the DoorSheet's exit is covered by `useStageCover`'s fail-safe (`PD4 · door` closed; proposition 5
+  has no exemption and refuses ambiguity); the chip arms unconditionally at the same-gesture window and
+  focus never lands on the Undo programmatically; a malformed `initialFocus` selector falls back to the
+  container; and the `initialFocus` allowlist reads every app and `@mms/ui` source, refusing aliases,
+  `createElement`, re-exports and deep imports it cannot read. Every `check:scan-repeat` evasion is a
+  committed fixture run in CI (`lib/check-scan-repeat.test.ts`).
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
