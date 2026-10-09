@@ -30,7 +30,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   diagnosis on a miss) and restates `mms_fire_cart` whole so the fire clears the stamp in the same
   statement. `supabase/tests/pd1_send_nudge_test.sql` (named in CI's required list) pins each guard
   beside the legitimate write. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
-  success carrying the standing stamp); `getCartView` reads the stamp ADVISORY, beside the sold-out
+  success carrying the standing stamp; a pay lock or settle freeze refuses it before the RPC — nobody
+  can send under one, and `check-freeze-parity` now counts it among 17 lock-bearing mutations);
+  `getCartView` reads the stamp ADVISORY, beside the sold-out
   lookups, so an unmigrated project renders every order as before. **Applied by the owner, not here.**
 - **The host's half (m1 screen 3):** the waiting guest's avatar and "Thiri is waiting on this send."
   above Send (or "Someone’s waiting"), carried in Send's description; the caption "The kitchen sees it
