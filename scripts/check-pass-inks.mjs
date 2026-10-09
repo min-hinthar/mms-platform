@@ -17,15 +17,26 @@
  *     `var(--pass-ink, var(--tx))` included). A custom-property DEFINITION is checked the same way:
  *     remapping `--tx: var(--pass-ink)` for a hosted subtree is the sanctioned shape.
  *
- * ⚠️ AND THE FOCUS RING (the blind pass on #331). A GLOBAL `:focus-visible` rule reaches inside the
- * pass with no in-pass selector at all — Night's `--ac` #e7a53a on the paper is ≈2.1:1, under the
- * 3:1 non-text bar. So: when any rule outside the pass draws a focus outline from a theme token, an
- * in-pass `:focus-visible` rule must draw it on a `--pass-*` ink (it out-specifies the global one).
+ * ⚠️ AND THE FOCUS RING (the blind passes on #331). A focus rule whose SUBJECT carries no class or
+ * id (`:focus-visible`, `*:focus-visible`, `.dark :focus-visible`, `html :focus-visible`,
+ * `button:focus-visible`) can match an element inside the pass — Night's `--ac` #e7a53a on the paper
+ * is ≈2.1:1, under the 3:1 non-text bar. When any such rule draws an outline from a theme token, THE
+ * override must exist and WIN against it:
+ *   · selector exactly the pass root over a universal ring (`.counter-pass :focus-visible`), so it
+ *     covers every focusable descendant, not one class inside the pass;
+ *   · its outline colour is exactly `var(--pass-ac)` — the ink contrast-audit.test.ts pins ≥ 3:1 on
+ *     the paper; THIS guard is the pin that the ring IS that ink (any other `--pass-*` is refused);
+ *   · in no at-rule (an override inside `@media print` does nothing on a screen);
+ *   · higher specificity than every leaking rule, or equal and later in the sheet.
  *
- * Red-first, induced and watched: the global ring with no in-pass override; the shipped PD2 rules (`--tx` on `.counter-pass-amount`, `--t2` /
+ * Red-first, induced and watched: the shipped PD2 rules (`--tx` on `.counter-pass-amount`, `--t2` /
  * `--t3` / `--bd` on the label, the dot and the disclosure); a theme token inside a nested `@media`;
- * one inside a selector LIST where only one selector is in the pass; a fallback chain. A theme token
- * in a COMMENT stays clean.
+ * one inside a selector LIST where only one selector is in the pass; a fallback chain; the global
+ * ring with no override; the override narrowed to one in-pass class; `*:focus-visible`; the override
+ * on `var(--pass-paper)`; the override inside `@media print`; a later `.dark :focus-visible` (equal
+ * specificity, later in the sheet); `.dark button:focus-visible` (higher specificity). Seen and
+ * correctly beaten (clean): `html :focus-visible`, `button:focus-visible`. A theme token in a COMMENT
+ * stays clean.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,8 +49,10 @@ const IN_PASS = /\.counter-pass(?:-[\w-]+)?(?![\w-])/;
 
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 
-/** Yield every leaf rule `{ selector, body, line }` — blocks whose body holds no nested block. */
+/** Yield every leaf rule `{ selector, body, line, at, order }` — blocks whose body holds no nested
+ *  block; `at` lists the enclosing at-rule preludes, `order` is the rule's position in the sheet. */
 function* rules(css) {
+  let order = 0;
   const stack = [];
   let start = 0;
   for (let i = 0; i < css.length; i++) {
@@ -53,7 +66,8 @@ function* rules(css) {
       if (!b) throw new Error("unbalanced braces");
       if (!b.nested) {
         const line = css.slice(0, b.open).split("\n").length;
-        yield { selector: b.prelude, body: css.slice(b.open + 1, i), line };
+        const at = stack.map((a) => a.prelude);
+        yield { selector: b.prelude, body: css.slice(b.open + 1, i), line, at, order: order++ };
       }
       start = i + 1;
     } else if (ch === ";" && stack.length === 0) {
@@ -79,10 +93,34 @@ if (themed.size === 0) {
 const bad = [];
 let inPass = 0;
 const focusLeaks = [];
-let passFocus = 0;
+const overrides = [];
 const PASS_ROOT_FOCUS = /^\.counter-pass\s+\*?:focus-visible$/;
-const UNIVERSAL_FOCUS = /^(\*|:where\([^)]*\)\s*)?:focus(-visible)?$/;
 const OUTLINE = /^\s*outline(-color)?\s*:/;
+/** The compound a selector's rule applies to: the part after the last combinator. */
+const subjectOf = (sel) => {
+  const t = sel.trim().replace(/:where\([^)]*\)/g, "");
+  const parts = t.split(/\s*[>+~]\s*|\s+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+};
+/** A focus rule that can reach an element INSIDE the pass: its subject is a focus pseudo with no
+ *  class and no id to keep it out (a bare, universal, type or attribute subject). */
+const reachesThePass = (sel) => {
+  const subj = subjectOf(sel);
+  return /:focus(-visible|-within)?\b/.test(subj) && !/[.#]/.test(subj);
+};
+/** Specificity [ids, classes|attrs|pseudo-classes, types|pseudo-elements] — `:where()` counts 0. */
+const specificity = (sel) => {
+  const t = sel.trim().replace(/:where\([^)]*\)/g, "");
+  const ids = (t.match(/#[\w-]+/g) ?? []).length;
+  const pseudoEls = (t.match(/::[\w-]+/g) ?? []).length;
+  const classes =
+    (t.match(/\.[\w-]+/g) ?? []).length +
+    (t.match(/\[[^\]]*\]/g) ?? []).length +
+    (t.replace(/::[\w-]+/g, "").match(/:[\w-]+/g) ?? []).length;
+  const types = (t.replace(/::[\w-]+/g, "").match(/(^|[\s>+~])([a-zA-Z][\w-]*)/g) ?? []).length;
+  return [ids, classes, types + pseudoEls];
+};
+const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 const readsThemed = (value) =>
   [...value.matchAll(/var\(\s*(--[\w-]+)/g)].some((m) => themed.has(m[1]));
 for (const file of SHEETS) {
@@ -91,22 +129,33 @@ for (const file of SHEETS) {
     if (r.selector.startsWith("@")) continue;
     const sels = r.selector.split(",");
     const outlines = r.body.split(";").filter((d) => OUTLINE.test(d));
-    // A ring that reaches EVERY element — a bare `:focus-visible` (or `*:focus-visible`) — reaches
-    // inside the pass; a class-scoped one reaches only its own class.
-    if (sels.some((sel) => UNIVERSAL_FOCUS.test(sel.trim()))) {
+    for (const sel of sels) {
+      if (!reachesThePass(sel)) continue;
       for (const d of outlines)
         if (readsThemed(d.slice(d.indexOf(":") + 1)))
-          focusLeaks.push(`${file}:${r.line} \`${r.selector.replace(/\s+/g, " ")}\` — ${d.trim()}`);
+          focusLeaks.push({
+            where: `${file}:${r.line} \`${sel.trim()}\`${r.at.length ? ` in ${r.at.join(" › ")}` : ""} — ${d.trim()}`,
+            spec: specificity(sel),
+            order: r.order,
+          });
     }
     if (!sels.some((sel) => IN_PASS.test(sel))) continue;
     inPass++;
+    // THE override: the pass root over a universal ring, in no at-rule, its outline colour exactly
+    // `var(--pass-ac)` and nothing else.
+    const root = sels.find((sel) => PASS_ROOT_FOCUS.test(sel.trim()));
     if (
-      // The override must cover EVERY focusable descendant of the pass host — the root class over a
-      // universal `:focus-visible` — not one class that happens to sit inside it.
-      sels.some((sel) => PASS_ROOT_FOCUS.test(sel.trim())) &&
-      outlines.some((d) => /var\(\s*--pass-/.test(d) && !readsThemed(d.slice(d.indexOf(":") + 1)))
+      root &&
+      r.at.length === 0 &&
+      outlines.length > 0 &&
+      outlines.every((d) => {
+        const refs = [...d.slice(d.indexOf(":") + 1).matchAll(/var\(\s*(--[\w-]+)/g)].map(
+          (m) => m[1],
+        );
+        return refs.length > 0 && refs.every((x) => x === "--pass-ac");
+      })
     )
-      passFocus++;
+      overrides.push({ spec: specificity(root), order: r.order });
     for (const decl of r.body.split(";")) {
       const value = decl.slice(decl.indexOf(":") + 1);
       if (decl.indexOf(":") < 0) continue;
@@ -125,13 +174,16 @@ if (inPass === 0) {
   );
   process.exit(1);
 }
-if (focusLeaks.length && passFocus === 0)
-  bad.push(
-    ...focusLeaks.map(
-      (l) =>
-        `${l}\n      reaches inside the pass, and no in-pass \`:focus-visible\` rule draws the ring on a --pass-* ink`,
-    ),
-  );
+for (const leak of focusLeaks) {
+  const beaten = overrides.some((o) => {
+    const c = cmp(o.spec, leak.spec);
+    return c > 0 || (c === 0 && o.order > leak.order);
+  });
+  if (!beaten)
+    bad.push(
+      `${leak.where}\n      reaches inside the pass, and no \`.counter-pass :focus-visible { outline-color: var(--pass-ac) }\`\n      (in no at-rule) out-specifies it — the paper's ring would be the theme's`,
+    );
+}
 if (bad.length) {
   console.error(
     `pass inks — content on the constant paper reads the pass's inks … \x1b[31m✗\x1b[0m\n\n  ` +
@@ -143,5 +195,5 @@ if (bad.length) {
   process.exit(1);
 }
 console.log(
-  `pass inks — content on the constant paper reads the pass's inks … \x1b[32mclean\x1b[0m\x1b[2m (${inPass} in-pass rules, ${themed.size} theme tokens)\x1b[0m`,
+  `pass inks — content on the constant paper reads the pass's inks … \x1b[32mclean\x1b[0m\x1b[2m (${inPass} in-pass rules, ${themed.size} theme tokens, ${focusLeaks.length} theme focus ring(s) reaching the pass, each out-specified by the --pass-ac override)\x1b[0m`,
 );
