@@ -194,6 +194,8 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialMySeat={view.mySeat}
       initialTabType={view.tabType}
       initialCounterRequestedAt={view.counterRequestedAt}
+      // Codex round 2 on #331 — the authoritative mode for the parked phone-pay door.
+      initialViewMode={view.mode}
       // 3c-ii (D30): a SEED — the number is live state in Checkout from here (every applied view,
       // the bind's confirmed answer).
       initialTableNumber={view.tableNumber}
@@ -202,6 +204,9 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       prepMinutes={prepMinutes}
       initialPickupSlot={initialPickupSlot}
       asapAvailable={asapAvailable}
+      // PD2 (m2 decision 7) — the tender truth: the same env the staff page reads for its reader
+      // (`app/staff/page.tsx`); a client component cannot read it, so the RSC says so once.
+      readerConfigured={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
     />
   );
 }
