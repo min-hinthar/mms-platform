@@ -121,13 +121,19 @@ vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart })
  * those run with the door OPEN: the code behind it stays alive and tested, exactly as lib/surfaces
  * promises. The other surfaces answer as shipped.
  */
-const flags = vi.hoisted(() => ({ phonePayOpen: true }));
+// `splitOpen` — the self-serve split door, OPEN for the legacy cases for the same reason (they pin
+// the world after both flips); the parked cases set it as shipped.
+const flags = vi.hoisted(() => ({ phonePayOpen: true, splitOpen: true }));
 vi.mock("@/lib/surfaces", async (orig) => {
   const real = await orig<typeof import("@/lib/surfaces")>();
   return {
     ...real,
     surfaceOpen: (k: Parameters<typeof real.surfaceOpen>[0]) =>
-      k === "dineInPhonePay" ? flags.phonePayOpen : real.surfaceOpen(k),
+      k === "dineInPhonePay"
+        ? flags.phonePayOpen
+        : k === "selfServeSplit"
+          ? flags.splitOpen
+          : real.surfaceOpen(k),
   };
 });
 
@@ -2374,12 +2380,14 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     qrCode: null,
   };
   const dockLine = () => document.getElementById("counter-door-line")?.textContent ?? "";
-  // The door as SHIPPED: parked.
+  // The doors as SHIPPED: phone pay parked, the self-serve split parked.
   beforeEach(() => {
     flags.phonePayOpen = false;
+    flags.splitOpen = false;
   });
   afterEach(() => {
     flags.phonePayOpen = true;
+    flags.splitOpen = true;
   });
 
   it("everything sent: no Pay, no tip ask, no separate total — the slip's own foot carries the total and the docked door says the next step once", async () => {
@@ -2520,12 +2528,25 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
       ],
     };
     mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
-    // MUTATION (checkout/split-board-under-the-register): the board shown for any group freeze; red.
+    // MUTATION (checkout/split-board-reads-the-phone-door): the wiring hands the rule an always-open
+    // split door; red.
     expect(screen.queryByTestId("settlement-board")).toBeNull();
     expect(document.body.textContent).not.toContain("splitting the bill");
     const door = screen.getByRole("button", { name: /^Pay at the counter/ });
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
+    cleanup();
+    // PD10's flip opens phone pay WITHOUT reopening the split: the freeze is still the register's.
+    // RED on the previous gate (`!phonePayOff`), which put the board back here.
+    flags.phonePayOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    cleanup();
+    // …and only an OPEN split door shows the split's own board.
+    flags.splitOpen = true;
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    expect(screen.queryByTestId("settlement-board")).not.toBeNull();
   });
 
   it("the register mid-settle holds the door with its own sentence, never the split's", async () => {
@@ -2602,6 +2623,29 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     await syncFromServer();
     await waitFor(() => expect(counterCards()).toBe(0));
     expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a tablemate EMPTYING and refilling the cart while the promo field has focus never strands the door (last blind pass, critical)", async () => {
+    // The exact path the last pass found: the empty-cart branch returns before any in-render reset,
+    // so the focused input unmounts with no blur; `stage` stays "bill", so the refilled Bill came
+    // back with `promoFocused` still true and the ONE door hidden over a blank band.
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /promo/i })).toBeNull());
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    await syncFromServer();
+    // MUTATION (checkout/promo-focus-outlives-the-form): the input's unmount no longer clears the
+    // flag — the door stays hidden on this path AND the ask path above; red.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy(),
+    );
   });
 
   it("a split-read miss draws the dock AND the padding that clears it — one binding (blind pass, critical 3)", () => {

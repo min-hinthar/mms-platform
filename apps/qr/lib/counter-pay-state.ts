@@ -7,7 +7,6 @@
  * falsify a value with one input where a component needs a render and five mocks (CLAUDE.md,
  * "Decision logic belongs in `lib/`").
  */
-import { t } from "./i18n";
 
 export type CounterPayRefusal =
   /** Only a dine-in table has a counter to walk to — pickup and scan-and-go pay before the kitchen
@@ -70,9 +69,14 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
  * sentence is the Bill's own held reason (`registerSettling`, lib/i18n/cart) and the ask's refusal
  * says the same thing, once.
  */
-// The blind pass on #331 — ONE source: the dictionary's own English (`registerSettling`, the line
-// the dock and the pass draw), never a second literal that could drift from it.
-export const REGISTER_SETTLING_COPY = t("en", "registerSettling");
+// The blind passes on #331 — the SAME sentence as the diner dictionary's `registerSettling.en` (the
+// line the dock and the pass draw), PINNED EQUAL by counter-pay-state.test.ts. Not imported from the
+// dictionary: this module is reached by staff client components (OrderPad, FloorDetailLive,
+// floor-status), and importing the diner dictionary here would ship it in the staff bundle; nor the
+// other way round: the dictionaries must hold literal strings (lib/i18n/plain-words.test.ts parses
+// them).
+export const REGISTER_SETTLING_COPY =
+  "The counter is taking your table’s payment right now — this screen updates when it’s done.";
 
 export function counterPayRefusalCopy(
   refusal: CounterPayRefusal,
@@ -118,4 +122,39 @@ export function counterUnsentTapCopy(sender: string | null): string {
  */
 export function counterAskLive(counterRequestedAt: string | null | undefined): boolean {
   return typeof counterRequestedAt === "string" && counterRequestedAt.length > 0;
+}
+
+/**
+ * The last blind pass on #331 — WHOSE freeze is it? `settling` is written by two writers: the
+ * self-serve split (`openSettlement`, refused while `SURFACES.selfServeSplit` is parked) and the
+ * register's cash settle. The split board is the SPLIT's screen, so it shows only while that door is
+ * open — the SAME binding `counterPayRefusalCopy` reads to choose the register's sentence. While the
+ * split is parked every freeze is the register's, and a group table keeps the Bill (whose held door
+ * names the register) instead of reading "splitting the bill" during a counter settle — whatever
+ * the phone-pay door says (PD10's flip does not reopen the split).
+ */
+export function splitBoardShown(s: {
+  isGroup: boolean;
+  settling: boolean;
+  /** The split context loaded (the board needs it). */
+  hasSplit: boolean;
+  /** `surfaceOpen("selfServeSplit")` — passed in, never read here, so a test flips it. */
+  selfServeSplitOpen: boolean;
+}): boolean {
+  return s.isGroup && s.settling && s.hasSplit && s.selfServeSplitOpen;
+}
+
+/**
+ * The blind passes on #331 — do two `counterRequestedAt` stamps name the SAME ask? The stamp reaches
+ * a phone in two formats: the ask's own answer and this phone's optimistic stamp are
+ * `new Date().toISOString()` ("…T06:00:00.123Z", lib/counter-pay.ts `requestCounterPay`), while every
+ * view reads the `timestamptz` through PostgREST ("…T06:00:00.123+00:00", lib/cart.ts
+ * `getCartView`). Both are ISO-8601, so they compare as INSTANTS. A string `Date.parse` cannot read
+ * falls back to string equality — never "a new ask" by default (NaN === NaN is false), which would
+ * announce a tablemate's ask that never happened.
+ */
+export function sameAsk(a: string, b: string): boolean {
+  const x = Date.parse(a);
+  const y = Date.parse(b);
+  return Number.isNaN(x) || Number.isNaN(y) ? a === b : x === y;
 }

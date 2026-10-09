@@ -108,10 +108,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ask silently (a stamp naming the same instant is the same ask) and keeps its real error; the
   promo field's focus cannot outlive its form, so the docked door is never stranded hidden; one
   binding (`dockShown`) draws the dock and the padding that clears it; a group under the register's
-  freeze keeps the Bill while phone pay is parked (never the split board); the pass rings focus in
+  freeze keeps the Bill while the self-serve split is parked (never the split board — the same split
+  door the register's sentence reads, `splitBoardShown`); the pass rings focus in
   `--pass-ac` (pinned in contrast-audit; `check-pass-inks` refuses a universal ring with no in-pass
   override); `check-phone-pay-door` orders the lock release before the return; the register's
   number is pinned on the pass and the slip's foot.
+- **The last blind pass on #331:** the promo focus clears on the INPUT's own unmount (a stable
+  callback ref), so a tablemate emptying and refilling the cart cannot strand the door either; the
+  split board reads the split door through one lib rule (`splitBoardShown`), whatever PD10 does to
+  the phone door; `check-pass-inks` requires the override to be exactly `--pass-ac`, on screen, and
+  to out-specify every theme ring that can reach the pass; `check-phone-pay-door` refuses a return on
+  any path before the release; `sameAsk` (lib) never treats an unreadable stamp as a new ask; the
+  register's sentence is pinned equal across its two homes; the stale-pin residual is **M268**.
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 

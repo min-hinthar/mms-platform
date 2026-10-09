@@ -29,7 +29,10 @@
  * Red-first (each induced, watched fail, restored): the refusal moved above `supersedeCartIntent`;
  * the refusal deleted; `await freeLock()` removed from its branch; the refusal moved below the
  * unsent refusal; the supersede wrapped in `Promise.all` with the refusal's read; a second live
- * `phonePayParked(` call added; the call parked under `if (false)`.
+ * `phonePayParked(` call added; the call parked under `if (false)`; the release moved after the
+ * branch's return (`{ return …; await freeLock(); }`, the blind pass on #331); a NESTED early return
+ * before the release (`{ if (x) return …; await freeLock(); return …; }`, the last blind pass). A
+ * nested function's own `return` before the release stays clean.
  */
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -152,14 +155,26 @@ if (freeAt < 0)
       "Every pre-mint refusal gives the lock back under its own era (M153); a parked door that\n  " +
       "forgets to strands the table for the whole CART_LOCK_TTL_MS on a checkout it just refused.",
   );
-// The blind pass on #331 — ORDER, not presence: `{ return …; await freeLock(); }` contains both and
-// releases nothing (the statement after a return is dead). The awaited release is a statement that
-// finishes BEFORE the return statement begins.
-if (freeAt > returnAt)
+// The blind passes on #331 — ORDER, not presence, and on EVERY path: `{ return …; await freeLock(); }`
+// contains both and releases nothing (the statement after a return is dead), and
+// `{ if (x) return …; await freeLock(); return …; }` releases on one path only. So no `return`
+// ANYWHERE in the branch (nested blocks included; a nested function's own returns excepted) may
+// begin before the awaited release's statement ends.
+const releaseEnd = branchStmts[freeAt].end;
+const earlyReturns = [];
+(function walk(node) {
+  if (ts.isFunctionLike(node)) return;
+  if (ts.isReturnStatement(node) && node.getStart(sf) < releaseEnd) earlyReturns.push(node);
+  ts.forEachChild(node, (c) => {
+    walk(c);
+  });
+})(branch);
+if (earlyReturns.length)
   fail(
-    "the parked-door branch RETURNS before it `await freeLock()`s.\n  " +
-      "The release sits after the return, so it never runs: the refusal strands the table under its\n  " +
-      "lock for the whole CART_LOCK_TTL_MS. Await the release, then return.",
+    "the parked-door branch can RETURN before it `await freeLock()`s " +
+      `(line ${sf.getLineAndCharacterOfPosition(earlyReturns[0].getStart(sf)).line + 1}).\n  ` +
+      "Every path out of the refusal must give the lock back first, or that path strands the table\n  " +
+      "under its lock for the whole CART_LOCK_TTL_MS. Await the release, then return.",
   );
 
 // ── rule 2: AFTER the supersede has finished — awaited, in a statement that ends first ───────────
