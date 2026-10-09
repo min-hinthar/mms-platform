@@ -10,12 +10,20 @@ import type { ScanVerdict } from "./scan-gate";
  * resolve to the added item's barcode BEFORE `classifyScan`, so it gets M186's shipped repeat
  * verdict — the disc chip, never a second tag.
  *
- * ⚠️ A PAIRING MAY ONLY EVER PRODUCE A REPEAT VERDICT. The critic's blocking finding: `classifyScan`
- * answers `add` the moment the paired item leaves the basket by ANY path (the basket sheet's
- * stepper, a Browse row, the add-Undo), and a page that then charged the PAIRED barcode would charge
- * an item the shopper never pointed at, from a sighting of a jar whose code is not in the app. So:
- *   · `judgedBarcode` only chooses what the basket is ASKED about; the charge always takes the
- *     sighted code itself (`check:scan-repeat` proposition 4 pins that in page.tsx);
+ * The pairing is a note of the shopper's OWN act — "you added this item for that code" — never a
+ * claim that the jar IS the item: ANY item added from a miss-opened sheet pairs, related to the jar
+ * or not (decided under delegation, m4 §H.4). The re-read is announced as that act, never as the
+ * jar's identity (`repeatSentence`, lib/scan-chip.ts).
+ *
+ * ⚠️ A PAIRING MAY ONLY EVER PRODUCE A REPEAT VERDICT — AND NO CHARGE. The critic's blocking finding:
+ * `classifyScan` answers `add` the moment the paired item leaves the basket by ANY path (the basket
+ * sheet's stepper, a Browse row, the add-Undo), and a page that then charged the PAIRED barcode would
+ * charge an item the shopper never pointed at, from a sighting of a jar whose code is not in the app.
+ * The blind pass 2 on #329 found the second door to the same charge: the chip a paired re-read draws
+ * offered "Add another", which charges the chip's code — the judged one. So:
+ *   · `judgedBarcode` only chooses what the basket is ASKED about. No charge takes a judged code:
+ *     the camera's charge takes the sighted code itself, and a chip reached through a pairing draws
+ *     no "Add another" (`chipAction`) — `check:scan-repeat` proposition 4 pins both in page.tsx;
  *   · `pairingAfterVerdict` SPENDS the pairing when the judged item classifies `add` — the sighting
  *     falls through to the unknown tag, and the next sheet add pairs afresh;
  *   · `pairingWithout` drops it the moment the paired item's line is removed (the Undo path).

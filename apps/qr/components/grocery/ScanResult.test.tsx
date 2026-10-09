@@ -29,7 +29,7 @@ const chip = (over: Partial<ScanChip> = {}): ScanChip => ({
   nameMy: null,
   meta: "In your basket ×1",
   queued: false,
-  canAddAnother: true,
+  action: "add-another",
   busy: false,
   armed: true,
   onAddAnother: () => {},
@@ -197,7 +197,10 @@ describe("PD4 — the disc chip: the arm, the Undo slot, the queued ring", () =>
     render(
       <Harness
         slot={chipSlot(1)}
-        chipOver={{ undo: { secondsLeft: 4, removing: false, onUndo, onHold: () => {} } }}
+        chipOver={{
+          action: "undo",
+          undo: { secondsLeft: 4, removing: false, onUndo, onHold: () => {} },
+        }}
       />,
     );
     expect(screen.queryByRole("button", { name: /Add another/ })).toBeNull();
@@ -215,6 +218,7 @@ describe("PD4 — the disc chip: the arm, the Undo slot, the queued ring", () =>
         slot={chipSlot(1)}
         chipOver={{
           armed: false,
+          action: "undo",
           undo: { secondsLeft: 6, removing: false, onUndo, onHold: () => {} },
         }}
       />,
@@ -224,13 +228,22 @@ describe("PD4 — the disc chip: the arm, the Undo slot, the queued ring", () =>
     rerender(
       <Harness
         slot={chipSlot(1)}
-        chipOver={{ undo: { secondsLeft: 5, removing: true, onUndo, onHold: () => {} } }}
+        chipOver={{
+          action: "undo",
+          undo: { secondsLeft: 5, removing: true, onUndo, onHold: () => {} },
+        }}
       />,
     );
     const removing = screen.getByRole("button", { name: "Removing… ဖျက်နေပါတယ်…" });
     expect(removing.getAttribute("aria-busy")).toBe("true");
     fireEvent.click(removing);
     expect(onUndo).not.toHaveBeenCalled();
+  });
+
+  it("the slot draws exactly what `action` names — 'none' draws no control (a chip reached through a pairing)", () => {
+    render(<Harness slot={chipSlot(1)} chipOver={{ action: "none" }} />);
+    expect(screen.queryByRole("button", { name: /Add another/ })).toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(1); // only the harness's "elsewhere"
   });
 
   it("a queued code wears the dashed ring and, unknown to the cache, offers no 'Add another'", () => {
@@ -242,7 +255,7 @@ describe("PD4 — the disc chip: the arm, the Undo slot, the queued ring", () =>
           nameMy: "သိမ်းထားတဲ့ စကင်",
           meta: "Waiting for a connection",
           queued: true,
-          canAddAnother: false,
+          action: "none",
         }}
       />,
     );

@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef, type FocusEvent, type RefObject } from "react";
 import { Button, Icon, matchesFocusVisible } from "@mms/ui";
 import type { ScanSlot } from "@/lib/scan-notice";
+import type { ChipAction } from "@/lib/scan-chip";
 import { t } from "@/lib/i18n";
 import { t as kioskT, type KioskStringKey } from "@/lib/kiosk/strings";
 
@@ -50,13 +51,14 @@ export type ScanChip = {
   meta: string;
   /** The code waits in the offline queue — a dashed ring, nothing confirmed. */
   queued: boolean;
-  /** "Add another" is offered (a line, or a cached queued code — never an unknown saved scan). */
-  canAddAnother: boolean;
+  /** What the action slot holds — the page's `chipAction`, the ONE predicate its repeat toast reads
+   *  too, so the toast never names a control this slot does not draw (lib/scan-chip.ts). */
+  action: ChipAction;
   busy: boolean;
   /** False inside the same-gesture window after the sheet closed (correction 15). */
   armed: boolean;
   onAddAnother: () => void;
-  /** The add-Undo, while its window is open: it takes the action slot. */
+  /** The add-Undo's controls — drawn only when `action` is "undo". */
   undo: {
     secondsLeft: number;
     /** The write is in flight — "Removing…", refuse re-entry. */
@@ -98,7 +100,7 @@ export function ScanResult({
 
   if (slot.kind === "chip") {
     if (!chip) return null;
-    const undo = chip.undo;
+    const undo = chip.action === "undo" ? chip.undo : null;
     const undoInert = !chip.armed || undo?.removing === true || chip.busy;
     return (
       <div ref={rootRef} className="scan-result scan-chip mms-pop" tabIndex={-1}>
@@ -148,7 +150,7 @@ export function ScanResult({
               </>
             )}
           </button>
-        ) : chip.canAddAnother ? (
+        ) : chip.action === "add-another" ? (
           <Button
             variant="primary"
             size="sm"

@@ -15,6 +15,7 @@ describe("nameSheetCloseTarget — the Name sheet's exit never drops focus on <b
     expect(
       nameSheetCloseTarget({
         closedByAdd: false,
+        chip: null,
         chipAction: null,
         opener: el(false), // the tag's button unmounted with the stage
         fresh,
@@ -24,19 +25,38 @@ describe("nameSheetCloseTarget — the Name sheet's exit never drops focus on <b
     ).toBe(fresh);
   });
 
-  it("after an add, the chip's action — even while the old opener is still mounted", () => {
+  it("after an add, the chip itself — even while the old opener is still mounted", () => {
     // MUTATION: drop the closedByAdd arm → the opener wins; red.
-    const chipAction = el();
+    const chip = el();
     expect(
       nameSheetCloseTarget({
         closedByAdd: true,
-        chipAction,
+        chip,
+        chipAction: el(),
         opener: el(),
         fresh: null,
         stage: el(),
         panelTitle: null,
       }),
-    ).toBe(chipAction);
+    ).toBe(chip);
+  });
+
+  it("after an add, never the chip's ACTION — the Undo sits there, and a touch shopper's carried focus would hold its window", () => {
+    // Blind pass 2 on #329. MUTATION: the add arm lands on the action → the Undo takes a programmatic
+    // focus that inherits the sheet input's :focus-visible, and its window never runs out; red.
+    const chip = el();
+    const chipAction = el();
+    expect(
+      nameSheetCloseTarget({
+        closedByAdd: true,
+        chip,
+        chipAction,
+        opener: null,
+        fresh: null,
+        stage: null,
+        panelTitle: null,
+      }),
+    ).not.toBe(chipAction);
   });
 
   it("a plain close returns to the opener while it lives; a disconnected one is skipped", () => {
@@ -45,6 +65,7 @@ describe("nameSheetCloseTarget — the Name sheet's exit never drops focus on <b
     expect(
       nameSheetCloseTarget({
         closedByAdd: false,
+        chip: null,
         chipAction: null,
         opener,
         fresh: null,
@@ -57,6 +78,7 @@ describe("nameSheetCloseTarget — the Name sheet's exit never drops focus on <b
     expect(
       nameSheetCloseTarget({
         closedByAdd: false,
+        chip: null,
         chipAction: null,
         opener: el(false),
         fresh: null,

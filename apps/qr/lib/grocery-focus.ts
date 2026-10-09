@@ -28,11 +28,15 @@ export function parkTarget(c: {
   return live(c.field) ?? live(c.fresh) ?? live(c.stage) ?? live(c.panelTitle);
 }
 
-/** The Name sheet's close-restore, run at its exit end: after an add, the chip's action (the tag
- *  that opened the sheet left with it); else the opener while it is still mounted; else the chip's
+/** The Name sheet's close-restore, run at its exit end: after an add, the CHIP itself (the tag that
+ *  opened the sheet left with it) — never its action: the Undo sits there, and a programmatic focus
+ *  carries the sheet input's `:focus-visible` onto it, holding its window for a touch shopper who
+ *  never chose it (blind pass 2 on #329); else the opener while it is still mounted; else the chip's
  *  action; else the fresh-basket button; else the stage; else a camera panel's title. */
 export function nameSheetCloseTarget(c: {
   closedByAdd: boolean;
+  /** The chip's root (`tabIndex={-1}`): its name and what the basket holds. */
+  chip: Candidate;
   chipAction: Candidate;
   opener: Candidate;
   fresh: Candidate;
@@ -40,7 +44,7 @@ export function nameSheetCloseTarget(c: {
   panelTitle: Candidate;
 }): FocusTarget | null {
   return (
-    (c.closedByAdd ? live(c.chipAction) : null) ??
+    (c.closedByAdd ? live(c.chip) : null) ??
     live(c.opener) ??
     live(c.chipAction) ??
     live(c.fresh) ??

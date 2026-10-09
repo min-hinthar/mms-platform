@@ -43,6 +43,7 @@ import {
 } from "@/lib/scan-pairing";
 import { useStageCover } from "@/lib/hooks/useStageCover";
 import { nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
+import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
 import {
   chipArmed,
   undoFromAdd,
@@ -144,7 +145,11 @@ export default function Grocery() {
   const billedRef = useRef<Set<string>>(new Set());
   // The barcode the chip under the viewfinder is about. Set on every scan that lands OR is refused
   // as a repeat, so the "Add another" path is on screen BEFORE the shopper presents a second copy.
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
+  // `viaPairing`: the chip was reached by judging a missed shelf code as the item the shopper added
+  // for it — such a chip never offers "Add another" (lib/scan-chip.ts).
+  const [lastScanned, setLastScanned] = useState<{ code: string; viaPairing: boolean } | null>(
+    null,
+  );
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
   // Phase 1c — the Scan door's result bar (chip or notice), written at EVERY outcome in `add()`
   // through the pure `slotAfter` (lib/scan-notice.ts): a miss persists where the eye is, and a
@@ -194,6 +199,11 @@ export default function Grocery() {
   // keyboard hold that pauses the window (lib/undo-hold.ts, WCAG 2.2.1). `tick` re-renders the
   // seconds leaf and expires the window; the write itself is NEVER optimistic.
   const [undo, setUndo] = useState<AddUndo | null>(null);
+  // Mirrors `undo` for `add()`'s repeat toast (a memoized handler; render reads the state).
+  const undoRef = useRef<AddUndo | null>(null);
+  useEffect(() => {
+    undoRef.current = undo;
+  }, [undo]);
   const [undoRemoving, setUndoRemoving] = useState(false);
   const holdRef = useRef<Hold>(NO_HOLD);
   // The seconds leaf, as STATE: render never reads the clock or the hold ref (react purity); the
@@ -213,7 +223,7 @@ export default function Grocery() {
   }, [undo]);
   // PD4 (Codex correction 15) — when the Name sheet closed on a server ok: whatever sits in the
   // chip's action slot refuses taps for `SAME_GESTURE_MS` after it. `chipArmed` (lib/scan-undo.ts)
-  // decides, in the handler at the close and once more at the window's end — never in render.
+  // decides in the handler at the close; a timer of that same constant arms it — never in render.
   const [sheetClosedAt, setSheetClosedAt] = useState<number | null>(null);
   const [chipLive, setChipLive] = useState(true);
 
@@ -663,7 +673,7 @@ export default function Grocery() {
       const saved = offlineSavedToast(lookupCachedItem(barcode));
       say(saved.text, saved.my ? { my: saved.my } : {});
       syncPending();
-      setLastScanned(barcode); // the chip's "Add another" is the offline second copy too
+      setLastScanned({ code: barcode, viaPairing: false }); // the offline second copy rides it too
       noteOutcome("queued", via, barcode);
       return true;
     },
@@ -710,17 +720,23 @@ export default function Grocery() {
         if (verdict.kind === "repeat") {
           // Never silent: the toast says what happened and the chip below the viewfinder carries
           // the one-tap path. A refusal the shopper can't see is a wrong number on the receipt.
-          setLastScanned(judged);
+          // The toast's "Add another" clause reads the SAME predicate the chip draws from
+          // (`chipAction`, lib/scan-chip.ts) over the same facts (these refs mirror the chip's
+          // state): never an instruction for a control the slot does not hold (blind pass 2 on
+          // #329) — the Undo's window, an unknown saved scan, a code the view does not show, or a
+          // chip reached through a pairing.
+          const viaPairing = judged !== barcode;
+          setLastScanned({ code: judged, viaPairing });
           noteOutcome("repeat", via, judged);
-          flash(
-            verdict.where === "basket"
-              ? `${verdict.name} is already in your basket (×${verdict.qty}) — tap “Add another” for a second.`
-              : verdict.where === "queued"
-                ? // The "Add another" clause only when that control is drawn: an uncached queued
-                  // code has none (blind pass on #329).
-                  `Already saved — we’ll check it when you’re back online.${lookupCachedItem(judged) ? " Tap “Add another” for a second." : ""}`
-                : "Already added — your list is out of date. Tap “Add another” for a second.",
+          const action = chipAction(
+            chipFactsFor(judged, viaPairing, {
+              lines: linesRef.current,
+              queued: pendingRef.current.map((q) => q.barcode),
+              undoBarcode: undoRef.current?.barcode ?? null,
+              cached: (code) => lookupCachedItem(code) !== null,
+            }),
           );
+          flash(repeatSentence(verdict, action, viaPairing));
           return;
         }
         pairingRef.current = pairingAfterVerdict(pairingRef.current, judged, verdict);
@@ -801,7 +817,7 @@ export default function Grocery() {
         // the only one left when `r.lines` is null (the post-write read failed), and that is
         // precisely when a second sighting would otherwise bill again.
         billedRef.current.add(barcode);
-        setLastScanned(barcode);
+        setLastScanned({ code: barcode, viaPairing: false });
         noteOutcome("ok", via, barcode);
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
@@ -997,21 +1013,6 @@ export default function Grocery() {
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
 
-  // M186 — the ONE deliberate way to buy a second of something the basket already holds. `rescan`
-  // skips the repeat classification (that is the whole point: the shopper chose it) and otherwise
-  // travels the same authorized scanAdd path, so the server's "a repeat barcode deliberately
-  // counts" is reached by a tap instead of by a timing guess. Serialized like the browse adder so
-  // a double-tap can't buy two.
-  const addAnother = useCallback(async () => {
-    if (!lastScanned || addingBarcode || busyLine) return;
-    setAddingBarcode(lastScanned);
-    try {
-      await add(lastScanned, "rescan");
-    } finally {
-      setAddingBarcode(null);
-    }
-  }, [lastScanned, addingBarcode, busyLine, add]);
-
   // Named ONCE from the basket (falling back to the cached catalog while the line is still in
   // flight) — never a copy of what the scan returned, so the chip can never drift from the list
   // beside it or from what the shopper is actually being charged.
@@ -1021,21 +1022,46 @@ export default function Grocery() {
   // basket" about something the basket no longer holds (and `billedRef` has already dropped, so a
   // re-scan correctly charges again): the chip would be the only thing on screen disagreeing with
   // the list under it.
-  const lastScannedLine = lastScanned ? lines.find((l) => l.barcode === lastScanned) : undefined;
-  const lastScannedQueued = lastScanned
-    ? pendingScans.some((q) => q.barcode === lastScanned)
-    : false;
-  // PD4 (B4) — a QUEUED code is named by the cache or as "A saved scan", never by its digits; and
-  // "Add another" is offered for a line or a cached queued code, never for an unknown saved scan.
-  const lastScannedCached = lastScanned && !lastScannedLine ? lookupCachedItem(lastScanned) : null;
+  const lastScannedLine = lastScanned
+    ? lines.find((l) => l.barcode === lastScanned.code)
+    : undefined;
+  // PD4 (B4) — a QUEUED code is named by the cache or as "A saved scan", never by its digits.
+  const lastScannedCached =
+    lastScanned && !lastScannedLine ? lookupCachedItem(lastScanned.code) : null;
   const chipName = lastScannedLine
     ? { name: lastScannedLine.name, my: lastScannedLine.nameMy }
     : lastScanned
-      ? queuedChipName(lastScanned, lastScannedCached)
+      ? queuedChipName(lastScanned.code, lastScannedCached)
       : null;
-  const canAddAnother =
-    Boolean(lastScannedLine) || (lastScannedQueued && lastScannedCached !== null);
-  const showRescanChip = Boolean(lastScanned) && (Boolean(lastScannedLine) || lastScannedQueued);
+  // PD4 (blind pass 2 on #329) — the chip's action slot: ONE predicate (`chipAction`), read here for
+  // the chip and in `add()`'s repeat toast for its "Add another" clause, over the same facts.
+  const chipFacts = lastScanned
+    ? chipFactsFor(lastScanned.code, lastScanned.viaPairing, {
+        lines,
+        queued: pendingScans.map((q) => q.barcode),
+        undoBarcode: undo?.barcode ?? null,
+        cached: (code) => lookupCachedItem(code) !== null,
+      })
+    : null;
+  const chipNow = chipFacts ? chipAction(chipFacts) : "none";
+  const showRescanChip = chipFacts !== null && chipDrawn(chipFacts);
+
+  // M186 — the ONE deliberate way to buy a second of something the basket already holds. `rescan`
+  // skips the repeat classification (that is the whole point: the shopper chose it) and otherwise
+  // travels the same authorized scanAdd path, so the server's "a repeat barcode deliberately
+  // counts" is reached by a tap instead of by a timing guess. Serialized like the browse adder so
+  // a double-tap can't buy two. PD4 — it charges ONLY what the chip draws "Add another" for
+  // (`chipNow`): never a code reached through a pairing (check:scan-repeat proposition 4).
+  const addAnother = useCallback(async () => {
+    if (!lastScanned || chipNow !== "add-another" || addingBarcode || busyLine) return;
+    const code = lastScanned.code;
+    setAddingBarcode(code);
+    try {
+      await add(code, "rescan");
+    } finally {
+      setAddingBarcode(null);
+    }
+  }, [lastScanned, chipNow, addingBarcode, busyLine, add]);
 
   // PD4 (m4 decisions 4 · 5) — every "Search by name" on the Scan door (the tag's, the paper
   // panels') opens the ONE Name sheet over the still-streaming lens. `miss` is the shelf code whose
@@ -1059,8 +1085,10 @@ export default function Grocery() {
     setNameSheet(null);
   }, []);
   // Close-restore for the Name sheet (WCAG 2.4.3): after an add the opener (the tag) has unmounted
-  // with the tag, so focus lands on the chip's action; otherwise the opener while it is still
-  // mounted; then the stage box; then a camera panel's own title (B6's fallback chain).
+  // with the tag, so focus lands on the chip itself (its name and what the basket holds, read
+  // first; the Undo is one Tab on — landing ON the Undo would carry the sheet input's
+  // `:focus-visible` onto it and hold its window for a touch shopper); otherwise the opener while
+  // it is still mounted; then the stage box; then a camera panel's own title (B6's fallback chain).
   const nameSheetCloseFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
@@ -1068,6 +1096,7 @@ export default function Grocery() {
       nameExitEnd();
       const target = nameSheetCloseTarget({
         closedByAdd: closedByAddRef.current,
+        chip: document.querySelector<HTMLElement>("#scan-stage .scan-chip"),
         chipAction: document.querySelector<HTMLElement>("#scan-stage .scan-result button"),
         opener: nameSheetOpenerRef.current,
         // A finished basket unmounts the stage, the tag and the chip (lib/grocery-focus.ts).
@@ -1258,14 +1287,14 @@ export default function Grocery() {
   const holdUndo = useCallback((held: boolean) => {
     holdRef.current = setHeld(holdRef.current, "slot", held, performance.now());
   }, []);
-  // The arm (correction 15): at the window's end the pure rule answers once more and the chip's
-  // action comes alive (the handler set it refused at the close).
+  // The arm (correction 15): at the window's end the chip's action comes alive (the handler set it
+  // refused at the close, from `chipArmed`). UNCONDITIONALLY: `setTimeout` never fires early, and
+  // re-asking the clock here could answer "not yet" under a coarsened `performance.now()` (Firefox
+  // resistFingerprinting rounds it) — a one-shot timer that answered no would never arm the chip
+  // (blind pass 2 on #329).
   useEffect(() => {
     if (sheetClosedAt === null) return;
-    const id = window.setTimeout(
-      () => setChipLive(chipArmed(sheetClosedAt, performance.now())),
-      SAME_GESTURE_MS,
-    );
+    const id = window.setTimeout(() => setChipLive(true), SAME_GESTURE_MS);
     return () => window.clearTimeout(id);
   }, [sheetClosedAt]);
 
@@ -1582,12 +1611,12 @@ export default function Grocery() {
                         ? `In your basket ×${lastScannedLine.qty}`
                         : "Waiting for a connection",
                       queued: !lastScannedLine,
-                      canAddAnother,
-                      busy: addingBarcode === lastScanned || !!busyLine,
+                      action: chipNow,
+                      busy: addingBarcode === lastScanned.code || !!busyLine,
                       armed: chipLive,
                       onAddAnother: () => void addAnother(),
                       undo:
-                        undo && undo.barcode === lastScanned
+                        chipNow === "undo" && undo
                           ? {
                               secondsLeft: undoLeft,
                               removing: undoRemoving,

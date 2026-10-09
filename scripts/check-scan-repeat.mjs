@@ -430,10 +430,101 @@ for (const st of liveStages) {
 // Bound to the parameter's DECLARATION, not its name (the blind pass on #329): a `barcode = judged`
 // reassignment at the top of `add`, or a block-scoped `const barcode = judged` above the charge,
 // ships the judged code under the same spelling. So the function body may hold NO assignment to
-// that name (`=`, `+=`, `++`, a destructuring target) and NO shadowing declaration of it (a const,
-// a binding element, a nested function's parameter). Red-first: the argument swapped to `judged`;
-// `const code = judged` as the argument; `barcode = judged;` at the top; `{ const barcode =
-// judged; … }` around the charge; the parameter renamed without re-pointing the argument.
+// that name (`=`, `+=`, `++`, a destructuring target, a `for (… of / in …)` head) and NO shadowing
+// declaration of it (a const, a binding element, a nested function's parameter).
+//
+// PROVENANCE (blind pass 2 on #329): "the parameter" is only the decoded code if every caller says
+// so — and `addAnother` charged the chip's code, which a paired re-read had set to the JUDGED item.
+// So every live call of the page's `add` is accounted for, with a literal door:
+//   · "scan"   — exactly one, in the function bound (via `useCallback`) to the identifier every live
+//                <ScanStage> takes as `onScan`, passing that function's own untouched parameter;
+//   · "rescan" — exactly one, in the function bound to `addAnother`, passing `lastScanned.code`,
+//                behind a TOP-LEVEL early `return` that precedes it and tests `<B> !== "add-another"`,
+//                B being the one binding of `chipAction(chipFactsFor(lastScanned.code,
+//                lastScanned.viaPairing, …))` — the binding the chip's `action` prop also reads;
+//   · "search" / "browse" — the shopper's own pick by name, unconstrained here.
+// `add` may not escape as a value (an alias would call it unseen) — only calls and hook dep arrays —
+// and no string in the page may hand-write the "Add another" clause (`repeatSentence` speaks it).
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
+const isAssignmentKind = (k) =>
+  k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+/** Problems if `name` is assigned, mutated or shadowed anywhere inside `fn`'s body. */
+const touches = (fn, name) => {
+  const out = [];
+  const namesIn = (node) => {
+    let hit = false;
+    walk(node, (m) => {
+      if (ts.isIdentifier(m) && m.text === name) hit = true;
+    });
+    return hit;
+  };
+  walk(fn.body, (n) => {
+    if (ts.isBinaryExpression(n) && isAssignmentKind(n.operatorToken.kind) && namesIn(n.left))
+      out.push(
+        `\`${name}\` is ASSIGNED inside the charging function (\`${n.getText(src).slice(0, 60)}\`).\n` +
+          "  The parameter must reach the charge untouched: an assignment ships a judged code under\n" +
+          "  the sighted code's own name.",
+      );
+    if (
+      (ts.isForOfStatement(n) || ts.isForInStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer) &&
+      namesIn(n.initializer)
+    )
+      out.push(
+        `\`${name}\` is the HEAD of a \`for (… of/in …)\` inside the charging function — an assignment.`,
+      );
+    if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken ||
+        n.operator === ts.SyntaxKind.MinusMinusToken) &&
+      ts.isIdentifier(n.operand) &&
+      n.operand.text === name
+    )
+      out.push(`\`${name}\` is mutated inside the charging function.`);
+    if (
+      (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    )
+      out.push(
+        `\`${name}\` is DECLARED again inside the charging function (a shadowing \`${
+          ts.isParameter(n) ? "parameter" : "binding"
+        }\`).\n` + "  The argument then resolves to the shadow, not to the camera's code.",
+      );
+  });
+  return out;
+};
+/** Every `const NAME = …` in the page. */
+const declsOf = (name) => {
+  const out = [];
+  walk(src, (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) out.push(n);
+  });
+  return out;
+};
+/** `fn` when `const NAME = useCallback(fn, …)` is the page's ONE declaration of NAME. */
+const callbackBoundTo = (name) => {
+  const d = declsOf(name);
+  if (d.length !== 1) return null;
+  const init = d[0].initializer;
+  if (
+    !init ||
+    !ts.isCallExpression(init) ||
+    !ts.isIdentifier(init.expression) ||
+    init.expression.text !== "useCallback"
+  )
+    return null;
+  const f = init.arguments[0];
+  return f && (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) ? f : null;
+};
+/** The name a `useCallback(fn)` declaration binds `fn` to. */
+const callbackName = (fn) => {
+  const call = fn?.parent;
+  if (!call || !ts.isCallExpression(call) || call.arguments[0] !== fn) return null;
+  if (!ts.isIdentifier(call.expression) || call.expression.text !== "useCallback") return null;
+  const d = call.parent;
+  return d && ts.isVariableDeclaration(d) && ts.isIdentifier(d.name) ? d.name.text : null;
+};
 if (!problems.length) {
   const charge = chargeCalls[0];
   const fn = enclosingFunction(charge);
@@ -450,43 +541,218 @@ if (!problems.length) {
         "  lib/scan-pairing.ts); charging it bills an item the shopper never pointed at.",
     );
   else {
-    const name = arg.text;
-    const isAssignment = (k) =>
-      k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
-    const namesIn = (node) => {
-      let hit = false;
-      walk(node, (m) => {
-        if (ts.isIdentifier(m) && m.text === name) hit = true;
+    for (const m of touches(fn, arg.text)) fail(m);
+    // ── provenance: who calls the charging function, and with what ──
+    const ADD = callbackName(fn);
+    const paramIdx = fn.parameters.indexOf(param);
+    if (!ADD || declsOf(ADD).length !== 1)
+      fail(
+        `proposition 4: the function holding ${CHARGE}() must be ONE \`const <name> = useCallback(…)\`\n` +
+          "  so every caller can be accounted for.",
+      );
+    else {
+      const calls = [];
+      walk(src, (n) => {
+        if (!ts.isIdentifier(n) || n.text !== ADD) return;
+        const p = n.parent;
+        if (ts.isVariableDeclaration(p) && p.name === n) return;
+        if (ts.isPropertyAccessExpression(p) && p.name === n) return;
+        if ((ts.isPropertyAssignment(p) || ts.isJsxAttribute(p)) && p.name === n) return;
+        if (ts.isCallExpression(p) && p.expression === n) {
+          calls.push(p);
+          return;
+        }
+        const deps =
+          ts.isArrayLiteralExpression(p) &&
+          ts.isCallExpression(p.parent) &&
+          p.parent.arguments[1] === p &&
+          ts.isIdentifier(p.parent.expression) &&
+          /^use(Callback|Effect|LayoutEffect|Memo)$/.test(p.parent.expression.text);
+        if (!deps)
+          fail(
+            `proposition 4: \`${ADD}\` escapes as a value (\`${p.getText(src).slice(0, 60)}\`).\n` +
+              "  An alias calls the charge where this guard cannot see which code it passes.",
+          );
       });
-      return hit;
-    };
-    walk(fn.body, (n) => {
-      if (ts.isBinaryExpression(n) && isAssignment(n.operatorToken.kind) && namesIn(n.left))
+      const byDoor = { scan: [], rescan: [] };
+      for (const c of calls) {
+        if (isLiterallyDead(c)) continue;
+        const door = c.arguments[1];
+        if (!door || !ts.isStringLiteral(door)) {
+          fail(
+            `proposition 4: \`${c.getText(src).slice(0, 60)}\` — every call of \`${ADD}\` names its door as a literal.`,
+          );
+          continue;
+        }
+        if (door.text === "scan" || door.text === "rescan") byDoor[door.text].push(c);
+        else if (door.text !== "search" && door.text !== "browse")
+          fail(`proposition 4: \`${ADD}(…, "${door.text}")\` is a door this guard does not know.`);
+      }
+      // "scan": the decoded code, from the function the camera is handed.
+      if (byDoor.scan.length !== 1)
         fail(
-          `\`${name}\` is ASSIGNED inside the charging function (\`${n.getText(src).slice(0, 60)}\`).\n` +
-            "  The parameter must reach scanAdd() untouched: an assignment ships a judged code under\n" +
-            "  the sighted code's own name.",
+          `proposition 4: expected exactly ONE live \`${ADD}(…, "scan")\`; found ${byDoor.scan.length}.\n` +
+            "  The camera door is the function <ScanStage> is handed, and nowhere else.",
         );
-      if (
-        (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
-        (n.operator === ts.SyntaxKind.PlusPlusToken ||
-          n.operator === ts.SyntaxKind.MinusMinusToken) &&
-        ts.isIdentifier(n.operand) &&
-        n.operand.text === name
-      )
-        fail(`\`${name}\` is mutated inside the charging function.`);
-      if (
-        (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
-        ts.isIdentifier(n.name) &&
-        n.name.text === name
-      )
+      else {
+        const c = byDoor.scan[0];
+        const f = enclosingFunction(c);
+        const name = callbackName(f);
+        const code = c.arguments[0];
+        const own =
+          code &&
+          ts.isIdentifier(code) &&
+          f.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === code.text);
+        if (!name || !own)
+          fail(
+            `proposition 4: \`${c.getText(src).slice(0, 60)}\` must pass its own function's parameter — the\n` +
+              "  code the camera decoded — from a `useCallback` the stage is handed.",
+          );
+        else {
+          for (const m of touches(f, code.text)) fail(m);
+          for (const st of liveStages) {
+            const a = st.attributes.properties.find(
+              (q) => ts.isJsxAttribute(q) && q.name.getText(src) === "onScan",
+            );
+            const e =
+              a?.initializer && ts.isJsxExpression(a.initializer) ? a.initializer.expression : null;
+            if (!e || !ts.isIdentifier(e) || e.text !== name)
+              fail(
+                `proposition 4: <ScanStage> must take \`onScan={${name}}\` — the one function whose "scan" door\n` +
+                  "  passes the decoded code.",
+              );
+          }
+        }
+      }
+      // "rescan": Add another, behind the chip's own predicate.
+      if (byDoor.rescan.length !== 1)
         fail(
-          `\`${name}\` is DECLARED again inside the charging function (a shadowing \`${
-            ts.isParameter(n) ? "parameter" : "binding"
-          }\`).\n` + "  The argument then resolves to the shadow, not to the camera's code.",
+          `proposition 4: expected exactly ONE live \`${ADD}(…, "rescan")\` (Add another); found ${byDoor.rescan.length}.`,
         );
-    });
+      else {
+        const c = byDoor.rescan[0];
+        const f = enclosingFunction(c);
+        const owner = callbackName(f);
+        const isLastCode = (e) => !!e && printed(e) === "lastScanned.code";
+        let code = c.arguments[0];
+        if (code && ts.isIdentifier(code)) {
+          const local = [];
+          walk(f.body, (n) => {
+            if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === code.text)
+              local.push(n);
+          });
+          if (local.length === 1) code = local[0].initializer;
+          for (const m of touches(f, c.arguments[0].text).filter((m) => !/DECLARED again/.test(m)))
+            fail(m);
+        }
+        if (owner !== "addAnother" || !isLastCode(code))
+          fail(
+            `proposition 4: the "rescan" door must be \`addAnother\` charging \`lastScanned.code\` — the chip's\n` +
+              `  own code; found \`${c.getText(src).slice(0, 60)}\` in \`${owner}\`. A judged or paired code is\n` +
+              "  never charged.",
+          );
+        else {
+          // The chip's predicate binding: const B = <expr holding chipAction(F)>, F = chipFactsFor(
+          // lastScanned.code, lastScanned.viaPairing, …) directly or through a const.
+          const predicateOk = (bName) => {
+            const d = declsOf(bName);
+            if (d.length !== 1 || !d[0].initializer) return false;
+            let ok = false;
+            walk(d[0].initializer, (n) => {
+              if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
+              if (n.expression.text !== "chipAction" || isLiterallyDead(n)) return;
+              let facts = n.arguments[0];
+              if (facts && ts.isIdentifier(facts)) {
+                const fd = declsOf(facts.text);
+                facts = fd.length === 1 ? fd[0].initializer : null;
+              }
+              walk(facts ?? n, (m) => {
+                if (
+                  ts.isCallExpression(m) &&
+                  ts.isIdentifier(m.expression) &&
+                  m.expression.text === "chipFactsFor" &&
+                  m.arguments.length === 3 &&
+                  printed(m.arguments[0]) === "lastScanned.code" &&
+                  printed(m.arguments[1]) === "lastScanned.viaPairing"
+                )
+                  ok = true;
+              });
+            });
+            return ok;
+          };
+          const top = f.body && ts.isBlock(f.body) ? f.body.statements : [];
+          const callStmt = top.findIndex((st) => c.pos >= st.pos && c.end <= st.end);
+          let guard = null;
+          top.slice(0, Math.max(0, callStmt)).forEach((st) => {
+            if (!ts.isIfStatement(st) || isLiterallyDead(st)) return;
+            const then = st.thenStatement;
+            const returns =
+              ts.isReturnStatement(then) ||
+              (ts.isBlock(then) &&
+                then.statements.length > 0 &&
+                ts.isReturnStatement(then.statements[0]));
+            if (!returns) return;
+            walk(st.expression, (n) => {
+              if (
+                ts.isBinaryExpression(n) &&
+                (n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+                  n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken) &&
+                !isLiterallyDead(n) &&
+                ts.isIdentifier(n.left) &&
+                ts.isStringLiteral(n.right) &&
+                n.right.text === "add-another" &&
+                predicateOk(n.left.text)
+              )
+                guard = n.left.text;
+            });
+          });
+          if (callStmt < 0 || !guard)
+            fail(
+              "proposition 4: `addAnother` charges without a TOP-LEVEL early return, BEFORE the charge, on\n" +
+                '  `<B> !== "add-another"` — B the one binding of `chipAction(chipFactsFor(lastScanned.code,\n' +
+                "  lastScanned.viaPairing, …))`. Without it Add another charges a chip reached through a\n" +
+                "  pairing — an item the camera never sighted.",
+            );
+          else {
+            if (f.parameters.length || declsOf(guard).some((d) => d.pos >= f.pos && d.end <= f.end))
+              fail(`proposition 4: \`${guard}\` is shadowed inside \`addAnother\`.`);
+            const told = [];
+            walk(src, (n) => {
+              if (
+                ts.isPropertyAssignment(n) &&
+                n.name.getText(src) === "action" &&
+                n.parent &&
+                ts.isObjectLiteralExpression(n.parent) &&
+                n.parent.properties.some((q) => q.name && q.name.getText(src) === "onAddAnother")
+              )
+                told.push(n);
+            });
+            if (!told.length || told.some((t) => printed(t.initializer) !== guard))
+              fail(
+                `proposition 4: the chip's \`action\` must be \`${guard}\` — the predicate \`addAnother\` is gated on —\n` +
+                  "  or the button drawn and the charge allowed are two different answers.",
+              );
+          }
+        }
+      }
+    }
   }
+  walk(src, (n) => {
+    const text =
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n) ||
+      ts.isJsxText(n)
+        ? n.text
+        : null;
+    if (text && /Add another[”"] for a second/.test(text))
+      fail(
+        "proposition 4: the page hand-writes the “Add another” clause — only `repeatSentence` (lib/scan-chip.ts)\n" +
+          "  speaks it, from the predicate the chip draws from.",
+      );
+  });
 }
 
 // ── (5) A sheet's COVER outlasts its `open`: only its exit end lifts the camera's hold (PD4) ──────
@@ -913,7 +1179,8 @@ if (problems.length) {
 console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
-    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
+    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired)` +
+    ` and charges the decoded code; "Add another" only behind the chip's chipAction();` +
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
     ` each page-owned sheet's cover lifted only by its exit end (${Object.keys(EXEMPT_COVER).length} exempt, reason fired);` +
     ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>)\x1b[0m`,

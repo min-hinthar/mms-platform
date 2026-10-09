@@ -121,7 +121,103 @@ const UNDO: Fixture[] = [
   },
 ];
 
-const FIXTURES: Fixture[] = [...UNDO];
+// ── (4) the charge takes the sighted code; "Add another" only behind the chip's own predicate ──
+const SIGHTED: Fixture[] = [
+  {
+    name: "the camera charges the JUDGED code",
+    find: "        r = await ledger.track(scanAdd(cartId, barcode, scanId));",
+    replace:
+      "        r = await ledger.track(scanAdd(cartId, judgedBarcode(pairingRef.current, barcode), scanId));",
+    expect: /barcode argument must be the enclosing function's own parameter/,
+  },
+  {
+    name: "the sighted code reassigned through a `for … of` head",
+    find: "      const scanId = crypto.randomUUID();",
+    replace:
+      "      for (barcode of [judgedBarcode(pairingRef.current, barcode)]) break;\n      const scanId = crypto.randomUUID();",
+    expect: /HEAD of a `for \(… of\/in …\)`/,
+  },
+  {
+    name: "the sighted code reassigned by destructuring",
+    find: "      const scanId = crypto.randomUUID();",
+    replace:
+      "      [barcode] = [judgedBarcode(pairingRef.current, barcode)];\n      const scanId = crypto.randomUUID();",
+    expect: /`barcode` is ASSIGNED inside the charging function/,
+  },
+  {
+    name: "onScan hands add() a judged code",
+    find: 'const onScan = useCallback((code: string) => void add(code, "scan"), [add]);',
+    replace:
+      'const onScan = useCallback(\n    (code: string) => void add(judgedBarcode(pairingRef.current, code), "scan"),\n    [add],\n  );',
+    expect: /proposition 4: .* must pass its own function's parameter/,
+  },
+  {
+    name: "the stage handed a function other than the decoded-code door",
+    find: "              onScan={onScan}",
+    replace: '              onScan={(code) => void add(code, "browse")}',
+    expect: /<ScanStage> must take `onScan=\{onScan\}`/,
+  },
+  {
+    name: 'a second camera door (Add another relabelled "scan")',
+    find: '      await add(code, "rescan");',
+    replace: '      await add(code, "scan");',
+    expect: /expected exactly ONE live `add\(…, "scan"\)`/,
+  },
+  {
+    name: "`add` aliased and called where the guard cannot see the code",
+    find: 'const onScan = useCallback((code: string) => void add(code, "scan"), [add]);',
+    replace:
+      'const onScan = useCallback((code: string) => void add(code, "scan"), [add]);\n  const charge = add;',
+    expect: /`add` escapes as a value/,
+  },
+  {
+    name: "Add another without the chip's predicate",
+    find: '    if (!lastScanned || chipNow !== "add-another" || addingBarcode || busyLine) return;',
+    replace: "    if (!lastScanned || addingBarcode || busyLine) return;",
+    expect: /`addAnother` charges without a TOP-LEVEL early return/,
+  },
+  {
+    name: "Add another's predicate parked behind `false &&`",
+    find: '    if (!lastScanned || chipNow !== "add-another" || addingBarcode || busyLine) return;',
+    replace:
+      '    if (false && chipNow !== "add-another") return;\n    if (!lastScanned || addingBarcode || busyLine) return;',
+    expect: /`addAnother` charges without a TOP-LEVEL early return/,
+  },
+  {
+    name: "Add another's predicate nested where it may never run",
+    find: '    if (!lastScanned || chipNow !== "add-another" || addingBarcode || busyLine) return;',
+    replace:
+      '    if (!lastScanned || addingBarcode || busyLine) return;\n    if (busyLine) {\n      if (chipNow !== "add-another") return;\n    }',
+    expect: /`addAnother` charges without a TOP-LEVEL early return/,
+  },
+  {
+    name: "Add another charges the judged code",
+    find: "    const code = lastScanned.code;",
+    replace: "    const code = judgedBarcode(pairingRef.current, lastScanned.code);",
+    expect: /the "rescan" door must be `addAnother` charging `lastScanned.code`/,
+  },
+  {
+    name: "the chip's predicate blind to the pairing",
+    find: "    ? chipFactsFor(lastScanned.code, lastScanned.viaPairing, {",
+    replace: "    ? chipFactsFor(lastScanned.code, false, {",
+    expect: /`addAnother` charges without a TOP-LEVEL early return/,
+  },
+  {
+    name: "the chip told a different action than the one Add another is gated on",
+    find: "                      action: chipNow,",
+    replace: '                      action: chipFacts ? "add-another" : "none",',
+    expect: /the chip's `action` must be `chipNow`/,
+  },
+  {
+    name: "the toast hand-writes the Add another clause",
+    find: "          flash(repeatSentence(verdict, action, viaPairing));",
+    replace:
+      "          flash(`${repeatSentence(verdict, action, viaPairing)} Tap “Add another” for a second.`);",
+    expect: /the page hand-writes the “Add another” clause/,
+  },
+];
+
+const FIXTURES: Fixture[] = [...SIGHTED, ...UNDO];
 
 // Each row spawns node and parses the page with TypeScript (~1–2 s measured; more under a loaded
 // machine), so the rows run concurrently and carry a spawn-sized timeout.
