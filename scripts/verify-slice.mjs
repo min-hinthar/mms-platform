@@ -7538,9 +7538,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2a · register — the tip field's onChange must only REFUSE characters. Restore the old per-keystroke comma drop and '5,00' typed key by key builds '500': the settle carries tipCents 50000 — $500 recorded for a $5 tip, under the cap, refused by nothing",
-    find: "                  setTip(sanitizeMoneyInput(e.target.value));\n",
+    find: "          setTip(sanitizeMoneyInput(e.target.value));\n",
     replace:
-      '                  setTip(sanitizeMoneyInput(e.target.value.replace(/,(?!\\d{1,2}$)/g, "")));\n',
+      '          setTip(sanitizeMoneyInput(e.target.value.replace(/,(?!\\d{1,2}$)/g, "")));\n',
   },
   {
     id: "p2a-register/secure-close-rejection-escapes",
@@ -8168,7 +8168,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — Settle's aria-disabled reads the ONE binding (cashSettleBlocked). Pinned open, Settle looks live beside 'Short $2.10' and the refusal is invisible until the tap does nothing",
-    find: '                {...(blocked !== null ? { "aria-disabled": true } : {})}\n',
+    find: '        {...(blocked !== null ? { "aria-disabled": true } : {})}\n',
     replace: "",
   },
   {
@@ -8192,8 +8192,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — a tip chip lights by VALUE. By string, '8,00' typed by hand is the $8.00 chip's amount with the chip unlit — two answers on one sheet",
-    find: "                    const on = parseMoneyCents(tip) === cents;\n",
-    replace: "                    const on = tip === (cents / 100).toFixed(2);\n",
+    find: "            const on = parseMoneyCents(tip) === cents;\n",
+    replace: "            const on = tip === (cents / 100).toFixed(2);\n",
   },
   {
     id: "p2c-register/cash-moved-figure-never-adopted",
@@ -16629,16 +16629,16 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2h (9e) — the waiting sentence says 'reload the page' on a console installed standalone, with no browser reload button: without the ReloadButton beside it the one escape the sentence names is missing",
-    find: '{(alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (',
-    replace: '{alertMsg?.kind === "stalled" && (',
+    find: 'const reload = (alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (',
+    replace: 'const reload = alertMsg?.kind === "stalled" && (',
   },
   {
     id: "p2h-sheets/cash/stalled-no-reload",
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2h (9d) — a tap refused on a stalled tablet must offer the reload (location.reload is the only universal escape); without it the refusal says 'reload the page' and offers nothing",
-    find: '{(alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (',
-    replace: '{alertMsg?.kind === "waiting" && (',
+    find: 'const reload = (alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (',
+    replace: 'const reload = alertMsg?.kind === "waiting" && (',
   },
   {
     id: "p2h-sheets/cash/waiting-unknown-unhanded",
@@ -16677,8 +16677,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2h (9e) — a late THROW is still no answer: read as known, the page drops its closed-bounce hold over a settle that may have landed, and the sheet stops saying it couldn't confirm",
-    find: '        else {\n          setError({ kind: "unknown" });\n',
-    replace: "        else {\n          onOutcomeUnknown?.(false);\n",
+    find: '        else {\n          attemptRef.current = "unknown";\n          setError({ kind: "unknown" });\n',
+    replace: '        else {\n          attemptRef.current = "unknown";\n          onOutcomeUnknown?.(false);\n',
   },
   {
     id: "p2h-sheets/cash/stalled-tap-dispatches",
@@ -17119,8 +17119,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "critic F2 — the trigger's 'a refusal read in the last sheet is not this attempt's' must not wipe one nobody read: the next sheet opens with it in its alert",
-    find: "          if (!lateUnseen) setError(null);\n",
-    replace: "          setError(null);\n",
+    find: "    if (!lateUnseen) setError(null);\n",
+    replace: "    setError(null);\n",
   },
   {
     id: "p2h-sheets/cash/seen-refusal-kept-for-the-reopen",
@@ -20594,7 +20594,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Codex r1 on #310 (CX3) — a tap on the held trigger re-says the waiting line in a live region; silent, the line under it is only a description, so the tap announces nothing",
-    find: "            setHeldTap({});\n",
+    find: "            else setHeldTap({});\n",
     replace: "",
   },
   {
