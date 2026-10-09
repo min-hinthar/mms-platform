@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
+
+- **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**
+  `orderStageHero` gains a fourth arm, `"wait"` — a guest with dine-in drafts at a host table. Its
+  block says the state in the console's own words ("Not sent yet · မပို့ရသေး", the hollow ring), the
+  next step and who takes it (the shipped `hostSendsCopy`, the host named only as the table named them
+  — `chosenName`, so the default "Guest" is never read as a person), then two ways forward: the quiet
+  "Let {host} know" and "If {host} is away, our staff can send it too." The one filled verb is "Show
+  a server"; the Total door goes quiet beside it. Under a tablemate's pay lock both ways forward hide.
+  A hostless table keeps the bill door. No count anywhere on a shared cart before the Send: the door's
+  "N items not sent yet" note is gone and the Send's label is count-free (`sentCopy` still reports
+  the server's fired count after).
+- **"Show a server" (m1 screen 2):** a full-screen dialog on the Sheet primitive holding post-pay's
+  `CounterPass` — "Table 7" printed once (a numberless table's code at the holder tier, spelt), the
+  waiting dishes in the catalog's words with the kitchen's qty token in the pass's own inks, no
+  prices, no total, no names. The status is the kitchen track in the pass head and the dialog's one
+  live region: the hollow ring and "Not sent yet", the dashed segment and "Sending…" inside the grace,
+  and — the moment's one delight — segment 1 FILLs with "Sent to kitchen · ပို့ပြီး" only when an
+  applied server view shows the dishes past their grace (`serverNow` rides the cart view; one re-read
+  at the grace's end). A removal of every listed dish closes it. Rules: `lib/show-server.ts`.
+- **"Let Aye know" is a DURABLE STAMP (Codex round 3):** `20261008123000_pd1_send_nudge.sql` adds
+  `qr_carts.send_nudge_seat` / `send_nudge_at`, `mms_nudge_host` (every rule IN the WHERE — cart open,
+  session active, a host, the nudger a member and not the host, at most once a minute; a read-only
+  diagnosis on a miss) and restates `mms_fire_cart` whole so the fire clears the stamp in the same
+  statement. `supabase/tests/pd1_send_nudge_test.sql` (named in CI's required list) pins each guard
+  beside the legitimate write. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
+  success carrying the standing stamp); `getCartView` reads the stamp ADVISORY, beside the sold-out
+  lookups, so an unmigrated project renders every order as before. **Applied by the owner, not here.**
+- **The host's half (m1 screen 3):** the waiting guest's avatar and "Thiri is waiting on this send."
+  above Send (or "Someone’s waiting"), carried in Send's description; the caption "The kitchen sees it
+  when the countdown ends." under Send and Undo, the same node across the relabel. The /menu order bar
+  on a shared cart drops its count capsule and count-bearing name and reads "Not sent yet" — or, on
+  the host's phone while a stamp stands, "Someone’s waiting" (`lib/cart-bar-state.ts`).
+- **Guards:** 28 mutants (checkout-verb's wait arm, send-nudge's rules and action, show-server,
+  cart-bar, the half-stamp read, the staff fallback, and three wiring mutants); the pass's dish rows
+  are in-pass for `check-pass-inks`. Every new Burmese string is a K15 draft (`K15 · diner-cart`).
+
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 
 - **The owner's pick (PATH_DESIGN_2026-10-07 decision 2):** until the live Stripe keys are switched on

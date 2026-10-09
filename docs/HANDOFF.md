@@ -153,7 +153,8 @@ stream adds one bullet of its own below this line and edits only that bullet.
   `claude/feat/pd-pass-primitives`, merged in), the create-intent
   refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
   money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
-  owner's go. Build notes: m2 / m1 specs' `### H`.
+  owner's go — apply it before or with PD1's merge (until then "Let {host} know" answers "That didn’t
+  go through"). Build notes: m2 / m1 specs' `### H`.
 
 ## Environment facts (measured 2026-10-08 unless cited)
 

@@ -538,3 +538,85 @@ The round-3 consistency pass gave this moment these changes:
 ### E · Codex round 3 (2026-10-08) — these win over everything above
 
 1. **The nudge is durable.** "Let Aye know" writes a stamp on the cart (the nudger's seat and time) through a member-authorized server action, status-guarded in the SQL (cart open, a host named, the nudger not the host; at most once a minute); `mms_fire_cart` clears it in the same statement as the fire. A presence flag dies when the guest locks their phone (`useGroupCart` removes the channel on unmount, `lib/realtime.ts:90-93`), which is exactly the face-down-host case. The column pair is a migration riding PD1, applied on the owner's go; "Aye can see you're waiting" still shows only while the host's surface draws the line.
+
+### H · Build notes (2026-10-09, claude/feat/pd1-tablemate-send)
+
+What the diner-cart stream built from this spec, what it took from appendix C, what it did not, and
+the questions the build decided under the owner's delegation (decided by: the diner-cart stream).
+Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on PD2
+(`claude/feat/pd2-pd1-diner-cart`), which already carries D3's Undo and P2y, correction 10's
+`qr_code`, and the Bill's half of B9.
+
+**Built, by section.**
+
+- Screen 1 (A1 · B1 · B4 · B7 · B9, decisions 4–7, 17–18): `orderStageHero`'s "wait" arm (PHASE3C D13
+  and DESIGN-LANGUAGE §32 amended; mutants `checkout-verb/wait-arm-dropped`,
+  `…/wait-offered-on-a-hostless-table`, `…/send-outranks-wait`). The wait block: the heading is the
+  ring + `pad.group.unsent`; row B is the shipped `hostSendsCopy` verbatim (no "Next:" — A1) with the
+  host's avatar (or the receipt disc for an unnamed host); "Let {host} know"; the hairline; row C, the
+  staff fallback (`staffCanSendCopy`); the ONE `.checkout-cta`, "Show a server" (`aria-haspopup`,
+  described by row C). The Total door is quiet; its "N items not sent yet" note is gone (decision 4).
+  Under a pay lock the nudge, row C and the verb hide (decision 18). A hostless table keeps the bill
+  door. `chosenName` (graft 3): the default "Guest" is never read as a person, everywhere the host's
+  name is spoken.
+- E1 (durable stamp): `20261008123000_pd1_send_nudge.sql` — `qr_carts.send_nudge_seat` /
+  `send_nudge_at`; `mms_nudge_host(cart, seat)` with every rule in the UPDATE's WHERE and a read-only
+  diagnosis on a miss (`closed · not_member · no_host · is_host · recent · no_cart · unknown`);
+  `mms_fire_cart` restated whole so the fire clears the stamp in the same statement (a fire that moves
+  nothing leaves it standing). `supabase/tests/pd1_send_nudge_test.sql` in CI's required list. The
+  action `lib/send-nudge.ts` (member-authorized; per-seat rate guard; `recent` = success with the
+  standing stamp; refusals returned, never thrown). `getCartView` reads the stamp ADVISORY.
+- Screen 2 (A2 · A3 · B2 · B3, D3 · D4): `ShowServerPass` — the Sheet as a full-screen dialog
+  (`.mms-sheet-full`) holding `CounterPass` (counter tier; a numberless table's code at the holder
+  tier, spelt); the status in the pass head as `KitchenTrack` and the dialog's one live region; the
+  dishes as `.pass-dish*` rows with the KDS qty grammar in pass inks; Done pinned. `lib/show-server.ts`:
+  `waitingDishes`, `passDishes` (the listed rows stay after they go; a late draft joins; a removed
+  row leaves), `showServerStatus` (waiting · sending · sent · none, read against the VIEW's
+  `serverNow`), `graceRereadDelayMs` (one re-read at the grace's end).
+- Screen 3 (A5 · B6 · B12, decisions 13–15): the host's waiting line above Send (`waitingLine`, the
+  waiting seat's avatar), Send described by it and the caption; the caption under Send and Undo;
+  the Send's label count-free. The /menu order bar on a shared cart: no capsule, no count in its name,
+  line 2 "Not sent yet" or — the host's, while a stamp stands — "Someone’s waiting"
+  (`lib/cart-bar-state.ts`; `CartBar`; the provider carries the stamp). ArrivalBeat needed no slot.
+
+**Waits on another stream / the owner.**
+
+- The migration is the OWNER's (one file, Supabase MCP `apply_migration`, after confirming
+  `fasnpdhtvqtzjlvruqcu`). Until it is applied, the advisory read answers 42703 and degrades to no
+  stamp, and every "Let {host} know" answers "That didn’t go through — please try again." — honest,
+  but a button that cannot succeed; apply it before or with the merge.
+- A8 (the console's hollow ring, Dad's pane grouping): counter-floor, with P2do.
+- Decision 16 (the host's name ask, once, when the party reaches two): not built; the role sentence
+  covers an unnamed host meanwhile.
+- `showServerStatus` derives the pass's stage itself; once kitchen-ops' `lib/kitchen-track.ts` lands
+  (round 3: one derivation for every surface) it should delegate.
+
+**Appendix C, taken / not.**
+
+- Taken: the nudge is never a toggle — the settled control is `aria-disabled`, described by the
+  confirmation, and a tap re-says it (C3); the radius-10 qty token is the KDS exception, in pass inks
+  (C5); the unbound pass keeps the holder's code tier (C6); "Table code" is listed English-only (C4).
+- Not taken: a larger dish-row tier on the pass (C8) — the rows use `--fs-h2` for both tongues; the
+  console adopting ပြန်ဖျက် (C1) — withdrawn by D2 anyway.
+
+**Decided under the owner's delegation (decided by: the diner-cart stream).**
+
+1. The nudge is offered only for a host the table can NAME (B7 over the body's role branch): "Let
+   them know" never ships, so it is neither a K15 row nor an English-only orphan.
+2. One stamp per cart: several waiting guests collapse to the latest nudger (the line names them, or
+   "Someone’s waiting" when the table cannot) — the column pair holds one seat, by design (E1).
+3. "Aye can see you’re waiting." follows the stamp, and both host surfaces where Send lives (/cart's
+   Order stage and /menu's bar) draw the waiting line whenever the stamp stands: the sentence claims
+   the line is there for the host, never that they read it. The host's Bill stage does not draw it
+   (a residual; the Bill's own unsent mark says the state).
+4. Inside the grace the pass reads round 3's "Sending…" with the dashed segment (the shared track),
+   not B3's "Not sent yet" — round 3 wins.
+5. The dialog's initial focus is the Sheet's own (its container, which announces "Show a server"),
+   not the figure: the primitive owns open-focus for every sheet, and the pass is named by its
+   heading ("Table 7") one step in.
+6. The pass's status is read against the view's server clock; an unknown clock (no view yet) reads a
+   line in its grace as "Sending…", never "Sent".
+7. The nudge's confirmation is said once through the view's one region, and the control stays
+   mounted (no focus to move).
+
+**Residuals filed.** The legacy-pin note on PD2's row; the host's Bill stage carries no waiting line.
