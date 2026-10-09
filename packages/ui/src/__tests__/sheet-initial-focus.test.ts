@@ -13,6 +13,7 @@ import { sheetInitialFocusTarget, type FocusContainer } from "../sheet-focus";
  * off the source, never grepped. Each MUTATION below was induced and watched go red:
  *   · the helper returns the ref regardless of containment → "a target outside the sheet" red;
  *   · a selector that matches nothing returns the first tabbable → "no match → container" red;
+ *   · the querySelector call unguarded → "a MALFORMED selector" red (the SyntaxError escapes);
  *   · `onOpen` focuses the container unconditionally → the wiring test red;
  *   · `onOpen` focuses the target without the helper → the wiring test red.
  */
@@ -59,6 +60,18 @@ describe("sheetInitialFocusTarget — the one decision", () => {
 
   it("a selector that matches nothing → the container, never the ✕", () => {
     expect(sheetInitialFocusTarget("input[type=search]", container([node("close")]))).toBeNull();
+  });
+
+  it("a MALFORMED selector (querySelector throws) → the container, never a throw out of onOpen", () => {
+    // Blind pass 2 on #329. MUTATION: no try/catch → the SyntaxError escapes the open-autofocus
+    // handler after its preventDefault(), and focus is left on <body>; red.
+    const throwing: FocusContainer = {
+      contains: () => true,
+      querySelector: () => {
+        throw new SyntaxError("'[[' is not a valid selector");
+      },
+    };
+    expect(sheetInitialFocusTarget("[[", throwing)).toBeNull();
   });
 
   it("before the sheet has a container there is nothing to focus", () => {

@@ -12,7 +12,7 @@
  *   · a target OUTSIDE the sheet is never focused. Radix traps focus inside the content; focusing a
  *     page node from inside the open-autofocus event would fight the trap and leave focus on <body>.
  *   · a selector that matches nothing falls back to the container, never to the first tabbable
- *     (the ✕ — exactly the W9e finding).
+ *     (the ✕ — exactly the W9e finding) — and so does one the browser cannot parse.
  */
 export type SheetInitialFocus = { current: Focusable | null } | string;
 
@@ -35,7 +35,15 @@ export function sheetInitialFocusTarget(
 ): Focusable | null {
   if (initialFocus === undefined || container === null) return null;
   if (typeof initialFocus === "string") {
-    const el = container.querySelector(initialFocus);
+    let el: unknown;
+    try {
+      el = container.querySelector(initialFocus);
+    } catch {
+      // Deliberate: a selector the browser cannot parse THROWS (a SyntaxError), and the caller's
+      // open-autofocus handler has already called `preventDefault()` — a throw here would leave
+      // focus on <body>. A selector that cannot match is one that matches nothing: the container.
+      return null;
+    }
     return focusable(el) ? el : null;
   }
   const el = initialFocus.current;

@@ -108,9 +108,12 @@ export function Sheet({
    * falls back to the container, never to the first tabbable.
    *
    * ⚠️ Never on a money sheet. The grocery Name sheet is the only caller, and
-   * `apps/qr/lib/sheet-initial-focus-callers.test.ts` PARSES every `<Sheet>` on disk to keep it
-   * that way: a cash sheet, Checkout or any settle door that passed this would put a diner's or
-   * Dad's first stop on a control the trap never announced.
+   * `apps/qr/lib/sheet-initial-focus-callers.test.ts` keeps it that way: it parses every source
+   * under the app's `components/`, `app/` and `lib/` and under this package's `src/`, finds every
+   * live `<Sheet>` (named, aliased, namespace-read, or imported by a deep or relative path that
+   * resolves here), and REFUSES what it cannot read — a spread, a `createElement(Sheet, …)`, a
+   * local alias, a re-export outside the barrel. A cash sheet, Checkout or any settle door that
+   * passed this would put a diner's or Dad's first stop on a control the trap never announced.
    */
   initialFocus?: SheetInitialFocus;
   /**

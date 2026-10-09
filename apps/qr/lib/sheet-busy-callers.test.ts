@@ -64,9 +64,30 @@ import ts from "typescript";
  */
 
 const COMPONENTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components");
-const readRaw = (rel: string) => readFileSync(path.join(COMPONENTS, rel), "utf8");
-const parse = (rel: string, text: string) =>
-  ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+/** Read and parse each file ONCE for the whole suite (blind pass 2 on #329: every sweep re-read and
+ *  re-parsed every component, and the timeouts were raised to a minute instead of the work cut). */
+const raw = new Map<string, string>();
+const readRaw = (rel: string) => {
+  let text = raw.get(rel);
+  if (text === undefined) {
+    text = readFileSync(path.join(COMPONENTS, rel), "utf8");
+    raw.set(rel, text);
+  }
+  return text;
+};
+const parsed = new Map<string, ts.SourceFile>();
+const parse = (rel: string, text: string) => {
+  const key = `${rel}\0${text}`;
+  let sf = parsed.get(key);
+  if (!sf) {
+    sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    parsed.set(key, sf);
+  }
+  return sf;
+};
+/** A sweep parses every component once (~185 files; all ~600 sources measured 1.4 s at load 8.5,
+ *  2026-10-09); the cache makes the later sweeps walks. Headroom for a loaded machine, not a minute. */
+const SWEEP_MS = 15_000;
 
 /**
  * Every component that renders the `Sheet` primitive, found on disk rather than listed by hand.
@@ -74,11 +95,13 @@ const parse = (rel: string, text: string) =>
  * Recursive, and `.tsx` only because a `Sheet` is JSX. The primitive itself lives in `packages/ui`
  * and is not swept — this is the caller side.
  */
+let components: string[] | null = null;
 function componentFiles(): string[] {
-  return readdirSync(COMPONENTS, { recursive: true })
+  components ??= readdirSync(COMPONENTS, { recursive: true })
     .map(String)
     .filter((f) => f.endsWith(".tsx") && !/\.test\.tsx?$/.test(f))
     .map((f) => f.split(path.sep).join("/"));
+  return components;
 }
 
 // ── the AST helpers ──────────────────────────────────────────────────────────────────────────────
@@ -637,12 +660,11 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     },
   );
 
-  // PD4 — the two on-disk sweeps below parse every component: a LOAD-dependent duration, so each
-  // carries its own timeout (vitest's 5 s default turned this green guard red under five streams'
-  // load on the shared machine, 2026-10-08).
+  // PD4 — the on-disk sweeps below walk every component: parsed ONCE per suite (the cache above), so
+  // the first carries a sweep-sized timeout and the rest are walks.
   it(
     "⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state",
-    { timeout: 60_000 },
+    { timeout: SWEEP_MS },
     () => {
       // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
       // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
@@ -681,7 +703,7 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
 
   it(
     "⚠️ the two lists ARE the Sheet callers — discovered, never transcribed",
-    { timeout: 60_000 },
+    { timeout: SWEEP_MS },
     () => {
       // Codex round 2, P2. The first version asserted `GUARDED.length + UNGUARDED.length === 11`,
       // which checks the two arrays against each other and nothing against the app: a twelfth caller
