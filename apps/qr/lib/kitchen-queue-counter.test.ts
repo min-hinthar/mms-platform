@@ -498,6 +498,10 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
   });
 
   it("a SATURATED carts leg — the session's carts at the cap — leaves every round UNKNOWN (G1; `kitchen/round-carts-saturation-ignored`)", async () => {
+    // The live cart answers FIRST, so its batch is seen; the table's round 1 sits on the one paid
+    // cart past the cap. Ranked over the partial list the live Send would read "Round 1" — a number
+    // the read cannot vouch for, so it must read unknown (the blind pass on #328: a fixture where
+    // the live cart fell past the cap could not tell this guard from the unseen-batch rule).
     const carts = Array.from({ length: 200 }, (_, i) => ({
       id: `cart-old-${i}`,
       session_id: "s4",
@@ -507,10 +511,19 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
     }));
     setupTable({
       carts: [
-        ...carts,
         { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+        ...carts,
       ],
-      lines: [dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })],
+      lines: [
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-4) }),
+        dine({
+          id: "p1",
+          cart_id: "cart-old-199",
+          fire_batch: B1,
+          fire_at: at(-3_000),
+          state: "served",
+        }),
+      ],
     });
     const t = await tickets();
     expect(t).toHaveLength(1);
@@ -541,11 +554,20 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
   it("a deployed ceiling BELOW the read's own cap is caught by the exact count (`kitchen/round-lines-truncation-ignored`)", async () => {
     // The dashboard's max_rows is not in this repo; at 300, 400 matching lines answer 300 — under
     // the cap, so only the count can tell the read was cut short.
+    // The live Send answers first and the table's round 1 (the OLDEST batch) falls past the cut, so
+    // ranked over what came back the live card would read "Round 2" of a visit where it is round 3 —
+    // a guessed number; and its batch IS seen, so only the count can refuse it (the blind pass on
+    // #328: a cut that dropped the live batch could not tell this guard from the unseen-batch rule).
     serverMaxRows = 300;
-    const served = Array.from({ length: 399 }, (_, i) =>
-      dine({ id: `s${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
+    const middle = Array.from({ length: 299 }, (_, i) =>
+      dine({ id: `m${i}`, state: "served", fire_batch: BT, fire_at: at(-100) }),
     );
-    setupTable({ lines: [...served, dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })] });
+    const oldest = Array.from({ length: 100 }, (_, i) =>
+      dine({ id: `o${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
+    );
+    setupTable({
+      lines: [dine({ id: "l3", fire_batch: B2, fire_at: at(-4) }), ...middle, ...oldest],
+    });
     const t = await tickets();
     expect(t[0]!.round).toEqual({ kind: "unknown" });
   });
