@@ -30,6 +30,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
   window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
 
+### M269 — an approve takes the cart lock before the line (2026-10-09, staff-authority, #337)
+
+- **The defect (filed by #333's last blind pass):** the approve arm of `mms_resolve_approval` locked
+  only the line and read the cart's status, pay lock and settle freeze through its snapshot. A cash
+  settle's freeze and `mms_fulfill_cash_order` update the cart row, and the fulfillment copies the
+  lines without a line lock. So an approve racing the settle could record an approved void on a dish
+  the order charged.
+- **The fix:** `20261009120100_m269_approve_cart_lock.sql` restates M184's function with one lock. An
+  approve takes the line's cart `FOR SHARE` before the request and the line (the Clear's and the
+  merge's order), then reads the cart's freshness. Deny and close are unchanged; there is no new
+  answer and no TS change. It is NOT applied: one file, after M184.
+- **Proof:** `verify-counter-fire-race.mjs` gains (k) approve-before-settle and (k2)
+  settle-before-approve, with two `m269/*` mutants caught. (i2) now takes M269's first two locks, and
+  `p2f/clear-counter-approvals-lock-dropped` becomes a documented survivor there, checked green on
+  every order. `supabase/tests/m269_approve_cart_lock_test.sql` (M269.1–4) is in ci.yml.
+  `verify-mode-authority` gains suite `m269` (three killed, two documented lock survivors), and
+  M184's resolve mutants now patch M269's text.
+
 ### PD8 — a dish needs a manager: the flag only where a decision is made, and payment never blocked (2026-10-08, staff-authority)
 
 - **The spec:** `docs/path-design-2026-10-07/m8-manager-approval.md` (PATH_DESIGN decision 4; round 3 D2 ·

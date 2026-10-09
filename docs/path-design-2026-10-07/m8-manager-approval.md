@@ -1218,3 +1218,10 @@ questions were answered in the build:
 - `listApprovers` exposing `hasPin`: kept. It is a boolean per manager or owner, read only by a
   `requireStaff()` caller, and it is exactly what the slip needs to list only who can sign
   (decision 8); no PIN material leaves the server.
+
+**M269 (#337, stacked on #333; decided under the owner's delegation, 2026-10-09).** The approve arm now
+takes the line's cart `FOR SHARE` before the request and the line, and reads the cart's freshness after
+it (`20261009120100_m269_approve_cart_lock.sql`, its own migration, applied after M184). So an approve
+and a settle door are ordered at the cart. Either the door's freeze waits and its totals omit the voided
+dish, or the approve waits on the settle and refuses (`not_open` once paid, `in_flight` while
+frozen); the dish then stays charged and the request stays open to close.
