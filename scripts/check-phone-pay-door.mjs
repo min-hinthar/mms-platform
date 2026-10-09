@@ -133,24 +133,33 @@ if (!doorIf)
   );
 const branch = doorIf.thenStatement;
 const branchStmts = ts.isBlock(branch) ? branch.statements : [branch];
-const returns = branchStmts.some((s) => ts.isReturnStatement(s));
-if (!returns)
+const returnAt = branchStmts.findIndex((s) => ts.isReturnStatement(s));
+if (returnAt < 0)
   fail(
     "the parked-door branch does not RETURN.\n  " +
       "A refusal that falls through still mints. The branch must end in `return NextResponse.json(…)`.",
   );
-const freesLock = branchStmts.some(
+const freeAt = branchStmts.findIndex(
   (s) =>
     ts.isExpressionStatement(s) &&
     ts.isAwaitExpression(s.expression) &&
     ts.isCallExpression(s.expression.expression) &&
     isNamedCall(s.expression.expression, "freeLock"),
 );
-if (!freesLock)
+if (freeAt < 0)
   fail(
     "the parked-door branch does not `await freeLock()`.\n  " +
       "Every pre-mint refusal gives the lock back under its own era (M153); a parked door that\n  " +
       "forgets to strands the table for the whole CART_LOCK_TTL_MS on a checkout it just refused.",
+  );
+// The blind pass on #331 — ORDER, not presence: `{ return …; await freeLock(); }` contains both and
+// releases nothing (the statement after a return is dead). The awaited release is a statement that
+// finishes BEFORE the return statement begins.
+if (freeAt > returnAt)
+  fail(
+    "the parked-door branch RETURNS before it `await freeLock()`s.\n  " +
+      "The release sits after the return, so it never runs: the refusal strands the table under its\n  " +
+      "lock for the whole CART_LOCK_TTL_MS. Await the release, then return.",
   );
 
 // ── rule 2: AFTER the supersede has finished — awaited, in a statement that ends first ───────────
