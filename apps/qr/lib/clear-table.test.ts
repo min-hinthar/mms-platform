@@ -134,6 +134,9 @@ describe("clearHint — the paid card's quiet 'Clear when they leave'", () => {
   it("a paid, finished table the floor can vouch for", () => {
     expect(clearHint(GO)).toBe(true);
     expect(clearHint({ ...GO, refundState: null })).toBe(true);
+    // A null kitchen is the fold's "nothing in the kitchen" (known), never "unknown".
+    // MUTATION clear-hint/null-kitchen-unknown → a finished table never shows the hint; red.
+    expect(clearHint({ ...GO, kitchen: null })).toBe(true);
   });
   it("never an ordering, refunded, tabbed, re-ordering, still-eating or unknown table", () => {
     // MUTATION clear-hint/any-status → red.
@@ -152,6 +155,6 @@ describe("clearHint — the paid card's quiet 'Clear when they leave'", () => {
     expect(clearHint({ ...GO, kitchen: { notSent: 1, inKitchen: 0, up: 0 } })).toBe(false);
     // MUTATION clear-hint/unknown-kitchen-goes → red.
     expect(clearHint({ ...GO, kitchenUnknown: true })).toBe(false);
-    expect(clearHint({ ...GO, kitchen: null })).toBe(false);
+    expect(clearHint({ ...GO, kitchen: null, kitchenUnknown: true })).toBe(false);
   });
 });

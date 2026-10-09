@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { renderToString } from "react-dom/server";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CLEAR_UNDO_MS } from "@/lib/clear-window";
 import { PANE_QUERY, handoffStashKey, stashHandoff } from "@/lib/floor-pane";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { STAFF_HANG_MS, outstanding, youngWrite } from "@/lib/bounded-write";
@@ -24,6 +25,18 @@ const getTableDetail = vi.fn((id: string) => (answers[id] ?? (() => new Promise(
 vi.mock("@/lib/floor", () => ({
   getTableDetail: (id: string) => getTableDetail(id),
   clearTable: (...a: unknown[]) => clearTable(...(a as [])),
+  // PD7 — a table's Clear takes a fresh look first; nothing sent → the six-second window.
+  getClearPreview: () =>
+    Promise.resolve({
+      kind: "preview",
+      preview: {
+        seenAt: "2026-10-09T18:00:00Z",
+        sent: [],
+        lossCents: 0,
+        units: 0,
+        droppedUnits: 0,
+      },
+    }),
   getMergeCandidates: (...a: unknown[]) => getMergeCandidates(...(a as [])),
   mergeTables: (...a: unknown[]) => mergeTables(...(a as [])),
 }));
@@ -221,6 +234,13 @@ const tree = (props: Parameters<typeof Floor>[0] = {}) => (
 );
 const mount = (props: Parameters<typeof Floor>[0] = {}) => render(tree(props));
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+/** PD7 — focus arrives the TAP way (never `:focus-visible`), as a finger's would in a browser. */
+function tapFocus() {
+  const real = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, sel: string) {
+    return sel === ":focus-visible" ? false : real.call(this, sel);
+  });
+}
 const card = (id: string) =>
   document.querySelector<HTMLAnchorElement>(`.floor-card[data-session-id="${id}"]`)!;
 const paneHeading = () => document.getElementById("table-pane-h")!;
@@ -445,14 +465,15 @@ describe("TablePane — closing", () => {
     await tick(0);
     await tap(card(A));
     await tick(0);
-    fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
-    const confirm = within(pane())
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes(ts("en", "settle.confirm")))!;
+    // PD7 — the look, then the six-second window (nothing written until it closes). A TAP's focus:
+    // jsdom matches `:focus-visible` on any focused element, which would hold the window.
+    tapFocus();
     await act(async () => {
-      fireEvent.click(confirm);
+      fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
     });
+    await tick(CLEAR_UNDO_MS + 500);
     await tick(0);
+    expect(clearTable).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(document.getElementById("floor-h"));
   });
@@ -1294,13 +1315,13 @@ describe("TablePane — a Clear or Merge that answers after a switch", () => {
     await tick(0);
     await tap(card(A));
     await tick(0);
-    fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
-    const confirm = within(pane())
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes(ts("en", "settle.confirm")))!;
+    // PD7 — the look, then the window closes and the clear goes out (and hangs).
+    tapFocus();
     await act(async () => {
-      fireEvent.click(confirm);
+      fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
     });
+    await tick(CLEAR_UNDO_MS + 500);
+    expect(clearTable).toHaveBeenCalledTimes(1);
     await tap(card(B));
     await tick(0);
     backSpy.mockClear();

@@ -1,20 +1,28 @@
 "use client";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { openRegisterOrder, type OpenRegisterResult } from "@/lib/register";
 import { boundWrite } from "@/lib/bounded-write";
 import { haptic } from "@/lib/haptics";
-import type { StaffKey } from "@/lib/i18n/staff";
 import { useTablePane } from "./TablePaneContext";
+import {
+  CounterMintCtx,
+  type CounterMint,
+  type MintCallbacks,
+  type MintId,
+  type MintInput,
+  type MintReservation,
+} from "./CounterMintContext";
+
+export type {
+  CounterMint,
+  MintCallbacks,
+  MintId,
+  MintInput,
+  MintNotice,
+  MintReservation,
+} from "./CounterMintContext";
+export { useCounterMint, useOptionalCounterMint } from "./CounterMintContext";
 
 /**
  * Phase 2d · floor — THE ONE MINT LOCK PER SCREEN.
@@ -86,50 +94,6 @@ import { useTablePane } from "./TablePaneContext";
  * `useCounterMint` THROWS outside the provider on purpose: a forgotten provider would otherwise
  * split the lock silently, which is the defect this module exists to remove.
  */
-export type MintId = "walkup" | "phone" | `table-${number}`;
-
-export type MintInput =
-  | { kind: "walkup" }
-  | { kind: "phone"; customerName?: string }
-  | { kind: "table"; tableNumber: number };
-
-/** What a refused or unanswered mint says, and who authored it: a dictionary key (<Chrome>), or a
- *  server sentence (<OutageText>, which swaps the one twin that exists). Structurally `StaffMsg`. */
-export type MintNotice = { k: StaffKey } | string;
-
-type CounterMint = {
-  /** Which control is minting (or has landed and is waiting on the route swap), or null. */
-  minting: MintId | null;
-  /** Every mint control on the screen says `aria-disabled` while this is true — a start in flight
-   *  or landed — and navigation off the screen (an occupied tile) is held with it. */
-  held: boolean;
-  /** Phase 2h — `held`, or a start still unanswered past the bound (`waiting`): every START control
-   *  says `aria-disabled` (a tap is refused at the tap and said with the waiting line). Navigation
-   *  is NOT held by a wait — a late landing never pushes over a screen that left (`mounted`). */
-  startHeld: boolean;
-  /** Phase 2h — the start still unanswered past STAFF_HANG_MS (its late answer not in yet), or null.
-   *  The zone that started it offers the reload beside its region while this names one of its own. */
-  waiting: MintId | null;
-  /** The tap-time guard. Read it in a handler, never in render. */
-  isBusy: () => boolean;
-  /** Start one order — the ONE place a start is admitted: a no-op while another start is in flight
-   *  or has landed. `onStart` runs only for a start that goes, BEFORE the server is asked, so a
-   *  caller's "a new tap" work (clearing its notice) can never erase that start's own answer. */
-  run: (id: MintId, input: MintInput, to: MintCallbacks) => void;
-};
-
-export type MintCallbacks = {
-  /** The start was admitted (and nothing has been said about it yet). */
-  onStart: () => void;
-  /** The start was refused, or its answer never came — say this in the caller's region. */
-  onRefusal: (n: MintNotice) => void;
-  /** Phase 2h — the start's LATE answer landed as a start: the waiting line is no longer true, so
-   *  the caller clears it (a late refusal or a lost answer arrives through `onRefusal` instead).
-   *  Both zones pass it; optional only for a caller with no region of its own. */
-  onResolved?: () => void;
-};
-
-const Ctx = createContext<CounterMint | null>(null);
 
 /** Where a landed mint goes: a NEW session to its add screen, a converged one to its own page. */
 export function mintLanding(sessionId: string, created: boolean): string {
@@ -165,17 +129,16 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
     paneNow.current = pane;
   });
 
-  const run = useCallback(
-    (id: MintId, input: MintInput, { onStart, onRefusal, onResolved }: MintCallbacks) => {
-      if (inFlight.current !== null) return;
-      // Phase 2h (D3) — a start still unanswered past the bound holds every other (docblock):
-      // refused AT THE TAP, never sent, and said with the same waiting line.
-      if (waitingRef.current !== null) {
-        onRefusal({ k: "floor.mint.waiting" });
-        return;
-      }
-      inFlight.current = id;
-      setMinting(id);
+  /** A start ADMITTED under `id` (the lock already held — by `run` at the tap, or by a
+   *  reservation): ask the server, land, re-arm. `inPane` (a reservation's start) opens a NEW
+   *  session in the pane at split width too, never a route off the counter home (correction 6). */
+  const startAdmitted = useCallback(
+    (
+      id: MintId,
+      input: MintInput,
+      { onStart, onRefusal, onResolved }: MintCallbacks,
+      inPane = false,
+    ) => {
       // What the pane showed when the person tapped — the landing's "did they move it" baseline.
       const pickedAtTap = paneNow.current?.selectedId ?? null;
       const genAtTap = paneNow.current?.selectionGen ?? 0;
@@ -201,7 +164,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         }
         const hint =
           input.kind === "table" ? { counter: false, display: String(input.tableNumber) } : null;
-        if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {
+        if ((inPane || !r.created) && hint && pane?.openSession(r.sessionId, hint)) {
           // Re-armed: the screen stays (no route swap will unmount it).
           return false;
         }
@@ -265,6 +228,49 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
     [router, pane],
   );
 
+  const run = useCallback(
+    (id: MintId, input: MintInput, to: MintCallbacks) => {
+      if (inFlight.current !== null) return;
+      // Phase 2h (D3) — a start still unanswered past the bound holds every other (docblock):
+      // refused AT THE TAP, never sent, and said with the same waiting line.
+      if (waitingRef.current !== null) {
+        to.onRefusal({ k: "floor.mint.waiting" });
+        return;
+      }
+      inFlight.current = id;
+      setMinting(id);
+      startAdmitted(id, input, to);
+    },
+    [startAdmitted],
+  );
+
+  const reserve = useCallback(
+    (id: MintId): MintReservation | null => {
+      // Correction 5 — the hold checked FIRST: any start in flight, landed or unanswered refuses.
+      if (inFlight.current !== null || waitingRef.current !== null) return null;
+      // Correction 9 — taken NOW, so no Walk-up or table start can slip in before the clear answers.
+      inFlight.current = id;
+      setMinting(id);
+      let spent = false;
+      return {
+        go: (input, to) => {
+          if (spent) return;
+          spent = true;
+          startAdmitted(id, input, to, true);
+        },
+        release: () => {
+          if (spent) return;
+          spent = true;
+          if (inFlight.current === id) {
+            inFlight.current = null;
+            setMinting(null);
+          }
+        },
+      };
+    },
+    [startAdmitted],
+  );
+
   const value: CounterMint = {
     minting,
     held: minting !== null,
@@ -272,15 +278,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
     waiting,
     isBusy,
     run,
+    reserve,
   };
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
-}
-
-export function useCounterMint(): CounterMint {
-  const v = useContext(Ctx);
-  if (v === null)
-    throw new Error(
-      "useCounterMint outside <CounterMintProvider> — every mint control on a screen must share one lock",
-    );
-  return v;
+  return <CounterMintCtx.Provider value={value}>{children}</CounterMintCtx.Provider>;
 }

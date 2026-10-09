@@ -1,12 +1,37 @@
 "use client";
-import { useEffect, useId, useReducer, useRef, useState, type CSSProperties } from "react";
-import { clearTable } from "@/lib/floor";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { Button, matchesFocusVisible } from "@mms/ui";
+import { clearTable, getClearPreview } from "@/lib/floor";
+import { boundRead, boundWrite, stalledSince } from "@/lib/bounded-write";
 import { dropHandoffStash } from "@/lib/floor-pane";
 import { useTableNav } from "./TableNav";
-import { tf } from "@/lib/i18n/fill";
+import { plural, tf } from "@/lib/i18n/fill";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+// ── PD7 · M182 ──
+import { clearIsLoss, clearRefusalSays, type ClearPreview } from "@/lib/clear-table";
+import {
+  CLEAR_ARM_MS,
+  clearWindowLeftMs,
+  clearWindowStale,
+  type ClearWatch,
+} from "@/lib/clear-window";
+import { capRelease, holdCapPhase, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
+import type { StaffKeyMsg } from "@/lib/staff-send-view";
+import type { ClearTableResult } from "@/lib/floor-types";
+import { useOptionalCounterMint, type MintReservation } from "./CounterMintContext";
+import { useTurnoverNews } from "./TurnoverNews";
+import { padDishName } from "@/lib/order-pad";
+import { SealEcho } from "./HandoffCard";
+import type { FocusEvent } from "react";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
 
@@ -30,14 +55,51 @@ import { ReloadButton } from "./ReloadOffer";
  * while THIS clear waits re-says its own waiting line as a new node (announced again), never a dead
  * tap and never "this did nothing", which would drop "don't clear it again".
  */
+/*
+ * PD7 · M182 (m7 "Turn Signals", ruling #6) — a TABLE's clear is no longer a confirm. The tap takes a
+ * FRESH LOOK (`getClearPreview`, the database's own read of what the kitchen has — Codex correction
+ * 11: an unknown read clears NOTHING and says "couldn't check"). Nothing sent → straight into the
+ * six-second window, "Clearing Table N" (§22 undo over confirm). Food SENT and unpaid → the LOSS
+ * SLIP first: the dishes, their menu price, and "Did Table N pay?" — Take cash (the pane's ONE till,
+ * opened through its own trigger) or "No — they left without paying", which reveals what the clear
+ * records and the one danger commit ("Clear · $41.00 loss"), armed after the lane's 400 ms; the
+ * commit opens the same window. The window writes nothing until it closes: Undo, a table that moved
+ * under it (a join, a changed order, a payment starting), or this control unmounting all drop it —
+ * the safe direction (m7 B9's alternative; the floor-card in-slot window is a named follow-up).
+ * "Seat next party" reserves the screen's ONE mint lock at the tap (refused, out loud, when it is
+ * held — corrections 5 · 9), sends the clear at once, and starts the next party only on its ok, in
+ * the pane at split width (correction 6); a refused clear hands the lock back. The outcome is said
+ * on the FLOOR (`TurnoverNews`, m7 B10): the pane leaves with the table. A COUNTER order keeps the
+ * two-step confirm below ("They didn't come" is its loss exit).
+ */
 export function ClearTableButton({
   sessionId,
   label,
   paymentInFlight,
+  counterOrder = false,
+  tableNumber = null,
+  watch,
+  onSlip,
+  onTakeCash,
+  headingLevel = 3,
 }: {
   sessionId: string;
   label: string;
   paymentInFlight: boolean;
+  /** A counter order: the two-step confirm and `mms_clear_counter_cart` (no look, no window). */
+  counterOrder?: boolean;
+  /** The table's registered number — "Seat next party" needs one (an unregistered sticker has none). */
+  tableNumber?: number | null;
+  /** What the window watches on the table (the detail's members, lines, payment state). */
+  watch?: ClearWatch;
+  /** The loss slip is armed (true) or gone (false): the page demotes its settle trigger while it
+   *  is, so one hero verb stands per state (m7 B12). */
+  onSlip?: (armed: boolean) => void;
+  /** The slip's "Take cash" door: the pane's ONE till, opened through its own trigger (m7 B3).
+   *  Absent where that till is not offered — the door is not drawn. */
+  onTakeCash?: () => void;
+  /** The slip heading's level: the settle section's own (the page's h2, the pane's h3). */
+  headingLevel?: 2 | 3;
 }) {
   const lang = useStaffLang();
   // Phase 2d · split — the exit is the page's or the pane's (`TableNav`), bound once.
@@ -66,6 +128,34 @@ export function ClearTableButton({
       alive.current = false;
     };
   }, []);
+  // ── PD7 · the table path ──
+  // `checking` — the fresh look is out; `slip` — a loss look, the fork asked (`walkout`: "No" taken);
+  // `window` — the six seconds (`startedAt`, the watch at open); `committing` — the clear was sent.
+  type TablePhase =
+    | { k: "rest" }
+    | { k: "checking" }
+    | { k: "slip"; look: ClearPreview; walkout: boolean; at: number }
+    | { k: "window"; look: ClearPreview; startedAt: number; watchAtOpen: ClearWatch | null }
+    | { k: "committing" };
+  const [phase, setPhase] = useState<TablePhase>({ k: "rest" });
+  // A refusal or a check, in the dictionary's words (a Burmese console reads them).
+  const [notice, setNotice] = useState<StaffKeyMsg | null>(null);
+  const [hold, setHold] = useState<Hold>(NO_HOLD);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [dropped, setDropped] = useState(0);
+  const mint = useOptionalCounterMint();
+  const news = useTurnoverNews();
+  // The window's one commit: a ref, so the interval and a Seat next tap can never send it twice.
+  const windowSent = useRef(false);
+  // The window's own focus move onto Undo, and whether the tap that opened it was a keyboard's.
+  const programmaticFocus = useRef(false);
+  const kbAtOpen = useRef(false);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const slipHeadRef = useRef<HTMLHeadingElement>(null);
+  const windowId = useId();
+  const warnId = useId();
+  const slipHeadId = useId();
+  const slipBodyId = useId();
   const midPaymentId = useId();
   const alertId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -98,11 +188,19 @@ export function ClearTableButton({
     nav.toFloor("cleared");
   }
 
-  async function confirm() {
+  /**
+   * The clear itself, bounded — ONE commit for both paths. A counter order sends no look (its own
+   * SQL decides, `mms_clear_counter_cart`); a TABLE sends the look the staff member was shown
+   * (`look`, PD7 · M182) and may carry the next party's reserved mint (`seat`), released whenever
+   * the clear does not land.
+   */
+  async function confirm(look: ClearPreview | null = null, seat: MintReservation | null = null) {
     if (inFlight.current) return;
     // 9d — read AT THE TAP: sent now, the clear would queue behind the stuck action and land
     // whenever it releases. Nothing is sent; the confirm step stays open for Cancel.
     if (stalledSince() !== null) {
+      seat?.release();
+      if (look) setPhase({ k: "rest" });
       setStalled(true);
       resay();
       return;
@@ -113,19 +211,25 @@ export function ClearTableButton({
     setError(null);
     setSentRefused(false);
     setUnanswered(null);
+    if (look) setPhase({ k: "committing" });
+    const answer = (res: ClearTableResult) => (look ? landTable(res, seat) : land(res));
     let left = false;
     // Still out at the bound: the guard stays spent until the late answer lands (docblock, D3).
     let outstanding = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
-      const out = await boundWrite(clearTable({ sessionId }));
+      const out = await boundWrite(
+        clearTable(look ? { sessionId, expect: expectOf(look) } : { sessionId }),
+      );
       if (out.kind === "answer") {
         left = out.value.ok; // a cleared table is leaving: stay busy until the swap
-        land(out.value);
+        answer(out.value);
         return;
       }
       setConfirming(false); // the effect returns focus to the trigger, beside the line
+      if (look) setPhase({ k: "rest" });
       if (out.kind === "threw") {
+        seat?.release();
         console.error("[ClearTableButton] clear unconfirmed", out.error);
         setUnanswered("unknown");
         return;
@@ -133,12 +237,19 @@ export function ClearTableButton({
       setUnanswered("waiting");
       outstanding = true;
       void out.late.then((late) => {
-        // A detail that is gone has nothing to leave or say; a late clear is seen on the floor.
-        if (!alive.current) return;
+        // A detail that is gone has nothing to leave or say (a late clear is seen on the floor),
+        // and starts no next party over wherever the person went.
+        if (!alive.current) {
+          seat?.release();
+          return;
+        }
         // The answer is in: a refusal or a lost answer frees the guard; a clear leaves the table.
         if (late.kind !== "answer" || !late.value.ok) inFlight.current = false;
-        if (late.kind === "answer") land(late.value);
-        else setUnanswered("unknown");
+        if (late.kind === "answer") answer(late.value);
+        else {
+          seat?.release();
+          setUnanswered("unknown");
+        }
       });
     } finally {
       // Busy frees AT THE BOUND (fact 3) — unless the table is leaving under this control; the
@@ -149,6 +260,404 @@ export function ClearTableButton({
       }
     }
   }
+
+  // ── PD7 · the table path ───────────────────────────────────────────────────────────────────
+
+  /** The trigger's tap on a TABLE: the fresh look decides slip, window, or "couldn't check". */
+  async function look() {
+    if (inFlight.current) {
+      // C6 — its own clear still waits: re-say "no answer yet — don't clear it again".
+      if (unanswered === "waiting") resay();
+      return;
+    }
+    if (phase.k !== "rest") return;
+    setNotice(null);
+    setError(null);
+    setUnanswered(null);
+    setStalled(false);
+    setPhase({ k: "checking" });
+    const out = await boundRead(getClearPreview({ sessionId }));
+    if (!alive.current) return;
+    const r = out.kind === "answer" ? out.value : null;
+    if (r === null || r.kind === "unknown") {
+      // Correction 11 — an unknown kitchen read is NEVER a no-loss clear: nothing is cleared.
+      if (out.kind === "threw") console.error("[ClearTableButton] the look failed", out.error);
+      setPhase({ k: "rest" });
+      setNotice({ k: "settle.clear.checkFailed" });
+      resay();
+      return;
+    }
+    if (r.kind === "closed") {
+      setPhase({ k: "rest" });
+      setNotice({ k: "settle.clear.gone" });
+      resay();
+      return;
+    }
+    if (r.kind === "counter") {
+      // A counter order reached this path (the page's flag was a read old): its own confirm.
+      setPhase({ k: "rest" });
+      setConfirming(true);
+      return;
+    }
+    if (clearIsLoss(r.preview)) {
+      setPhase({ k: "slip", look: r.preview, walkout: false, at: Date.now() });
+      return;
+    }
+    openWindow(r.preview);
+  }
+
+  function openWindow(p: ClearPreview) {
+    // Whether the control that opened the window was reached the KEYBOARD way: only then does the
+    // window's own move of focus onto Undo hold it (a tap's script focus never does — undo-hold).
+    const opener = document.activeElement;
+    kbAtOpen.current = opener instanceof HTMLElement && matchesFocusVisible(opener);
+    windowSent.current = false;
+    setHold(NO_HOLD);
+    const at = Date.now();
+    setNowMs(at);
+    setPhase({ k: "window", look: p, startedAt: at, watchAtOpen: watch ?? null });
+  }
+
+  /** Back to rest, nothing written; focus to the trigger (never <body>). */
+  function backToRest(say: StaffKeyMsg | null = null) {
+    setPhase({ k: "rest" });
+    setHold(NO_HOLD);
+    setNotice(say);
+    if (say) resay();
+    queueMicrotask(() => triggerRef.current?.focus());
+  }
+
+  /** Correction 5 · 9 — "Seat next party": the mint lock reserved FIRST (refused out loud when it is
+   *  held, the table and its window as they were), then the clear sent now. */
+  function seatNext(p: ClearPreview) {
+    if (windowSent.current || !mint || tableNumber === null) return;
+    const seat = mint.reserve(`table-${tableNumber}`);
+    if (seat === null) {
+      setNotice({ k: "floor.mint.waiting" });
+      resay();
+      return;
+    }
+    windowSent.current = true;
+    void confirm(p, seat);
+  }
+
+  /** The clear's answer: a refusal in the dictionary's words, or the turn — said on the FLOOR. */
+  function landTable(res: ClearTableResult, seat: MintReservation | null) {
+    if (!res.ok) {
+      seat?.release();
+      setPhase({ k: "rest" });
+      setUnanswered(null);
+      if (res.code === "unreadable") {
+        setUnanswered("unknown");
+        return;
+      }
+      if (res.code !== undefined && res.code !== "sent") {
+        setNotice({ k: clearRefusalSays(res.code).k, vars: { id: label } });
+        resay();
+        return;
+      }
+      setError(res.error);
+      return;
+    }
+    dropHandoffStash(sessionId);
+    const dishes = res.dishes ?? 0;
+    news?.say(
+      dishes > 0
+        ? {
+            k: plural(dishes, "settle.clear.freeLoss.one", "settle.clear.freeLoss.many"),
+            vars: { id: label, n: dishes },
+          }
+        : { k: "settle.clear.free", vars: { id: label } },
+    );
+    if (seat && tableNumber !== null) {
+      // The next party starts only now (a start before the close would find the OLD session), and
+      // lands in the pane at split width — the floor's bell stays live (correction 6).
+      seat.go(
+        { kind: "table", tableNumber },
+        {
+          onStart: () => {},
+          onRefusal: (n) => {
+            // The table IS clear; the seat did not happen (or its answer is not in). Said out loud
+            // on the floor, with the way to start the party by hand (correction 9).
+            news?.say(
+              typeof n !== "string" &&
+                (n.k === "floor.mint.waiting" || n.k === "floor.mint.unknown")
+                ? { k: n.k }
+                : { k: "settle.clear.seatFailed", vars: { id: label } },
+              "warn",
+            );
+            nav.toFloor("cleared");
+          },
+        },
+      );
+      return;
+    }
+    nav.toFloor("cleared");
+  }
+
+  // The slip is armed: the page demotes its settle trigger (one hero verb per state — m7 B12).
+  const slipArmed = phase.k === "slip";
+  useEffect(() => {
+    onSlip?.(slipArmed);
+  }, [slipArmed, onSlip]);
+  useEffect(() => () => onSlip?.(false), [onSlip]);
+  // Focus follows the step: the slip's heading when it opens, Undo when the window opens.
+  useEffect(() => {
+    if (phase.k === "slip" && !phase.walkout) slipHeadRef.current?.focus();
+  }, [phase.k]); // eslint-disable-line react-hooks/exhaustive-deps -- the step, not its fields
+  useEffect(() => {
+    if (phase.k !== "window") return;
+    programmaticFocus.current = true;
+    undoRef.current?.focus();
+    programmaticFocus.current = false;
+  }, [phase.k]);
+
+  // The window's clock: a short tick re-renders the seconds leaf, and the TICK commits when the
+  // window runs out with nothing holding it — an event, never an effect body (one commit: the
+  // `windowSent` ref, also spent by Undo, Seat next and a drop).
+  const win = phase.k === "window" ? phase : null;
+  const holdRef = useRef(hold);
+  const commitRef = useRef(confirm);
+  useLayoutEffect(() => {
+    holdRef.current = hold;
+    commitRef.current = confirm;
+  });
+  useEffect(() => {
+    if (!win) return;
+    // The controls arm at exactly the lane's 400 ms (never a tick late).
+    const arm = setTimeout(() => setNowMs(Date.now()), CLEAR_ARM_MS);
+    const id = setInterval(() => {
+      const now = Date.now();
+      setNowMs(now);
+      if (windowSent.current || holdRef.current.sources.size > 0) return;
+      if (clearWindowLeftMs(win.startedAt, holdRef.current, now) > 0) return;
+      windowSent.current = true;
+      void commitRef.current(win.look, null);
+    }, 250);
+    return () => {
+      clearTimeout(arm);
+      clearInterval(id);
+    };
+  }, [win]);
+  const holdPhase = win ? holdCapPhase(hold, nowMs) : "none";
+  if (win && holdPhase === "release") setHold(capRelease(hold, nowMs));
+  const leftMs = win ? clearWindowLeftMs(win.startedAt, hold, nowMs) : 0;
+  const armed = win !== null && nowMs - win.startedAt >= CLEAR_ARM_MS;
+  // A table that moved under the window — a join, a changed order, a payment starting — drops it on
+  // the spot, in the render that sees it (React's guarded set-during-render): nothing was sent, and
+  // the server would refuse the same on its own (`p_seen_at`, the set compare, the money mutex).
+  const stale =
+    win && win.watchAtOpen && watch
+      ? clearWindowStale(win.watchAtOpen, { ...watch, paying: paymentInFlight })
+      : null;
+  if (win && stale !== null) {
+    setPhase({ k: "rest" });
+    setHold(NO_HOLD);
+    setNotice(
+      stale === "paying"
+        ? { k: "settle.clear.midPayment" }
+        : stale === "joined"
+          ? { k: "settle.clear.joined", vars: { id: label } }
+          : { k: "table.noshow.err.changed" },
+    );
+    resay();
+    setDropped((n) => n + 1);
+  }
+  // A dropped window hands focus back to the trigger (never <body>).
+  useEffect(() => {
+    if (dropped > 0) triggerRef.current?.focus();
+  }, [dropped]);
+
+  // A focus that is `:focus-visible` holds the window (a touch never does — undo-hold's rule).
+  const holdOn = (e: FocusEvent<HTMLButtonElement>) => {
+    const keyboard = programmaticFocus.current
+      ? kbAtOpen.current
+      : matchesFocusVisible(e.currentTarget);
+    if (keyboard) setHold((h) => setHeld(h, "slot", true, Date.now()));
+  };
+  const holdOff = () => setHold((h) => setHeld(h, "slot", false, Date.now()));
+  // The slip's commit arms the lane's 400 ms after "No" is taken (a double tap never commits).
+  const slip = phase.k === "slip" ? phase : null;
+  const SlipH = headingLevel === 2 ? "h2" : "h3";
+  useEffect(() => {
+    if (!slip?.walkout) return;
+    const id = setTimeout(() => setNowMs(Date.now()), CLEAR_ARM_MS);
+    return () => clearTimeout(id);
+  }, [slip?.walkout, slip?.at]);
+  const commitArmed = slip !== null && slip.walkout && nowMs - slip.at >= CLEAR_ARM_MS;
+  const committing = phase.k === "committing";
+
+  const tableStep = slip ? (
+    // ── the LOSS SLIP (m7 screen 2) — only after Clear was reached for, only with food SENT ──
+    <section className="clear-slip" aria-labelledby={slipHeadId}>
+      <SlipH id={slipHeadId} ref={slipHeadRef} tabIndex={-1} className="clear-slip-h">
+        {/* The ONE loss mark: an outline diamond, decorative (the heading says the word). */}
+        <span className="clear-slip-mark" aria-hidden />
+        <Chrome lang={lang} k="settle.clear.loss.head" echo={false} />
+        <SealEcho lang={lang} k="settle.clear.loss.head" className="clear-slip-echo" />
+      </SlipH>
+      <p className="clear-slip-sub">
+        <Chrome lang={lang} k="settle.clear.loss.sent" echo="inline" />
+      </p>
+      <ul
+        role="list"
+        aria-label={tf(lang, "settle.clear.loss.sent", {})}
+        className="clear-slip-list"
+      >
+        {slip.look.sent.map((l) => {
+          const n = padDishName(lang, l.name, l.nameMy);
+          return (
+            <li key={l.id}>
+              <span className="staff-qty">{l.qty}×</span>
+              <span lang={n.lead.lang}>{n.lead.text}</span>
+              {n.echo && (
+                <span className="chrome-en" lang={n.echo.lang}>
+                  {n.echo.text}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {slip.look.droppedUnits > 0 && (
+        <p className="clear-slip-drafts">
+          <Chrome
+            lang={lang}
+            k={plural(
+              slip.look.droppedUnits,
+              "table.noshow.body.drafts.one",
+              "table.noshow.body.drafts.many",
+            )}
+            vars={{ n: slip.look.droppedUnits }}
+            echo="stack"
+          />
+        </p>
+      )}
+      <dl className="clear-slip-total">
+        <dt>
+          <Chrome lang={lang} k="settle.clear.loss.total" echo="stack" />
+        </dt>
+        <dd>{fmtCents(slip.look.lossCents)}</dd>
+      </dl>
+      <p className="clear-slip-ask">
+        <Chrome lang={lang} k="settle.clear.ask" vars={{ id: label }} echo="stack" />
+      </p>
+      <div className="clear-slip-doors">
+        {onTakeCash && (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              // The pane's ONE till, through its own trigger (every hold it keeps applies); the
+              // slip stands down — paying IS the answer to its question.
+              setPhase({ k: "rest" });
+              onTakeCash();
+            }}
+          >
+            <Chrome lang={lang} k="settle.cash.title" echo="stack" />
+          </Button>
+        )}
+        {!slip.walkout && (
+          <Button
+            variant="secondary"
+            aria-expanded={false}
+            onClick={() => setPhase({ ...slip, walkout: true, at: Date.now() })}
+          >
+            <Chrome lang={lang} k="settle.clear.walkout" echo="stack" />
+          </Button>
+        )}
+        <Button variant="quiet" onClick={() => backToRest()}>
+          <Chrome lang={lang} k="settle.cancel" echo={false} />
+        </Button>
+      </div>
+      {slip.walkout && (
+        <div className="clear-slip-commit">
+          <p id={slipBodyId}>
+            <Chrome
+              lang={lang}
+              k={plural(
+                slip.look.units,
+                "settle.clear.loss.body.one",
+                "settle.clear.loss.body.many",
+              )}
+              vars={{ n: slip.look.units }}
+              echo="stack"
+            />{" "}
+            <Chrome lang={lang} k="settle.clear.loss.tail" echo="stack" />
+          </p>
+          {/* The one danger act, the sum named on it (§22); described by what it records. */}
+          <Button
+            variant="danger"
+            size="lg"
+            block
+            disabled={!commitArmed}
+            aria-describedby={slipBodyId}
+            onClick={() => openWindow(slip.look)}
+          >
+            <Chrome
+              lang={lang}
+              k="settle.clear.loss.commit"
+              vars={{ m: fmtCents(slip.look.lossCents) }}
+              echo="stack"
+            />
+          </Button>
+        </div>
+      )}
+    </section>
+  ) : win || committing ? (
+    // ── the WINDOW (m7 screen 1): nothing is written until it closes ──
+    <div role="group" aria-labelledby={windowId} className="clear-window">
+      <p id={windowId} className="clear-chip">
+        <Chrome lang={lang} k="settle.clear.window" vars={{ id: label }} echo="inline" />
+      </p>
+      <div className="clear-window-cells">
+        <Button
+          ref={undoRef}
+          variant="secondary"
+          className="clear-undo"
+          disabled={!armed}
+          busy={committing}
+          busyLabel={<Chrome lang={lang} k="settle.clear.clearing" echo={false} />}
+          aria-describedby={holdPhase === "warn" ? warnId : undefined}
+          onFocus={holdOn}
+          onBlur={holdOff}
+          onClick={() => {
+            if (windowSent.current) return;
+            windowSent.current = true;
+            backToRest();
+          }}
+        >
+          <Chrome lang={lang} k="kds.undo" echo="stack" />
+          {win && (
+            // The ONE in-slot countdown: a decorative seconds leaf (the window is not a timer read).
+            <span className="clear-undo-left" aria-hidden lang={lang}>
+              {" "}
+              {tf(lang, "table.send.undoLeft", { n: Math.max(1, Math.ceil(leftMs / 1000)) })}
+            </span>
+          )}
+        </Button>
+        {mint && tableNumber !== null && (
+          <Button
+            variant="secondary"
+            disabled={!armed || committing}
+            onFocus={holdOn}
+            onBlur={holdOff}
+            onClick={() => {
+              if (win) seatNext(win.look);
+            }}
+          >
+            <Chrome lang={lang} k="settle.clear.seatNext" echo="stack" />
+          </Button>
+        )}
+      </div>
+      {holdPhase === "warn" && (
+        // WCAG 2.2.1 — the one warning before a held window releases, said in its own alert and
+        // describing the held Undo (never ranked under "Ready to serve" — m7 B11).
+        <p id={warnId} role="alert" className="clear-warn">
+          <Chrome lang={lang} k="settle.clear.holdWarn" vars={{ id: label }} echo={false} />
+        </p>
+      )}
+    </div>
+  ) : null;
 
   const waiting = unanswered === "waiting";
 
@@ -217,6 +726,8 @@ export function ClearTableButton({
             </button>
           </div>
         </div>
+      ) : tableStep ? (
+        tableStep
       ) : (
         // Held while this clear is still unanswered (aria-disabled + the handler's guard, never
         // native), and described by the waiting line that says why.
@@ -224,6 +735,11 @@ export function ClearTableButton({
           ref={triggerRef}
           type="button"
           onClick={() => {
+            // PD7 — a TABLE's tap takes the fresh look (slip, window, or "couldn't check").
+            if (!counterOrder) {
+              void look();
+              return;
+            }
             if (inFlight.current) {
               // C6 — its own clear still waits: re-say "no answer yet — don't clear it again".
               if (waiting) resay();
@@ -233,14 +749,19 @@ export function ClearTableButton({
           }}
           aria-disabled={waiting || undefined}
           aria-describedby={waiting ? alertId : undefined}
+          aria-busy={phase.k === "checking" || undefined}
           style={waiting ? { ...clearBtn, opacity: 0.5, cursor: "not-allowed" } : clearBtn}
         >
-          <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
+          {phase.k === "checking" ? (
+            <Chrome lang={lang} k="settle.clear.checking" echo={false} />
+          ) : (
+            <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
+          )}
         </button>
       )}
       {/* Assertive alert (not a polite live region) so the detail view keeps ONE polite region — its
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
-      {(error || unanswered || stalled) && (
+      {(error || unanswered || stalled || notice) && (
         <p id={alertId} role="alert" style={{ ...hint, color: "var(--warn)" }}>
           {/* Keyed by `said`: a re-said sentence replaces the node, so it is announced again. */}
           <span key={said}>
@@ -250,6 +771,9 @@ export function ClearTableButton({
               <Chrome lang={lang} k="settle.clear.unknown" echo={false} />
             ) : stalled ? (
               <Chrome lang={lang} k="out.stalled" echo={false} />
+            ) : notice ? (
+              // PD7 — a check or a refusal, in the dictionary's words.
+              <Chrome lang={lang} k={notice.k} vars={notice.vars} echo={false} />
             ) : sentRefused ? (
               <Chrome lang={lang} k="settle.clear.counterSent" echo="stack" />
             ) : (
@@ -299,3 +823,12 @@ const confirmRow: CSSProperties = {
   flexWrap: "wrap",
 };
 const hint: CSSProperties = { margin: "8px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" };
+
+/** The look a table's clear carries — the dishes and the figure shown, and the clock they were read on. */
+const expectOf = (p: ClearPreview) => ({
+  lineIds: p.sent.map((l) => l.id),
+  lossCents: p.lossCents,
+  seenAt: p.seenAt,
+});
+
+const fmtCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;

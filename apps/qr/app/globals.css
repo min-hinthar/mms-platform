@@ -15356,3 +15356,157 @@ html[data-reloading] body::after {
   font-weight: var(--fw-semibold);
   line-height: var(--lh-normal);
 }
+
+/* ── PD7 · m7 "Turn Signals" ── clearing a table (DESIGN-LANGUAGE §22 · §31). Tokens only; Night maps
+   1:1 through the token set. The quiet hint is words inside the card's link (no fill, no ring — the
+   card's own Paid chip carries "paid"); the window's clearing chip and its Undo wear the console's
+   ONE provisional mark, the dashed edge (nothing is written yet), never a fill; the loss slip is
+   paper with ONE outline diamond (glyph + word, tier 3 — no fill), a solid --bd total rule (a
+   settled preview, never the provisional dash), and one danger act. */
+.floor-card-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.clear-window {
+  display: grid;
+  gap: var(--s2);
+}
+.clear-chip {
+  justify-self: start;
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  border: 1.5px dashed var(--ac);
+  border-radius: var(--r-full);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--tx);
+}
+.clear-window-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+/* The counter's one in-slot Undo posture (m7 A1 · B1): --sf ground, a 1.5px dashed --ac edge. */
+.clear-window-cells > .clear-undo {
+  background: var(--sf);
+  border: 1.5px dashed var(--ac);
+}
+.clear-undo-left {
+  color: var(--t2);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.clear-warn {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.clear-slip {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s3);
+  padding: var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+}
+.clear-slip-h {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.clear-slip-h:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.clear-slip-h > .clear-slip-echo {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+}
+/* The ONE loss mark: an outline diamond in --warn, no fill (m7 B7). */
+.clear-slip-mark {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--warn);
+  transform: rotate(45deg);
+}
+.clear-slip-sub,
+.clear-slip-drafts,
+.clear-slip-ask {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.clear-slip-ask {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--tx);
+}
+.clear-slip-list {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.clear-slip-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+.clear-slip-list .staff-qty {
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.clear-slip-list .chrome-en {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+}
+/* The total rule is SOLID (m7 A2 · B2): the server's settled preview, never provisional. */
+.clear-slip-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--bd);
+}
+.clear-slip-total > dt {
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.clear-slip-total > dd {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.clear-slip-doors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+.clear-slip-commit {
+  display: grid;
+  gap: var(--s3);
+}
+.clear-slip-commit > p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--tx);
+}

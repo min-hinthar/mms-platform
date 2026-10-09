@@ -12,8 +12,10 @@
  *   - no running bill (`tab === "none"`) and nothing on an open cart (`itemCount === 0` — a paid
  *     table that started a second round is ordering again);
  *   - the kitchen is done with it: nothing unsent, nothing cooking, nothing served in the last five
- *     minutes (`up`, the wall's linger) — a family eating is never told to leave;
- *   - the kitchen read is KNOWN: an unknown read (`kitchenUnknown`, `kitchen === null`) is never "go".
+ *     minutes (`up`, the wall's linger) — a family eating is never told to leave. A `null` kitchen is
+ *     the fold's own "nothing on it is unsent, cooking, ready or served" (`foldFloorKitchen`): done;
+ *   - the kitchen read is KNOWN: an unknown read (`kitchenUnknown`, the poll's own flag) is never
+ *     "go" — the one place "unknown" lives, never inferred from a null.
  */
 import type { FloorKitchen, FloorStatus } from "./floor-types";
 import type { RefundState } from "./refund-view";
@@ -31,6 +33,7 @@ export function clearHint(t: ClearVerdictInput): boolean {
   if (t.status !== "paid") return false;
   if (t.refundState === "partial" || t.refundState === "full") return false;
   if (t.tab !== "none" || t.itemCount > 0) return false;
-  if (t.kitchenUnknown || t.kitchen === null) return false;
-  return t.kitchen.notSent === 0 && t.kitchen.inKitchen === 0 && t.kitchen.up === 0;
+  if (t.kitchenUnknown) return false;
+  const k = t.kitchen;
+  return k === null || (k.notSent === 0 && k.inKitchen === 0 && k.up === 0);
 }

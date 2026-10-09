@@ -179,6 +179,7 @@ export function CashSettleButton({
   readsStarted,
   slip,
   door,
+  openRef,
 }: {
   sessionId: string;
   /** The page's all-in total, or null when its read priced nothing (the blind pass on #334, C2): the
@@ -261,6 +262,10 @@ export function CashSettleButton({
   slip?: readonly TillSlipLine[];
   /** PD6 (K39) — the pad host's contract; absent on the table page and the pane. */
   door?: TillDoor;
+  /** PD7 (m7 B3) — a second DOOR to this one till: the host's handle that taps this control's own
+   *  trigger, so every hold the trigger keeps (its own wait, the gate, the pad's holds) applies and
+   *  there is never a second cash sheet. Null while this control is not mounted. */
+  openRef?: { current: (() => void) | null };
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -466,6 +471,13 @@ export function CashSettleButton({
   const [chipPop, setChipPop] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const settleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => triggerRef.current?.click();
+    return () => {
+      openRef.current = null;
+    };
+  }, [openRef]);
   // "Keep the change" unmounts under its own tap (the readout then says Exact) — focus goes to
   // Settle, the next thing to do (§7). Moved in an effect, after the commit that removed the action.
   const [kept, setKept] = useState(0);
