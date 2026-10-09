@@ -58,7 +58,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   region and a door's own alert), and where a page re-draws the flag the page alone owns it. An
   unreadable line offers no Decide; a late answer from a closed sheet cannot mark the next open applied.
   The m8 spec's §H says what the reader and the tab close each do with a quote. Filed, not widened:
-  M268 (approve vs the freeze, owner/money). 4 more mutants (the battery is 3340).
+  M269 (approve vs the freeze, owner/money). 4 more mutants (the battery is 3340).
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
