@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,9 +85,10 @@ const parse = (rel: string, text: string) => {
   }
   return sf;
 };
-/** A sweep parses every component once (~185 files; all ~600 sources measured 1.4 s at load 8.5,
- *  2026-10-09); the cache makes the later sweeps walks. Headroom for a loaded machine, not a minute. */
-const SWEEP_MS = 15_000;
+/** The ONE load-dependent step — parsing every component once — runs in a hook named for it, so the
+ *  sweeps below are walks under vitest's default timeout. Measured on the shared agent machine
+ *  (2026-10-09): all ~600 app and ui sources in 1.4 s at load 8.5, 17 s at load 22. */
+const PARSE_ALL_MS = 60_000;
 
 /**
  * Every component that renders the `Sheet` primitive, found on disk rather than listed by hand.
@@ -649,6 +650,10 @@ const UNGUARDED = [
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {
+  beforeAll(() => {
+    for (const f of componentFiles()) parse(f, readRaw(f));
+  }, PARSE_ALL_MS);
+
   it.each(GUARDED)("%s passes busy — %s", (rel) => {
     expect(passesBusy(rel)).toBe(true);
   });
@@ -660,36 +665,31 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     },
   );
 
-  // PD4 — the on-disk sweeps below walk every component: parsed ONCE per suite (the cache above), so
-  // the first carries a sweep-sized timeout and the rest are walks.
-  it(
-    "⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state",
-    { timeout: SWEEP_MS },
-    () => {
-      // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
-      // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
-      // itself must be what the Sheet reads:
-      const sf = parse(MOD_SHEET, readRaw(MOD_SHEET));
-      const el = liveElement(sf, "Sheet");
-      expect(typeof el).not.toBe("string");
-      const x = boundIdentifier(attr(el as Jsx, "busy"));
-      expect(x?.text).toBe("busy");
-      const comp = enclosingFunction(el as Jsx);
-      const param = comp?.parameters[0];
-      expect(
-        !!param &&
-          ts.isObjectBindingPattern(param.name) &&
-          param.name.elements.some(
-            (e) => ts.isIdentifier(e.name) && e.name.text === "busy" && !e.propertyName,
-          ),
-      ).toBe(true);
-      for (const rel of MOD_SHEET_PARENTS) {
-        expect(busyBindingProblems(rel, readRaw(rel), "StaffModSheet", "busy")).toEqual([]);
-      }
-      // …and those are ALL of its parents, so no third one can wire it from somewhere else.
-      expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
-    },
-  );
+  // PD4 — the on-disk sweeps below walk every component, parsed ONCE in the hook above.
+  it("⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state", () => {
+    // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
+    // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
+    // itself must be what the Sheet reads:
+    const sf = parse(MOD_SHEET, readRaw(MOD_SHEET));
+    const el = liveElement(sf, "Sheet");
+    expect(typeof el).not.toBe("string");
+    const x = boundIdentifier(attr(el as Jsx, "busy"));
+    expect(x?.text).toBe("busy");
+    const comp = enclosingFunction(el as Jsx);
+    const param = comp?.parameters[0];
+    expect(
+      !!param &&
+        ts.isObjectBindingPattern(param.name) &&
+        param.name.elements.some(
+          (e) => ts.isIdentifier(e.name) && e.name.text === "busy" && !e.propertyName,
+        ),
+    ).toBe(true);
+    for (const rel of MOD_SHEET_PARENTS) {
+      expect(busyBindingProblems(rel, readRaw(rel), "StaffModSheet", "busy")).toEqual([]);
+    }
+    // …and those are ALL of its parents, so no third one can wire it from somewhere else.
+    expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
+  });
 
   it("⚠️ the sheets that write nothing irreversible stay freely dismissible", () => {
     // The negative half, and the one that keeps this honest. `busy` on a picker is a lock with no
@@ -701,19 +701,15 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     }
   });
 
-  it(
-    "⚠️ the two lists ARE the Sheet callers — discovered, never transcribed",
-    { timeout: SWEEP_MS },
-    () => {
-      // Codex round 2, P2. The first version asserted `GUARDED.length + UNGUARDED.length === 11`,
-      // which checks the two arrays against each other and nothing against the app: a twelfth caller
-      // could ship with no `busy` while a test claiming exhaustive coverage stayed green. That is the
-      // "never transcribe a number into an assertion" rule, one level up — the LIST was transcribed.
-      // Now the call sites are discovered on disk and the union must match them exactly, so a new
-      // caller fails here until someone triages it into one list or the other.
-      expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
-    },
-  );
+  it("⚠️ the two lists ARE the Sheet callers — discovered, never transcribed", () => {
+    // Codex round 2, P2. The first version asserted `GUARDED.length + UNGUARDED.length === 11`,
+    // which checks the two arrays against each other and nothing against the app: a twelfth caller
+    // could ship with no `busy` while a test claiming exhaustive coverage stayed green. That is the
+    // "never transcribe a number into an assertion" rule, one level up — the LIST was transcribed.
+    // Now the call sites are discovered on disk and the union must match them exactly, so a new
+    // caller fails here until someone triages it into one list or the other.
+    expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
+  });
 });
 
 // ── the MATCHER, falsified red-first (LEARNINGS #60: "what text satisfies this without shipping

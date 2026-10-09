@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,9 +75,10 @@ function sourceFiles(): string[] {
   return files;
 }
 
-/** One sweep can parse ~600 files (measured 1.4 s at load 8.5, 2026-10-09); the cache makes every
- *  later sweep a walk. A loaded machine gets headroom, not a minute. */
-const SWEEP_MS = 15_000;
+/** The ONE load-dependent step — parsing every source once — runs in a hook named for it, so every
+ *  test below is a walk under vitest's default timeout. Measured on the shared agent machine
+ *  (2026-10-09): 1.4 s at load 8.5, 17 s at load 22 — the hook's bound is for that, not the tests'. */
+const PARSE_ALL_MS = 60_000;
 
 type Jsx = ts.JsxOpeningElement | ts.JsxSelfClosingElement;
 
@@ -176,6 +177,7 @@ function isSheetTag(tag: ts.JsxTagNameExpression, b: ReturnType<typeof sheetBind
 function liveSheets(sf: ts.SourceFile): Jsx[] {
   const b = sheetBindings(sf);
   const out: Jsx[] = [];
+  if (!b.named.size && !b.namespaces.size) return out; // nothing here binds the primitive
   walk(sf, (n) => {
     if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
     if (!isSheetTag(n.tagName, b) || isLiteralDead(n)) return;
@@ -198,6 +200,7 @@ function spreadSheets(sf: ts.SourceFile): Jsx[] {
 function unreadableUses(sf: ts.SourceFile): string[] {
   const b = sheetBindings(sf);
   const out: string[] = [];
+  const bound = b.named.size > 0 || b.namespaces.size > 0;
   const isTag = (n: ts.Node) => {
     const p = n.parent;
     return (
@@ -205,22 +208,24 @@ function unreadableUses(sf: ts.SourceFile): string[] {
       p.tagName === n
     );
   };
-  walk(sf, (n) => {
-    if (!n.parent) return; // the source file itself
-    if (ts.isImportSpecifier(n.parent) || ts.isNamespaceImport(n.parent)) return;
-    if (ts.isImportClause(n.parent) && n.parent.name === n) return;
-    const named = ts.isIdentifier(n) && b.named.has(n.text);
-    const viaNs =
-      ts.isPropertyAccessExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      b.namespaces.has(n.expression.text) &&
-      n.name.text === "Sheet";
-    if (!named && !viaNs) return;
-    if (named && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) return; // x.Sheet
-    if (isTag(n)) return;
-    if (ts.isTypeQueryNode(n.parent) || ts.isQualifiedName(n.parent)) return;
-    out.push(`${sf.fileName}: \`${n.parent.getText(sf).slice(0, 60)}\``);
-  });
+  // With nothing bound to the primitive there is no use to find — only a re-export (below).
+  if (bound)
+    walk(sf, (n) => {
+      if (!n.parent) return; // the source file itself
+      if (ts.isImportSpecifier(n.parent) || ts.isNamespaceImport(n.parent)) return;
+      if (ts.isImportClause(n.parent) && n.parent.name === n) return;
+      const named = ts.isIdentifier(n) && b.named.has(n.text);
+      const viaNs =
+        ts.isPropertyAccessExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        b.namespaces.has(n.expression.text) &&
+        n.name.text === "Sheet";
+      if (!named && !viaNs) return;
+      if (named && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) return; // x.Sheet
+      if (isTag(n)) return;
+      if (ts.isTypeQueryNode(n.parent) || ts.isQualifiedName(n.parent)) return;
+      out.push(`${sf.fileName}: \`${n.parent.getText(sf).slice(0, 60)}\``);
+    });
   if (sf.fileName !== BARREL)
     for (const st of sf.statements) {
       if (!ts.isExportDeclaration(st)) continue;
@@ -268,30 +273,22 @@ const MONEY_SHEETS = [
 ];
 
 describe("PD4 — Sheet `initialFocus` is passed ONLY from the grocery Name sheet", () => {
-  it(
-    "the callers passing initialFocus on disk are exactly the allowlist",
-    { timeout: SWEEP_MS },
-    () => {
-      const callers = sourceFiles().filter((f) => initialFocusSheets(source(f)).length > 0);
-      expect(callers.sort()).toEqual([...ALLOWED].sort());
-    },
-  );
+  beforeAll(() => {
+    for (const f of sourceFiles()) source(f);
+  }, PARSE_ALL_MS);
 
-  it(
-    "no live <Sheet> on disk takes a spread — the one shape that could smuggle the prop",
-    { timeout: SWEEP_MS },
-    () => {
-      expect(sourceFiles().filter((f) => spreadSheets(source(f)).length > 0)).toEqual([]);
-    },
-  );
+  it("the callers passing initialFocus on disk are exactly the allowlist", () => {
+    const callers = sourceFiles().filter((f) => initialFocusSheets(source(f)).length > 0);
+    expect(callers.sort()).toEqual([...ALLOWED].sort());
+  });
 
-  it(
-    "nothing on disk renders the Sheet where its props cannot be read — no alias, createElement, prop, or re-export outside the barrel",
-    { timeout: SWEEP_MS },
-    () => {
-      expect(sourceFiles().flatMap((f) => unreadableUses(source(f)))).toEqual([]);
-    },
-  );
+  it("no live <Sheet> on disk takes a spread — the one shape that could smuggle the prop", () => {
+    expect(sourceFiles().filter((f) => spreadSheets(source(f)).length > 0)).toEqual([]);
+  });
+
+  it("nothing on disk renders the Sheet where its props cannot be read — no alias, createElement, prop, or re-export outside the barrel", () => {
+    expect(sourceFiles().flatMap((f) => unreadableUses(source(f)))).toEqual([]);
+  });
 
   it("the sweep reaches every root, and the barrel's re-export is the one it allows", () => {
     // Not vacuous: each root contributes sources, the primitive itself is among them, and the

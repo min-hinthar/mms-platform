@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 /**
  * `check:scan-repeat` aimed at its own matcher, in CI (blind pass 2 on #329: "the red-first claims
@@ -22,8 +22,10 @@ const execFileP = promisify(execFile);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const GATE = path.join(REPO, "scripts", "check-scan-repeat.mjs");
 const PAGE = "apps/qr/app/grocery/page.tsx";
-/** What the gate reads: the page, and the sheet components it imports from `@/components`. */
-const TREE = ["apps/qr/app/grocery", "apps/qr/components"];
+/** What the gate reads: the page, and the sheet components it imports from `@/components/grocery`
+ *  (proposition 5 reads each page-owned sheet's own file). A sheet imported from anywhere else makes
+ *  the BASELINE row fail on a missing file — widen this list then, never silently. */
+const TREE = ["apps/qr/app/grocery", "apps/qr/components/grocery"];
 
 type Fixture = {
   name: string;
@@ -34,14 +36,18 @@ type Fixture = {
   expect: RegExp;
 };
 
-const roots: string[] = [];
-afterAll(() => {
-  for (const r of roots) rmSync(r, { recursive: true, force: true });
-});
-
 async function runGate(mutate?: { file: string; find: string; replace: string }) {
   const root = mkdtempSync(path.join(os.tmpdir(), "scan-repeat-"));
-  roots.push(root);
+  try {
+    return await gateIn(root, mutate);
+  } finally {
+    // Each row removes its own copy: one teardown of every copy at once outran a hook's timeout
+    // on a loaded machine.
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function gateIn(root: string, mutate?: { file: string; find: string; replace: string }) {
   for (const rel of TREE)
     cpSync(path.join(REPO, rel), path.join(root, rel), {
       recursive: true,
@@ -295,9 +301,10 @@ const COVERED: Fixture[] = [
 
 const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO];
 
-// Each row spawns node and parses the page with TypeScript (~1–2 s measured; more under a loaded
-// machine), so the rows run concurrently and carry a spawn-sized timeout.
-const SPAWN_MS = 30_000;
+// Each row spawns node, which loads TypeScript and parses the page: measured 1.5–5 s per row at load
+// ~9 and up to 25 s at load 35 on the shared agent machine (2026-10-09). The rows run concurrently and
+// carry a spawn-sized timeout.
+const SPAWN_MS = 60_000;
 
 describe("check:scan-repeat — the copy of the real tree is clean (the baseline every row is red against)", () => {
   it(
