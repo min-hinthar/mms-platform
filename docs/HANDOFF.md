@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-08 evening · the path-design wave in flight)
+# Session Handoff — MMS Platform (2026-10-09 · the path-design wave in flight)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -12,7 +12,7 @@ entries that cite `docs/HANDOFF.md` for history resolve there — and two of the
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
-## Where things stand (2026-10-08, evening — the path-design wave is in flight)
+## Where things stand (2026-10-09 ~03:45Z — the path-design wave is in flight)
 
 Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requests` / `gh pr list`), and
 `git branch -r | grep claude/feat/pd`.
@@ -29,35 +29,45 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
 - **Merged:** #326 `feat(ui): the pass tokens` → `1e9f554` (`--fs-pass`, `--till-fs-hand`, the nine
   constant `--pass-*` inks + `--pass-hole`, pinned by `contrast-audit.test.ts`'s "the pass — constant
   paper" block; the blind pass's REJECT on its first head was the missing guard).
-- **Open and ready for review (each with its blind-pass verdict and Codex rounds on the PR):**
-  - **#327** post-pay's primitives — `CounterPass` + `KitchenTrack` in `@mms/ui` (`packages/ui/src/
-counter-pass.tsx`, `kitchen-track.tsx`, `pass.css`), the prop surface recorded in
-    `docs/path-design-2026-10-07/m10-live-pass-pay.md` §H. Base `main` since #326 merged. Blind pass
-    APPROVE with real items (the PRINT end state, the TURN's perspective and scope, a long code at the
-    counter tier) — the fix commit follows; Codex's round-2 export finding is in.
-  - **#328** kitchen-ops' PD5 — one Send = one card (`cart_id` + `fire_batch`), `lib/kitchen-rounds.ts`,
-    `lib/kitchen-track.ts`, `KDS_UNDO_MS` in `lib/kds-undo.ts`, the reserved stop-card shape. Blind
-    pass REJECT: the frozen stub and the live-ordinal name are two derivations of one fact (a failed
-    advisory read, a table merge) — the fix commit follows.
-  - **#329** grocery's PD4 — the paper tag in the lens, the Name sheet, `lib/scan-pairing.ts` /
-    `scan-undo.ts`, the `@mms/ui` Sheet's opt-in `initialFocus` (guards-style's piece) with a parsed
-    caller allowlist, G20's Burmese basket names. Blind pass in flight.
-- **Built, PR pending:** staff-authority's PD8 (`claude/feat/pd8-manager-approval`: the server half +
-  the M184 migration carrying the `close` arm, then the UI half); diner-cart's PD2 is now **#331** (draft, base `claude/feat/pd-tokens-pass`, #327's branch merged in: `SURFACES.dineInPhonePay = false`, the create-intent 410 refusal after the supersede exits with `scripts/check-phone-pay-door.mjs`, the counter-only Bill, the guest's CounterPass; money path — Codex's round on its final head is the wait; PD1 is being built stacked on it as `claude/feat/pd1-tablemate-send`); PD1 follows as a stacked PR); post-pay's PD3 is now **#330** (draft, base `claude/feat/pd-tokens-pass`, #327's branch merged in so the claim ticket renders the real `CounterPass`: the claim ticket, "I'm here" with the commit-time store, the arrival route and beacon, M65 closed);
-  counter-floor's PD6 (`claude/feat/pd6-till-tray`, started 18:06Z on #327's branch: the till tray,
-  the seal, PD2's pane twin, PD1's ring).
-- **Not started:** PD7 (after PD6 and M182), PD9 (after #327 and #328), PD10 (after PD2, #327, #328),
-  PD11 and PD12 last.
-- **Integration hazards, handled at each merge:** #328 and #329 both added `.claude/LEARNINGS.md
-  ## #250` (`check:docs` refuses a duplicate key — and so did #330 — whichever merges second and third renumbers); every PR carries
-  its own measured counts (re-run `pnpm check:docs` after merging `main` in); CHANGELOG entries stack
-  newest-first; PD2 · PD3 · PD6 are based on #327's branch (retarget to `main` and merge it in once
-  #327 lands); `KitchenStage` is declared in both `@mms/ui` and `apps/qr/lib/kitchen-track.ts` until
-  PD9's PR makes lib `import type` it.
-- **Migrations written this wave, each applied only on the owner's go (ruling #5):** M184 + the
-  `close` arm (PD8); PD1's nudge stamp (when PD1 opens); M182 (PD7, not yet).
-- **The session hit a rate limit ~13:20Z** (every stream agent died mid-gate; resumed 17:25Z with no
-  work lost — commits held, uncommitted trees intact). Lesson kept: commit after every coherent step.
+- **Open PRs** — each runs the full ritual (blind-pass verdict posted on the PR, every Codex round
+  answered on its threads, `codex-review` green on the merge head):
+  - **#327** post-pay's primitives — `CounterPass` + `KitchenTrack` in `@mms/ui`
+    (`packages/ui/src/counter-pass.tsx`, `packages/ui/src/kitchen-track.tsx`,
+    `packages/ui/src/pass.css`); the prop surface is `docs/path-design-2026-10-07/m10-live-pass-pay.md`
+    §H. Head `4c18bef`: the blind pass (APPROVE with real items) fixed in `c78ebe8`, Codex round 3's
+    two findings (no ✓ on the TV tier, `KitchenTrackName` in the barrel) in `4c18bef`. **Merges first.**
+  - **#328** kitchen-ops' PD5 — one Send = one card. Head `f498d33`: the blind pass's REJECT (the frozen
+    stub vs the live-ordinal name) and Codex round 1 fixed in `a870aaf`; the verdict and its
+    fix-or-justify table are posted. Based on the old `main` (`f26cc8f`): after #327 merges, merge
+    `main` in, refresh the counts, and take one more Codex round on that final head.
+  - **#329** grocery's PD4 — the paper tag in the lens, the Name sheet, the Sheet's `initialFocus`.
+    Head `27081ce`: the blind pass's REJECT and Codex round 1 fixed in `75ec322`, one follow-up (the
+    asking sheet compared by identity) in `27081ce`. Same `main` merge after #328.
+  - **#330** post-pay's PD3 (draft) — head `d2a3d76`, Codex round 1's ten findings fixed. **#331**
+    diner-cart's PD2 (draft, money path) — head `5c074e1`, Codex round 1's three findings fixed. Both
+    are based on `claude/feat/pd-tokens-pass` with #327's branch merged in: retarget each to `main` once
+    #327 lands, merge `main` in, mark ready, then the blind pass and Codex on the final head.
+  - **#332** — this handoff.
+- **Built, PR not yet open:** staff-authority's PD8 (`claude/feat/pd8-manager-approval`: the server
+  half + the M184 migration with its `close` arm, then the UI half; finishing its gate);
+  counter-floor's PD6 (`claude/feat/pd6-till-tray`, on #327's branch: the till tray, the seal, PD2's
+  pane twin, PD1's ring — the tray UI in progress); diner-cart's PD1 (`claude/feat/pd1-tablemate-send`,
+  stacked on #331).
+- **Not started:** PD7 (after PD6; its migration M182 is not written yet), PD9 (after #327 and #328),
+  PD10 (after PD2, #327, #328), PD11 and PD12 last.
+- **Integration hazards, handled at each merge:** #328 and #329 both add `.claude/LEARNINGS.md
+  ## #250` (`check:docs` refuses a duplicate key, so whichever merges second renumbers; #330 already
+  moved to `## #252`); every PR carries its own measured counts (re-run `pnpm check:docs` after merging
+  `main` in); CHANGELOG entries stack newest-first; #330 · #331 · PD6 sit on #327's branch (retarget
+  to `main` and merge it in once #327 lands); `KitchenStage` is declared in both `@mms/ui` and
+  `apps/qr/lib/kitchen-track.ts` until PD9's PR makes lib `import type` it.
+- **Migrations, each applied only on the owner's go (ruling #5):** written this wave — M184 + the
+  `close` arm (PD8). Planned, not written yet — PD1's nudge stamp (PD1's PR) and M182 (PD7's PR).
+- **Two quota stops, no work lost either time** (commits held, uncommitted trees intact): a rate limit
+  ~13:20Z on 2026-10-08 (resumed 17:25Z); then the agents' usage credits ran out ~18:35Z, with Codex
+  out of quota from 18:26Z, and the container restarted. Resumed 2026-10-09 03:10Z; Codex reviewed
+  again from 03:11Z, so the quota rule (G3) no longer applies to these PRs. Lesson kept: commit after
+  every coherent step.
 
 ## The owner's items (not code)
 
@@ -95,17 +105,16 @@ counter-pass.tsx`, `kitchen-track.tsx`, `pass.css`), the prop surface recorded i
 
 ## Next tasks — finish the wave, in the record's order
 
-1. **Merge on CI green, in this order:** #327 → #328 → #329 (each after its fix commit, its
-   `@codex review` on the final head, and the verdict comment naming the head). After #327: retarget
-   PD2 / PD3 / PD6 to `main`, merge `main` into each.
-2. **PD8, PD2, PD3, PD6 → draft PRs → ready → blind pass → Codex → merge on green.** PD2 and PD8 are
-   money paths: their PR bodies carry the mutant table and "recommend: wait for Codex" (ruling #1 —
-   with Codex in quota, its round on the final head is the wait).
-3. **Then PD1** (stacked on PD2: Show a server, Let Aye know, the nudge migration), **PD9** (kitchen-ops:
-   `lib/board-tables.ts` + the landscape CounterPass on `/board`; amends `board-pulse.ts`, SPEC-KDS, K32(b)
-   / P6a; merge line names the privacy change), **PD7** (counter-floor: clearing, the loss slip, M182),
-   **PD10** (the live One Pass on the Bill + the D5 served gate behind the flag), **PD11** and **PD12**
-   last, each after every control it teaches.
+1. **Merge on CI green, in this order:** #327 → #328 → #329, each once Codex has reviewed its final
+   head and every finding is fixed or justified. After #327: retarget #330, #331 and PD6's PR to
+   `main` and merge `main` into each.
+2. **Open the draft PRs still owed:** PD8 (money/authority path: its body carries the mutant table and
+   "recommend: wait for Codex", ruling #1), PD6 (money path), PD1 (stacked on #331). Then each of
+   #330 · #331 · PD8 · PD6 · PD1: mark ready → blind pass → Codex on the final head → merge on green.
+3. **Then PD9** (kitchen-ops: `lib/board-tables.ts` + the landscape CounterPass on `/board`; amends
+   `board-pulse.ts`, SPEC-KDS, K32(b) / P6a; merge line names the privacy change), **PD7**
+   (counter-floor: clearing, the loss slip, M182), **PD10** (the live One Pass on the Bill + the D5
+   served gate behind the flag), **PD11** and **PD12** last, each after every control it teaches.
 4. **ROADMAP's open Phase 3 slices** (3d·counter's cash-sheet re-host K39 · K44, 3e, 3f): PD6 records
    which it absorbed; the rest stay.
 5. **Money doors stay parked:** `dineInPhonePay = false` ships in PD2; the D5 gate (PD10) is built behind
@@ -130,12 +139,12 @@ owner's delegation; read them before building a dependent moment.
   history, M125); ONE file at a time with the Supabase MCP `apply_migration` on the owner's go,
   verifying the objects that file creates (CLAUDE.md, Commands).
 
-## Parallel streams (wave of 2026-10-07, run 2026-10-08)
+## Parallel streams (wave of 2026-10-07, run 2026-10-08 to 10-09)
 
 One bullet per stream; a stream edits only its own bullet.
 
 - **guards-style:** #326 merged (the tokens); the Sheet's `initialFocus` rode PD4's #329 as its own commit.
-- **post-pay:** #327 (CounterPass + KitchenTrack); #330 (PD3, draft; retarget to `main` after #327).
+- **post-pay:** #327 (CounterPass + KitchenTrack, merges first); #330 (PD3, draft; retarget to `main` after #327).
 - **kitchen-ops:** #328 (PD5); PD9 next.
 - **grocery:** #329 (PD4 + G20).
 - **staff-authority:** PD8 on `claude/feat/pd8-manager-approval` (M184 + the `close` arm).
