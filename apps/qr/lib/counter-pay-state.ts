@@ -7,6 +7,7 @@
  * falsify a value with one input where a component needs a render and five mocks (CLAUDE.md,
  * "Decision logic belongs in `lib/`").
  */
+import { t } from "./i18n";
 
 export type CounterPayRefusal =
   /** Only a dine-in table has a counter to walk to — pickup and scan-and-go pay before the kitchen
@@ -69,8 +70,9 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
  * sentence is the Bill's own held reason (`registerSettling`, lib/i18n/cart) and the ask's refusal
  * says the same thing, once.
  */
-export const REGISTER_SETTLING_COPY =
-  "The counter is taking your table’s payment right now — this screen updates when it’s done.";
+// The blind pass on #331 — ONE source: the dictionary's own English (`registerSettling`, the line
+// the dock and the pass draw), never a second literal that could drift from it.
+export const REGISTER_SETTLING_COPY = t("en", "registerSettling");
 
 export function counterPayRefusalCopy(
   refusal: CounterPayRefusal,

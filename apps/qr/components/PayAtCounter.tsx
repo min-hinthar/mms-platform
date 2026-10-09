@@ -253,8 +253,9 @@ export function PayAtCounterPass({
   /** The register holds the settlement freeze: the sentence slot swaps to the settling line —
    *  static text, not announced. The withdraw stays live (it never waits on a freeze). */
   settling: boolean;
-  /** Dishes the host can still send are waiting: the count-free "Not sent yet" mark under the
-   *  total (Dad reads the same on his floor before walking over). */
+  /** A dish the kitchen has not got (`unsentFoodQty` — dine-in drafts the host can still send, AND
+   *  to-go drafts, which fire only when the counter's payment lands): the count-free "Not sent yet"
+   *  mark in the pass's head (Dad reads the same on his floor before walking over). */
   unsent: boolean;
   busy: boolean;
   /** The ask was THIS phone's: one RISE on the pass's first mount (RM: none). A tablemate's

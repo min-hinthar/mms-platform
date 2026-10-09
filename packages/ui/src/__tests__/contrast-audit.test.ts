@@ -602,6 +602,18 @@ describe("the pass — constant paper in both themes (PATH_DESIGN round 3, PR #3
   it.each(text)("%s clears 4.5:1 in Night", (_name, fg, bg) => {
     expect(contrastRatio(tok(dark, fg), bg)).toBeGreaterThanOrEqual(4.5);
   });
+  it("the pass's FOCUS RING is pass-ac (≥ 3:1 in Night), never the theme's --ac (under 3:1 there)", () => {
+    // The blind pass on #331: a host's control on the paper (the counter pass's "View bill") took the
+    // global `:focus-visible` ring in `--ac`. Night's `--ac` on the constant paper misses the 3:1
+    // non-text bar, so the app rings the paper in `--pass-ac` (`.counter-pass :focus-visible`,
+    // guarded by `check-pass-inks.mjs`). Both halves pinned: the replacement clears, the original
+    // does not — if the second ever clears, the override can go.
+    expect(contrastRatio(tok(dark, "--pass-ac"), paper)).toBeGreaterThanOrEqual(3);
+    expect(
+      contrastRatio(tok(light, "--pass-ac"), tok(light, "--pass-paper")),
+    ).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(tok(dark, "--ac"), paper)).toBeLessThan(3);
+  });
   it("pass-ac on pass-okb is UNDER AA — so the primitive never places accent on the stamped stub", () => {
     // A negative pin, like `plain ac on sf`: if this ever clears 4.5 the comment in tokens.css and
     // the primitive's rule ("accent sits on the paper only") are the lines to revisit, not this.

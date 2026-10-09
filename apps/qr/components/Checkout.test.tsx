@@ -99,7 +99,11 @@ vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
 // PD2 (Codex round 1 on #331) — a MARKER, not null: the pass replaces the Bill, so whether the split
 // chooser still renders beneath it is a question this suite asks; the marker carries no text.
 vi.mock("./SplitSection", () => ({ SplitSection: () => <div data-testid="split-section" /> }));
-vi.mock("./SettlementBoard", () => ({ SettlementBoard: () => null }));
+// The blind pass on #331 (guard 6) — a MARKER carrying the board's subject, not null: whether a group
+// table under the register's freeze flips to the split board is a question this suite asks.
+vi.mock("./SettlementBoard", () => ({
+  SettlementBoard: () => <div data-testid="settlement-board">Your table is splitting the bill</div>,
+}));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
 vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
 vi.mock("./SecureTabButton", () => ({ SecureTabButton: () => null }));
@@ -2504,12 +2508,127 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(h.requestCounterPay).not.toHaveBeenCalled();
   });
 
+  it("a GROUP table under the register's freeze keeps the Bill and its held door — never the split board (blind pass, guard 6)", () => {
+    // While phone pay is parked no phone pays a share (the self-serve split is parked too, and its
+    // shares are phone payments), so a group's freeze is the REGISTER's. RED before the fix: the
+    // group flipped to the split board — "splitting the bill" — during the counter's cash settle.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED], initialSettling: true });
+    // MUTATION (checkout/split-board-under-the-register): the board shown for any group freeze; red.
+    expect(screen.queryByTestId("settlement-board")).toBeNull();
+    expect(document.body.textContent).not.toContain("splitting the bill");
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(dockLine()).toContain("The counter is taking your table’s payment right now");
+  });
+
   it("the register mid-settle holds the door with its own sentence, never the split's", async () => {
     mount({ splitContext: HOST, initialItems: [FIRED], initialSettling: true });
     const door = screen.getByRole("button", { name: /^Pay at the counter/ });
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
     expect(document.body.textContent).not.toContain("splitting the bill");
+  });
+
+  // ── The blind pass on #331 (head e90e4da): three criticals, each through the real interleaving ──
+
+  const ASKED = "2026-10-08T06:00:00.000Z";
+  for (const how of ["refused", "thrown"] as const) {
+    it(`a ${how} withdraw on a phone that did NOT ask restores the ask SILENTLY and keeps the real error (blind pass, critical 1)`, async () => {
+      // Phone B: the ask is a tablemate's (standing at mount, never this phone's tap).
+      if (how === "refused")
+        h.withdrawCounterPay.mockResolvedValue({
+          ok: false,
+          error: "This order’s already paid — there’s nothing to cancel.",
+        });
+      else h.withdrawCounterPay.mockRejectedValue(new Error("network"));
+      mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+      expect(counterCards()).toBe(1);
+      await press("We’re not done yet — cancel paying at the counter");
+      await settle();
+      await settle();
+      // RED before the fix: the optimistic null then the revert is a null→stamp edge, announced as
+      // a NEW ask — and `sayOutcome` cleared the pay error it had just set.
+      expect(regionText()).not.toContain("Your table asked");
+      expect(regionText()).toContain(
+        how === "refused"
+          ? "This order’s already paid — there’s nothing to cancel."
+          : "Couldn’t reach the counter just now — please try again.",
+      );
+      expect(counterCards()).toBe(1);
+    });
+  }
+
+  it("a read landing DURING the withdraw that carries the same ask is not a new ask (blind pass, critical 1)", async () => {
+    const answer = deferred<{ ok: true }>();
+    h.withdrawCounterPay.mockReturnValue(answer.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    mount({ splitContext: HOST, initialItems: [FIRED], initialCounterRequestedAt: ASKED });
+    await press("We’re not done yet — cancel paying at the counter");
+    // A realtime echo / visibility read lands while the withdraw is out: it still shows the ask.
+    await syncFromServer();
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await act(async () => {
+      answer.resolve({ ok: true });
+    });
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+  });
+
+  it("an ask landing while the promo field has focus never strands the docked door hidden (blind pass, critical 2)", async () => {
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    const promo = screen.getByRole("textbox", { name: /promo/i });
+    await act(async () => {
+      promo.focus();
+      fireEvent.focus(promo);
+    });
+    // The dock hides while the field has focus (it never rides the keyboard).
+    expect(screen.queryByRole("button", { name: /^Pay at the counter/ })).toBeNull();
+    // A tablemate's ask lands: the pass replaces the form — React removes the focused input in its
+    // own commit, and fires no blur for it.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: ASKED }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // …and is withdrawn: the Bill — and its ONE door — come back.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(0));
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a split-read miss draws the dock AND the padding that clears it — one binding (blind pass, critical 3)", () => {
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+    // MUTATION (checkout/dock-padding-reads-the-split-mode): the padding gated on the split's mode;
+    // the promo form and RewardField sit under the dock and cannot scroll clear; red.
+    expect(document.querySelector("main")!.style.paddingBottom).toContain("--cta-dock-h");
+  });
+
+  it("the amount the register reads is the SERVER's total — on the parked slip's foot and on the pass (blind pass, guard 5)", async () => {
+    // Total ≠ subtotal (tax), so a binding that reads the wrong figure separates.
+    const TAXED: CartTotals = { ...TOTALS, taxCents: 126, totalCents: 1326 };
+    mount({ splitContext: HOST, initialItems: [FIRED], initialTotals: TAXED });
+    // MUTATION (checkout/parked-foot-reads-the-subtotal): the slip's foot reads `subtotalCents`; red.
+    const slip = document.querySelector(".checkout-receipt")!;
+    expect(slip.textContent).toContain("13.26");
+    cleanup();
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED],
+      initialTotals: TAXED,
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    expect(counterCards()).toBe(1);
+    // MUTATION (checkout/pass-total-reads-the-subtotal): the pass reads `subtotalCents`; red.
+    expect(document.querySelector(".counter-pass-amount")!.textContent).toBe("13.26");
   });
 
   // ── Codex round 2 on #331 (head 5c074e1) ──

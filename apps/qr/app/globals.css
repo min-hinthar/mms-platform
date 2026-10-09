@@ -2481,6 +2481,13 @@ html[data-fx="off"] .pa-mid {
 .counter-pass {
   margin: 0 0 var(--s2);
 }
+/* The blind pass on #331 — the global ring is `--ac`, and Night's `--ac` on the constant paper is
+   ≈2.1:1 (under the 3:1 non-text bar). Focus on the paper rings in the pass's own accent
+   (`--pass-ac` on `--pass-paper` is pinned ≥ 4.5 in contrast-audit.test.ts); this out-specifies the
+   global `:focus-visible`. `check-pass-inks.mjs` refuses a universal ring with no such override. */
+.counter-pass :focus-visible {
+  outline-color: var(--pass-ac);
+}
 .counter-pass-total {
   margin: var(--s2) 0 0;
   display: grid;
@@ -2544,6 +2551,9 @@ html[data-fx="off"] .pa-mid {
   --t3: var(--pass-ink-3);
   --bd: var(--pass-edge);
   --sf: var(--pass-unlit);
+  /* The dish thumbs' decorative placeholder glyph mixes the accent (`.photo-ph`): on the paper it is
+     the pass's own accent too (the blind pass on #331 — Night fidelity of the hosted images). */
+  --ac: var(--pass-ac);
   padding-bottom: var(--s3);
   text-align: left;
   color: var(--pass-ink);
