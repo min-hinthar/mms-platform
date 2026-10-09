@@ -206,6 +206,7 @@ const FLAG: PendingFlag = {
   initiatorName: "Thiri",
   initiatorStaffId: "thiri",
   createdAt: "2026-10-08T10:00:00Z",
+  lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
 };
 describe("settleCash — the acknowledged-ids compare (PD8)", () => {
   it("a request the tap did not display refuses `approval_pending` with every pending flag, and releases the freeze", async () => {

@@ -88,7 +88,7 @@ const pending = (id: string): PendingApproval => ({
   initiatorName: "Aye",
   initiatorStaffId: "aye",
   cartStatus: "open",
-  lineNow: { qty: 1, unitPriceCents: 1200 },
+  lineNow: { qty: 1, unitPriceCents: 1200, offTheBill: false },
   lineId: "l1",
   createdAt: "2026-09-13T18:41:00Z",
 });

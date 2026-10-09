@@ -23,9 +23,31 @@ type Row = {
 let rows: Row[] = [];
 let readFails = false;
 let staffFails = false;
+type LineRow = {
+  id: string;
+  qty: number;
+  unit_price_cents: number;
+  state: string;
+  comped: boolean;
+};
+let lines: LineRow[] = [];
+let linesFail = false;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
+      if (table === "qr_cart_items") {
+        // The live lines, EVALUATED by id (a read that ignored its ids would hand back any line).
+        return {
+          select: () => ({
+            in: (_c: string, ids: string[]) =>
+              Promise.resolve(
+                linesFail
+                  ? { data: null, error: { message: "down" } }
+                  : { data: lines.filter((l) => ids.includes(l.id)), error: null },
+              ),
+          }),
+        };
+      }
       if (table === "staff") {
         return {
           select: () => ({
@@ -89,6 +111,8 @@ beforeEach(() => {
   rows = [];
   readFails = false;
   staffFails = false;
+  lines = [{ id: "l1", qty: 1, unit_price_cents: 1400, state: "draft", comped: false }];
+  linesFail = false;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -117,8 +141,33 @@ describe("readPendingApprovalFlags", () => {
         initiatorName: "Thiri",
         initiatorStaffId: "thiri",
         createdAt: "2026-10-08T10:00:00Z",
+        lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
       },
     ]);
+  });
+  it("the blind pass on #333 — each flag carries ITS line as it stands now: moved, gone, already off", async () => {
+    rows = [
+      row({ id: "moved", line_id: "l1" }),
+      row({ id: "gone", line_id: "l-gone", created_at: "2026-10-08T10:01:00Z" }),
+      row({ id: "off", line_id: "l3", created_at: "2026-10-08T10:02:00Z" }),
+    ];
+    lines = [
+      { id: "l1", qty: 2, unit_price_cents: 1400, state: "draft", comped: false },
+      { id: "l3", qty: 1, unit_price_cents: 900, state: "voided", comped: false },
+      { id: "l-other", qty: 9, unit_price_cents: 1, state: "draft", comped: false },
+    ];
+    const flags = await readPendingApprovalFlags("cart-1");
+    expect(flags?.map((f) => [f.id, f.lineNow])).toEqual([
+      ["moved", { qty: 2, unitPriceCents: 1400, offTheBill: false }],
+      ["gone", null],
+      ["off", { qty: 1, unitPriceCents: 900, offTheBill: true }],
+    ]);
+  });
+  it("a live-line read that fails is 'unknown' — never 'gone' (a false Close it) and never a dropped flag", async () => {
+    rows = [row({})];
+    linesFail = true;
+    const flags = await readPendingApprovalFlags("cart-1");
+    expect(flags?.map((f) => f.lineNow)).toEqual(["unknown"]);
   });
   it("an unreadable read is NULL — never an empty list the doors would pass", async () => {
     rows = [row({})];

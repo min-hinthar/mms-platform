@@ -6,7 +6,7 @@ import { requestApprovalInput, resolveApprovalInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { approvalsPollVerdict, type ApprovalsPollRefusal } from "./approvals-poll";
 import { pendingCountVerdict, type PendingCount } from "./approvals-count";
-import type { CartStatus, RequestLineNow } from "./approval-state";
+import { lineNowFromRow, type CartStatus, type RequestLineNow } from "./approval-state";
 import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
@@ -394,7 +394,14 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
   const lineIds = [...new Set(rows.map((r) => r.line_id).filter((x): x is string => !!x))];
   type SessionRow = { id: string; qr_code: string; table_number: number | null };
   type CartRow = { id: string; status: string };
-  type LineRow = { id: string; qty: number; unit_price_cents: number; menu_item_id: string | null };
+  type LineRow = {
+    id: string;
+    qty: number;
+    unit_price_cents: number;
+    state: string | null;
+    comped: boolean | null;
+    menu_item_id: string | null;
+  };
   const [staffRes, sessionsRes, cartsRes, linesRes] = await Promise.all([
     db.from("staff").select("user_id,display_name").in("user_id", initiatorIds),
     sessionIds.length
@@ -408,7 +415,10 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
     // PD8 · M184 — the line as it stands NOW, so the card can say "Changed after {x} asked" before
     // any PIN is typed (the SQL refuses `changed` at the write regardless).
     lineIds.length
-      ? db.from("qr_cart_items").select("id,qty,unit_price_cents,menu_item_id").in("id", lineIds)
+      ? db
+          .from("qr_cart_items")
+          .select("id,qty,unit_price_cents,state,comped,menu_item_id")
+          .in("id", lineIds)
       : Promise.resolve({ data: [] as LineRow[], error: null }),
   ]);
   // Names/labels are the queue's attribution — "A server · no table" on every row is misinformation
@@ -452,7 +462,7 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
       initiatorName: nameById.get(r.initiator_staff_id) ?? "A server",
       initiatorStaffId: r.initiator_staff_id,
       cartStatus: cartStatusOf(r.cart_id),
-      lineNow: line ? { qty: line.qty, unitPriceCents: line.unit_price_cents } : null,
+      lineNow: lineNowFromRow(line),
       lineId: r.line_id,
       createdAt: r.created_at,
     };

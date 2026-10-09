@@ -147,6 +147,7 @@ const flag: PendingFlag = {
   initiatorName: "Thiri",
   initiatorStaffId: "thiri",
   createdAt: "2026-10-08T10:05:00.000Z",
+  lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
 };
 
 beforeEach(() => {

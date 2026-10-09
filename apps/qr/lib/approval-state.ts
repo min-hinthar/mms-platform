@@ -10,17 +10,53 @@
  */
 
 export type CartStatus = "open" | "paid" | "cancelled";
-/** The line as it stands now; `null` when it is gone. */
-export type RequestLineNow = { qty: number; unitPriceCents: number } | null;
+/**
+ * The line as it stands now; `null` when it is gone. `offTheBill` — removed or made free SINCE the ask
+ * (a manager's own PIN void or comp; `mms_request_approval` refuses a line that already was): the
+ * dish is already off, so approving the request would record the loss twice (the blind pass on #333).
+ */
+export type RequestLineNow = { qty: number; unitPriceCents: number; offTheBill: boolean } | null;
 export type RequestCardState = "open" | "paid" | "cleared" | "changed";
 
-/** M184's compare: the qty AND the amount (qty × unit price) against the request's snapshot. */
+/** The live line from its `qr_cart_items` row — the ONE derivation both readers use (the queue's
+ *  `listPendingApprovals` and the pane's `readPendingApprovalFlags`). */
+export function lineNowFromRow(
+  row:
+    | { qty: number; unit_price_cents: number; state?: string | null; comped?: boolean | null }
+    | null
+    | undefined,
+): RequestLineNow {
+  if (!row) return null;
+  const offTheBill = row.state === "voided" || row.comped === true;
+  return { qty: row.qty, unitPriceCents: row.unit_price_cents, offTheBill };
+}
+
+/** M184's compare: the qty AND the amount (qty × unit price) against the request's snapshot — and a
+ *  line already off the bill is not the line that was asked about either. */
 export function lineChangedSinceRequest(
   snapshot: { qty: number; amountCents: number },
   now: RequestLineNow,
 ): boolean {
   if (now === null) return true;
+  if (now.offTheBill) return true;
   return now.qty !== snapshot.qty || now.qty * now.unitPriceCents !== snapshot.amountCents;
+}
+
+/**
+ * The sentence a changed request says — ONE choice, read by the card body and by the close-only
+ * decision under it (the blind pass on #333: the inset said "no longer on the order" over a line the
+ * card showed at its new qty). Gone → `goneNote`; already removed or made free → `doneNote`; still on
+ * the order at a new figure → `note` with the live qty and amount.
+ */
+export type ChangedNote =
+  | { k: "table.appr.changed.goneNote" }
+  | { k: "table.appr.changed.doneNote" }
+  | { k: "table.appr.changed.note"; qty: number; amountCents: number };
+
+export function changedNote(now: RequestLineNow): ChangedNote {
+  if (now === null) return { k: "table.appr.changed.goneNote" };
+  if (now.offTheBill) return { k: "table.appr.changed.doneNote" };
+  return { k: "table.appr.changed.note", qty: now.qty, amountCents: now.qty * now.unitPriceCents };
 }
 
 export function requestCardState(r: {

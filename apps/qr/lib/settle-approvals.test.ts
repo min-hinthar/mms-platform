@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ackForTap,
+  warnedDishes,
   APPROVALS_UNREADABLE_REFUSAL,
   APPROVAL_PENDING_REFUSAL,
   approvalPendingRefusal,
@@ -47,6 +49,7 @@ describe("the refusal shapes", () => {
     initiatorName: "Thiri",
     initiatorStaffId: "thiri",
     createdAt: "2026-10-08T10:00:00Z",
+    lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
   };
   it("approval_pending carries the typed code, the sentence, and EVERY pending flag (the card re-draws all of them)", () => {
     expect(approvalPendingRefusal([flag])).toEqual({
@@ -66,3 +69,40 @@ describe("the refusal shapes", () => {
     expect(r.error).not.toMatch(/paper/);
   });
 });
+
+describe("ackForTap — one door's acknowledgement (the blind pass on #333)", () => {
+  it("what the page displayed PLUS what this door's own re-warning named — so the next tap passes", () => {
+    // The page never re-drew (no page, or a pane mid-read): the displayed snapshot is still [] and
+    // only the door's warning covers r2. MUTATION (settle-approvals/warning-forgotten): the tap
+    // re-sends the stale [] and is refused again, forever — a block, not a re-warning; red.
+    expect(ackForTap([], ["r2"])).toEqual(["r2"]);
+    expect(ackForTap(["r1"], ["r1", "r2"])).toEqual(["r1", "r2"]);
+    // MUTATION (settle-approvals/displayed-forgotten): the page's own flags drop out; red.
+    expect(ackForTap(["r1"], [])).toEqual(["r1"]);
+  });
+  it("never crosses the schema's 50-id rail", () => {
+    const many = Array.from({ length: 60 }, (_, i) => `r${i}`);
+    expect(ackForTap(many, []).length).toBe(50);
+  });
+  it("warnedDishes names every dish the refusal carried, oldest first", () => {
+    expect(warnedDishes([flag("r1", "Mohinga"), flag("r2", "Tea leaf salad")])).toBe(
+      "Mohinga · Tea leaf salad",
+    );
+  });
+});
+function flag(id: string, lineName: string) {
+  return {
+    id,
+    kind: "void" as const,
+    lineId: null,
+    lineName,
+    nameMy: null,
+    qty: 1,
+    amountCents: 100,
+    cooked: false,
+    initiatorName: "Thiri",
+    initiatorStaffId: "thiri",
+    createdAt: "2026-10-08T10:00:00Z",
+    lineNow: "unknown" as const,
+  };
+}

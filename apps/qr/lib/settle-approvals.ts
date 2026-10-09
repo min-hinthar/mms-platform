@@ -12,6 +12,8 @@
  * (P2dc's rule, owner decision 5a) with a retry sentence — never the write-outage "keep it on paper".
  */
 
+import type { RequestLineNow } from "./approval-state";
+
 /** One pending request as a settle door displays it, and as the server hands it back. */
 export type PendingFlag = {
   id: string;
@@ -27,9 +29,28 @@ export type PendingFlag = {
   /** Who asked — the pane's decision sheet leaves them out of the signers (`eligibleApprovers`). */
   initiatorStaffId: string;
   createdAt: string;
+  /** The line as it stands now (`lineNowFromRow`, the queue's one derivation), so the pane's sheet
+   *  offers the request's REAL keys — or "unknown" when the line read failed (the sheet then offers
+   *  the open keys, and the write's own M184 compare refuses a changed line in place). */
+  lineNow: RequestLineNow | "unknown";
 };
 
 export type ApprovalSettleVerdict = null | "unreadable" | { unacknowledged: string[] };
+
+/**
+ * The ids ONE door's tap acknowledges: what the page displayed at the tap, plus what this door's own
+ * re-warning named (its alert lists every dish the refusal carried). So a door the page did not
+ * re-draw still passes on the next tap — a re-warning, never a block (the blind pass on #333: with no
+ * page, the door re-sent the same stale snapshot forever). De-duplicated; at most the schema's 50.
+ */
+export function ackForTap(displayed: readonly string[], warned: readonly string[]): string[] {
+  return [...new Set([...displayed, ...warned])].slice(0, 50);
+}
+
+/** The dishes a re-warning names, in the order the server listed them (oldest first). */
+export function warnedDishes(pending: readonly PendingFlag[]): string {
+  return pending.map((p) => p.lineName).join(" · ");
+}
 
 export function staffSettleApprovalVerdict(
   pendingIds: readonly string[] | null,
