@@ -3829,6 +3829,19 @@ live file says where the history went. And keep a measured number in exactly one
 cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
 table, with a one-line cell pointing to it.
 
+## #250
+
+**A post-edit hook that autofixes `prefer-const` rewrites a `let` the moment it is declared, before
+the assignment that needs it exists (2026-10-08, PD5).** Adding a test flag in two edits — `let
+failRoundRead = null` first, the cases that assign it second — left the file with
+`const failRoundRead = null`: the first edit carried no assignment, so the fix was "correct" for the
+file as it stood, and the second edit's `failRoundRead = leg` threw `Assignment to constant variable`
+at module load, reddening every case in the suite at once, not the new one. Declare the flag and its
+first assignment in ONE edit, or re-read the declaration after the hook runs. The same hook (prettier)
+also reflows a long `find:` anchor written before the format pass (LEARNINGS #106): write mutant
+anchors from the FORMATTED source, and run `check:mutant-anchors` after `pnpm format`, never only
+before it.
+
 ## #251
 
 **A cut paper shape with a shadow needs the shadow on the WRAPPER, and the React purity rule reaches
