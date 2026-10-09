@@ -95,6 +95,15 @@
  * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
  * in all (with M261's lock order, above).
  *
+ * PD1 adds suite `pd1`: `mms_nudge_host` (the "Let {host} know" stamp, every rule in its UPDATE's
+ * WHERE) and `mms_fire_cart` restated with the cart row lock first and the stamp's clear — one
+ * killed mutant per named `PD1.<n> ·` case (the blind pass on #335: "every guard dropped in turn
+ * goes red" was prose until it was replayable here). ONE new documented survivor: the fire's cart
+ * lock moved AFTER the lines still stamps a line-less cart's `xmax`, so PD1.16 cannot see the ORDER
+ * — `scripts/verify-fire-cart-race.mjs --mutants` kills it as a deadlock (orders a, c) and as a
+ * stamp that outlives its dishes (f). The ACL (PD1.18) has no mutant here: a grant leaves `prosrc`
+ * unchanged, so this runner reads it NO-OP. Nineteen survivors in all.
+ *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
  *
@@ -171,9 +180,15 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
     test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
   },
+  // PD1 — `mms_nudge_host` (new) and `mms_fire_cart`, whose LAST definition moves here from
+  // 20260624030000 (outside every chain), so both join TARGETS and the drift check covers them.
+  pd1: {
+    migration: path.join(ROOT, "supabase/migrations/20261008123000_pd1_send_nudge.sql"),
+    test: path.join(ROOT, "supabase/tests/pd1_send_nudge_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "pd1"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2304,6 +2319,177 @@ const MUTANTS = [
         "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
     },
   ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
+
+  // ── PD1 — the nudge's WHERE, its two answers that name a seat, and the fire's lock + clear ────
+  ...[
+    {
+      id: "pd1/nudge-open-cart-term-dropped",
+      expect: "PD1.9 · a closed cart",
+      why: "a stamp lands on a paid (or merged-away) cart — a wait nobody can end, read on a closed order",
+      find: "      and c.status = 'open'\n      and s.status = 'active'\n",
+      replace: "      and s.status = 'active'\n",
+    },
+    {
+      id: "pd1/nudge-active-session-term-dropped",
+      expect: "PD1.9 · a closed session",
+      why: "a closed table's cart (still open until it settles) takes a stamp — the host's phone left the table",
+      find: "      and s.status = 'active'\n      and s.mode = 'dinein'\n",
+      replace: "      and s.mode = 'dinein'\n",
+    },
+    {
+      id: "pd1/nudge-dinein-mode-term-dropped",
+      expect: "PD1.12 · a pickup-mode table",
+      why: "a pickup table has no Send (`mms_fire_cart` fires dine-in only), so its stamp would never clear",
+      find: "      and s.mode = 'dinein'\n      and s.host_seat is not null\n",
+      replace: "      and s.host_seat is not null\n",
+    },
+    {
+      id: "pd1/nudge-hostless-null-safe",
+      expect: "PD1.8",
+      why: "the hostless refusal: dropping `host_seat is not null` alone is redundant under `<>`'s NULL, so the mutant also makes the comparison null-safe — then a hostless table takes a stamp that names nobody",
+      find: "      and s.host_seat is not null\n      and s.host_seat <> p_seat\n",
+      replace: "      and s.host_seat is distinct from p_seat\n",
+    },
+    {
+      id: "pd1/nudge-host-term-dropped",
+      expect: "PD1.6",
+      why: "the host nudges themselves — a stamp that names nobody's wait",
+      find: "      and s.host_seat <> p_seat\n",
+      replace: "",
+    },
+    {
+      id: "pd1/nudge-member-term-dropped",
+      expect: "PD1.7",
+      why: "any seat id stamps any table — a false 'X is waiting' on a stranger's host phone",
+      find: "      and exists (select 1 from public.session_members m\n                   where m.session_id = s.id and m.seat_id = p_seat)\n",
+      replace: "",
+    },
+    {
+      id: "pd1/nudge-pay-lock-term-dropped",
+      expect: "PD1.10 · a fresh pay lock",
+      why: "a stamp under a tablemate's card payment names a Send nobody can make (m1 decision 18, now IN the statement)",
+      find: "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')\n",
+      replace: "",
+    },
+    {
+      id: "pd1/nudge-pay-lock-window-widened",
+      expect: "PD1.10 · a STALE pay lock",
+      why: "an abandoned pay lock past CART_LOCK_TTL_MS keeps refusing the nudge — over-blocking a table the app reads as unlocked",
+      find: "c.locked_at > now() - interval '5 minutes')\n      and (c.settle_at is null",
+      replace: "c.locked_at > now() - interval '50 minutes')\n      and (c.settle_at is null",
+    },
+    {
+      id: "pd1/nudge-settle-term-dropped",
+      expect: "PD1.11 · a fresh split freeze",
+      why: "a stamp under a table-wide split settle names a Send the freeze forbids",
+      find: "      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')\n",
+      replace: "",
+    },
+    {
+      id: "pd1/nudge-settle-window-widened",
+      expect: "PD1.11 · a STALE split freeze",
+      why: "an abandoned settlement past SETTLE_TTL_MS keeps refusing — over-blocking",
+      find: "c.settle_at <= now() - interval '10 minutes')\n      and exists (select 1 from public.qr_cart_items ci",
+      replace:
+        "c.settle_at <= now() - interval '100 minutes')\n      and exists (select 1 from public.qr_cart_items ci",
+    },
+    {
+      id: "pd1/nudge-draft-term-dropped",
+      expect: "PD1.12 · a to-go draft alone",
+      why: "a stamp with no dine-in draft to send — 'Someone's waiting' on the host's bar with nothing a Send moves (the blind pass on #335)",
+      find: "      and exists (select 1 from public.qr_cart_items ci\n                   where ci.cart_id = c.id and ci.state = 'draft' and ci.fulfillment = 'dinein')\n      and (c.send_nudge_at",
+      replace: "      and (c.send_nudge_at",
+    },
+    {
+      id: "pd1/nudge-draft-term-counts-togo",
+      expect: "PD1.12 · a to-go draft alone",
+      why: "a to-go draft counted as a dish the Send owes — but to-go waits for checkout, so the Send never clears it",
+      find: "where ci.cart_id = c.id and ci.state = 'draft' and ci.fulfillment = 'dinein')\n      and (c.send_nudge_at",
+      replace: "where ci.cart_id = c.id and ci.state = 'draft')\n      and (c.send_nudge_at",
+    },
+    {
+      id: "pd1/nudge-minute-term-dropped",
+      expect: "PD1.3",
+      why: "a tablemate re-stamps the host's phone on every tap",
+      find: "      and (c.send_nudge_at is null or c.send_nudge_at < now() - interval '1 minute')\n",
+      replace: "",
+    },
+    {
+      id: "pd1/nudge-taken-read-as-recent",
+      expect: "PD1.4",
+      why: "another seat's standing stamp answered `recent` — the app shows Mya 'Aye can see you're waiting' for Thiri's nudge (the blind pass on #335)",
+      find: "    if v_prev_seat = p_seat then",
+      replace: "    if true then",
+    },
+    {
+      id: "pd1/nudge-taken-names-the-caller",
+      expect: "PD1.4 · taken must name",
+      why: "the `taken` answer carries the caller's seat — the app would draw the caller's own confirmation over a tablemate's stamp",
+      find: "select false, 'taken'::text, v_prev, v_prev_seat;",
+      replace: "select false, 'taken'::text, v_prev, p_seat;",
+    },
+    {
+      id: "pd1/nudge-stamps-the-host",
+      expect: "PD1.2",
+      why: "the stamp's seat is the NUDGER's: in the host's name the line reads 'Aye is waiting' on Aye's own phone",
+      find: "    set send_nudge_seat = p_seat, send_nudge_at = now()",
+      replace: "    set send_nudge_seat = s.host_seat, send_nudge_at = now()",
+    },
+    {
+      id: "pd1/nudge-cart-lock-dropped",
+      expect: "PD1.17",
+      why: "the nudge decides from a snapshot older than a fire it only waits on when the fire WROTE the cart — a stamp lands on dishes already sent (the race itself: verify-fire-cart-race e)",
+      find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n  update public.qr_carts c\n    set send_nudge_seat = p_seat",
+      replace: "  update public.qr_carts c\n    set send_nudge_seat = p_seat",
+    },
+  ].map((m) => ({ fn: "mms_nudge_host", ...m, src: "pd1", suite: "pd1" })),
+  ...[
+    {
+      id: "pd1/fire-cart-lock-dropped",
+      expect: "PD1.16",
+      why: "the fire stops ordering itself against an add / qty change / nudge at the cart (verify-fire-cart-race a–f go red)",
+      find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;   -- PD1: the cart row first (cart → line)\n",
+      replace: "",
+    },
+    {
+      id: "pd1/fire-cart-lock-after-the-lines",
+      expect: null,
+      why: "the blind pass's CRITICAL on #335, restored: lines locked, THEN the cart — a line-less cart's xmax is stamped either way, so no single session sees the order; killed by verify-fire-cart-race.mjs --mutants: a deadlock (a, c) and a stamp that outlives its dishes (f)",
+      edits: [
+        {
+          find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;   -- PD1: the cart row first (cart → line)\n",
+          replace: "",
+        },
+        {
+          find: "  select count(*) into n from fired_lines;\n",
+          replace:
+            "  select count(*) into n from fired_lines;\n  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n",
+        },
+      ],
+    },
+    {
+      id: "pd1/fire-clear-dropped",
+      expect: "PD1.13",
+      why: "the Send leaves 'Thiri is waiting on this send.' on the host's phone over dishes already gone",
+      find: "      set send_nudge_seat = null, send_nudge_at = null\n      where c.id = p_cart_id\n",
+      replace:
+        "      set send_nudge_seat = c.send_nudge_seat, send_nudge_at = c.send_nudge_at\n      where c.id = p_cart_id\n",
+    },
+    {
+      id: "pd1/fire-clear-without-a-stamp",
+      expect: "PD1.15",
+      why: "every Send rewrites the cart row with no stamp to clear — one qr_carts realtime event per Send to every member (the blind pass's perf finding)",
+      find: "        and (c.send_nudge_at is not null or c.send_nudge_seat is not null)\n",
+      replace: "",
+    },
+    {
+      id: "pd1/fire-clears-when-nothing-moved",
+      expect: "PD1.14",
+      why: "a Send that moves no line erases a real wait",
+      find: "        and exists (select 1 from fired_lines)\n",
+      replace: "",
+    },
+  ].map((m) => ({ fn: "mms_fire_cart", ...m, src: "pd1", suite: "pd1" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2365,6 +2551,8 @@ const TARGETS = [
   "mms_shell_untouched",
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
+  "mms_nudge_host",
+  "mms_fire_cart",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

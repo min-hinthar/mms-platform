@@ -453,7 +453,7 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 191 `id:` rows (measured below; was "20" while the file held 27) across twenty-one LIVE functions
+      # 219 `id:` rows (measured below; was "20" while the file held 27) across twenty-three LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, — Phase 2f · P2v — mms_fire_counter_cart,
@@ -462,10 +462,11 @@ jobs:
       # mms_void_line and mms_request_approval, and — the Phase 2f self-review — mms_line_transition
       # and mms_bump_ticket, and — Phase 3c-ii · M258 — mms_undo_fire, and — M263 · J41 · J40 —
       # mms_bind_session_table and the ONE "untouched" predicate's readers mms_shell_untouched,
-      # mms_untouched_shells and mms_claim_untouched_shell) plus one of
+      # mms_untouched_shells and mms_claim_untouched_shell, and — PD1 — mms_nudge_host and the
+      # restated mms_fire_cart) plus one of
       # mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
-      # and the NAMED case (not just some case) to be the one that goes red. Seventeen mutants are
+      # and the NAMED case (not just some case) to be the one that goes red. Nineteen mutants are
       # documented SURVIVORS and are asserted as such rather than left as untested comments.
       # The battery replays an ordered migration CHAIN and verifies from the migration FILENAMES that
       # its chain is complete: a function whose last definition moves outside the chain ABORTS the
@@ -476,6 +477,8 @@ jobs:
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
       # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
       # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
+      # (219 since PD1 — 22 pd1 rows; the full 219 ran green against a throwaway PG16 with the
+      # nine-file chain, 2026-10-09.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs
@@ -540,6 +543,22 @@ jobs:
       - name: Counter-fire race mutants (can the locks fail?)
         timeout-minutes: 9
         run: node scripts/verify-counter-fire-race.mjs --mutants
+      # PD1 — the diner Send (`mms_fire_cart`) takes the cart row FIRST, as every add, qty change,
+      # merge and undo does (cart → line), and `mms_nudge_host` decides after the same lock. The
+      # first draft locked the lines and THEN the cart, against the line RPCs' cart-then-line: a
+      # tablemate's "+" racing the host's Send deadlocked (the blind pass on #335). Eight orders,
+      # every wait read from pg_blocking_pids: add-first · fire-before-add · qty-first ·
+      # fire-before-qty · fire-before-nudge · nudge-first · merge-first · fire-before-merge. Commits
+      # `PD1R-` / `PD1RT-` fixtures, so the script refuses anything that is not the local stack.
+      - name: Fire-cart race harness (two concurrent sessions)
+        timeout-minutes: 3
+        run: node scripts/verify-fire-cart-race.mjs
+      # Can it fail? The fire's cart lock deleted (a, c, e, f) and moved AFTER the lines — the first
+      # draft's deadlock (a, c, f) — and the nudge's cart lock deleted (e); md5-checked apply,
+      # byte-identical restore. The second is verify-mode-authority.mjs's pd1 survivor.
+      - name: Fire-cart race mutants (can the locks fail?)
+        timeout-minutes: 5
+        run: node scripts/verify-fire-cart-race.mjs --mutants
       # (No "Stop stack" step: it was `supabase stop || true` on a hosted VM that is discarded after
       # the job — it could never fail and guarded nothing, for ~19 s per run.)
 

@@ -2068,6 +2068,7 @@ export type Database = {
       mms_nudge_host: {
         Args: { p_cart_id: string; p_seat: string }
         Returns: {
+          nudge_seat: string
           nudged_at: string
           ok: boolean
           reason: string
