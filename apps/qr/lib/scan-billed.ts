@@ -24,7 +24,15 @@
  *     attempt already committed is an idempotent ok that writes nothing (the scan-event ledger,
  *     20260813210000) — and if the shopper removed that line in between, its view (read after the
  *     write) does not hold the code. The view is the server's own word after this charge: absent
- *     means not charged, and any earlier record of the code goes too.
+ *     means not charged, and any earlier record of the code goes too —
+ *   · …UNLESS A NEWER CHARGE OF THE CODE LANDED SINCE THIS ONE LEFT (Codex P1 on #344). A Browse add
+ *     asks neither the classifier nor the queue, so the shopper can add the jar again while the
+ *     replay's empty view is still in flight; that newer charge lands first (its record, perhaps its
+ *     only proof) and the older view, read before it, would drop it — leaving the list, the queue and
+ *     the record all empty, and the next sighting charging another unit. So the mark also carries
+ *     how many charges of the code had LANDED at dispatch, every landing counts one, and an absent
+ *     view drops the record only when that count has not moved; otherwise the view is older than a
+ *     charge it never saw, and the page re-reads.
  *
  * ⚠️ Accepted residual, named rather than guessed around: a removal that crosses a write AND lands
  * with its reconcile read before the write commits at the server leaves the add's unit charged while
@@ -40,14 +48,23 @@ export type BilledLedger = {
   readonly billed: ReadonlySet<string>;
   /** Per barcode, how many times the shopper has removed its line in this basket. */
   readonly removals: ReadonlyMap<string, number>;
+  /** Per barcode, how many ok charges of it have LANDED in this basket. */
+  readonly charges: ReadonlyMap<string, number>;
 };
 
 /** A basket nothing has been charged to. */
-export const NO_BILLED: BilledLedger = { billed: new Set(), removals: new Map() };
+export const NO_BILLED: BilledLedger = {
+  billed: new Set(),
+  removals: new Map(),
+  charges: new Map(),
+};
 
-/** The item's removal generation — taken when a charge is DISPATCHED, before its write is awaited. */
-export function chargeMark(ledger: BilledLedger, barcode: string): number {
-  return ledger.removals.get(barcode) ?? 0;
+/** Where the item stood when a charge left: its removal generation and its landed charges. */
+export type ChargeMark = { readonly removals: number; readonly charges: number };
+
+/** The item's mark — taken when a charge is DISPATCHED, before its write is awaited. */
+export function chargeMark(ledger: BilledLedger, barcode: string): ChargeMark {
+  return { removals: ledger.removals.get(barcode) ?? 0, charges: ledger.charges.get(barcode) ?? 0 };
 }
 
 export type ChargeLanded = {
@@ -62,19 +79,28 @@ export type ChargeLanded = {
 export function afterCharge(
   ledger: BilledLedger,
   barcode: string,
-  mark: number,
+  mark: ChargeMark,
   lines: readonly { barcode: string }[] | null,
 ): ChargeLanded {
+  const now = chargeMark(ledger, barcode);
+  // Every ok charge that lands counts — a later, older view must be able to see it.
+  const charges = new Map(ledger.charges);
+  charges.set(barcode, now.charges + 1);
+  const { removals } = ledger;
   // A removal crossed the write: unorderable here — never recorded; the view settles it.
-  if (chargeMark(ledger, barcode) !== mark) return { ledger, reread: true };
+  if (now.removals !== mark.removals) return { ledger: { ...ledger, charges }, reread: true };
   const billed = new Set(ledger.billed);
-  // The charge's own view, read after its write, does not hold the code: it is not charged.
   if (lines !== null && !lines.some((l) => l.barcode === barcode)) {
+    // A newer charge of the code landed since this one left: the view is older than it — its
+    // record stands, and only a fresh read can settle the list.
+    if (now.charges !== mark.charges)
+      return { ledger: { billed, removals, charges }, reread: true };
+    // The charge's own view, read after its write, does not hold the code: it is not charged.
     billed.delete(barcode);
-    return { ledger: { billed, removals: ledger.removals }, reread: false };
+    return { ledger: { billed, removals, charges }, reread: false };
   }
   billed.add(barcode);
-  return { ledger: { billed, removals: ledger.removals }, reread: lines === null };
+  return { ledger: { billed, removals, charges }, reread: lines === null };
 }
 
 /** The shopper removed the item's line: it is a new item again, and any charge of it still in flight
@@ -83,6 +109,6 @@ export function afterRemoval(ledger: BilledLedger, barcode: string): BilledLedge
   const billed = new Set(ledger.billed);
   billed.delete(barcode);
   const removals = new Map(ledger.removals);
-  removals.set(barcode, chargeMark(ledger, barcode) + 1);
-  return { billed, removals };
+  removals.set(barcode, chargeMark(ledger, barcode).removals + 1);
+  return { billed, removals, charges: ledger.charges };
 }

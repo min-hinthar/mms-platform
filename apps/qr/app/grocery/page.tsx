@@ -272,6 +272,10 @@ export default function Grocery() {
   // later-issued read has already applied.
   const reqSeq = useRef(0);
   const appliedSeq = useRef(0);
+  // G25 (Codex P1 on #344) — the issue ticket of the newest ok CHARGE that landed. A view issued
+  // before it may have been read before that write committed, so it never applies after it — even
+  // when the charge brought no view of its own (`lines: null`), which advances `appliedSeq` nothing.
+  const viewFloor = useRef(0);
   // Codex round 4 on #300 — the header's "Your basket · N" counts only what a server read APPLIED
   // (the stepper's optimistic `setLines` never passes through here, so a refused edit is never
   // published as fact); the effect below publishes it, with the mode /grocery's URL does not carry.
@@ -525,6 +529,7 @@ export default function Grocery() {
   const markCartAlive = useCallback(
     (seq: number, lines: GroceryLine[]) => {
       if (seq <= appliedSeq.current) return; // stale — it lost the race; a fresher answer stands
+      if (seq < viewFloor.current) return; // issued before a charge that has since landed
       applyLines(seq, lines);
       setHydrated(true);
       setSyncFailed(false);
@@ -903,6 +908,7 @@ export default function Grocery() {
         // again when nothing this response holds can show the line.
         const billing = afterCharge(billedRef.current, barcode, billedMark, r.lines);
         billedRef.current = billing.ledger;
+        viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge
         setLastScanned({ code: barcode, viaPairing: false });
         noteOutcome("ok", via, barcode);
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
@@ -1106,6 +1112,7 @@ export default function Grocery() {
           // or a view without the code (an idempotent replay of a removed line), records nothing.
           const billing = afterCharge(billedRef.current, entry.barcode, billedMark, r.lines);
           billedRef.current = billing.ledger;
+          viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge
           if (billing.reread) reread = true;
           if (r.lines) markCartAlive(seq, r.lines);
           return { ok: true };

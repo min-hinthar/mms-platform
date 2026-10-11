@@ -31,7 +31,11 @@ describe("afterCharge — an ok charge is recorded, unless nothing can say it st
   });
 
   it("its own view does NOT hold the code (an idempotent replay of a line since removed): not charged — and an older record of it goes too (Codex P2 on #344)", () => {
-    const before: BilledLedger = { billed: new Set([JAR, RICE]), removals: new Map() };
+    const before: BilledLedger = {
+      billed: new Set([JAR, RICE]),
+      removals: new Map(),
+      charges: new Map(),
+    };
     const r = afterCharge(before, JAR, chargeMark(before, JAR), [line(RICE)]);
     // MUTANT scan-billed/the-view-is-not-consulted — the camera refuses the jar for good.
     // MUTANT scan-billed/an-absent-view-keeps-a-stale-record — the same, through the older record.
@@ -54,6 +58,38 @@ describe("afterCharge — an ok charge is recorded, unless nothing can say it st
     expect(r.reread).toBe(true);
   });
 
+  it("CODEX P1 on #344 — an OLDER charge's empty view never drops the record a NEWER charge of the code left", () => {
+    // An idempotent replay leaves (its view will be read on an empty basket)…
+    const older = chargeMark(NO_BILLED, JAR);
+    // …a Browse add of the same jar leaves after it and lands first, with no view: recorded.
+    const newer = afterCharge(NO_BILLED, JAR, chargeMark(NO_BILLED, JAR), null).ledger;
+    expect(judge(newer, JAR)).toBe("repeat");
+    // …then the replay lands with its empty view, at the same removal generation.
+    const r = afterCharge(newer, JAR, older, []);
+    // MUTANT scan-billed/an-older-view-drops-a-newer-charge — all three sources empty, the next
+    // sighting charges another unit.
+    expect(r.ledger.billed.has(JAR)).toBe(true);
+    expect(judge(r.ledger, JAR)).toBe("repeat");
+    // The view is older than the newer charge's write — only a fresh read can settle the list.
+    // MUTANT scan-billed/an-older-view-is-not-reread.
+    expect(r.reread).toBe(true);
+    // A newer charge of ANOTHER code does not shield this one: its own empty view still drops it.
+    const other = afterCharge(newer, RICE, chargeMark(newer, RICE), null).ledger;
+    const own = chargeMark(other, JAR);
+    expect(afterCharge(other, JAR, own, [line(RICE)]).ledger.billed.has(JAR)).toBe(false);
+  });
+
+  it("a CROSSED charge still counts as landed: a later empty view, read before it committed, re-reads", () => {
+    const a = chargeMark(NO_BILLED, JAR); // charge A leaves…
+    const removed = afterRemoval(NO_BILLED, JAR); // …the shopper removes the jar…
+    const b = chargeMark(removed, JAR); // …charge B leaves after the removal…
+    const afterA = afterCharge(removed, JAR, a, [line(JAR)]).ledger; // A lands, crossed: unrecorded
+    expect(afterA.billed.has(JAR)).toBe(false);
+    // B lands with an empty view read before A committed: A is a charge B never saw.
+    // MUTANT scan-billed/a-crossed-charge-is-not-counted — the list keeps a view that may omit A.
+    expect(afterCharge(afterA, JAR, b, []).reread).toBe(true);
+  });
+
   it("a removal of ANOTHER item, or one before the dispatch, does not cross this charge", () => {
     const removedRice = afterRemoval(NO_BILLED, RICE);
     expect(
@@ -69,29 +105,36 @@ describe("afterCharge — an ok charge is recorded, unless nothing can say it st
 
 describe("afterRemoval — a removed item is a new item again, and every removal is a new generation", () => {
   it("drops the record and bumps the generation, every time", () => {
-    const billed = afterCharge(NO_BILLED, JAR, 0, null).ledger;
+    const billed = afterCharge(NO_BILLED, JAR, chargeMark(NO_BILLED, JAR), null).ledger;
     const once = afterRemoval(billed, JAR);
     // MUTANT scan-billed/a-removal-keeps-the-record — the removed jar is refused as a repeat.
     expect(once.billed.has(JAR)).toBe(false);
     expect(judge(once, JAR)).toBe("add");
     // MUTANT scan-billed/a-removal-does-not-bump — a removal no charge in flight can see.
-    expect(chargeMark(once, JAR)).toBe(1);
+    expect(chargeMark(once, JAR).removals).toBe(1);
     const twice = afterRemoval(once, JAR);
     // MUTANT scan-billed/a-removal-pins-the-generation — the SECOND removal crossing a charge
     // dispatched after the first is invisible.
-    expect(chargeMark(twice, JAR)).toBe(2);
+    expect(chargeMark(twice, JAR).removals).toBe(2);
     const dispatched = chargeMark(once, JAR);
     expect(afterCharge(twice, JAR, dispatched, [line(JAR)]).ledger.billed.has(JAR)).toBe(false);
-    expect(chargeMark(twice, RICE)).toBe(0); // per item
+    expect(chargeMark(twice, RICE).removals).toBe(0); // per item
   });
 
   it("never mutates the ledger it was given (the page swaps the ref, it never edits in place)", () => {
-    const start: BilledLedger = { billed: new Set([JAR]), removals: new Map([[JAR, 3]]) };
+    const start: BilledLedger = {
+      billed: new Set([JAR]),
+      removals: new Map([[JAR, 3]]),
+      charges: new Map([[JAR, 2]]),
+    };
     afterRemoval(start, JAR);
-    afterCharge(start, RICE, 0, null);
+    afterCharge(start, RICE, chargeMark(start, RICE), null);
+    afterCharge(start, JAR, chargeMark(start, JAR), [line(JAR)]);
     expect([...start.billed]).toEqual([JAR]);
     expect(start.removals.get(JAR)).toBe(3);
+    expect(start.charges.get(JAR)).toBe(2);
     expect(NO_BILLED.billed.size).toBe(0);
     expect(NO_BILLED.removals.size).toBe(0);
+    expect(NO_BILLED.charges.size).toBe(0);
   });
 });

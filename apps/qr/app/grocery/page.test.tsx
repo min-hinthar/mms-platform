@@ -31,6 +31,8 @@ const JAR = "012345678905";
 
 const h = vi.hoisted(() => ({
   onScan: null as ((code: string) => void) | null,
+  /** The Browse door's one-tap add — the page's own `addFromBrowse`, handed to the aisles. */
+  onBrowseAdd: null as ((item: { barcode: string }) => Promise<void>) | null,
   /** Every `scanAdd(cartId, barcode, scanId)` the page made, in order. */
   calls: [] as { cartId: string; barcode: string; scanId: string }[],
   /** The server's answer to `scanAdd` call i (set per row). */
@@ -102,8 +104,14 @@ vi.mock("@/components/ActiveOrderProvider", () => {
 vi.mock("posthog-js", () => ({ default: { capture: () => {} } }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: () => null }));
 vi.mock("@/components/DoorSheet", () => ({ DoorSheet: () => null }));
-// The Browse door's aisles (their own catalog read) — not this suite's door.
-vi.mock("@/components/grocery/GroceryBrowse", () => ({ GroceryBrowse: () => null }));
+// The Browse door's aisles (their own catalog read): drawn as nothing, handing back the page's own
+// one-tap add — a Browse add is a deliberate tap, so it asks neither the classifier nor the queue.
+vi.mock("@/components/grocery/GroceryBrowse", () => ({
+  GroceryBrowse: (p: { onAdd: (item: { barcode: string }) => Promise<void> }) => {
+    h.onBrowseAdd = p.onAdd;
+    return null;
+  },
+}));
 // The camera: the stage hands back the page's own `onScan`, and draws the result bar it is given.
 vi.mock("@/components/grocery/ScanStage", () => ({
   ScanStage: (p: { onScan: (code: string) => void; result?: ReactNode }) => {
@@ -170,6 +178,14 @@ async function sight(code: string) {
   });
 }
 
+/** A Browse card's one-tap add of `code`, through the page's own handler, until it has landed. */
+async function browseAdd(code: string) {
+  expect(h.onBrowseAdd).not.toBeNull();
+  await act(async () => {
+    await h.onBrowseAdd!({ barcode: code });
+  });
+}
+
 const chargesOf = (code: string, cart = CART) =>
   h.calls.filter((c) => c.barcode === code && c.cartId === cart).length;
 
@@ -188,6 +204,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   h.onScan = null;
+  h.onBrowseAdd = null;
   h.calls = [];
   h.reads = [];
   h.server = [];
@@ -418,6 +435,63 @@ describe("…and a record never outlives the line it stands for (the reviews of 
       // marks the fresh one, and its first scan of the jar is refused as "Already added".
       await sight(JAR);
       expect(chargesOf(JAR, FRESH)).toBe(1);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "CODEX P1 — an older replay's empty view lands after a NEWER Browse add of the jar: the newer charge's record stands, and the stale view is not shown",
+    async () => {
+      // The jar's first, lost-response scan committed and the shopper removed its line; its replay
+      // is an idempotent ok whose view (read on the emptied basket) is delayed.
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000f7");
+      const replay = deferred<ScanAddResult>();
+      h.scan = (i) => (i === 0 ? replay.promise : Promise.resolve(ok()));
+      // The mount read lands; every later read fails (the radio is still flaky).
+      h.read = (i) => (i === 0 ? Promise.resolve(linesOk([])) : readFails());
+      render(<GroceryPage />);
+      await until(() => expect(h.calls).toHaveLength(1)); // the replay is in flight
+      // The shopper taps Add on the jar's Browse card: a fresh unit, its own read failed.
+      await browseAdd(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+      await shown(/Couldn’t check your basket\./); // its re-read failed — said
+      // …and only now the older replay lands with its empty view.
+      await act(async () => {
+        replay.resolve(ok([]));
+      });
+      await shown(/added 1 saved scan/);
+      await settle();
+      expect(pendingFor(CART)).toEqual([]);
+      // MUTANT grocery-page/a-replay-raises-no-view-floor — the older view replaces the honest
+      // "Couldn’t check" with an empty basket that is not the truth.
+      expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
+      // MUTANT scan-billed/an-older-view-drops-a-newer-charge — the list is empty, the queue is
+      // empty and the record was dropped: the jar in frame charges a THIRD unit.
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "a basket read issued BEFORE a live add lands after it: it never replaces what the add's failed re-read said",
+    async () => {
+      const mount = deferred<GroceryLinesResult>();
+      h.read = (i) => (i === 0 ? mount.promise : readFails());
+      render(<GroceryPage />);
+      await settle();
+      await browseAdd(JAR); // lands with no view; its re-read fails
+      expect(chargesOf(JAR)).toBe(1);
+      await shown(/Couldn’t check your basket\./);
+      // The mount read — issued before the add left, read before it committed — lands last.
+      await act(async () => {
+        mount.resolve(linesOk([]));
+      });
+      await settle();
+      // MUTANT grocery-page/a-live-add-raises-no-view-floor — an empty basket the add just disproved.
+      expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(1);
     },
     ROW_MS,
   );
