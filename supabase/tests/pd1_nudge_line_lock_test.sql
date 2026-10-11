@@ -115,6 +115,8 @@ begin
     'PD1N.4 · authenticated must not call the restated mms_nudge_host';
   assert has_table_privilege('service_role', 'public.qr_cart_items', 'update'),
     'PD1N.4 · service_role lacks UPDATE on qr_cart_items — the invoker nudge''s `for share` line lock would fail with 42501 for its only caller';
+  assert has_table_privilege('service_role', 'public.qr_carts', 'update'),
+    'PD1N.4 · service_role lacks UPDATE on qr_carts — the invoker nudge''s `for no key update` cart lock would fail with 42501 for its only caller';
 end $$;
 
 rollback;

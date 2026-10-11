@@ -105,10 +105,12 @@
 --
 -- ## Deploy order: none — the app is unchanged by this file
 -- Same signature, same return shape, same grants: the deployed build calls it exactly as before.
--- One privilege is newly RELIED ON, not granted: the line lock's `for share` needs UPDATE on
--- `qr_cart_items` from service_role (PD1N.4 pins it on the CI stack). Prod holds it — measured
--- 2026-10-11 before the apply: `has_table_privilege('service_role', 'public.qr_cart_items',
--- 'update')` true (Supabase's default privileges; no migration grants or revokes it).
+-- Two TABLE privileges are now granted explicitly (the foot of this file): this invoker function's
+-- row locks — the cart `for no key update`, the dine-in drafts `for share` — need UPDATE on
+-- `qr_carts` and `qr_cart_items` from service_role, its only caller. The hosted project already
+-- holds them through Supabase's default privileges (measured in prod 2026-10-11 before the apply:
+-- SELECT and UPDATE true on both), so there the grant is a no-op; CI's fresh `supabase start` stack
+-- does NOT (PD1N.4 went red there on #342 @ 41eec58), and nothing before this file granted them.
 -- Apply it on the owner's go before the PR merges (#342); the PR's app change (the "Show a server"
 -- pass) does not depend on it. PD1's file (`20261008123000`) is already applied (prod row
 -- `20261011045025`), and it must NEVER be re-applied after this one: its idempotent `create or
@@ -123,9 +125,9 @@
 -- neither. Then verify: ONE `mms_nudge_host` row in pg_proc, `pg_get_function_result` naming the
 -- same four columns, `md5(prosrc)` equal to this file's body (a local apply's), and
 -- `has_function_privilege('service_role', 'public.mms_nudge_host(uuid, uuid)', 'execute')` true and
--- false for `anon` / `authenticated`, and `has_table_privilege('service_role',
--- 'public.qr_cart_items', 'update')` still true (without it every nudge raises 42501). Never
--- `db push`, never the SQL editor.
+-- false for `anon` / `authenticated`, and `has_table_privilege('service_role', <table>, 'update')`
+-- true on `public.qr_carts` and `public.qr_cart_items` (without them every nudge raises 42501).
+-- Never `db push`, never the SQL editor.
 --
 -- Guarded + idempotent: every statement re-applies cleanly.
 
@@ -211,3 +213,9 @@ begin
 end $$;
 revoke all on function public.mms_nudge_host(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.mms_nudge_host(uuid, uuid) to service_role;
+
+-- What this INVOKER function's only caller needs to run it: its reads (SELECT) and its two row
+-- locks (UPDATE — `for no key update` on the cart, `for share` on the dine-in drafts). Granted
+-- explicitly so the schema is self-contained (the `abuse_limits` precedent): the hosted project
+-- has them by Supabase's default privileges, a fresh local stack does not (the header). Idempotent.
+grant select, update on public.qr_carts, public.qr_cart_items to service_role;

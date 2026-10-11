@@ -31,7 +31,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `supabase/tests/pd1_nudge_line_lock_test.sql` (CI's required list) pins the lock TAKEN, on which
   lines and only on an open cart (PD1N.1–3), red-first against PD1's body, and the grants (PD1N.4),
   with service_role's UPDATE on `qr_cart_items` — the nudge is SECURITY INVOKER, and `for share`
-  needs that privilege from its one caller (red-first: revoked, the case fails);
+  needs that privilege from its one caller (red-first: revoked, the case fails). CI's fresh
+  `supabase start` stack does NOT hand service_role table privileges the way the hosted project's
+  default privileges do (PD1N.4 went red there on the merge head), so the migration now GRANTS
+  `select, update` on `qr_carts` and `qr_cart_items` to service_role explicitly — a no-op in prod
+  (measured: both true), the cart lock's privilege asserted beside the line lock's (red-first);
   `verify-mode-authority.mjs` gains suite `pd1n` (4 killed, 3 documented survivors that only the race
   harness can see), and suite `pd1`'s nudge mutants patch the new file.
 - **A dish that joins the open "Show a server" pass stays on it (comment 4240355354, P2).** A
