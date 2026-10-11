@@ -32,9 +32,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   down instead of cancelling a successor's checkout, and a link someone else dropped (leaving the
   pin) is cleared by the re-proof instead of priced. Apply `20261009120000` before deploying the
   code: until then every counter settle refuses as `unavailable` (fail closed).
+- **Freshness alone is not the proof (Codex on #338 @ 688bc1d, P2):** the cutoff is computed before
+  the awaited RPC, so a call delayed past the TTL (a wait on a row lock, say) still read its freeze as
+  fresh while a successor's `acquireCartLock` took the stale freeze and pinned, and cleared that pin
+  before the successor linked — a captured payment that cannot reconcile. The release and its
+  refusal probe now also require `not locked or locked_at < settle_at`: a freeze is only written
+  over no pay lock or a stale one, and a successor stamps `locked_at` only once `settle_at` is a TTL
+  old, so stored values order the two with no clock involved. A successor holding the cart answers
+  -1, linked or not (never the 0 that licenses a supersede); the freshness cutoff stays.
 - **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
   the legitimate promo, five refusals including the stale freeze at, past and one second inside the
-  TTL, privileges, a mutant per guard and per probe guard built from the live definition);
+  TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
+  lock older than the freeze that still releases and a lock with no era that fails closed,
+  privileges, a mutant per guard and per probe guard built from the live definition);
   `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
   `m268/…` mutants.
 

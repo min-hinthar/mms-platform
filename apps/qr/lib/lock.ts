@@ -439,24 +439,36 @@ export async function releaseStaleSettlement(
  *     `mms_release_promo_grant`, whose predicate is the era;
  *   · a SETTLEMENT attempt — the request-unique owner its freeze wrote, through
  *     `mms_release_promo_grant_for_settlement`, whose predicate is `settle_by = owner` with a FRESH
- *     `settle_at`, on an OPEN cart naming NO live intent. Only a fresh freeze excludes pay attempts:
- *     `acquireCartLock` takes the cart under a STALE `settle_at` and writes only the pay-lock
- *     columns, leaving `settle_by` behind — so a settle stalled past the TTL still matched
- *     `settle_by` alone, and in a successor's pin-before-link window cleared that successor's pin
- *     (Codex on #338 @ 56a4fd1). Under a fresh freeze, a pin no intent names belongs to nobody.
+ *     `settle_at`, on an OPEN cart that NO pay attempt has taken since the freeze and that names NO
+ *     live intent. Only a fresh freeze excludes pay attempts: `acquireCartLock` takes the cart under
+ *     a STALE `settle_at` and writes only the pay-lock columns, leaving `settle_by` behind — so a
+ *     settle stalled past the TTL still matched `settle_by` alone, and in a successor's
+ *     pin-before-link window cleared that successor's pin (Codex on #338 @ 56a4fd1).
+ *     ⚠️ AND FRESHNESS ALONE IS NOT THE PROOF (Codex on #338 @ 688bc1d, P2). The cutoff below is
+ *     computed BEFORE the awaited RPC, so a call delayed past the TTL — a wait on a row lock is one
+ *     way — still reads its freeze as fresh by the cutoff it carries, while the successor locks and
+ *     pins. So the RPC also requires `not locked or locked_at < settle_at`, IN the UPDATE and in the
+ *     probe that names the refusal: a freeze is only ever written over no pay lock or a STALE one
+ *     (`acquireSettlement`, `claimStaleSettlement`), so any lock present at the freeze predates it,
+ *     and `acquireCartLock` stamps `locked_at = now` only once `settle_at` is a full TTL old, so a
+ *     successor's lock postdates it. Stored values against stored values: no clock skew enters, and
+ *     a successor holding the cart answers -1, linked or not. Under a fresh freeze that no pay
+ *     attempt has taken since, a pin no intent names belongs to nobody.
  * The era RPC cannot serve the settlement: on an unlocked cart it would need an era nobody holds, and
  * a cart-wide clear is the successor-wiping hazard above.
  *
  * ⚠️ THE SETTLEMENT FORM CHECKS THE ANSWER, AND A REFUSAL SAYS WHICH ONE. Its RPC answers 1 only
- * for a release: the fresh freeze is ours, the cart is open and unlinked, and its pin is null now.
+ * for a release: the fresh freeze is ours, no pay attempt has taken the cart since, the cart is open
+ * and unlinked, and its pin is null now.
  * Anything else is a BLOCKED write, and answering ok there would hand the caller a total priced from
  * the pin it failed to clear (CLAUDE.md: `.update()` returns no row count; a blocked write reports
  * success). The refusal carries `linked: true` ONLY for the RPC's 0 — this request's fresh freeze
  * still holds the open cart and a live intent is what stood in the way — because that is the one
  * refusal under which the caller may supersede the intent: it holds the mutex. A -1 (another
  * freeze, none, a stale one, a closed cart), a transport error, or any other answer is a request
- * that does NOT hold the cart, and the caller stands down; superseding there cancelled whatever the
- * cart named, after a stall a successor's live checkout. Called from ONE place:
+ * that does NOT hold the cart — a successor's pay lock taken after the freeze among them — and the
+ * caller stands down; superseding there cancelled whatever the cart named, after a stall a
+ * successor's live checkout. Called from ONE place:
  * `acquireSettlementSuperseding`, before it answers `acquired` (lib/supersede.ts).
  */
 export type PromoPinRefusal =
@@ -490,7 +502,9 @@ export async function releasePromoGrantFor(
       // here, and `acquireCartLock` admits a pay attempt by `settleCutoff` — this same expression —
       // so the release and the takeover it must never overlap read ONE clock. A DB-side
       // `now() - interval` left them a skew apart, and in that window a late release cleared a
-      // successor's fresh pin. The TTL is named once, in lib/lock-ttl.ts.
+      // successor's fresh pin. The TTL is named once, in lib/lock-ttl.ts. This value is captured
+      // BEFORE the await, so it cannot alone prove the freeze is still ours when the RPC runs — the
+      // RPC's pay-lock term does (docblock, Codex on #338 @ 688bc1d).
       p_fresh_after: new Date(Date.now() - SETTLE_TTL_MS).toISOString(),
     });
     if (error) return error;

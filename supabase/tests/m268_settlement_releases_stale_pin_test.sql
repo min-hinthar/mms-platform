@@ -24,6 +24,12 @@
 --      `acquireCartLock`'s `lte`), one second inside it (still ours), a freeze fresh on the DB clock
 --      but stale by the caller's cutoff (the function reads the CALLER's clock — the app's, the one
 --      `settle_at` is stamped on and `acquireCartLock` admits by), and a NULL cutoff (fail closed).
+--      6D is Codex's case on #338 @ 688bc1d: the cutoff is computed BEFORE the awaited RPC, so a
+--      release delayed past the TTL still reads its freeze as fresh while a successor diner holds
+--      the cart — refused by the pay lock stamped AFTER the freeze, unlinked (-1, pin kept) and
+--      linked (-1, never the 0 that licenses a supersede). Beside it the bound's other side: a pay
+--      lock that PREDATES the freeze (the stale one `acquireSettlement` froze over) does not block
+--      the release, and a lock with no era cannot be ordered against the freeze (fail closed).
 --   9. PRIVILEGES — service_role only; anon and authenticated cannot execute it.
 --  10. A MUTANT PER GUARD, built from the LIVE definition (`pg_get_functiondef`, one guard removed
 --      by an exact find that must match once — a stale find fails the file): on its own refusal
@@ -53,6 +59,7 @@ declare
   -- taken from the DB clock only so the fixtures have one reference; case 6 shows the function
   -- reads THIS value and never its own clock.
   fresh timestamptz := now() - interval '10 minutes';
+  t0 timestamptz;
   def text; mutated text; guard record;
 begin
   -- $10 off, needs a $25 basket.
@@ -207,6 +214,67 @@ begin
   assert n = -1 and pin = 1000,
     format('M268.6 a NULL cutoff released the pin — rows %s, pin %s', n, pin);
 
+  -- 6D. A release DELAYED past the TTL, its cutoff captured BEFORE the stall (Codex on #338 @
+  -- 688bc1d, P2). The settle froze at T0 and computed `p_fresh_after` a minute later (T0 − 9 min);
+  -- the RPC then waited past the TTL — on a row lock, say — while a diner's `acquireCartLock` took
+  -- the stale freeze (writing ONLY `locked` / `locked_at` / `locked_by`) and pinned, not yet linked.
+  -- By that old cutoff the freeze still reads fresh and `settle_by` is still ours, so freshness
+  -- cannot be the proof. The pay lock is: `acquireCartLock` admits only once `settle_at` is a full
+  -- TTL old, so a successor's `locked_at` is later than `settle_at`.
+  t0 := now() - interval '12 minutes';
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M268C6D', 'dinein', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, settle_at, settle_by)
+    values (cart, sess, 'M268TEN', t0, mine);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'dinein');
+  update public.qr_carts set locked = true, locked_at = t0 + interval '11 minutes', locked_by = ana
+   where id = cart;
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M268.6D fixture drift: the successor should pin $10';
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, t0 - interval '9 minutes');
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = -1 and pin = 1000,
+    format('M268.6D a release delayed past the TTL cleared the SUCCESSOR''s pin in its pin-before-link '
+           'window (or was told the cart is still its own) — rows %s, pin %s; want -1 and 1000', n, pin);
+  -- …and once that successor LINKS, the refusal must still be "not yours": a 0 here licenses the
+  -- caller to supersede — cancel at Stripe — the successor's live checkout.
+  update public.qr_carts set live_payment_intent_id = 'pi_m268_successor' where id = cart;
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, t0 - interval '9 minutes');
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = -1 and pin = 1000,
+    format('M268.6D a delayed release told a request that lost the cart to a LINKED successor it may '
+           'supersede that intent — rows %s, pin %s; want -1 and 1000', n, pin);
+
+  -- …the bound's other side, so it is not over-tight: a pay lock that PREDATES the freeze is the
+  -- stale, unlinked attempt `acquireSettlement` froze over (or the one `claimStaleSettlement` claimed,
+  -- whose lock `releaseByIntent` leaves in place before the re-proof). Its pin is dead, and ours to clear.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M268C6P', 'dinein', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, locked, locked_at,
+                               locked_by, settle_at, settle_by)
+    values (cart, sess, 'M268TEN', 1000, true, now() - interval '6 minutes', ana, now(), mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = 1 and pin is null,
+    format('M268.6D a pay lock OLDER than this freeze blocked the release — the bound is over-tight '
+           'and every settle over an abandoned attempt would refuse; rows %s, pin %s', n, pin);
+  -- …and a lock with no era cannot be ordered against the freeze. No writer leaves one
+  -- (`acquireCartLock` always stamps `locked_at`), and neither freeze writer admits one, so under
+  -- this freeze it was written after it: fail closed.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M268C6N', 'dinein', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, locked, locked_by,
+                               settle_at, settle_by)
+    values (cart, sess, 'M268TEN', 1000, true, ana, now(), mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = -1 and pin = 1000,
+    format('M268.6D a pay lock with NO era was read as predating the freeze — rows %s, pin %s; '
+           'want -1 and 1000', n, pin);
+
   -- 7. a live intent still named (M151: its pin is not this caller's to clear) — under OUR fresh
   -- freeze, so the answer is 0: the caller holds the cart and may supersede that intent.
   sess := gen_random_uuid(); cart := gen_random_uuid();
@@ -246,13 +314,17 @@ begin
 
   -- ══ 10. A MUTANT PER GUARD, from the LIVE definition ═════════════════════════════════════════
   def := pg_get_functiondef('public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)'::regprocedure);
-  -- The UPDATE's guards: without one, its own refusal fixture is WRITTEN.
+  -- The UPDATE's guards: without one, its own refusal fixture is WRITTEN. ('6D' sits the successor's
+  -- pay lock 11 minutes after a freeze that is fresh by the shared cutoff, so its `locked_at` lies
+  -- ahead of `now()`: the function compares stored values and the caller's cutoff, never its own
+  -- clock — case 6 — so only the order matters.)
   for guard in
     select * from (values
-      ('owner',  'and settle_by = p_owner',                           4, -1),
-      ('fresh',  'and settle_at > p_fresh_after',                     6, -1),
-      ('link',   'and live_payment_intent_id is null',                7,  0),
-      ('status', 'and status = ''open''',                             8, -1)
+      ('owner',     'and settle_by = p_owner',                        '4',  -1),
+      ('fresh',     'and settle_at > p_fresh_after',                  '6',  -1),
+      ('successor', 'and (not locked or locked_at < settle_at)',      '6D', -1),
+      ('link',      'and live_payment_intent_id is null',             '7',   0),
+      ('status',    'and status = ''open''',                          '8',  -1)
     ) as g(name, find, refusal_case, refusal)
   loop
     assert (length(def) - length(replace(def, guard.find, ''))) / length(guard.find) = 1,
@@ -265,12 +337,15 @@ begin
     insert into public.table_sessions (id, qr_code, mode, status, host_seat)
       values (sess, 'M268M' || guard.refusal_case, 'dinein', 'active', ana);
     insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by,
-                                 live_payment_intent_id, status)
+                                 live_payment_intent_id, status, locked, locked_at, locked_by)
       values (cart, sess, 'M268TEN', 1000,
-              case when guard.refusal_case = 6 then now() - interval '11 minutes' else now() end,
-              case when guard.refusal_case = 4 then other else mine end,
-              case when guard.refusal_case = 7 then 'pi_m268_live' end,
-              case when guard.refusal_case = 8 then 'paid' else 'open' end);
+              case when guard.refusal_case = '6' then now() - interval '11 minutes' else now() end,
+              case when guard.refusal_case = '4' then other else mine end,
+              case when guard.refusal_case = '7' then 'pi_m268_live' end,
+              case when guard.refusal_case = '8' then 'paid' else 'open' end,
+              guard.refusal_case = '6D',
+              case when guard.refusal_case = '6D' then now() + interval '11 minutes' end,
+              case when guard.refusal_case = '6D' then ana end);
     n := pg_temp.m268_mutant(cart, mine, fresh);
     assert n = 1,
       format('M268.10 DEGENERATE FIXTURE for the %s guard: without it the release still answered %s, '
@@ -289,9 +364,10 @@ begin
   -- without that guard the probe answers 0 — "still yours, supersede" — where the real one says -1.
   for guard in
     select * from (values
-      ('held-owner',  'and c.settle_by = p_owner'),
-      ('held-fresh',  'and c.settle_at > p_fresh_after'),
-      ('held-status', 'and c.status = ''open''')
+      ('held-owner',     'and c.settle_by = p_owner'),
+      ('held-fresh',     'and c.settle_at > p_fresh_after'),
+      ('held-successor', 'and (not c.locked or c.locked_at < c.settle_at)'),
+      ('held-status',    'and c.status = ''open''')
     ) as g(name, find)
   loop
     assert (length(def) - length(replace(def, guard.find, ''))) / length(guard.find) = 1,
@@ -303,12 +379,15 @@ begin
     insert into public.table_sessions (id, qr_code, mode, status, host_seat)
       values (sess, 'M268P' || guard.name, 'dinein', 'active', ana);
     insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by,
-                                 live_payment_intent_id, status)
+                                 live_payment_intent_id, status, locked, locked_at, locked_by)
       values (cart, sess, 'M268TEN', 1000,
               case when guard.name = 'held-fresh' then now() - interval '11 minutes' else now() end,
               case when guard.name = 'held-owner' then other else mine end,
               'pi_m268_successor',
-              case when guard.name = 'held-status' then 'paid' else 'open' end);
+              case when guard.name = 'held-status' then 'paid' else 'open' end,
+              guard.name = 'held-successor',
+              case when guard.name = 'held-successor' then now() + interval '11 minutes' end,
+              case when guard.name = 'held-successor' then ana end);
     n := pg_temp.m268_mutant(cart, mine, fresh);
     assert n = 0,
       format('M268.10 DEGENERATE FIXTURE for the %s probe guard: without it the probe still answered '

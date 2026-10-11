@@ -34,17 +34,39 @@
 --                                successor's fresh pin. The caller passes the very expression
 --                                `acquireCartLock` uses (lib/lock.ts), so the TTL is named once
 --                                (lib/lock-ttl.ts). A NULL cutoff matches nothing: fail closed;
+--   · `not locked or locked_at < settle_at` — and NO pay attempt has taken the cart since this
+--                                freeze. Freshness alone cannot say so (Codex on #338 @ 688bc1d,
+--                                P2): the caller computes `p_fresh_after` BEFORE the awaited RPC, so
+--                                a call delayed past the TTL (a wait on a row lock is one way) still
+--                                reads its freeze as fresh by the cutoff it carries, while
+--                                `acquireCartLock` took the stale freeze and pinned before linking —
+--                                and the release cleared that successor's pin, a captured payment
+--                                that cannot reconcile. The pay lock's era orders the two writes on
+--                                stored values, so no clock skew enters: the freeze writers admit a
+--                                pay lock only when it is already stale (`acquireSettlement`: `locked
+--                                = false`, or `locked_at <= now - CART_LOCK_TTL_MS` and unlinked;
+--                                `claimStaleSettlement`: the same age bound), so any lock present at
+--                                the freeze has `locked_at < settle_at`; `acquireCartLock` admits only
+--                                once `settle_at <= now - SETTLE_TTL_MS` and stamps `locked_at = now`,
+--                                so a successor's `locked_at` is later than `settle_at` by about the
+--                                TTL. A `locked` row with a NULL `locked_at` cannot be ordered against
+--                                the freeze — no writer leaves one, neither freeze writer admits one —
+--                                and the comparison's NULL fails closed. The freshness cutoff stays:
+--                                belt and braces;
 --   · `live_payment_intent_id is null` — M151's rule, unchanged: a pin a live intent still
 --                                reconciles against is not this caller's to clear. The settle
 --                                supersedes that intent first (cancel at Stripe, `releaseByIntent`).
 -- The pin is set to null whether or not it was set, so ONE written row is the whole postcondition —
--- "this fresh freeze holds the open, unlinked cart and its pin is null now".
+-- "this fresh freeze holds the open, unlinked cart, no pay attempt has taken it since, and its pin
+-- is null now".
 --
 -- ── Three answers, because a refusal has two meanings ────────────────────────────────────────
 --    1 — released.
 --    0 — refused, and THIS fresh freeze still holds the open cart: only a live link stood in the
 --        way. The one answer under which the caller may supersede that link (it holds the mutex).
---   -1 — refused, and this request does NOT hold the cart: another freeze, none, a stale one, or a
+--   -1 — refused, and this request does NOT hold the cart: another freeze, none, a stale one, a pay
+--        attempt that took the cart after this freeze (the probe carries the same pay-lock term, so
+--        a successor's LINKED checkout answers -1, never the 0 that licenses cancelling it), or a
 --        cart no longer open. The caller stands down. Before this split a refusal was one number,
 --        and the caller's supersede branch would cancel whatever intent the cart named — after a
 --        stall, a SUCCESSOR's live checkout — and then answer `acquired` on a freeze it had lost.
@@ -63,6 +85,8 @@
 -- (uuid, uuid, timestamptz). A database still carrying the old body has no three-argument function,
 -- so the app's call errors and every settle refuses as `unavailable` — fail closed, never a
 -- misread answer. Apply this file BEFORE deploying the code that calls it, for the same reason.
+-- The 688bc1d body had this signature without the pay-lock term; `create or replace` replaces it
+-- in place on any stack that ran it.
 --
 -- Test: supabase/tests/m268_settlement_releases_stale_pin_test.sql (registered in ci.yml).
 
@@ -80,18 +104,21 @@ begin
      and status = 'open'
      and settle_by = p_owner
      and settle_at > p_fresh_after
+     and (not locked or locked_at < settle_at)
      and live_payment_intent_id is null;
   get diagnostics v_rows = row_count;
   if v_rows = 1 then
     return 1;
   end if;
-  -- Refused. Which refusal: does THIS fresh freeze still hold the open cart (a live link in the way)?
+  -- Refused. Which refusal: does THIS fresh freeze still hold the open cart, untaken by any pay
+  -- attempt since (so only a live link was in the way)?
   perform 1
      from public.qr_carts c
     where c.id = p_cart_id
       and c.status = 'open'
       and c.settle_by = p_owner
-      and c.settle_at > p_fresh_after;
+      and c.settle_at > p_fresh_after
+      and (not c.locked or c.locked_at < c.settle_at);
   if found then
     return 0;
   end if;
@@ -107,5 +134,6 @@ grant execute on function public.mms_release_promo_grant_for_settlement(uuid, uu
 comment on function public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz) is
   'M268 — the settlement doors'' release of a stale promo pin, under THIS request''s FRESH freeze '
   '(settle_by = p_owner, settle_at after p_fresh_after — the app-clock settle-TTL cutoff) on an '
-  'OPEN cart naming NO live intent. Returns 1 for the release; 0 when that freeze still holds the cart but a live intent is '
+  'OPEN cart that no pay attempt has taken since that freeze (unlocked, or locked_at before settle_at) '
+  'and that names NO live intent. Returns 1 for the release; 0 when that freeze still holds the cart but a live intent is '
   'linked; -1 when this request does not hold the cart. Anything but 1 is a refusal.';
