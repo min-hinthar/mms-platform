@@ -108,6 +108,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the `try` that lands it (no return, throw or await between); "Start a fresh basket" falls back to
   the session banner's Retry when the new basket fails to start, and `usePendingFocus` keeps waiting
   while the pressed button still holds focus.
+- **Codex round 4 on `dc85e80` (one P1, three P2s), fixed or filed** (the spec's §H.7): a Name-sheet
+  tap whose code waits in the offline queue is refused whatever the radio says, so a tap after
+  reconnect can no longer charge live while the queued add replays behind it; the replay now answers
+  the sheet that queued the add (`lib/sheet-replay.ts`) — delivered closes it with the live ok's own
+  routine (arm and close-restore included) and pairs its miss, a rejection replaces its stale
+  "Saved…" line — and `check:scan-repeat` proposition 7 pins both wirings (nine committed
+  fixtures). A refused removal restores a pairing a re-read spent while the line was flipped away,
+  and a landed Undo takes back the pairing its own add made whatever qty it wrote
+  (`pairingAfterRemoval` · `pairingAfterUndo`). Twelve new mutants. The Undo minted after an add
+  from a sheet a camera panel opened is never drawn (the result slot lives in the live lens) — filed
+  as a nice-to-do under PD4; a replay's missing `billedRef` record is filed as G25.
 
 ### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
 

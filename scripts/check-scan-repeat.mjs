@@ -1650,5 +1650,6 @@ console.log(
     ` and charges the decoded code; "Add another" only behind the chip's chipAction();` +
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
     ` each sheet's cover lifted only by its exit end or the fail-safe;` +
-    ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>)\x1b[0m`,
+    ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>);` +
+    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet\x1b[0m`,
 );

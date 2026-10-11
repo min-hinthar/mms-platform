@@ -971,3 +971,39 @@ record>))`, no client-view reference, no hand-written past tense, `undoOutcome` 
   Undo's `setQty` is issued at the tap, before any replay a reconnect starts, and the replay's start
   and landing both retire an untapped Undo. A tapped Undo racing a replay of the same item at the
   server is a nice-to-do under PD4's row.
+
+#### H.7 · Codex round 4 on `dc85e80` (review 5481981292) — one P1, three P2s, fixed or filed
+
+- **A queued Name-sheet add could charge twice (P1, 4240341719)** — **fixed.** Verified against
+  source: the "Already saved" refusal sat inside `add`'s offline branch, so a tap after the radio
+  returned — before the replay answered — went out live under a fresh scan id with the replay landing
+  a second unit behind it; and `drainNow` never closed the sheet or paired its miss, so once the entry
+  left the queue the row was live again under a "Saved…" line no longer true. Now
+  `sheetTapWaits` (`lib/sheet-replay.ts`) refuses a sheet tap on a queued code whatever the radio says
+  (the camera's queued verdict already did), ahead of any write. The page keeps each queued sheet add's
+  asking sheet, keyed by its scan id, and `replayForSheet` turns the replay's verdict into that sheet's
+  answer: delivered pairs the miss and closes the sheet if it is still the open one, through
+  `closeSheetOnOk` (the live ok's own close, so the arm and the close-restore ride it); a rejection
+  speaks the drain's words in the sheet's own line; a retry keeps the ask. `check:scan-repeat`
+  proposition 7 pins the refusal as a top-level `if` of `add` ahead of every queue and charge, and the
+  replay's close under `if (<answer>.close)` from its real verdict; nine committed fixtures, among them
+  the exact pre-fix shape (the refusal back under the radio).
+- **The Undo after an add from a camera panel's sheet is never drawn (P2, 4240341724)** — **filed**
+  (PD4's nice-to-dos). Verified: `ScanStage` renders `result` only while streaming, so the Undo minted
+  on a paper panel expires unseen. The chip is an ink scrim inside the live lens; a home for it on
+  the paper geometry is new design that v7.2 and m4 do not draw. No promise is broken (no copy names the
+  Undo) and the reversal is one tap away in the basket list under the panel.
+- **A re-read during a removal spent the pairing before the rollback (P2, 4240341727)** — **fixed.**
+  `stepQty` keeps the pairing as the removal found it, and `pairingAfterRemoval` now settles AFTER the
+  reconcile: a refused write restores a pairing to the rolled-back item that a re-read spent while the
+  line was flipped away; a newer pairing stands, and a spent pairing to another item stays spent. Only
+  for the same cart: a fresh basket mid-read reset the pairing on purpose.
+- **An Undo that wrote a nonzero qty left the add's pairing (P2, 4240341730)** — **fixed, narrower than
+  proposed.** The Undo record carries the shelf code its add paired (`AddUndo.miss`), and
+  `pairingAfterUndo` takes back exactly THAT pairing whatever qty was written, plus any pairing to the
+  item when the line is gone. Codex's "clear the pairing after any successful Undo" would also drop a
+  pairing an EARLIER add made, which stays true while its item is in the basket. `billedRef` still clears
+  only at zero.
+- **Found by the hand-read, filed (G25):** a delivered replay whose post-write read failed never records
+  `billedRef`, so a camera re-read of that code can charge again until the next read applies.
+  Pre-existing (W7b × M186) and outside this round's sheet path.
