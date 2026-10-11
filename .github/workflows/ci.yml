@@ -488,7 +488,8 @@ jobs:
       # also moves the 18 earlier merge rows onto the pd5b file; the chain twelve files. The full 241
       # ran green in 632 s on a throwaway PG16 in a loaded container — re-measure if it nears 12 min.)
       # (266 with PD5b's suite and main's PD1 · M184 · M269 · PD3-follow-up suites together — the
-      # thirteen-file chain.)
+      # thirteen-file chain. The full 266 ran green in 637 s on a throwaway PG16, a 4-CPU container at
+      # load ~10, 2026-10-11: 83 s inside the timeout.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs
@@ -535,8 +536,9 @@ jobs:
       # locks) · no-show-before-void · no-show-before-request (the cart locked before the line), and —
       # the Phase 2f self-review — clear-before-resolve · resolve-mid-clear (the Clear locks and
       # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock),
-      # and — PD5b — THE GRACE RACE on a dine-in table: send-before-settlement-fire (the drain waits on
-      # the Send's line, then leaves it and its unmarked batch) · settlement-fire-before-send.
+      # and — PD5b — THE GRACE RACE on a dine-in table: send-before-settlement-fire (the payment waits
+      # on the Send's cart lock — PD1's — then the drain leaves the Send's line and its unmarked batch)
+      # · settlement-fire-before-send.
       # Commits `reg-P2FR-` / `P2FRT-` / `P2FRD-` fixtures (and runs the sweeper, which closes every expired
       # session in the DB), so the script refuses anything that is not the local stack.
       # ~23s measured locally (the sweep scenarios wait out a 2s expiry, send-before-merge a 10s grace).

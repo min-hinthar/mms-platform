@@ -134,13 +134,20 @@
  *   (`mms_fire_pending_food`) mints it as a version-8 UUID, every Send a version-4 one, and the
  *   kitchen read numbers rounds by that mark. Two more orders, on a DINE-IN table with a dine-in and
  *   a to-go draft — THE GRACE RACE:
+ *   Since PD1 (`20261008123000_pd1_send_nudge.sql`) `mms_fire_cart` takes the cart row `for no key
+ *   update` FIRST and holds it to commit, and recording the payment is a cart UPDATE — so the two
+ *   meet at the CART, before either reaches a line:
  *   (s) send-before-settlement-fire — A Sends inside an open transaction (the dine-in dish, its
- *       deadline 10 s out); B records the guest's payment (the cart → paid) and runs the drain, which
- *       must BLOCK on A's line lock and, once A commits, fire only the to-go dish (1). The Send's dish
+ *       deadline 10 s out); B, in its own transaction, records the guest's payment (the cart → paid),
+ *       which must BLOCK on A's cart lock. Once A commits the payment lands, and B's drain — a later
+ *       statement, so it reads A's committed line — must fire only the to-go dish (1). The Send's dish
  *       keeps A's batch, version 4; the to-go dish carries the mark. Without the drain's draft guard it
- *       re-stamps the Send's dish with the settlement batch, and the Send loses its number.
+ *       re-fires the Send's dish under the settlement batch, and the Send loses its number. (Before
+ *       PD1 the payment did not wait and the drain met A's LINE lock instead; should the cart lock
+ *       ever go, the scenario falls back to that shape rather than hang.)
  *   (s2) settlement-fire-before-send — B records the payment and drains both drafts inside an open
- *       transaction (2, one marked batch); A's Send must BLOCK on B's lines and, once B commits, fire 0.
+ *       transaction (2, one marked batch); A's Send must BLOCK on the payment's cart lock and, once B
+ *       commits, fire 0 (its UPDATE, a later snapshot, reads the cart paid).
  *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
@@ -1208,17 +1215,32 @@ const SCENARIOS = {
     try {
       await a.run("begin;");
       const sent = await a.run(send(f));
+      // Since PD1 the Send holds the cart row (`for no key update`) until A commits, and recording the
+      // payment is a cart UPDATE — so it is FIRED, never awaited: awaited before A commits, it waits on
+      // A until the session's 20 s bound fails the run (Codex on #340; measured, P2FR TIMEOUT b).
       await b.run("begin;");
-      await b.run(payRecorded(f));
-      b.fire(settleFire(f));
+      b.fire(payRecorded(f));
       const how = await blockedOrDone(b, a);
-      await a.run("commit;");
-      const settled = await b.collect();
+      let settled;
+      if (how === "blocked") {
+        // A payment that waited lands once A commits; the drain, a later statement, reads A's line.
+        await a.run("commit;");
+        await b.collect();
+        settled = await b.run(settleFire(f));
+      } else {
+        // A payment that did NOT wait (the Send's cart lock gone — red above) is the pre-PD1 shape:
+        // the drain meets A's uncommitted line, so A commits only once that is observed.
+        await b.collect();
+        b.fire(settleFire(f));
+        await blockedOrDone(b, a);
+        await a.run("commit;");
+        settled = await b.collect();
+      }
       await b.run("commit;");
       const [fired, batch] = String(sent).split("|");
       return [
         ["A's Send fired the dine-in dish", fired, "1"],
-        ["B's settlement waited on the Send's line", how, "blocked"],
+        ["B's payment record waited on the Send's cart lock", how, "blocked"],
         ["B fired only what the Send left", settled, "1"],
         ["the Send's dish keeps the Send's batch", f.batchOf(f.dish), batch],
         ["the Send's batch is a Send's (version 4)", f.version(f.dish), "4"],
@@ -1244,7 +1266,7 @@ const SCENARIOS = {
       const sent = await a.collect();
       return [
         ["B's settlement fired both drafts", settled, "2"],
-        ["A's Send waited on the settlement's lines", how, "blocked"],
+        ["A's Send waited on the payment's cart lock", how, "blocked"],
         ["A's Send fired nothing on the paid cart", String(sent).split("|")[0], "0"],
         ["the dine-in dish carries the mark (version 8)", f.version(f.dish), "8"],
         ["the to-go dish carries the mark (version 8)", f.version(f.togo), "8"],
@@ -1607,9 +1629,10 @@ const MUTANTS = [
     fn: "mms_fire_pending_food",
     find: "      and ci.state = 'draft'\n",
     replace: "",
-    // (s): the settlement waits on the Send's line lock and then RE-fires the Send's dish under its
-    // own marked batch — the Send's batch is gone and its number with it. (s2) stays green: the
-    // settlement fires first, and both lines were drafts anyway.
+    // (s): the payment waits on the Send's cart lock (PD1), so the drain runs after the Send commits
+    // and, with no draft guard, RE-fires the Send's dish under its own marked batch (2, not 1) — the
+    // Send's batch is gone and its number with it. (s2) stays green: the settlement fires first, and
+    // both lines were drafts anyway.
     expect: ["s"],
     why: "the drain's draft guard is what leaves a Send that landed in the grace alone: without it the settlement re-stamps the Send's dish with the settlement mark",
   },

@@ -109,8 +109,9 @@
  * AGAIN with the fold's batch term for cooking lines (PD5B.4–9). The merge's last definition moves to
  * the pd5b file, so M109's seven and Phase 2f's eleven merge mutants patch THAT text (`src: "pd5b"`),
  * still judged by their own suites. Eight killed mutants, one per rule, and NO new survivor: the
- * mark's order against a concurrent Send (the drain waiting on the Send's line lock, then leaving it)
- * is two-session work, killed by `verify-counter-fire-race.mjs --mutants` (orders s · s2).
+ * mark's order against a concurrent Send (the payment waiting on the Send's cart lock — PD1's — then
+ * the drain leaving the Send's line) is two-session work, killed by `verify-counter-fire-race.mjs
+ * --mutants` (orders s · s2).
  *
  * PD3's follow-up adds suite `pd3s`: `mms_refuse_solo_join`, the trigger that keeps a solo (pickup,
  * scan-and-go) session to its one member where the membership is written, and
@@ -2595,7 +2596,7 @@ const MUTANTS = [
 
   // ── PD5b — the settlement mark (PD5B.1) and the fold that keeps each Send whole (PD5B.4–.9) ──────
   // One killed mutant per rule, each red on its NAMED case. The mark's ORDER against a concurrent
-  // Send (the settlement fire waiting on the Send's line lock) is two-session work: killed by
+  // Send (the payment waiting on the Send's cart lock, then the drain) is two-session work: killed by
   // `scripts/verify-counter-fire-race.mjs --mutants` (orders s · s2), not claimed here.
   ...[
     {
