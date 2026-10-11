@@ -615,16 +615,21 @@ function useTablesFit(tables: BoardTable[]): {
   useEffect(() => {
     const ul = ref.current;
     if (!ul || typeof ResizeObserver === "undefined") return;
-    // A TV that changes zoom re-fits from the top. The FIRST notification is `observe()` itself, on
-    // a box the render-time reset and the layout effect above have just fitted — answered, it ran the
-    // whole step-down a second time on every 5 s poll, each pass forcing a layout on a weak TV browser
-    // (the blind pass on #336). Only a later resize re-fits.
-    let first = true;
+    // A TV that changes zoom re-fits from the top — on a CHANGE of the list's box, never on a
+    // notification alone (the blind pass on #336, both rounds). The browser's first notification is
+    // `observe()` itself, reporting the box the render-time reset and the layout effect above have
+    // just fitted: answered, it ran the whole step-down a second time on every 5 s poll, each pass
+    // forcing a layout on a weak TV browser. And a box that is 0×0 when observed gets NO first
+    // notification, so "skip the first" skipped its first REAL resize and left the passes cut behind
+    // "+N more" until the next poll — for a whole frozen spell. Comparing the box holds either way;
+    // the box never depends on the passes (`.orb-passes` is `flex: 1` and clips), so a step-down
+    // never notifies itself.
+    const boxOf = () => `${ul.clientWidth}×${ul.clientHeight}`;
+    let fitted = boxOf();
     const ro = new ResizeObserver(() => {
-      if (first) {
-        first = false;
-        return;
-      }
+      const now = boxOf();
+      if (now === fitted) return;
+      fitted = now;
       setFit(tablesFitStart(tables.length));
       setResized((n) => n + 1);
     });

@@ -61,7 +61,12 @@ type BoardDish = import("@/lib/board-tables").BoardDish;
  *    names, each dish's stage word; no guest name, no count, no age. A stale wall drops every stage
  *    and says so; a first read, a revisit and a frozen spell celebrate nothing.
  */
-afterEach(cleanup);
+// Every case unstubs its globals (the last blind pass on #336): a ResizeObserver one case stubbed ran
+// under every later case in the file, which then passed or failed by its POSITION.
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -560,23 +565,141 @@ describe("PD9 — the wall moves only when food changes state, one thing at a ti
   });
 });
 
-describe("PD9 — the passes fit ONCE per snapshot (the blind pass on #336)", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("a poll re-fits from the top once — the ResizeObserver's own first notification is not a second step-down (`board-wall/fit-twice-per-poll`)", async () => {
-    // As a browser does: the first notification arrives for `observe()` itself.
+describe("PD9 — the passes step down to fit their box, and re-fit when the box resizes (the blind pass on #336)", () => {
+  /**
+   * jsdom lays nothing out — every box reads 0 — so no case could reach the fold: the fit steps down
+   * only while the passes overflow their box. Here the passes' list has a box of `box.w × box.h` and
+   * its content is `ROW_H` per dish row it holds, rows stacked (the step-down asks one question, "does
+   * the content overflow the box?", and the multicol does not change the answer). Spied for this
+   * block only, and restored after every case.
+   *
+   * The observer is driven as a browser drives one: its FIRST notification is `observe()` itself, and
+   * only for a box that is rendered and not 0×0 ("Observation will fire when observation starts if
+   * Element is being rendered, and Element's size is not 0,0" — the ResizeObserver explainer);
+   * `resize()` changes the box and notifies every observer watching the list, as many times as a
+   * case asks.
+   */
+  const ROW_H = 100;
+  const box = { w: 0, h: 0 };
+  const isPasses = (el: Element) => el.classList.contains("orb-passes");
+  let watching: { cb: () => void; targets: Set<Element> }[] = [];
+  function stubPassBox(start: { w: number; h: number }) {
+    box.w = start.w;
+    box.h = start.h;
+    watching = [];
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+      return isPasses(this) ? box.w : 0;
+    });
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+      return isPasses(this) ? box.h : 0;
+    });
+    vi.spyOn(Element.prototype, "scrollWidth", "get").mockImplementation(function (this: Element) {
+      return isPasses(this) ? box.w : 0;
+    });
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+      return isPasses(this) ? this.querySelectorAll("li.orb-dish").length * ROW_H : 0;
+    });
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        constructor(private cb: () => void) {}
-        observe() {
-          queueMicrotask(() => this.cb());
+        o: { cb: () => void; targets: Set<Element> };
+        constructor(cb: () => void) {
+          this.o = { cb, targets: new Set() };
+          watching.push(this.o);
         }
-        disconnect() {}
+        observe(el: Element) {
+          this.o.targets.add(el);
+          if (isPasses(el) && box.w > 0 && box.h > 0) queueMicrotask(() => this.o.cb());
+        }
+        unobserve(el: Element) {
+          this.o.targets.delete(el);
+        }
+        disconnect() {
+          this.o.targets.clear();
+        }
       },
     );
+  }
+  /** The TV's box changes — a zoom, a rotated panel — and every observer on the list is told. */
+  const resize = (to: { w: number; h: number }) =>
+    act(async () => {
+      box.w = to.w;
+      box.h = to.h;
+      const ul = document.querySelector(".orb-passes")!;
+      for (const o of watching) if (o.targets.has(ul)) o.cb();
+    });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const tableName = tf("en", "kds.table", { id: "4" });
+  const listName = (x: string) => tf("en", "kds.a11y.lines", { x });
+  /** Table 4: round 1 all served (two dishes), round 2 still cooking — three rows, and the fold's two. */
+  const partlyServed = (round2: BoardTable["rounds"][number]): BoardTable => ({
+    table: 4,
+    out: false,
+    rounds: [
+      {
+        n: 1,
+        next: false,
+        dishes: [
+          dish({ stage: "served" }),
+          dish({ name: "Tea", nameMy: "လက်ဖက်ရည်", stage: "served" }),
+        ],
+      },
+      round2,
+    ],
+  });
+
+  it("a pass that overflows folds its served dishes into ONE row ahead of what still cooks — the folded list is named the served row and every round's list keeps ITS own name (`board-wall/fold-names-off-by-one`, `board-wall/folded-row-unnamed-as-served`)", async () => {
+    stubPassBox({ w: 800, h: 250 }); // three rows do not fit; the fold's two do
+    const { container } = await renderTables("en", [
+      partlyServed({
+        n: 2,
+        next: false,
+        dishes: [dish({ name: "Rice", nameMy: null, stage: "cooking" })],
+      }),
+    ]);
+    await waitFor(() => expect(container.querySelector(".orb-dish-folded")).not.toBeNull());
+    expect(container.querySelector(".orb-dish-folded .orb-dish-en")!.textContent).toBe(
+      "Mohinga · Tea",
+    );
+    // Round 1 had nothing left and dropped with its stub; round 2 keeps its stub and its row.
+    expect(
+      [...container.querySelectorAll(".orb-passes .orb-dish")].map((r) =>
+        r.classList.contains("orb-dish-folded") ? "folded" : r.textContent,
+      ),
+    ).toEqual(["folded", expect.stringContaining("Rice")]);
+    expect(container.querySelector(".orb-more")).toBeNull();
+    const names = [...container.querySelectorAll(".orb-passes .orb-dishes")].map((l) =>
+      l.getAttribute("aria-label"),
+    );
+    expect(names).toEqual([
+      listName(`${tableName} · ${STAFF["table.line.state.served"].en}`),
+      listName(`${tableName} · ${tf("en", "kds.round", { id: 2 })}`),
+    ]);
+  });
+
+  it("at the fold, a dish that advances FILLs its own row — keyed by its round's ORIGINAL place on the pass, not where the fold drew it (`board-wall/fold-keys-by-the-drawn-position`)", async () => {
+    stubPassBox({ w: 800, h: 250 });
+    vi.useFakeTimers();
+    // An unnumbered round (a to-go-only Send): its key carries its index, and the fold moves it.
+    const sago = (stage: BoardDish["stage"]) =>
+      partlyServed({ n: null, next: false, dishes: [dish({ name: "Sago", nameMy: null, stage })] });
+    pollSequence([{ tables: [sago("sent")] }, { tables: [sago("cooking")] }]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelector(".orb-dish-folded")).not.toBeNull();
+    await tick(5_000);
+    expect(container.querySelector(".orb-dish-folded")).not.toBeNull();
+    const filling = [...container.querySelectorAll(".orb-dish .ui-track[data-filling]")];
+    expect(filling).toHaveLength(1);
+    expect(filling[0]!.closest(".orb-dish")!.textContent).toContain("Sago");
+  });
+
+  it("a poll re-fits from the top ONCE — the observer's own first notification is not a second step-down (`board-wall/fit-twice-per-poll`)", async () => {
+    stubPassBox({ w: 800, h: 1_000 });
     vi.useFakeTimers();
     pollSequence([
       { tables: [tableOf(4, [dish()])] },
@@ -584,10 +707,52 @@ describe("PD9 — the passes fit ONCE per snapshot (the blind pass on #336)", ()
     ]);
     render(<ReadyBoard token="t" lang="en" />);
     fitStarts.n = 0;
-    await tick(1); // the first answer: the passes mount and fit
+    await tick(1); // the first answer: the passes mount and fit; the observer reports that box
     expect(fitStarts.n).toBe(1);
     await tick(5_000); // the second answer: a new snapshot starts full again — once
     expect(fitStarts.n).toBe(2);
+  });
+
+  it("a RESIZE re-fits from the top with no new poll — a zoom mid-service folds the passes at once, and each resize re-fits once (`board-wall/resize-never-refits`)", async () => {
+    stubPassBox({ w: 800, h: 1_000 }); // everything fits: no fold
+    vi.useFakeTimers();
+    pollSequence([
+      {
+        tables: [
+          partlyServed({
+            n: 2,
+            next: false,
+            dishes: [dish({ name: "Rice", nameMy: null, stage: "cooking" })],
+          }),
+        ],
+      },
+    ]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    fitStarts.n = 0;
+    await tick(1);
+    expect(fitStarts.n).toBe(1);
+    expect(container.querySelector(".orb-dish-folded")).toBeNull();
+    await resize({ w: 800, h: 250 }); // the TV zoomed in
+    expect(fitStarts.n).toBe(2);
+    expect(container.querySelector(".orb-dish-folded")).not.toBeNull();
+    await resize({ w: 800, h: 1_000 }); // and back out: the fold lifts
+    expect(fitStarts.n).toBe(3);
+    expect(container.querySelector(".orb-dish-folded")).toBeNull();
+  });
+
+  it("a list that is 0×0 when observed gets NO first notification, so its first REAL resize is the one that re-fits — never skipped as if it were the first (`board-wall/zero-box-skips-its-first-resize`)", async () => {
+    stubPassBox({ w: 0, h: 0 }); // not laid out yet: nothing fits, the fit cuts every pass
+    vi.useFakeTimers();
+    pollSequence([{ tables: [tableOf(4, [dish()])] }]);
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelectorAll(".orb-passes > li.ui-pass")).toHaveLength(0);
+    expect(container.querySelector(".orb-passes .orb-more")!.textContent).toBe(
+      tf("en", "kds.more", { n: 1 }),
+    );
+    await resize({ w: 800, h: 1_000 }); // laid out: the pass fits
+    expect(container.querySelectorAll(".orb-passes > li.ui-pass")).toHaveLength(1);
+    expect(container.querySelector(".orb-passes .orb-more")).toBeNull();
   });
 });
 

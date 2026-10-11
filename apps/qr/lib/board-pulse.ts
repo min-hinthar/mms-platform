@@ -33,9 +33,11 @@ export const PULSE_TABLE_MODES: ReadonlySet<string> = new Set(["dinein"]);
 
 /**
  * The line states that mean "food is on the wok right now" (`qr_cart_items.state`) — the same two the
- * KDS queue reads, so the wall, the floor and the pass count the same food. `voided` and `draft` are
- * absent because neither is cooking; `comped` is not a state and is not consulted — a comped dish is
- * still cooked, still plated and still owed by the kitchen.
+ * KDS queue reads, so the floor and the pass count the same food. `voided` and `draft` are absent
+ * because neither is cooking; `comped` is not a state and is not consulted — a comped dish is still
+ * cooked, still plated and still owed by the kitchen. The WALL reads the ONE KITCHEN TRACK instead
+ * (`stillCooking` in `lib/board-tables.ts`, the last blind pass on #336): a raw state cannot see Mom's
+ * undo window, and the wall's passes and its "All clear" must keep a dish she can take back.
  */
 export const PULSE_COOKING_STATES: ReadonlySet<string> = new Set(["fired", "in_progress"]);
 

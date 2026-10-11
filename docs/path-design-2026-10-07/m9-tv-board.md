@@ -1086,7 +1086,8 @@ what it leaves open. Precedence as the record says: F > E > D > C/B/A > the body
 - **One card, one number.** The KDS's round read moved verbatim from `lib/kitchen.ts` into
   `lib/kitchen-round-read.ts` (`readRounds` · `roundFor`, its nine mutants re-pointed with it); the
   route and the KDS both call it, so the wall and Mom's board number a Send the same way.
-- **The route** publishes `{ orders: { code, status }[], tables, serverNow }` and nothing else. The
+- **The route** publishes `{ orders: { code, status }[], tables, kitchenIdle, serverNow }` and nothing
+  else (`kitchenIdle`, a boolean and never a count, since the blind pass on #336 — §G.1, §G.2). The
   pickup column loses the first name (decision 19), the shelf wait and the collected bag (B4). The
   kitchen half is fail-DEGRADED: a failed or saturated line, cart or Send-completion read is
   `tables: null` (drawn "Can't read the kitchen right now.", never all-clear); the round read and the
@@ -1141,19 +1142,19 @@ cards. Risk 1 — the privacy reversal is real and has no per-table switch; the 
 
 #### G.1 · After the blind pass on #336 (2026-10-11)
 
-REJECT on two CRITICALs. I checked each finding's mechanism against the source before fixing it, watched every fix go red on the old code first, and gave every rule a mutant.
+REJECT on two CRITICALs. I checked each finding's mechanism against the source before fixing it and watched every fix go red on the old code first. Three of the rules it added had no mutant; §G.2 names them and adds them.
 
 - **"All clear" means the whole kitchen.** The wall's tables are dine-in only, so an empty table list is not an empty wok. Before this fix the wall said "All clear" in three cases where food was cooking:
   - pickup or scan-and-go bags on the wok;
   - a counter order sent before it was paid;
   - a table the wall does not draw (an unnumbered sticker, or a session past its TTL).
 
-  The route now publishes `kitchenIdle`, a boolean that is never a count. It comes from `kitchenIdle()` in `lib/board-tables.ts`, which applies the KDS's own gate: a fired or in-progress line the kitchen board shows, and not HELD. That means the wall and Mom's board agree on "nothing to cook". The flag is `null` whenever `tables` is. The wall says "All clear" only on a literal `true`. If no table is drawn and the flag is anything else, the body says nothing.
+  The route now publishes `kitchenIdle`, a boolean that is never a count. It comes from `kitchenIdle()` in `lib/board-tables.ts`, which applies the KDS's own gate: a fired or in-progress line the kitchen board shows, and not HELD (§G.2 replaced the raw line state with the wall's own still-cooking rule). That means the wall and Mom's board agree on "nothing to cook". The flag is `null` whenever `tables` is. The wall says "All clear" only on a literal `true`. If no table is drawn and the flag is anything else, the body says nothing.
 
 - **A frozen snapshot of an empty kitchen never says "All clear".** The head already says the kitchen cannot be read, so the body says nothing.
 - **One key per dish row.** The fit now mints each dish row's motion key with the planner's own `rowKey`, using the round's ORIGINAL index. Before this, a fold that dropped an emptied round shifted the key of an unnumbered round's row, so its FILL missed.
 - **Distinct list names.** Every dish list on a pass now has its own accessible name. The folded row is named as the served row. Any name that would still repeat gets its occurrence number (`distinctNames`).
-- **One fit per poll.** The ResizeObserver's first notification is `observe()` itself. Answering it ran the whole step-down a second time on every poll, so it is now skipped.
+- **One fit per poll.** The ResizeObserver's first notification is `observe()` itself. Answering it ran the whole step-down a second time on every poll, so it is now skipped (§G.2: by comparing the box, not by skipping "the first").
 - **Justified, not changed:**
   - Old TV builds need one reload after the deploy. This is in the merge line.
   - A `tables: null` answer drops the last good passes instead of freezing them. That is the safe direction: the wall says it cannot read the kitchen.
@@ -1164,3 +1165,62 @@ REJECT on two CRITICALs. I checked each finding's mechanism against the source b
 - **Owner questions recorded, not decided here:**
   - "Served" (`table.line.state.served`) on a guest wall. A1 chose it; the native sitting can re-word it on every surface at once.
   - Walk-up guests need their code. The card reader speaks it today; the cash seal shows it with PD6.
+
+#### G.2 · After the last capped blind pass on #336 (2026-10-11)
+
+REJECT on one HIGH and three guard-integrity findings, against `6e1ee8de204e..13c7cb6b0539`. I checked
+each mechanism against the source, watched each new case go red on the old code (or its mutant CAUGHT),
+and registered a mutant for every rule below.
+
+- **"All clear" waits out Mom's undo window too.** `kitchenIdle` read the raw line state, so a dish
+  bumped inside `KDS_UNDO_MS` on a pickup bag, a counter order or a table the wall does not draw read
+  "All clear" for that poll while Mom could still tap Undo — and the same payload drew the same dish
+  Cooking on a table it did draw. The rule is now named ONCE in `lib/board-tables.ts`: `stillCooking`
+  (the ONE track's Sent or Cooking, so a served dish inside the window is still cooking). A Send's
+  linger and `kitchenIdle` both read it. The fixture that tells the two rules apart is a dish bumped
+  2 s before the poll's database clock; the old 60 s fixture could not.
+  - A HELD scheduled pickup is a fired line whose fire time is still ahead, which the track reads
+    Sending, so it is excluded before the gate. `mms_line_transition` and `mms_bump_ticket` refuse
+    Start and Done before `fire_at`, so no reachable row is held and cooking at once. `gate.held` is
+    no longer read; `board-tables/idle-counts-held` now guards the Sending exclusion instead.
+  - Grocery: the track gives a grocery line no stage, so it never holds back "All clear", like every
+    other "food in the kitchen" check (`counterKitchenLine`, kitchen-track, expo). No path fires a
+    grocery line today: the fire SQL fires `dinein`/`togo` only, and the draft→fired edge of
+    `mms_line_transition` is not reachable from the app (M240).
+  - `slotted: false` and `cartOwes: false` cannot change the answer: of the gate only `show` is read,
+    `slotted` decides held-or-hidden for a paid counter line inside its grace (refused before the gate
+    either way), and `cartOwes` sets only the Unpaid flag.
+  - The route reads it on the database clock (`board/idle-on-the-app-clock`).
+- **The fold is drawn by a component case now.** jsdom measures every box as 0, so no case could reach
+  the fold. One block in `ReadyBoard.test.tsx` gives the passes' list a box and its rows a height, for
+  that block only. Its cases cover the folded list's name, each round's own name at the fold, and a
+  FILL keyed by the round's original index after the fold has moved it.
+- **A resize re-fits, and a 0×0 list's first resize is not skipped.** The observer stub delivers as many
+  notifications as a case asks for. The callback compares the list's box and no longer skips "the first
+  notification". A box that is 0×0 when observed gets no first notification (the ResizeObserver
+  explainer), so skipping the first notification skipped its first real resize and left the passes cut
+  behind "+N more" until the next poll, or for a whole frozen spell. Red on the old code.
+- **The stub no longer leaks.** Every case in `ReadyBoard.test.tsx` unstubs its globals.
+- **The `qr_code` read is observed.** The route suite's session mock returns only the columns the route
+  selects, as PostgREST does. A counter order sent before it was paid now reaches `kitchenIdle: false`
+  only if the code was read (`board/session-read-drops-the-code`).
+- **Docs.** The privacy boundary in this record, OPEN-ITEMS and DESIGN-LANGUAGE §35 names `kitchenIdle`.
+- **Mutants:** 9 added (`board-tables/idle-ignores-the-undo-window`,
+  `board-tables/idle-counts-a-dropped-cart`, `board/session-read-drops-the-code`,
+  `board/idle-on-the-app-clock`, `board-wall/fold-names-off-by-one`,
+  `board-wall/folded-row-unnamed-as-served`, `board-wall/fold-keys-by-the-drawn-position`,
+  `board-wall/resize-never-refits`, `board-wall/zero-box-skips-its-first-resize`), 5 re-pointed at the
+  new code (`board-tables/linger-drops-a-live-send`, `-idle-counts-tables-only`, `-idle-counts-held`,
+  `-idle-counts-served`, `board-wall/fit-twice-per-poll`).
+- **Justified, not changed:**
+  - A stale state keeps `kitchenIdle`: `nextBoardStateOnFailure` spreads the live state
+    (`{ ...prev, stale: true, … }`), so the cast drops nothing. The `!frozen` clause is what keeps
+    "All clear" off a frozen snapshot, and `board-wall/all-clear-over-a-frozen-snapshot` is CAUGHT.
+  - `table_sessions.qr_code` is `text not null` since `20260618000000_qr_platform_init.sql`. No later
+    migration relaxes it, and the generated types read `string`. The KDS's own session read
+    (`lib/kitchen.ts`) passes it to `isCounterOrder` the same way, so a null there would break Mom's
+    board first.
+- **Owner question recorded:** "All clear" beside "Preparing #X". Once a bag's dishes are bumped, the
+  kitchen half can say "All clear" while the code still reads Preparing until expo taps Ready. Both
+  are true (the wok is empty; the bag is not handed over), but a guest may read them as a
+  contradiction. Recorded in OPEN-ITEMS PD9 for the wording sitting.

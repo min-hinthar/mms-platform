@@ -1,10 +1,9 @@
 import { isCounterOrder, kdsLineGate } from "./counter-order";
 import type { KitchenRound } from "./kitchen-types";
 import { cardStamp, ticketKey } from "./kitchen-rounds";
-import { groupStage, rollUp, trackStage, type KitchenStage } from "./kitchen-track";
+import { groupStage, rollUp, trackStage, type KitchenStage, type TrackLine } from "./kitchen-track";
 import { catalogNameMy } from "./ticket-names";
 import {
-  PULSE_COOKING_STATES,
   PULSE_PASS_LINGER_MS,
   PULSE_TABLE_MODES,
   type PulseCartRow,
@@ -183,13 +182,29 @@ export function shapeBoardTables(input: ShapeTablesInput): BoardTable[] {
 }
 
 /**
+ * STILL IN THE KITCHEN'S HANDS — the wall's ONE "still cooking", named once (the last blind pass on
+ * #336): a dish Sent or Cooking on the ONE KITCHEN TRACK (`trackStage`). So a served dish still inside
+ * Mom's undo window (`KDS_UNDO_MS`, on the DB clock) is still cooking — she can take it back with one
+ * tap — and a grocery line, a draft, a voided dish and a Send inside its grace are not (the track
+ * gives them no stage, or Unsent / Sending). A Send lingers while any of its dishes is still cooking,
+ * and the kitchen is busy while any line the KDS shows is: both read THIS, so one payload never
+ * carries two definitions.
+ */
+function stillCooking(l: TrackLine, nowIso: string): boolean {
+  const stage = trackStage(l, nowIso);
+  return stage === "sent" || stage === "cooking";
+}
+
+/**
  * A Send leaves the wall once every dish on it is served AND its last bump is older than the linger:
  * the announcement has been made. A Send with anything still cooking stays, whatever its age.
  */
 function lingeredOut(lines: readonly BoardLineRow[], nowIso: string, floorMs: number): boolean {
   let lastBumpMs = Number.NEGATIVE_INFINITY;
   for (const l of lines) {
-    if (trackStage(l, nowIso) !== "served") return false;
+    // Every line here passed the stage allowlist (Sent · Cooking · Served), so "not still cooking"
+    // is Served.
+    if (stillCooking(l, nowIso)) return false;
     const ms = l.bumped_at === null ? Number.NaN : Date.parse(l.bumped_at);
     if (Number.isFinite(ms) && ms > lastBumpMs) lastBumpMs = ms;
   }
@@ -245,11 +260,17 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  * table the wall does not draw (an unnumbered sticker, a session past its TTL) all mean the wok is
  * busy, and "All clear" over them is the lie the route refuses (`tables: null`, never all-clear).
  *
- * The rule is the KDS's own (`kdsLineGate`, with the counter predicate): a fired or in-progress line
- * the kitchen board shows, not HELD (a scheduled pickup is not on the wok yet) — so the wall and Mom's
- * board agree on "nothing to cook". A served line is out of the wok. A line whose cart is absent was
- * cancelled or cleared (the read keeps only open and paid carts). A line whose SESSION is absent cannot
- * be judged, and the answer is "not idle": silence is the safe failure of an "All clear".
+ * A line keeps the kitchen busy when it is STILL COOKING by the wall's own rule (`stillCooking` — the
+ * ONE track's Sent or Cooking, so a dish bumped inside Mom's undo window still counts: the last blind
+ * pass on #336) AND the KDS shows it (`kdsLineGate`, with the counter predicate), so the wall and
+ * Mom's board agree on WHICH food is in the kitchen and the wall and its own passes agree on WHEN it
+ * leaves. A HELD scheduled pickup is a fired line whose fire time is still ahead — the track reads it
+ * Sending (`mms_line_transition` and `mms_bump_ticket` refuse Start and Done before `fire_at`), so it
+ * never reaches the gate. Of the gate's answer only `show` is read: `slotted` decides held-or-hidden
+ * for a paid counter line inside its grace (refused above either way) and `cartOwes` only the Unpaid
+ * flag, so the constants below cannot change it. A line whose cart is absent was cancelled or cleared
+ * (the read keeps only open and paid carts). A line whose SESSION is absent cannot be judged, and the
+ * answer is "not idle": silence is the safe failure of an "All clear".
  */
 export function kitchenIdle(input: {
   lines: readonly BoardLineRow[];
@@ -259,7 +280,7 @@ export function kitchenIdle(input: {
 }): boolean {
   const nowMs = Date.parse(input.nowIso);
   for (const l of input.lines) {
-    if (!PULSE_COOKING_STATES.has(l.state)) continue;
+    if (!stillCooking(l, input.nowIso)) continue;
     const cart = input.cartById.get(l.cart_id);
     if (!cart) continue;
     const sess = input.sessionById.get(cart.session_id);
@@ -269,13 +290,12 @@ export function kitchenIdle(input: {
       counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
       sessionStatus: sess.status,
       cartStatus: cart.status,
-      // A paid counter cart's in-grace line is hidden or held either way — neither is on the wok.
       slotted: false,
       line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment ?? "dinein" },
       cartOwes: false,
       nowMs,
     });
-    if (gate.show && !gate.held) return false;
+    if (gate.show) return false;
   }
   return true;
 }

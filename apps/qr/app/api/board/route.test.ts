@@ -222,13 +222,22 @@ vi.mock("@mms/db/server", () => ({
         return chain;
       }
       if (table === "table_sessions") {
+        // The SELECTED columns only, as PostgREST answers (the last blind pass on #336): a column the
+        // route forgot to read is ABSENT from the row, so a rule that needs it cannot pass on a
+        // fixture that carries it anyway.
+        let cols: (keyof SessionRow)[] = [];
         const chain: Record<string, unknown> = {
-          select: () => chain,
+          select: (list: string) => {
+            cols = list.split(",") as (keyof SessionRow)[];
+            return chain;
+          },
           in: (col: string, ids: unknown[]) => {
             requestedSessionIds = ids;
             if (sessionsError) return Promise.resolve({ data: null, error: sessionsError });
             return Promise.resolve({
-              data: sessions.filter((s) => col === "id" && ids.includes(s.id)),
+              data: sessions
+                .filter((s) => col === "id" && ids.includes(s.id))
+                .map((s) => Object.fromEntries(cols.map((c) => [c, s[c]]))),
               error: null,
             });
           },
@@ -592,6 +601,41 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
   it('"All clear" is the WHOLE kitchen: a paid pickup bag on the wok draws no table and is NOT idle (the blind pass on #336; `board/idle-read-ignored`)', async () => {
     seedCookingTable({ cart_id: "cart-togo", fulfillment: "togo" });
     carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(false);
+  });
+
+  it("a COUNTER order sent before it was paid keeps the kitchen busy — the one session read carries the code that tells it apart (`board/session-read-drops-the-code`)", async () => {
+    // A staff counter order (`reg-` on a pickup session) cooks on an OPEN cart; without its code the
+    // rule cannot tell it from a diner's unpaid pickup, which never cooks.
+    sessions.push({
+      id: "sess-reg",
+      mode: "pickup",
+      status: "active",
+      table_number: null,
+      expires_at: LIVE,
+      qr_code: "reg-ab12",
+    });
+    seedCookingTable({ cart_id: "cart-reg", fulfillment: "togo", fire_batch: null });
+    carts = [{ id: "cart-reg", session_id: "sess-reg", status: "open" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(false);
+  });
+
+  it("a bag bumped inside Mom's undo window on the DATABASE clock is still cooking — never 'All clear' over a dish she can take back (the last blind pass on #336; `board/idle-on-the-app-clock`)", async () => {
+    // Two seconds before `mms_now`: on the database clock the Undo is still live. The process clock
+    // is far past it — a rule read on THAT clock calls the bag served and the kitchen idle.
+    seedCookingTable({
+      cart_id: "cart-togo",
+      fulfillment: "togo",
+      fire_batch: null,
+      state: "served",
+      bumped_at: new Date(NOW - 2_000).toISOString(),
+    });
+    carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    expect(Date.now() - NOW).toBeGreaterThan(60_000);
     const body = (await (await GET(req())).json()) as Body;
     expect(body.tables).toEqual([]);
     expect(body.kitchenIdle).toBe(false);

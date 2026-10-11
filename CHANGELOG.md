@@ -44,6 +44,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Every dish list on a pass has its own accessible name.
   - The passes fit once per poll.
   - 14 mutants added.
+- **After the last capped blind pass on #336** (m9 §G.2):
+  - "All clear" reads the wall's one still-cooking rule (`stillCooking`, the ONE track's Sent or
+    Cooking), so a dish bumped inside Mom's 6-second Undo on a pickup bag, a counter order or an
+    undrawn table no longer reads "All clear", and a grocery line never holds it back.
+  - A resize of the passes' box re-fits, including the first resize of a list that was 0×0 when
+    observed.
+  - The fold, its list names and its FILL keys are drawn by component cases; every case unstubs its
+    globals; the route suite's session mock answers only the selected columns.
+  - 9 mutants added, 5 re-pointed.
 - **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
   `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
   read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.

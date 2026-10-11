@@ -92,6 +92,15 @@ describe("shapeBoardTables — which food is on the wall", () => {
 
   it("a dish not yet sent never appears — a draft is not food the kitchen has (`board-tables/draft-on-the-wall`)", () => {
     expect(shape([line({ state: "draft", fire_at: null, fire_batch: null })])).toEqual([]);
+    // Beside a dish the kitchen HAS, in the same card (an unstamped fired line keys by its cart, as a
+    // draft does): the linger cannot drop the draft there, so only the stage allowlist keeps it off.
+    const t = shape([
+      line({ fire_at: null, fire_batch: null }),
+      line({ name: "Tea", menu_item_id: "m-tea", state: "draft", fire_at: null, fire_batch: null }),
+    ]);
+    expect(t[0]!.rounds.flatMap((r) => r.dishes.map((d) => [d.name, d.stage]))).toEqual([
+      ["Mohinga", "sent"],
+    ]);
   });
 
   it("a Send inside its 10 s grace never appears — the KDS does not show it either", () => {
@@ -346,7 +355,38 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
     expect(idle([line({ fire_at: at(5) })])).toBe(true);
   });
 
-  it("a line on a cleared or cancelled cart is not cooking (the read keeps only open and paid carts)", () => {
+  it("a dish bumped INSIDE Mom's undo window is still cooking — on a pickup bag, a counter order, a table the wall does not draw — exactly as the wall draws it Cooking on a table it does draw (the last blind pass on #336; `board-tables/idle-ignores-the-undo-window`)", () => {
+    // Two seconds before the poll's DATABASE clock: a 5 s poll lands inside the window, Mom can still
+    // tap Undo, and the dish may go back on the wok. Sixty seconds could not tell the two rules apart.
+    const bumped = at(-2);
+    expect(Date.parse(NOW) - Date.parse(bumped)).toBeLessThan(KDS_UNDO_MS);
+    const ghost = sessions.map((s) => (s.id === "s4" ? { ...s, expires_at: at(-1) } : s));
+    const fresh = { state: "served", bumped_at: bumped } as const;
+    expect(idle([line({ cart_id: "cp", fulfillment: "togo", ...fresh })])).toBe(false);
+    expect(
+      idle([line({ cart_id: "cc", fulfillment: "togo", ...fresh })], {
+        carts: [{ id: "cc", session_id: "sc", status: "open" }],
+      }),
+    ).toBe(false);
+    expect(kitchenIdle({ ...input([line(fresh)], { sessions: ghost }) })).toBe(false);
+    // ONE definition in one payload: the table the wall DOES draw reads the same dish Cooking.
+    const drawn = line(fresh);
+    expect(shape([drawn])[0]!.rounds[0]!.dishes[0]!.stage).toBe("cooking");
+    expect(idle([drawn])).toBe(false);
+    // The window waited out, the bag is served on both and the kitchen is idle.
+    const settled = at(-(KDS_UNDO_MS / 1000));
+    expect(
+      idle([line({ cart_id: "cp", fulfillment: "togo", state: "served", bumped_at: settled })]),
+    ).toBe(true);
+  });
+
+  it("a grocery line is never food on the wok — the ONE track gives it no stage, so it neither draws nor holds back 'All clear' (`board-tables/idle-ignores-the-undo-window`)", () => {
+    const bag = line({ cart_id: "cp", fulfillment: "grocery", name: "Rice 5lb", state: "fired" });
+    expect(shape([bag])).toEqual([]);
+    expect(idle([bag])).toBe(true);
+  });
+
+  it("a line on a cleared or cancelled cart is not cooking (the read keeps only open and paid carts; `board-tables/idle-counts-a-dropped-cart`)", () => {
     expect(idle([line({ cart_id: "gone" })])).toBe(true);
   });
 

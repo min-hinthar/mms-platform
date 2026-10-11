@@ -2622,5 +2622,7 @@ food in the kitchen is shown, dish by dish. What that may and may not look like:
   server read no food of ANY channel on the wok (the tables are dine-in only), and never on a frozen
   snapshot.
 - **Privacy is the payload's shape.** A table number and dish names only: no guest name, count, price,
-  clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. The pickup
+  clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. Beside
+  them the route sends `{ orders, tables, kitchenIdle, serverNow }` and nothing else — `kitchenIdle`
+  is one boolean (is any food of any channel on the wok?), never a count. The pickup
   column shows the code alone — no name, no wait — and a collected bag leaves at once.
