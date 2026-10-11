@@ -1140,7 +1140,8 @@ owner's delegation, the reason is below.
   "Table N has a card on file — close the bill on that card before you clear it." Nothing sent, nothing
   to charge: a secured tab with no loss clears free. A manager named in `p_approver` may write it off
   (recorded as theirs) — the seam a declined card after a walkout needs; the app sends none today
-  (M270 (6)). The card door also stands down while the slip is armed (B12).
+  (M270 (6)). A tab secured while the slip is armed drops the slip (`cardOnFile`), and the card door
+  is never stood down for it — on a secured tab it is the one exit the server accepts.
 - **A post-dated look is refused.** `p_seen_at` later than the transaction's own clock answers
   `changed` before any lock — the request carries it, and a future value defeated `joined` and the
   added-dish test. A past one only makes both stricter.
@@ -1151,10 +1152,12 @@ owner's delegation, the reason is below.
   when the clear is still out at `STAFF_HANG_MS`; a late ok then starts nobody and says
   `settle.clear.seatFailed` on the floor.
 - **The window says it stopped.** A window that leaves with its pane sends nothing (B9's alternative,
-  unchanged) and the floor now says "Table N is still open — the clear stopped when you left it."
+  unchanged) and the floor now says "Clearing Table N stopped when you left — the clear was not sent."
+  — about that clear only, never the table's state, and not at all when the page's read found the
+  table CLOSED underneath it (cleared on another tablet, merged, swept: `tableGone`).
 - **The clear record is durable:** `qr_table_clears.session_id` is NO ACTION (as `qr_orders`), never a
   cascade. The header's lock order and file name now match the code; the stamp's `ceiling` gate (at
-  and past the bound) and the 2000 default are pinned (M182.11–14, 12 more SQL mutants).
+  and past the bound) and the 2000 default are pinned (M182.11–14, 13 more SQL mutants, the share re-read's cart scope among them).
 
 **Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
 → `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause; the floor

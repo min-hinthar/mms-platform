@@ -30,8 +30,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   walkout — the RPC refuses `secure_tab` without a verified manager and the look answers `secure`
   (no slip; "close the bill on that card"); a post-dated `p_seen_at` is refused; a split share
   holding money is re-read under the cart lock; "Seat next party" gives the mint back at the bound;
-  a window that leaves with its pane says the table is still open; `qr_table_clears` no longer
-  cascades away with its session. 43 SQL mutants (`m182`).
+  a window that leaves with its pane says the clear was not sent (never when the table closed
+  underneath it); a tab secured under an armed slip drops it; `qr_table_clears` no longer
+  cascades away with its session. 44 SQL mutants (`m182`).
 - **Mutants:** `clear/*`, `clear-hint/*`, `clear-floor/*`, `clear-ui/*`, `clear-window/*`,
   `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
   anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.

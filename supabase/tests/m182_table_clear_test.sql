@@ -458,6 +458,14 @@ begin
     values (pg_temp.m182_cart(s), gen_random_uuid(), 0, 0, 'captured');
   j := pg_temp.m182_clear(s, '{}', 0);
   assert j->>'status' = 'ok', format('M182.12 · a pending share and a $0 seat never block (%s)', j);
+  -- The re-read is THIS cart's: another table's share holding money never blocks this clear.
+  s := pg_temp.m182_table('M182-12-OTHER');
+  insert into public.qr_cart_shares (cart_id, seat_id, subtotal_cents, amount_cents,
+                                     stripe_payment_intent_id, status)
+    values (pg_temp.m182_cart(pg_temp.m182_table('M182-12-PAYING')), gen_random_uuid(), 1400, 1400,
+            'pi_m182_share_other', 'authorized');
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.12 · another table''s share never blocks this clear (%s)', j);
 end $$;
 
 -- ══ M182.13 · a SECURED tab (card on file): its sent food is never written off without a manager ═
@@ -470,8 +478,6 @@ begin
   j := pg_temp.m182_clear(s, array[a], 1400);
   assert j->>'status' = 'secure_tab', format('M182.13 · a secured tab''s sent food refuses (%s)', j);
   assert pg_temp.m182_untouched(s), 'M182.13 · the secure_tab refusal wrote nothing';
-  assert (select tab_type from public.qr_carts where id = pg_temp.m182_cart(s)) = 'secure',
-    'M182.13 · the card-on-file close is still there to use';
   -- A manager may write it off (the declined-card walkout's seam): recorded as theirs.
   j := pg_temp.m182_clear(s, array[a], 1400, now(), '00000000-0000-0000-0000-000000182a00');
   assert j->>'status' = 'ok', format('M182.13 · a manager''s write-off clears a secured tab (%s)', j);
@@ -496,7 +502,10 @@ end $$;
 -- ══ M182.14 · the stamp's 'ceiling' gate, at and past the bound, and the 2000 default ═══════════
 do $$
 declare s uuid; a uuid; j jsonb; past timestamptz := now() - interval '3 minutes';
+        cfg public.mms_loss_config;
 begin
+  -- The config row as this file found it, put back at the end: no later case inherits this block's.
+  select * into strict cfg from public.mms_loss_config where id;
   update public.mms_loss_config set max_loss_cents = 500 where id;
   -- An uncooked dish past the ceiling, stamped: 'ceiling'.
   s := pg_temp.m182_table('M182-14-OVER');
@@ -527,6 +536,9 @@ begin
   assert (select gate_reason from public.mms_approvals where line_id = a and reason_code = 'table_cleared')
          = 'ceiling',
     format('M182.14 · with no config, 2001 is past the default ceiling: ceiling (%s)', j);
+  insert into public.mms_loss_config select (cfg).*;
+  assert (select l::text from public.mms_loss_config l where l.id) = cfg::text,
+    'M182.14 · the config row is back exactly as it was';
 end $$;
 
 -- ══ M182.10 · the record's own bounds ══════════════════════════════════════════════════════════

@@ -2978,6 +2978,14 @@ const MUTANTS = [
       replace: "                  ) then\n",
     },
     {
+      id: "clear/share-any-cart",
+      fn: "mms_clear_table",
+      expect: "M182.12 · another table's share never blocks this clear",
+      why: "the share re-read loses its cart: one table's authorized split refuses every other table's clear (no table on the floor can be cleared)",
+      find: "                where sh.cart_id = v_cart and sh.status in ('authorized', 'captured')\n",
+      replace: "                where sh.status in ('authorized', 'captured')\n",
+    },
+    {
       id: "clear/secure-tab-written-off",
       fn: "mms_clear_table",
       expect: "M182.13 · a secured tab's sent food refuses",

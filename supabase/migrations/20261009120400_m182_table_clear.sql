@@ -39,11 +39,14 @@
 --   'changed' — a line was added after the look, or the SENT set is not the one shown (as SETS; a
 --               NULL or a NULL element never matches), or its value is not `p_loss_cents` — or the
 --               look is from the FUTURE (`p_seen_at > now()`).
--- `p_seen_at` is the DATABASE clock at the look (`mms_now`) — and this function holds it to that:
--- the request carries it, so a value later than this transaction's own clock is a look that never
--- happened (a hand-built request could otherwise post-date it past every join and every added dish
--- and close a party out with no refusal; the blind pass on #341). A look in the past only makes the
--- 'joined' and 'changed' tests STRICTER, so no lower bound is needed for safety.
+-- `p_seen_at` is meant to be the DATABASE clock at the look (`mms_now`), but the REQUEST carries it,
+-- and this function bounds it from ABOVE only: a value later than this transaction's own clock is
+-- refused (a post-dated look would pass every join and every added dish — the blind pass on #341).
+-- Nothing here proves the value came from a real look: any instant at or before this transaction's
+-- start is accepted, and a join or a dish older than it passes. That is what a REAL look taken at
+-- that instant would pass too, and any staff member may take one, so the bound grants no clear a
+-- fresh look could not; it only removes the future. A look further in the past makes 'joined' and
+-- 'changed' STRICTER, never looser.
 --
 -- ## Money that may still be moving
 --   'in_flight' — `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze;

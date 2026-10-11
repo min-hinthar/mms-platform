@@ -435,6 +435,8 @@ export function FloorDetailLive({
   // Phase 2d · split — the pane's close callback, read through a ref so `refresh` (and with it the
   // 5s poll's interval) keeps its identity when the pane re-renders with a new closure.
   const onClosedRef = useRef(onClosed);
+  // PD7 — set by a CLOSED verdict, read by the clear's window as it unmounts.
+  const tableGone = useRef(false);
   useEffect(() => {
     onClosedRef.current = onClosed;
   }, [onClosed]);
@@ -522,6 +524,10 @@ export function FloorDetailLive({
             fails.current = 0;
             setDegraded(null);
           } else if (res.kind === "closed") {
+            // PD7 — the table is GONE (cleared, merged or swept elsewhere), marked BEFORE anything
+            // below unmounts this detail: the clear's window must never tell the floor it stopped
+            // "when you left" a table that closed underneath it (the second blind pass on #341).
+            tableGone.current = true;
             // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
             // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
             // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
@@ -1607,10 +1613,10 @@ export function FloorDetailLive({
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
-                // PD7 (m7 B12) — one hero per state: the clear's danger commit, while its slip is
-                // armed. A secured tab's loss look never opens the slip (`clearNeedsTheCard`), so
-                // this stands down only for a tab secured while the slip was already open.
-                variant={clearSlip ? "secondary" : "primary"}
+                // Never stood down for the clear's slip: on a secured tab this is the ONE exit the
+                // server accepts for sent food (`secure_tab`), and the slip drops itself the moment
+                // the tab reads secure (`cardOnFile`, the second blind pass on #341).
+                variant="primary"
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
                 onApprovalPending={onApprovalPending}
@@ -1878,6 +1884,10 @@ export function FloorDetailLive({
               }}
               onSlip={setClearSlip}
               onTakeCash={cashOffered ? () => openCash.current?.() : undefined}
+              // The second blind pass on #341 — a tab secured under an armed slip drops it (the card
+              // pays), and a table that CLOSED under the window says nothing about leaving it.
+              cardOnFile={detail.tab === "secure"}
+              tableGone={tableGone}
               headingLevel={inPane ? 3 : 2}
             />
           )}

@@ -82,6 +82,8 @@ export function ClearTableButton({
   onSlip,
   onTakeCash,
   headingLevel = 3,
+  cardOnFile = false,
+  tableGone,
 }: {
   sessionId: string;
   label: string;
@@ -100,6 +102,12 @@ export function ClearTableButton({
   onTakeCash?: () => void;
   /** The slip heading's level: the settle section's own (the page's h2, the pane's h3). */
   headingLevel?: 2 | 3;
+  /** The tab is SECURED (a card on file): an armed loss slip drops, and says the card pays — its
+   *  sent food is never a walkout (`secure_tab`; the second blind pass on #341). */
+  cardOnFile?: boolean;
+  /** Set by the page when its read found the table CLOSED (cleared, merged or swept elsewhere) —
+   *  read as this control unmounts, so a window the table closed under is never "left". */
+  tableGone?: { readonly current: boolean };
 }) {
   const lang = useStaffLang();
   // Phase 2d · split — the exit is the page's or the pane's (`TableNav`), bound once.
@@ -436,10 +444,12 @@ export function ClearTableButton({
   // Whether a window is open and unsent, and the floor's channel — read when this control LEAVES.
   const windowOpenRef = useRef(false);
   const leaveSayRef = useRef<(() => void) | null>(null);
+  const goneRef = useRef(tableGone);
   useLayoutEffect(() => {
     holdRef.current = hold;
     commitRef.current = confirm;
     windowOpenRef.current = phase.k === "window";
+    goneRef.current = tableGone;
     leaveSayRef.current = news
       ? () => news.say({ k: "settle.clear.windowLeft", vars: { id: label } }, "warn")
       : null;
@@ -449,7 +459,8 @@ export function ClearTableButton({
   // "Clearing Table N" believing it finished (the blind pass on #341): the table is still open.
   useEffect(
     () => () => {
-      if (windowOpenRef.current && !windowSent.current) leaveSayRef.current?.();
+      if (windowOpenRef.current && !windowSent.current && !goneRef.current?.current)
+        leaveSayRef.current?.();
     },
     [],
   );
@@ -481,6 +492,15 @@ export function ClearTableButton({
     win && win.watchAtOpen && watch
       ? clearWindowStale(win.watchAtOpen, { ...watch, paying: paymentInFlight })
       : null;
+  // A tab SECURED under the armed slip: its card pays for the sent food, so the slip (and its
+  // walkout) drops in the render that sees it, saying so — the server would refuse the commit
+  // (`secure_tab`) on its own.
+  if (phase.k === "slip" && cardOnFile) {
+    setPhase({ k: "rest" });
+    setNotice({ k: "settle.clear.secureTab", vars: { id: label } });
+    resay();
+    setDropped((n) => n + 1);
+  }
   if (win && stale !== null) {
     setPhase({ k: "rest" });
     setHold(NO_HOLD);

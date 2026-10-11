@@ -122,6 +122,7 @@ function mount(
     onTakeCash?: () => void;
     onSlip?: (armed: boolean) => void;
     paymentInFlight?: boolean;
+    cardOnFile?: boolean;
   } = {},
 ) {
   const mintValue = opts.mint
@@ -147,6 +148,7 @@ function mount(
             watch={o.watch ?? WATCH}
             onTakeCash={o.onTakeCash}
             onSlip={o.onSlip}
+            cardOnFile={o.cardOnFile}
           />
           <FloorLine />
         </CounterMintCtx.Provider>
@@ -252,9 +254,10 @@ describe("a free table — straight into the six-second window, nothing written 
     expect(clearTable).not.toHaveBeenCalled();
   });
 
-  it("…and the floor SAYS the table is still open — never a silent drop (the blind pass on #341)", async () => {
+  it("…and the floor SAYS the clear stopped — never a silent drop (the blind pass on #341)", async () => {
     getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
     // The pane leaves; the floor (the provider, the board's line) stays.
+    const gone = { current: false };
     const tree = (pane: boolean) => (
       <StaffLangProvider lang="en">
         <TurnoverNewsProvider>
@@ -265,6 +268,7 @@ describe("a free table — straight into the six-second window, nothing written 
               paymentInFlight={false}
               tableNumber={4}
               watch={WATCH}
+              tableGone={gone}
             />
           )}
           <FloorLine />
@@ -285,6 +289,21 @@ describe("a free table — straight into the six-second window, nothing written 
     const w = render(tree(true));
     w.rerender(tree(false));
     expect(floorLine()).toBe("");
+    // The second blind pass on #341: the table CLOSED under the window (another tablet cleared it,
+    // a merge folded it, the sweeper closed it) — the page marks it gone before the detail leaves,
+    // and nothing is said about "leaving" a clear: the table is not open, and a line inviting a
+    // second clear would point at whoever sits there next.
+    cleanup();
+    const x = render(tree(true));
+    await tap(trigger());
+    expect(windowGroup()).not.toBeNull();
+    gone.current = true;
+    x.rerender(tree(false));
+    // MUTATION clear-ui/window-left-after-a-close → "Clearing Table 4 stopped when you left" over a
+    // table that closed underneath; red.
+    expect(floorLine()).toBe("");
+    await flush(CLEAR_UNDO_MS * 2);
+    expect(clearTable).not.toHaveBeenCalled();
   });
 
   it("a KEYBOARD focus on Undo holds the window, warns five seconds before the cap, then lets it run", async () => {
@@ -417,6 +436,25 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     });
     // MUTATION clear-ui/loss-said-as-free → the floor says "free" over three dishes written off; red.
     expect(floorLine()).toBe(tf("en", "settle.clear.freeLoss.many", { id: "4", n: 3 }));
+  });
+
+  it("a tab SECURED under the armed slip drops it and says the card pays — never a walkout (second blind pass on #341)", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: LOSS });
+    const onSlip = vi.fn();
+    const v = mount({ onSlip });
+    await tap(trigger());
+    expect(slipHead()).toBeTruthy();
+    expect(onSlip).toHaveBeenLastCalledWith(true);
+    v.rerender({ cardOnFile: true });
+    // MUTATION clear-ui/secure-slip-kept → the walkout and its danger commit stay over the one door
+    // the server accepts (the card), and the commit is refused `secure_tab`; red.
+    expect(screen.queryByRole("heading", { name: ts("en", "settle.clear.loss.head") })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(
+      tf("en", "settle.clear.secureTab", { id: "4" }),
+    );
+    expect(onSlip).toHaveBeenLastCalledWith(false);
+    await flush(CLEAR_UNDO_MS * 2);
+    expect(clearTable).not.toHaveBeenCalled();
   });
 
   it("'Take cash' opens the pane's one till and stands the slip down; Cancel writes nothing", async () => {

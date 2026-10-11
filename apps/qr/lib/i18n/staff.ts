@@ -4021,9 +4021,9 @@ export const STAFF = {
     my: "စားပွဲ {id} ရှင်းပြီးပါပြီ — ထိုင်ခိုင်းဖို့ အပေါ်က {id} ကို နှိပ်ပါ။",
   },
   "settle.clear.windowLeft": {
-    en: "Table {id} is still open — the clear stopped when you left it.",
-    my: "စားပွဲ {id} မရှင်းရသေးပါ — ထွက်လိုက်လို့ ရှင်းတာ ရပ်သွားပါတယ်။",
-  }, // K15-HIGH — misread as cleared, the next party is seated onto the old party's open table (draft)
+    en: "Clearing Table {id} stopped when you left — the clear was not sent.",
+    my: "စားပွဲ {id} ရှင်းတာ ထွက်လိုက်လို့ ရပ်သွားပါတယ် — ရှင်းဖို့ မပို့လိုက်ပါ။",
+  }, // K15-HIGH — about THIS clear only, never the table's state (another tablet may have cleared it); misread as cleared, the next party is seated onto an open table (draft)
   // The refusals of `mms_clear_table`, each writing nothing.
   "settle.clear.joined": {
     en: "Someone just joined Table {id}, so it stayed open — check who’s sitting there before you clear it.",
