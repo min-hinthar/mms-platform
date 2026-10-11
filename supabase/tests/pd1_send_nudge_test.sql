@@ -31,7 +31,10 @@
 --   PD1.16  the fire takes the cart row lock (a line-less cart's `xmax`), and PD1.17 so does the
 --           nudge, even when it refuses — the lock is TAKEN. Its ORDER against an add, a qty change,
 --           a nudge or a merge needs two sessions: scripts/verify-fire-cart-race.mjs;
---   PD1.18  the function is callable by service_role only, and the restated fire keeps its revoke.
+--   PD1.18  the function is callable by service_role only, and the restated fire keeps its revoke;
+--   PD1.19  a STALE stamp — no dine-in draft added at or before it — is no wait (the last blind pass
+--           on #335): another seat's nudge inside the minute LANDS instead of being answered
+--           `taken`; beside it, the same stamp with a draft that predates it is still `taken`.
 --
 -- ⚠️ `now()` is the TRANSACTION start time and this whole file is one transaction, so "a minute
 -- later" (and a stale lock) is simulated by moving the stamp into the past directly.
@@ -226,6 +229,38 @@ begin
   assert not r.ok and r.reason = 'nothing_to_send', format('PD1.17 · fixture: a line-less cart has nothing to send — got %s', r.reason);
   select c.xmax::text into v_xmax from public.qr_carts c where c.id = ncart;
   assert v_xmax <> '0', 'PD1.17 · mms_nudge_host did not lock the cart row before deciding — a nudge racing a fire decides from a snapshot older than the fire';
+end $$;
+
+-- ── PD1.19 · a stale stamp is no wait ─────────────────────────────────────────────────────────
+do $$
+declare
+  aye   uuid := '00000000-0000-0000-0000-00000000a4e1';
+  thiri uuid := '00000000-0000-0000-0000-00000000111b';
+  mya   uuid := '00000000-0000-0000-0000-00000000a7a1';
+  dish  text := 'cccccccc-0000-4000-8000-00000000d1d1';
+  zsess uuid := gen_random_uuid();  zcart uuid := gen_random_uuid();
+  r record; v_seat uuid;
+begin
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (zsess, 'PD1-NUDGE-Z', 'dinein', 'active', aye);
+  insert into public.session_members (session_id, seat_id, role, display_name)
+    values (zsess, aye, 'host', 'Aye'), (zsess, thiri, 'guest', 'Thiri'), (zsess, mya, 'guest', 'Mya');
+  insert into public.qr_carts (id, session_id) values (zcart, zsess);
+  -- Mya's dish, and Thiri's stamp 30 seconds old: inside the minute.
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment, created_at)
+    values (zcart, dish, 'Mohinga', 1, 1400, 147, mya, 'dinein', now() - interval '60 seconds');
+  update public.qr_carts set send_nudge_seat = thiri, send_nudge_at = now() - interval '30 seconds' where id = zcart;
+  -- LIVE: the dish was added BEFORE the stamp, so Thiri's wait is real — Mya's tap is `taken`.
+  select * into r from public.mms_nudge_host(zcart, mya);
+  assert not r.ok and r.reason = 'taken' and r.nudge_seat = thiri,
+    format('PD1.19 · a live stamp (a draft that predates it) must still be taken — got %s', r.reason);
+  -- STALE: Thiri's dish went (the only draft now was added AFTER her stamp). Her stamp names no wait.
+  update public.qr_cart_items set created_at = now() where cart_id = zcart;
+  select * into r from public.mms_nudge_host(zcart, mya);
+  assert r.ok and r.nudge_seat = mya,
+    format('PD1.19 · a stale stamp must not block Mya''s nudge or be answered for Thiri — got %s', r.reason);
+  select send_nudge_seat into v_seat from public.qr_carts where id = zcart;
+  assert v_seat = mya, 'PD1.19 · the live stamp is now Mya''s';
 end $$;
 
 -- ── PD1.18 · service_role only ─────────────────────────────────────────────────────────────────

@@ -31,6 +31,15 @@
 -- the host already knows the table is waiting, and that guest is told whose nudge it was. Past the
 -- minute any member may stamp again.
 --
+-- ## A stamp is LIVE only while a dish that was waiting when it was written still waits
+-- The stamp is cleared by the fire alone, so it outlives a dish taken off, voided or switched to
+-- to-go — and a LATER, unrelated dine-in draft would otherwise read it as "Thiri is waiting on this
+-- send." with nobody waiting (the last blind pass on #335). The rule, in both places that read it:
+-- a stamp is live while at least one DINE-IN DRAFT on the cart was ADDED at or before it
+-- (`qr_cart_items.created_at <= send_nudge_at`, both stamped by this database's `now()`). The app's
+-- view reports only a live stamp (`nudgeLive`, lib/send-nudge-state.ts, read in `getCartView`), and
+-- here a stale stamp neither blocks a new nudge nor is answered `recent` / `taken`.
+--
 -- ## Lock order: the cart row FIRST, in both functions
 -- Both functions open with `perform 1 from qr_carts where id = … for no key update`: the cart row,
 -- then (the fire) the lines — cart → line, the order every settlement function, the three line RPCs
@@ -48,17 +57,26 @@
 --     does NOT conflict with `for key share`, so a bare FK check (a line re-parented by a merge, a
 --     line insert) is not serialized behind a Send. `for update` (m261's parity choice for the
 --     undo) would add exactly that conflict and buys nothing here.
---   · The partners, re-checked against the new order (all cart → line; none locks a line and then
---     a cart): the merge locks BOTH carts `for update` (ordered by id) before any line, so it and a
---     fire meet at a cart, never at a line; `mms_undo_fire` (M261) and `mms_undo_counter_fire` lock
---     the cart `for update` first; `mms_line_transition` / `mms_bump_ticket` lock lines only and so
---     never wait on a cart; the nudge locks only the cart. This AMENDS two sentences that are the
---     record of what ran and are not edited: 20260929000000_p2dd_p2cy_line_guards.sql's "the fire
---     functions (`mms_fire_cart`, …) write lines only and never lock the cart" and
---     20261006120000_m261_undo_fire_cart_lock.sql's "the fires lock lines only": `mms_fire_cart` now
---     locks the cart FIRST, which keeps both files' deadlock argument whole.
---   · Proven with two sessions, both orders each: scripts/verify-fire-cart-race.mjs (an add, a qty
---     change and a nudge against a fire; the merge against a fire), and its `--mutants`.
+--   · What is PROVEN, with two sessions in both orders (scripts/verify-fire-cart-race.mjs and its
+--     `--mutants`): an add (`mms_cart_item_inc_qty`), a qty change (`_set_qty_if_open`), a nudge and
+--     the merge, each against the fire. Nothing else is proven by a second session.
+--   · What is MEASURED, not proven (the last blind pass on #335 asked for every partner): a
+--     statement-order scan of the LATEST definition of all 86 public functions in the migrations on
+--     2026-10-11, following calls between them — 13 lock both tables, and every one takes its FIRST
+--     conflicting `qr_carts` lock before any `qr_cart_items` lock and later re-locks only carts it
+--     already holds (the merge locks both of its carts up front); every other function locks one
+--     table only, so a lines-only writer (`mms_set_line_fulfillment`, `mms_fire_line`,
+--     `mms_fire_pending_food`, `mms_line_transition`, `mms_bump_ticket`) never waits on a cart and
+--     cannot close a cycle with a fire that holds one. The only triggers on `qr_cart_items` are
+--     M87's two `added_by` row triggers, which write `new` and lock nothing. App writes through
+--     PostgREST are one statement per transaction, so none holds a line while asking for a cart. A
+--     scan of text, like m261's — a later function written line-then-cart would break this, and no
+--     guard here would notice.
+--   · This AMENDS two sentences that are the record of what ran and are not edited:
+--     20260929000000_p2dd_p2cy_line_guards.sql's "the fire functions (`mms_fire_cart`, …) write lines
+--     only and never lock the cart" and 20261006120000_m261_undo_fire_cart_lock.sql's "the fires lock
+--     lines only": `mms_fire_cart` now locks the cart FIRST, which keeps both files' deadlock
+--     argument whole.
 --
 -- ## The Send clears it in the SAME TRANSACTION as the fire, under the cart lock
 -- `mms_fire_cart` is restated whole below: the cart lock, then one statement whose first CTE arm is
@@ -107,10 +125,10 @@ comment on column public.qr_carts.send_nudge_at is
   'PD1 — when that guest tapped; another tap inside a minute is refused (recent / taken). Null = nobody waiting.';
 
 -- ── 2 · the nudge, status-guarded IN the statement ──────────────────────────────────────────────
--- Dropped first: the return shape gained `nudge_seat`, and `create or replace` cannot change a
--- function's OUT columns — so a stack that applied an earlier draft of this file re-applies cleanly.
-drop function if exists public.mms_nudge_host(uuid, uuid);
-create function public.mms_nudge_host(p_cart_id uuid, p_seat uuid)
+-- No `drop` (the prod apply path, the Supabase MCP `apply_migration`, stalls on a destructive
+-- statement): no database this file reaches has ever had `mms_nudge_host`, so `create or replace`
+-- creates it, and re-applying this file replaces it with the same signature and shape.
+create or replace function public.mms_nudge_host(p_cart_id uuid, p_seat uuid)
   returns table(ok boolean, reason text, nudged_at timestamptz, nudge_seat uuid)
   language plpgsql set search_path = '' as $$
 declare
@@ -138,7 +156,11 @@ begin
       and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')
       and exists (select 1 from public.qr_cart_items ci
                    where ci.cart_id = c.id and ci.state = 'draft' and ci.fulfillment = 'dinein')
-      and (c.send_nudge_at is null or c.send_nudge_at < now() - interval '1 minute')
+      and (c.send_nudge_at is null or c.send_nudge_at < now() - interval '1 minute'
+           -- a STALE stamp (no dine-in draft that predates it) blocks nothing — see the header
+           or not exists (select 1 from public.qr_cart_items w
+                            where w.cart_id = c.id and w.state = 'draft' and w.fulfillment = 'dinein'
+                              and w.created_at <= c.send_nudge_at))
     returning c.send_nudge_at, c.send_nudge_seat into v_at, v_by;
   get diagnostics n = row_count;
   if n = 1 then
@@ -165,6 +187,7 @@ begin
   if v_mode <> 'dinein' or not v_draft then
     return query select false, 'nothing_to_send'::text, null::timestamptz, null::uuid; return;
   end if;
+  -- Reached only when the cadence term refused: the stamp is fresh AND live (a stale one passes it).
   if v_prev is not null and v_prev >= now() - interval '1 minute' then
     -- The stamp stands. THIS seat's → `recent` (idempotent: the guest's line keeps showing); another
     -- seat's → `taken`, carrying whose it is. Never the caller's seat on a stamp that is not theirs.
