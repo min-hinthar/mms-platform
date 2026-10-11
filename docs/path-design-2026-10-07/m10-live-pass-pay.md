@@ -1442,17 +1442,24 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
   next time, instead of drawing the full skeleton and collapsing.
   **After Codex round 3 on #346** (fix-on-sight):
 
-- **An unknown clock reads "sending".** `trackStage` reads a fired line whose fire time it cannot
-  compare (the unknown clock `""`, or an unreadable stamp) as "sending", never "sent" by a NaN
-  falling through. This is reachable on the menu strip before its first view. A known clock reads
-  exactly as before. The TV board's route always passes a clock (`mms_now()`, or the app clock if
-  that read fails). The KDS does not read the track.
+- **An unknown clock reads fired lines as "sending" (defense).** `trackStage` reads every fired line
+  with a `fire_at` it cannot compare against the clock (the unknown clock `""`, or an unparseable
+  stamp) as "sending", never a false "sent" through a NaN comparison. It is unreachable today: the
+  menu's provider sets `items` and `dbNow` from the same view (its items start empty), and
+  `getCartView.dbNow` is a required string that falls back to the app clock. An unknown clock beside
+  fired lines would need a view without `dbNow`, which no current caller produces. With a known
+  clock a parseable fire time reads exactly as before; only an UNPARSEABLE `fire_at` changes, from
+  "sent" to "sending", and a `timestamptz` column cannot produce one. The TV board's route always
+  passes a clock (`mms_now()`, or the app clock if that read fails); the KDS does not read the track.
 - **Unreadable membership pays the WHOLE order.** At a table whose membership cannot be read
   (`gateHost` null), Pay reads "Pay the whole order · $X". create-intent charges the whole shared
   cart, and no owner rows are drawn to say otherwise. The split's guide line is not drawn, since
   there is no split above it.
-- **Entering the Bill seeds the door it watches.** A checkout that opened on the Order stage now gets
-  the door moment when the food is served: no animation on entry, then the POP and "Ready to pay."
+- **Entering the Bill seeds the door it watches.** A checkout that opened on the Order stage now
+  gets the door moment when the food is served: no animation on entry, then the POP and "Ready to
+  pay." The seed is the door AS IT STANDS: entered over an open door it seeds open, so the same view
+  applied again plays nothing (the last capped blind pass;
+  `checkout/bill-entry-seeds-an-open-door-held`).
 - **Checked, and does not reproduce:** a `fired` line with a null `fire_at` reads "Sent" (fired at
   or before now; `kitchen-track.test.ts` pins it), never "Sending…" forever, and needs no re-read.
   Such rows are reachable: before P2f (`20261001000000`), `mms_line_transition`'s draft → fired edge

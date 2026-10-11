@@ -3540,6 +3540,44 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     await waitFor(() => expect(regionText()).toContain("Ready to pay."), { timeout: 3000 });
   });
 
+  it("entering the Bill over an OPEN door seeds it open — the same view applied again plays nothing (the capped blind pass on #346)", async () => {
+    // MUTATION (checkout/bill-entry-seeds-an-open-door-held): the entry seeds every door HELD — the
+    // next self-heal of the SAME view compares held → open and POPs "Ready to pay." over a door that
+    // was open the whole time; red.
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    mount({ splitContext: HOST, initialItems: [SERVED] });
+    expect(pay().getAttribute("aria-disabled")).toBeNull();
+    // Back on the Order stage, a view lands there: the pass memory's door is null (no door on screen).
+    await press(/Back to your order/);
+    // The Back rides the history's popstate (a `#bill` entry): let it land on the Order stage.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await screen.findByRole("button", { name: /^View bill & pay/ });
+    await syncFromServer();
+    // The Bill again: the entry seeds the door as it stands — open.
+    await press(/^View bill & pay/);
+    expect(pay().getAttribute("aria-disabled")).toBeNull();
+    const moved = { pop: false };
+    const watch = new MutationObserver(() => {
+      if (document.querySelector(".checkout-door-pop")) moved.pop = true;
+    });
+    watch.observe(document.body, { subtree: true, childList: true, attributes: true });
+    const reads = h.getCartView.mock.calls.length;
+    await act(async () => {
+      h.echo.current?.();
+    });
+    for (let i = 0; i < 15; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+    }
+    watch.disconnect();
+    expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads);
+    expect(moved.pop).toBe(false);
+    expect(regionText()).not.toContain("Ready to pay.");
+  });
+
   it("a table whose membership cannot be read names Pay as the WHOLE order (Codex round 3 on #346)", () => {
     // MUTATION (checkout/unread-table-pays-as-solo): `isGroup` alone — with the split read missed,
     // Pay reads "Pay · $X" while create-intent charges the whole shared cart; red.

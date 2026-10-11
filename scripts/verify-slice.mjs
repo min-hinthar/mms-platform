@@ -33243,6 +33243,14 @@ const MUTANTS = [
     replace:
       "    passMotion.memory !== null &&\n    passMotion.memory.door === null &&\n    false\n  ) {",
   },
+  {
+    id: "checkout/bill-entry-seeds-an-open-door-held",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "PD10 (the capped blind pass on #346) — the Bill entry seeds the door AS IT STANDS; seeded held over an open door, the next self-heal of the same view compares held → open and POPs Ready to pay. over a door that was open the whole time",
+    find: "    const door = servedHold === null;",
+    replace: "    const door = false;",
+  },
 ];
 
 // ── argv — strict, because a silently-ignored flag is a silently-different run ──────────────────────

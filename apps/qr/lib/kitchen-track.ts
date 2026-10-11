@@ -77,7 +77,9 @@ export function trackStage(line: TrackLine, nowIso: string): KitchenStage | null
       if (line.fire_at === null) return "sent";
       // PD10 (Codex round 3 on #346) — a fire time this reader cannot COMPARE (an unknown clock "",
       // or an unreadable stamp) proves nothing about the grace: "sending" (unconfirmed), never "sent"
-      // by a NaN comparison falling through. A known clock reads exactly as before.
+      // by a NaN comparison falling through. With a known clock a parseable fire time reads exactly
+      // as before; an UNPARSEABLE `fire_at` now reads "sending" where it read "sent" (a `timestamptz`
+      // column cannot produce one).
       const fire = Date.parse(line.fire_at);
       const now = Date.parse(nowIso);
       if (!Number.isFinite(fire) || !Number.isFinite(now)) return "sending";
