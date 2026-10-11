@@ -35,6 +35,153 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Known effect:** batches fired before the migration carry no mark, so a table live across the
   deploy that had settlement food can read one round high until its session ends.
 
+### PD6 — the walk-up cash sale: the crowned till tray and the seal; PD2's pane twin; PD1's ring (2026-10-09)
+
+- **One money verb, one cash sheet** (`docs/path-design-2026-10-07/m6-walk-up-cash.md`; build notes
+  in its §H). "Take cash · $X" (`settle.cash.trigger` / `.title`, now K15-HIGH) opens the crowned till
+  tray on every door — the counter pad's dock and the table page / pane alike: `CashSettleButton`
+  keeps one host contract and gains a `door` (the pad's gate, busy and held states, routed through
+  the pad's ONE region) and a `slip`. The tray reads OWE → TIP → GAVE at the computed till
+  breakpoint `TILL_MEDIA` = `(min-width: 85.375em) and (min-height: 44em)` (`lib/till.ts`: the grid's
+  1262px + 2×32 padding + 2×20 gutters = 1366px; narrower, the sheet it always was); the due at
+  `--fs-pass`, Change at `--till-fs-hand`, the double-tap guard checked by geometry at design time (`tillBandsAt`,
+  `tillDoorLandsInert`). The slip freezes with the quote; a diverged cart reads "The order changed —
+  tap to update" and holds Take until the re-quote (Codex round 3).
+- **The seal** (`HandoffCard`): the paid card's grammar — Change (or the Total, with no tender) as the
+  hero, the #CODE on the CounterPass stub (landscape at the till width, `--fs-pass`), "Back to the
+  counter" the one hero action and Walk-up the quiet secondary with its honest note; the green bloom
+  only on the landing, once, reduced-motion escorted. On the pad the sale never leaves: the stash is
+  written FIRST (`stashHandoff`, Codex correction 4), the poll pauses, the seal stands where the pad
+  was; a reload of `/add` on the closed counter session lands on its table page, which adopts the
+  stash for that order (`sealAdopt`). A Cancel after a refused or stalled attempt says "Nothing was
+  taken — the order is still here." through the pad's one region; an unpriced read never opens the
+  tray (`pad.reason.unpriced`).
+- **PD2 (the pane half):** an asked table opens with the CounterPass twin of the guest's counter pass
+  — figureless (the ask's words; the number stays in the pane heading), the ask's age plain text, its
+  total the very binding Take cash reads.
+- **K44:** the table page's order card speaks receipt through `ReceiptStack` (extracted from the pad
+  ticket), never the pre-tax "so far" beside a tax-inclusive door.
+- **PD1 · P2do:** the solid owed-Send dot becomes the hollow KitchenTrack ring in `--warn` on the tile,
+  the key, the card's kitchen row, the line tag and the ticket's group, with one word
+  (`pad.group.unsent`); an asked host table counts every unsent dish and says how long each has
+  waited, as plain text.
+- **The blind pass on #334 (fix round):** the till's doubt is sticky (`tillLedgerAfter` — a refusal or
+  a stalled tap after a lost answer, or a new opening, never says "Nothing was taken", and never lets
+  the page's closed-bounce hold go); the pad's gate re-decides the hold after the drain and the tray's
+  total is `number | null` (no tray on $0.00); the seal lands once per same-tab reload
+  (`takeSealLanding`), calm on every revisit; focus moves to Take after the slip's re-quote; the slip
+  list's name is one script.
+- **The last blind pass on #334:** ONE time-based rule resolves a lost or late settle's doubt —
+  the ledger keeps WHEN each arose (the newest loss advances it), and `tillLedgerRead` applies the
+  hosts' own `settleUnknownAfterRead` to the start of their latest open read (`openReadAt`, fed by
+  the pad AND the table page); the pad's mark advances to the newest doubt. A refusal after a lost
+  answer tells the pane `unknown`. The seal lands only on a document RELOADED after the landing
+  (`sealNavNow`); a client-side revisit is calm.
+- **Mutants:** `till/*`, `till-ui/*`, `seal/*`, `pad-seal/*`, `pad-door/*`, `pad-route/*`,
+  `pad/unpriced-*`, `send-view/asked-table-counts-only-staff`, `p2do/*`, `pd1/*`, `pd2/*`, `k44/*`;
+  re-anchored: the cash sheet's, the receipt stack's (now `ReceiptStack.tsx`) and the strip's owed mark.
+  Burmese drafts: OPEN-ITEMS `K15 · counter-floor`.
+
+### A solo session refuses a second member — pickup and scan-and-go, in SQL where the membership is written (2026-10-09, PD3 follow-up)
+
+- **The gap (found in #330's second blind pass):** `/api/session` found a `?j=<code>` session by its
+  code, `status` and expiry, never its mode. The member insert checked only the party size, so a
+  second phone could join someone's pickup and pass every `is_member` read and `stampArrival`'s
+  session arm.
+- **The refusal lives where the membership is written.** `mms_refuse_solo_join` is a BEFORE INSERT
+  OR UPDATE OF `session_id` trigger (`20261009120200`), beside the party cap. Dine-in is the one party
+  mode. A solo session takes its first member, and the same seat again is the unique key's 23505;
+  any other seat raises `solo_session`. Pinned by `supabase/tests/pd3_solo_session_refuses_join_test.sql`
+  and nine `verify:mode-authority` mutants (suite `pd3s`). Its first statement,
+  `mms_assert_solo_sessions_single()`, aborts the apply if a solo session already holds a second
+  member (Codex P1 on #339): measured on prod, read-only, 2026-10-09, there are none, so nothing is
+  deleted and the guard is a proven no-op today. The assert runs under a SHARE ROW EXCLUSIVE lock held
+  to COMMIT, so no membership can land between it and the trigger.
+- **The route decides first, before any write** (`soloJoinVerdict`). A refused join answers exactly
+  what a wrong code does ("No table found for that code"), so it is no existence oracle. The minting
+  device rejoins. A device whose anonymous identity was replaced gets its own session instead of
+  being stranded, under a retry-stable key (`soloRemintKey`, a UUID v5 of the stored key and the
+  seat — Codex P2 on #339): a lost response or a second tab lands on the same session and cart, and
+  `useTableSession` adopts the key. A row under that key is accepted only when it is a solo session
+  this seat hosts; anything else holding it is never joined. A dine-in request keeps the server's
+  own join code.
+- **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
+  window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
+
+### M269 — an approve takes the cart lock before the line (2026-10-09, staff-authority, #337)
+
+- **The defect (filed by #333's last blind pass):** the approve arm of `mms_resolve_approval` locked
+  only the line and read the cart's status, pay lock and settle freeze through its snapshot. A cash
+  settle's freeze and `mms_fulfill_cash_order` update the cart row, and the fulfillment copies the
+  lines without a line lock. So an approve racing the settle could record an approved void on a dish
+  the order charged.
+- **The fix:** `20261009120100_m269_approve_cart_lock.sql` restates M184's function with one lock. An
+  approve takes the line's cart `FOR SHARE` before the request and the line (the Clear's and the
+  merge's order), then reads the cart's freshness. Deny and close are unchanged; there is no new
+  answer and no TS change. It is NOT applied: one file, after M184.
+- **Proof:** `verify-counter-fire-race.mjs` gains (k) approve-before-settle and (k2)
+  settle-before-approve, with two `m269/*` mutants caught. (i2) now takes M269's first two locks, and
+  `p2f/clear-counter-approvals-lock-dropped` becomes a documented survivor there, checked green on
+  every order. `supabase/tests/m269_approve_cart_lock_test.sql` (M269.1–4) is in ci.yml.
+  `verify-mode-authority` gains suite `m269` (three killed, two documented lock survivors), and
+  M184's resolve mutants now patch M269's text.
+
+### PD8 — a dish needs a manager: the flag only where a decision is made, and payment never blocked (2026-10-08, staff-authority)
+
+- **The spec:** `docs/path-design-2026-10-07/m8-manager-approval.md` (PATH_DESIGN decision 4; round 3 D2 ·
+  D4); its `### H · Build notes` records what appendix C gave, the delegated decisions and what waits on
+  M182. The migration is NOT applied: the owner's go, one file, after the merge (M184).
+- **The one slip** (`components/staff/ApprovalSlip.tsx`): "Thiri → Aye", then "Aye, your PIN" — the same
+  component under the asker's sheet, the request card and the Take-payment card. Its tiles list only who
+  can sign (`lib/approvers.ts`: `eligibleApprovers` — an active manager or owner with a tablet PIN, never
+  the asker except for a close; `preselectApprover` lights exactly one; `zeroEligibleReason` says one of
+  the two true sentences). `listApprovers` now carries `active · hasPin · self` (a PIN read that fails is
+  an outage, never "no PIN"). No `ASKER_BY_PIN`, not even as dead code (D4).
+- **The asker's sheet** (`LossActionSheet`): one chip picks what AND why under its kind mark; the title is
+  the dish until a chip is lit; a chip tap on a gated line lands focus on the PIN (one eligible, lit) or
+  the first tile.
+- **The request card** (`ApprovalsBoard`): Decide → the slip → the keys that ARE the decision (Approve
+  wears the request's kind mark, never ✓; Enter in the PIN asks for a key). A verdict becomes a focused
+  receipt row at the top of the zone ("Removed · Aye approved" · "On the house · no charge" · "Kept on
+  the bill"), retired by Got it. A request whose table paid (from the cart's status) or was cleared is a
+  close-only card: "Close it" runs M184's `close` arm → `superseded`, never `denied` (D2); a line changed
+  since the request shows the change and offers no Approve.
+- **The bar's approvals circle** reads the board's own poll (`ApprovalsCountProvider`) — one poll, never
+  two; dashed when frozen or unreadable, never a false 0 (`countPendingApprovals` → `pendingCountVerdict`).
+- **The flag at Take payment** (`ApprovalFlagCard`): one warm glyph square, a ticket line per waiting
+  dish, "Decide it here" (a paper secondary opening the centred sheet) and the consequence sentence. Take
+  cash is never dimmed: tapping it IS the acknowledgement of exactly the ids the card shows. Each door
+  (`settleCash` · `closeSecureTab` · `settleCard`) compares the acknowledged ids with the pending set,
+  re-warns with the server's list (`approval_pending`), fails closed when it cannot read it
+  (`approval_unreadable`), and releases its settlement freeze before refusing.
+- **M184** (`supabase/migrations/20261008120000_m184_approval_refuses_when_changed.sql`):
+  `mms_resolve_approval` refuses `changed` when the line's qty or qty × price moved since the request;
+  the `close` arm (admitted when the cart is no longer open, or the line changed on an open one);
+  `self_approve` kept for approve and deny, not for a close. `supabase/tests/m184_approval_refuses_when_changed_test.sql`
+  (15 cases) joins ci.yml's list; 15 `verify-mode-authority` mutants (`m184/*`).
+- **Copy:** 27 staff keys (16 HIGH) and one re-worded shipped key, every MY value a draft for the
+  native sitting (OPEN-ITEMS `K15 · staff-authority`).
+- **Mutants:** 40 new (`approvers/` · `approvals-count/` · `approval-state/` · `settle-approvals/` ·
+  `approvals-read/` · `resolve/` · `approval-ack/` · `floor/`) and 10 re-anchored; the battery is 3310.
+- **The blind pass on #333 (REJECT on `4bc9dea`), fixed:** the pane's "Decide it here" decides the
+  request's real state (`flagCardState` over the flag's live line, `lineNowFromRow` — the queue's one
+  derivation), keeps a refusal in the sheet with its reason, and closes only on an applied decision
+  (focus to the settle heading after the sheet unmounts; only an approve says "Updating the total…",
+  bounded at STAFF_HANG_MS). The circle folds the board's reading into the server's seed
+  (`circleFromBoard`) — an unread queue never publishes 0. One changed sentence (`changedNote`) for the
+  card and its decision; `not_open` and the Take-payment consequence say what the code does. Each door
+  acknowledges its own re-warning (`ackForTap`). M184 widened in its one file: a line already off the
+  bill is `changed`, and a request never lands mid-settle (`mms_request_approval` refuses `in_flight`).
+  26 more mutants (the battery is 3336) and 7 more `m184/*`.
+- **The last capped blind pass (REJECT on `4bc9dea..e8d5a8a`), fixed:** `verify-counter-fire-race.mjs`
+  reads `mms_request_approval` from M184 (the restatement had reddened its drift check) and gains two
+  orders, a request against a settle door's freeze (r1 · r2), with `m184/request-reads-the-freeze-before-the-lock`.
+  A re-warning names the dishes the tap did not acknowledge (`reWarning`, one binding for the pane's
+  region and a door's own alert), and where a page re-draws the flag the page alone owns it. An
+  unreadable line offers no Decide; a late answer from a closed sheet cannot mark the next open applied.
+  The m8 spec's §H says what the reader and the tab close each do with a quote. Filed, not widened:
+  M269 (approve vs the freeze, owner/money). 4 more mutants (the battery is 3340).
+
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 
 - **The owner's pick (PATH_DESIGN_2026-10-07 decision 2):** until the live Stripe keys are switched on

@@ -22,7 +22,9 @@ let rosterAnswer: () => Promise<Approver[]> = () => Promise.resolve([]);
 let refundsAnswer: () => Promise<RefundNeeded[]> = () => Promise.resolve([]);
 let resolveAnswer: () => Promise<void> = () => Promise.resolve();
 // Phase 2h — the decision's own action, each case's to hang, throw or answer.
-type ResolveResult = { ok: true } | { ok: false; reason: string };
+type ResolveResult =
+  | { ok: true; decision: "approve" | "deny" | "close" }
+  | { ok: false; reason: string };
 const resolveApproval = vi.fn(
   (): Promise<ResolveResult> => Promise.resolve({ ok: false, reason: "error" }),
 );
@@ -48,6 +50,7 @@ vi.mock("@/lib/staff-leave", () => ({
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ApprovalsBoard } = await import("./ApprovalsBoard");
+const { ApprovalsCountProvider, ApprovalsCircle } = await import("./ApprovalsCount");
 
 afterEach(() => {
   cleanup();
@@ -81,7 +84,13 @@ const pending = (id: string): PendingApproval => ({
   cooked: false,
   sessionId: null,
   tableLabel: "T4",
+  tableNumber: 4,
+  nameMy: null,
   initiatorName: "Aye",
+  initiatorStaffId: "aye",
+  cartStatus: "open",
+  lineNow: { qty: 1, unitPriceCents: 1200, offTheBill: false },
+  lineId: "l1",
   createdAt: "2026-09-13T18:41:00Z",
 });
 
@@ -343,20 +352,42 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     expect(screen.getByText(/Mohinga/)).toBeTruthy();
   });
 
-  it("manager-4 — Approve moves focus into the confirm form; Cancel hands it back to Approve", async () => {
-    const approver: Approver = { staffId: "m1", displayName: "Daw Aye" } as Approver;
+  it("manager-4 · PD8 — Decide moves focus to the PIN (the one eligible signer arrives lit); Cancel hands it back to Decide; Enter in the PIN never decides", async () => {
+    const approver: Approver = {
+      staffId: "m1",
+      displayName: "Daw Aye",
+      role: "manager",
+      active: true,
+      hasPin: true,
+      self: false,
+    };
     mount([pending("r1")], [approver]);
-    const approve = screen.getByRole("button", { name: /Approve/ });
+    const decide = screen.getByRole("button", { name: /^Decide/ });
     await act(async () => {
-      approve.click();
+      decide.click();
     });
     // MUTATION: drop the effect — focus stays on <body> after the button unmounts.
-    expect(document.activeElement?.tagName).toBe("FORM");
-    expect(document.activeElement?.getAttribute("aria-labelledby")).toBe("appr-q-r1");
+    const pin = document.getElementById("appr-r1-pin") as HTMLInputElement;
+    expect(document.activeElement).toBe(pin);
+    expect(pin.closest("form")?.getAttribute("aria-labelledby")).toBe("appr-q-r1");
+    // Exactly one eligible arrives lit, and the PIN field is labelled with the person.
+    expect(screen.getByRole("button", { name: /Daw Aye/, pressed: true })).toBeTruthy();
+    expect(screen.getByLabelText(tf("en", "pin.yourPin", { x: "Daw Aye" }))).toBe(pin);
+    // Two keys share the field: Enter asks for one, it never approves on its own.
+    await act(async () => {
+      fireEvent.change(pin, { target: { value: "1234" } });
+    });
+    await act(async () => {
+      fireEvent.submit(pin.closest("form")!);
+    });
+    expect(resolveApproval).not.toHaveBeenCalled();
+    expect(document.getElementById("appr-msg-r1")!.textContent).toBe(
+      STAFF["table.appr.chooseKey"].en,
+    );
     await act(async () => {
       screen.getByRole("button", { name: STAFF["table.appr.verb.cancel"].en }).click();
     });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Approve/ }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Decide/ }));
   });
 
   it("a same-page jump to the zone's fragment moves focus to its heading, not only the scroll", async () => {
@@ -455,20 +486,28 @@ describe("Phase 2h (9f) — the zone's poll never stacks reads behind a hung one
 });
 
 describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and refused while the tablet is stuck", () => {
-  const approver: Approver = { staffId: "m1", displayName: "Daw Aye" } as Approver;
+  const approver: Approver = {
+    staffId: "m1",
+    displayName: "Daw Aye",
+    role: "manager",
+    active: true,
+    hasPin: true,
+    self: false,
+  };
   const region = () => document.getElementById("appr-msg-r1")!;
   const reload = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
-  /** Open Approve, pick the manager, type a PIN — the form ready to submit. */
+  /** Decide, then type a PIN (the one eligible signer is already lit) — the Approve key, live. */
   async function ready() {
     await act(async () => {
-      screen.getByRole("button", { name: /Approve/ }).click();
+      screen.getByRole("button", { name: /^Decide/ }).click();
     });
     await act(async () => {
-      fireEvent.change(document.getElementById("appr-r1-mgr")!, { target: { value: "m1" } });
       fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
     });
-    return screen.getByRole("button", { name: STAFF["table.appr.verb.confirmApprove"].en });
+    return approveKey();
   }
+  /** The Approve key, by its name — stable while it reads "Working…" (the name is the verb's). */
+  const approveKey = () => screen.getByRole("button", { name: /^Approve/ }) as HTMLButtonElement;
 
   it("a decision with no answer frees its button AT the bound, says so with a Reload, and the late refusal is said", async () => {
     vi.useFakeTimers();
@@ -480,11 +519,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     await act(async () => {
       confirm.click();
     });
-    const submit = () =>
-      document
-        .querySelector<HTMLButtonElement>("#appr-msg-r1")!
-        .closest("form")!
-        .querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const submit = approveKey;
     expect(submit().getAttribute("aria-busy")).toBe("true");
     await tick(STAFF_HANG_MS - 1);
     expect(submit().getAttribute("aria-busy")).toBe("true");
@@ -560,7 +595,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
     const said = watchRegion(region());
     await act(async () => {
-      screen.getByRole("button", { name: STAFF["table.appr.verb.confirmApprove"].en }).click();
+      approveKey().click();
     });
     expect(resolveApproval).toHaveBeenCalledTimes(1);
     // Critic F1 — RE-SAID, not left standing: the line already stood in the card's region (typing
@@ -586,7 +621,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     await tick(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
     await act(async () => {
-      write.resolve({ ok: true });
+      write.resolve({ ok: true, decision: "approve" });
     });
     await tick(0);
     // MUTATION (p2h-boards/approvals/late-ok-keeps-waiting): the waiting line ("…reload the page to
@@ -648,7 +683,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     q.unmount();
     polls = 0;
     await act(async () => {
-      write.resolve({ ok: true });
+      write.resolve({ ok: true, decision: "approve" });
     });
     await tick(1_000);
     // MUTATION (p2h-boards/approvals/dead-zone-reads): the late ok re-reads the queue from a zone that
@@ -676,5 +711,112 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     // tablet to the login from the screen the manager moved to; red.
     expect(leaveForLogin).not.toHaveBeenCalled();
     leaveForLogin.mockClear();
+  });
+});
+
+describe("the blind pass on #333 — the circle, the changed sentence, and a table that paid under an open card", () => {
+  const manager: Approver = {
+    staffId: "m1",
+    displayName: "Daw Aye",
+    role: "manager",
+    active: true,
+    hasPin: true,
+    self: false,
+  };
+  function mountWithCircle(
+    seed: { ok: true; count: number } | { ok: false },
+    initialOutage: boolean,
+  ) {
+    return render(
+      <StaffLangProvider lang="en">
+        <ApprovalsCountProvider initial={seed}>
+          <ApprovalsCircle lang="en" href="#appr-zone" />
+          <ApprovalsBoard
+            initial={[]}
+            approvers={[manager]}
+            initialRefunds={[]}
+            initialOutage={initialOutage}
+          />
+        </ApprovalsCountProvider>
+      </StaffLangProvider>,
+    );
+  }
+  const circle = () => document.querySelector(".staff-circ") as HTMLAnchorElement;
+
+  it("an initial queue outage never publishes a 0: the circle still says it couldn't check", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {}); // no poll lands
+    mountWithCircle({ ok: false }, true);
+    await tick(0);
+    // MUTATION (approval-board/unread-queue-publishes-read · approvals-count/unread-queue-claims-its-count):
+    // the unread `[]` publishes count 0 and the circle reads "Approvals" — a false all-clear; red.
+    expect(circle().textContent).toContain(STAFF["floor.nav.approvalsUnknown"].en);
+    expect(circle().getAttribute("data-approvals-count")).toBe("unknown");
+    expect(circle().getAttribute("data-frozen")).toBe("true");
+  });
+
+  it("an initial queue outage keeps the server's own head count, dashed — and a landed poll takes over", async () => {
+    vi.useFakeTimers();
+    let land: ((v: ApprovalsPoll) => void) | null = null;
+    pollAnswer = () => new Promise((r) => (land = r));
+    mountWithCircle({ ok: true, count: 2 }, true);
+    await tick(0);
+    expect(circle().getAttribute("data-approvals-count")).toBe("2");
+    expect(circle().getAttribute("data-frozen")).toBe("true");
+    // The first poll lands an empty queue: now the board HAS read it, and 0 is the truth.
+    await tick(5_000);
+    await act(async () => {
+      land!({ ok: true, rows: [] });
+    });
+    await tick(0);
+    // MUTATION (approval-board/read-never-recorded): the landed read is never marked, and the seed's
+    // stale 2 stands over an empty queue; red.
+    expect(circle().getAttribute("data-approvals-count")).toBe("0");
+    expect(circle().getAttribute("data-frozen")).toBeNull();
+  });
+
+  it("a changed request's close-only decision says the SAME sentence as its card: the live qty, never 'no longer on the order'", async () => {
+    const moved: PendingApproval = {
+      ...pending("r1"),
+      lineNow: { qty: 2, unitPriceCents: 1200, offTheBill: false },
+    };
+    mount([moved], [manager]);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Decide/ }).click();
+    });
+    const form = document.getElementById("appr-msg-r1")!.closest("form")!;
+    const said = tf("en", "table.appr.changed.note", { x: "Aye", n: 2, m: "$24.00" });
+    // MUTATION (approval-board/inset-says-gone): the inset's own goneNote under the card's "now 2×"; red.
+    expect(form.textContent).toContain(said);
+    expect(form.textContent).not.toContain(tf("en", "table.appr.changed.goneNote", { x: "Aye" }));
+  });
+
+  it("an Approve the table's payment beat: not_open names Close it, and the SAME form re-draws close-only", async () => {
+    vi.useFakeTimers();
+    resolveApproval.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, reason: "not_open" }),
+    );
+    // The re-read after the refusal: the cart paid.
+    approvalsAnswer = () => Promise.resolve([{ ...pending("r1"), cartStatus: "paid" }]);
+    mount([pending("r1")], [manager]);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Decide/ }).click();
+    });
+    await act(async () => {
+      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: /^Approve/ }).click();
+    });
+    await tick(0);
+    // The sentence steers to the D2 arm, never to the `denied` record.
+    expect(document.getElementById("appr-msg-r1")!.textContent).toBe(
+      STAFF["table.appr.msg.notOpen"].en,
+    );
+    expect(STAFF["table.appr.msg.notOpen"].en).not.toMatch(/deny/i);
+    // The keys follow the re-read state on THIS render: no Deny or Approve outlives the paid cart.
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Deny/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Close it/ })).toBeTruthy();
   });
 });
