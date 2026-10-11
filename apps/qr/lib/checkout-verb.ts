@@ -13,8 +13,8 @@ import { t } from "./i18n";
  *
  *  - `orderStageHero` — the Order stage draws exactly ONE `.checkout-cta`, or none: Send (the host,
  *    with drafts, no grace open) · Undo (the window is open — the outline Undo is the only control,
- *    because REVERSING IS NEVER THE HERO) · Bill (everything sent; a guest with drafts, whose host
- *    sends them; a hostless table, whose pay fires them).
+ *    because REVERSING IS NEVER THE HERO) · Wait (PD1: a guest with drafts at a host table — "Show
+ *    a server") · Bill (everything sent; a hostless table).
  *  - `payBlock` — Pay keeps its name and states its ONE reason, in precedence: a tablemate's lock is
  *    the widest fact; UNSENT OUTRANKS GRACE because the Send still owed would reopen the window, so
  *    "Pay opens when the undo window closes" would be a lie under drafts; the grace (an open window,
@@ -29,8 +29,16 @@ import { t } from "./i18n";
  * dictionary — no React, no DOM, so `verify:slice` falsifies each arm with one input.
  */
 
-export type OrderHero = "send" | "undo" | "bill";
+export type OrderHero = "send" | "undo" | "wait" | "bill";
 
+/**
+ * PD1 (PATH_DESIGN_2026-10-07 moment 1; amends D13) — the fourth arm, `"wait"`: a GUEST whose
+ * dine-in dishes wait on a HOST's Send. Their one filled verb is "Show a server" (the table's ticket
+ * held up for Dad — the console's Send fires a diner's round too), and the Total door goes quiet
+ * beside it; the bill door stayed the hero there before PD1, which led a guest to a Bill whose next
+ * step was someone else's. A HOSTLESS table keeps the bill: nobody at the table sends, so nothing
+ * waits on a tablemate (its drafts go with the counter ask or the console's Send).
+ */
 export function orderStageHero(s: {
   /** `splitContext.mode === "dinein" && splitContext.myRole === "host"` — only the host fires. */
   canSend: boolean;
@@ -38,9 +46,13 @@ export function orderStageHero(s: {
   kitchenDraftUnits: number;
   /** The send's undo window is open on this device. */
   graceOpen: boolean;
+  /** The table has a host (`session_members.role = 'host'`) — someone at the table sends. */
+  hostPresent: boolean;
 }): OrderHero {
   if (s.graceOpen) return "undo";
   if (s.canSend && s.kitchenDraftUnits > 0) return "send";
+  // After Send: a host with drafts sends — only a guest (or a viewer who cannot send) waits.
+  if (s.hostPresent && s.kitchenDraftUnits > 0) return "wait";
   return "bill";
 }
 

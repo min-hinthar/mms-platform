@@ -4,6 +4,7 @@ import { CounterPass, Icon, KitchenTrack, NumberFlow } from "@mms/ui";
 import { t, type DictKey } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
+import { passIdentity } from "@/lib/pass-identity";
 
 /**
  * A1 — the diner's "Pay at the counter" moment, on the Bill.
@@ -233,7 +234,7 @@ export function PayAtCounterDock({
  */
 export function PayAtCounterPass({
   tableNumber,
-  tableCode,
+  hostName,
   totalCents,
   sentenceKey,
   settling,
@@ -244,9 +245,10 @@ export function PayAtCounterPass({
   children,
 }: {
   tableNumber: number | null;
-  /** The session's join code (`SplitContext.qrCode`) — a table with no number yet (bound at
-   *  Send, §33) prints its code at the pass's 40px holder tier (reconciliation 6). */
-  tableCode: string | null;
+  /** The host's display name, for a table with no number yet (bound at Send, §33): the pass prints
+   *  "Aye’s table" (or "Your table") — NEVER the session's join code, which is its bearer secret
+   *  (`lib/pass-identity.ts`; the change from reconciliation 6, 2026-10-09). */
+  hostName: string | null;
   totalCents: number;
   /** `counterShowCash` (cash-only register) or the shipped `counterBody` (a reader is configured). */
   sentenceKey: "counterShowCash" | "counterBody";
@@ -266,13 +268,9 @@ export function PayAtCounterPass({
   children: ReactNode;
 }) {
   const [billOpen, setBillOpen] = useState(false);
-  // ONE identity figure: the table number, or — before the table is bound at Send — the session's
-  // code, which a screen reader hears spelt. (A session always has a code; "—" is the defensive
-  // fallback for a split read that missed it.)
-  const figure =
-    tableNumber != null
-      ? { kind: "table" as const, text: String(tableNumber) }
-      : { kind: "code" as const, text: tableCode ?? "—" };
+  // ONE identity: the table number, or — before the table is bound at Send — the host's first name
+  // ("Aye’s table") or "Your table". Never the join code (`passIdentity`'s header says why).
+  const identity = passIdentity(tableNumber, hostName);
   return (
     <>
       <p className="counter-lead">
@@ -283,19 +281,18 @@ export function PayAtCounterPass({
       </p>
       {/* PATH_DESIGN round 3, ONE PASS: post-pay's primitive, RENDERED — the identity figure once
           under "Table · စားပွဲ", the dotted seam and its notches showing the page ground
-          (`--pass-hole`), the torn foot. A numberless table (bound at Send, §33) prints its code at
-          the holder's 40px tier, spelt for a screen reader (reconciliation 6). The pass hosts no
-          controls: the disclosure and the withdraw sit in the host's body and after it. */}
+          (`--pass-hole`), the torn foot. A numberless table (bound at Send, §33) prints a non-secret
+          identity in the figure's place — "Aye’s table" / "Your table", never the join code (the
+          change from reconciliation 6, 2026-10-09). The pass hosts no controls: the disclosure and
+          the withdraw sit in the host's body and after it. */}
       <div
         className={`counter-pass${rise ? " mms-rise" : ""}`}
         data-counter-ask
         style={{ "--pass-hole": "var(--pg)" } as CSSProperties}
       >
         <CounterPass
-          tier={tableNumber != null ? "counter" : "holder"}
-          figure={figure.text}
-          figureKind={figure.kind}
-          figureSpoken={figure.kind === "code" ? figure.text.split("").join(" ") : undefined}
+          tier="counter"
+          {...identity}
           label={{ en: "Table", my: STAFF["floor.table"].my.replace(" {id}", "") }}
           lang="en"
           head={

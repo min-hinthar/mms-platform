@@ -890,6 +890,7 @@ const EXPECTED_SUBJECTS = [
   "bindTable",
   "clearReward",
   "makeItNow",
+  "nudgeHost",
   "reorderOrder",
   "scanAdd",
   "sendToKitchen",
