@@ -339,6 +339,10 @@ describe("…and a record never outlives the line it stands for (the reviews of 
     async () => {
       // The basket holds the jar ×1; a second unit was saved offline and replays on mount.
       h.server = [{ lineId: "l-jar", qty: 1 }];
+      // The mount read and the removal's reconcile land; every read after them fails — so no view
+      // applied after the replay's landing can drop a record it left (`afterView`): only the
+      // crossing check protects the jar here.
+      h.read = (i) => (i <= 1 ? Promise.resolve(linesOk(serverView())) : readFails());
       enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000c4");
       const replay = deferred<ScanAddResult>();
       h.scan = (i) => (i === 0 ? replay.promise : Promise.resolve(ok()));
@@ -378,6 +382,8 @@ describe("…and a record never outlives the line it stands for (the reviews of 
     'the same race on a LIVE add ("Add another"): the removal crosses it, the add lands last, and the jar scans in again',
     async () => {
       h.server = [{ lineId: "l-jar", qty: 1 }];
+      // As above: the mount read and the reconcile land, the add's re-read fails.
+      h.read = (i) => (i <= 1 ? Promise.resolve(linesOk(serverView())) : readFails());
       const add = deferred<ScanAddResult>();
       h.scan = (i) => (i === 0 ? add.promise : Promise.resolve(ok()));
       render(<GroceryPage />);
@@ -434,7 +440,7 @@ describe("…and a record never outlives the line it stands for (the reviews of 
   );
 
   it(
-    "CODEX P2 — an old basket's replay that lands as the shopper starts a fresh one never marks the fresh basket",
+    "CODEX P2 — an old basket's replay that lands after the shopper started a fresh one never marks the fresh basket",
     async () => {
       // The basket was closed while a saved scan's replay was still in flight to it.
       h.read = (_i, cart) =>
@@ -449,24 +455,48 @@ describe("…and a record never outlives the line it stands for (the reviews of 
         { timeout: 20_000 },
       );
       await until(() => expect(h.calls).toHaveLength(1));
-      // The shopper starts a fresh basket, and the old basket's replay lands in the same moment.
-      // ⚠️ React flushes a click's passive effects synchronously (React 18+: discrete input), so
-      // `cartId`'s effect has already moved `cartIdRef` before this continuation runs: the window
-      // Codex named is closed here by React's scheduling, not by the page — which is why the page
-      // ends the era itself, synchronously, in the handler (pinned by check:scan-repeat
-      // proposition 8; no row can open the window to watch it). This row pins the record's
-      // PLACEMENT behind the era check.
+      // The shopper starts a fresh basket; its first read lands (an empty basket)…
       await act(async () => {
         fireEvent.click(fresh);
-        replay.resolve(ok());
-        for (let i = 0; i < 10; i++) await Promise.resolve();
       });
       await until(() => expect(h.reads).toContain(FRESH));
+      await settle();
+      // …and only then the old basket's replay lands. No later view of the fresh basket would drop
+      // a record it left (`afterView`), so this row pins the record's PLACEMENT behind the era check.
+      // ⚠️ Codex's window — the replay landing between the click and `cartId`'s effect — cannot be
+      // opened by a render: React flushes a click's passive effects synchronously (React 18+:
+      // discrete input). The page ends the era itself, in the handler, pinned by check:scan-repeat
+      // proposition 8 (LEARNINGS #261).
+      await act(async () => {
+        replay.resolve(ok());
+      });
       await settle();
       // MUTANT grocery-page/a-replay-recorded-before-the-era-check — the abandoned basket's charge
       // marks the fresh one, and its first scan of the jar is refused as "Already added".
       await sight(JAR);
       expect(chargesOf(JAR, FRESH)).toBe(1);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "CODEX on c03743f — an idempotent replay with no view, of a jar the basket no longer holds: the re-read that applies without it frees the jar",
+    async () => {
+      // The jar's first, lost-response scan committed and the shopper removed its line; the replay is
+      // an idempotent ok that writes nothing — and its own read fails. Recorded (nothing could say
+      // otherwise yet), and a re-read is owed…
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000c1");
+      // …which lands, issued after the replay, and shows the basket without the jar.
+      h.read = () => Promise.resolve(linesOk([]));
+      render(<GroceryPage />);
+      await shown(/added 1 saved scan/);
+      await until(() => expect(h.reads).toHaveLength(2)); // the owed re-read left…
+      await settle(); // …and applied
+      expect(chargesOf(JAR)).toBe(1);
+      // MUTANT grocery-page/an-applied-view-keeps-a-stale-record — the record outlives the view that
+      // disproves it, and the jar is refused as "Already added" for the rest of the basket.
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
     },
     ROW_MS,
   );

@@ -484,6 +484,33 @@ const REPLAY_UNRECORDED =
   /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` never RECORDS its charge/;
 const RECORDED: Fixture[] = [
   {
+    name: "CODEX ON c03743f — the applied view's drop moved above the floor guard",
+    edits: [
+      { find: "      billedRef.current = afterView(billedRef.current, lines);\n", replace: "" },
+      {
+        find: "      if (seq < viewFloor.current) return; // issued before a charge that has since landed\n",
+        replace:
+          "      billedRef.current = afterView(billedRef.current, lines);\n      if (seq < viewFloor.current) return; // issued before a charge that has since landed\n",
+      },
+    ],
+    expect:
+      /proposition 8: `billedRef\.current = afterView\(billedRef\.current, lines\)` drops records outside an APPLIED view/,
+  },
+  {
+    name: "the record dropped by a terminal answer (`afterView` in markCartGone)",
+    find: "      applyLines(seq, []);\n",
+    replace:
+      "      applyLines(seq, []);\n      billedRef.current = afterView(billedRef.current, []);\n",
+    expect:
+      /proposition 8: `billedRef\.current = afterView\(billedRef\.current, \[\]\)` drops records outside an APPLIED view/,
+  },
+  {
+    name: "the record dropped against a list other than the applied view's",
+    find: "      billedRef.current = afterView(billedRef.current, lines);\n",
+    replace: "      billedRef.current = afterView(billedRef.current, linesRef.current);\n",
+    expect: /drops records outside an APPLIED view/,
+  },
+  {
     name: "G25 — the replay never records its charge (the page before the fix)",
     find: REPLAY_RECORD,
     replace: "",
@@ -641,6 +668,11 @@ const RECORDED: Fixture[] = [
  * gate fails as stale.
  */
 const WEAKENED: { name: string; gate: Edit; evasion: string }[] = [
+  {
+    name: "an applied view's drop may sit before `applyLines` (before the guards that refuse a view)",
+    gate: { find: "        at > applyAt &&\n", replace: "" },
+    evasion: "CODEX ON c03743f — the applied view's drop moved above the floor guard",
+  },
   {
     name: "the record's `if` accepts any test, not exactly `R.ok`",
     gate: {

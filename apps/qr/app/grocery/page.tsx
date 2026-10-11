@@ -88,6 +88,7 @@ import { classifyScan } from "@/lib/scan-gate";
 import {
   afterCharge,
   afterRemoval,
+  afterView,
   chargeMark,
   NO_BILLED,
   type BilledLedger,
@@ -535,6 +536,10 @@ export default function Grocery() {
       if (seq <= appliedSeq.current) return; // stale — it lost the race; a fresher answer stands
       if (seq < viewFloor.current) return; // issued before a charge that has since landed
       applyLines(seq, lines);
+      // G25 (Codex on c03743f) — a view that passes both guards was issued after every recorded charge
+      // landed: a recorded code it does not hold was removed after it was charged, and its record goes
+      // (`afterView`, lib/scan-billed.ts says why the floor makes that safe). Not in `markCartGone`.
+      billedRef.current = afterView(billedRef.current, lines);
       setHydrated(true);
       setSyncFailed(false);
       setCartGone(null);

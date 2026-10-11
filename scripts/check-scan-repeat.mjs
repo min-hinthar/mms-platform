@@ -1666,8 +1666,10 @@ const COVER = "useStageCover";
 //      no call whose callee reaches `billedRef` (a method on the ledger) anywhere in F.
 // And page-wide: `billedRef` is declared exactly ONCE; the one live `classifyScan(…)` takes
 // `billed: [...billedRef.current.billed]`; every other write of `billedRef.current` is
-// `afterRemoval(billedRef.current, …)` (a removal — a new generation) or `NO_BILLED` (a fresh basket),
-// and a `NO_BILLED` reset is preceded in its own block by `cartIdRef.current = undefined` — the era
+// `afterRemoval(billedRef.current, …)` (a removal — a new generation), `afterView(billedRef.current,
+// <its lines>)` as a top-level statement of `markCartAlive` after its `applyLines(…)` (an APPLIED
+// view drops the records it lacks — Codex on c03743f; anywhere else a floor-refused view would drop a
+// newer charge's record) or `NO_BILLED` (a fresh basket), and a `NO_BILLED` reset is preceded in its own block by `cartIdRef.current = undefined` — the era
 // ends BEFORE the record resets, or a continuation of the abandoned basket passes (c) and marks the
 // fresh one (Codex P2 on #344). Comments are not AST nodes; a literally-dead charge charges nothing
 // and is skipped. Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, and
@@ -1903,11 +1905,44 @@ const BILLED = "billedRef";
       n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
       ts.isIdentifier(n.right) &&
       n.right.text === "NO_BILLED";
+    // An APPLIED view drops the records it does not hold (Codex on c03743f): only where a view has
+    // passed both guards — a top-level statement of `markCartAlive`, after its `applyLines(…)`, over
+    // its own `lines`. Before the floor guard, in `markCartGone`, or over another list, a view the
+    // floor refuses (Codex P1's older view) would drop a NEWER charge's record.
+    const viewDrop =
+      printed(n.left) === LEDGER &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isCallTo(n.right, "afterView") &&
+      n.right.arguments.length === 2 &&
+      printed(n.right.arguments[0]) === LEDGER;
+    if (viewDrop) {
+      const alive = callbackBoundTo("markCartAlive");
+      const top = alive && ts.isBlock(alive.body) ? alive.body.statements : [];
+      const at = top.indexOf(n.parent);
+      const applyAt = top.findIndex(
+        (st) => ts.isExpressionStatement(st) && isCallTo(st.expression, "applyLines"),
+      );
+      const own = alive?.parameters[1];
+      const placed =
+        at >= 0 &&
+        applyAt >= 0 &&
+        at > applyAt &&
+        !!own &&
+        ts.isIdentifier(own.name) &&
+        printed(n.right.arguments[1]) === own.name.text;
+      if (!placed)
+        fail(
+          `proposition 8: \`${n.getText(src).slice(0, 70)}\` drops records outside an APPLIED view — an\n` +
+            "  `afterView(…)` write must be a top-level statement of `markCartAlive`, after its `applyLines(…)`,\n" +
+            "  over its own lines. Anywhere else a view the floor refuses drops a newer charge's record.",
+        );
+      return;
+    }
     if (!removal && !reset) {
       fail(
         `proposition 8: \`${n.getText(src).slice(0, 70)}\` writes the record by hand — only a charge's record,\n` +
-          "  `afterRemoval(…)` (a removal: a new generation every charge in flight can see) or `NO_BILLED`\n" +
-          "  (a fresh basket) may.",
+          "  `afterRemoval(…)` (a removal: a new generation every charge in flight can see), `afterView(…)` in\n" +
+          "  `markCartAlive` (an applied view) or `NO_BILLED` (a fresh basket) may.",
       );
       return;
     }

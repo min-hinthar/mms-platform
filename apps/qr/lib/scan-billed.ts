@@ -20,12 +20,13 @@
  *     the client holds can order the two writes at the server. The page re-reads instead (`reread`),
  *     and the newest-ticket view settles it — `lines` is the primary source, so a line that survived
  *     is refused by the classifier through the list, and one that did not is a new item again.
- *   · THE VIEW SAYS IT IS NOT THERE (Codex P2 on #344). A replay of a scan whose earlier, lost-response
- *     attempt already committed is an idempotent ok that writes nothing (the scan-event ledger,
- *     20260813210000) — and if the shopper removed that line in between, its view (read after the
- *     write) does not hold the code. The view is the server's own word after this charge: absent
- *     means not charged, and any earlier record of the code goes too —
- *   · …UNLESS A NEWER CHARGE OF THE CODE LANDED SINCE THIS ONE LEFT (Codex P1 on #344). A Browse add
+ *   · THE VIEW SAYS IT IS NOT THERE (Codex P2 on #344, and Codex on c03743f). The general rule is
+ *     `afterView`: every view the page APPLIES drops each record it does not hold. A replay of a scan
+ *     whose earlier, lost-response attempt already committed is an idempotent ok that writes nothing
+ *     (the scan-event ledger, 20260813210000) — and if the shopper removed that line in between, the
+ *     view (its own, or the re-read it owes when its own read failed) does not hold the code: absent
+ *     means not charged. `afterCharge` applies the same rule to a charge's own view as it lands —
+ * *   · …UNLESS A NEWER CHARGE OF THE CODE LANDED SINCE THIS ONE LEFT (Codex P1 on #344). A Browse add
  *     asks neither the classifier nor the queue, so the shopper can add the jar again while the
  *     replay's empty view is still in flight; that newer charge lands first (its record, perhaps its
  *     only proof) and the older view, read before it, would drop it — leaving the list, the queue and
@@ -105,6 +106,31 @@ export function afterCharge(
   }
   billed.add(barcode);
   return { ledger: { billed, removals, charges }, reread: lines === null };
+}
+
+/**
+ * A view the page APPLIED (`markCartAlive`, past both of its guards): every recorded code the view
+ * does not hold is dropped — the server's own word that the basket no longer pays for it.
+ *
+ * Sound because of the floor (page.tsx, `viewFloor`). A record is made only at a charge's landing
+ * (`afterCharge`), and each landing raises the floor past every ticket issued before it, so a view
+ * that applies was issued after every recorded charge LANDED — its read came after their commits.
+ * The one view that applies under a floor about to rise, a charge's own, was read after its own
+ * write, and an earlier landing's floor rejects it whenever anything landed during its flight. So a
+ * recorded code an applied view lacks was removed after it was charged: the record is stale. (An
+ * OLDER view — Codex P1's — is floor-rejected before it can get here, which is why the newer record
+ * it lacks survives.) The removal generations and landed charges are history, not view state, and
+ * are kept; nothing dropped returns the SAME ledger.
+ */
+export function afterView(
+  ledger: BilledLedger,
+  lines: readonly { barcode: string }[],
+): BilledLedger {
+  const held = new Set(lines.map((l) => l.barcode));
+  const billed = new Set([...ledger.billed].filter((code) => held.has(code)));
+  return billed.size === ledger.billed.size
+    ? ledger
+    : { billed, removals: ledger.removals, charges: ledger.charges };
 }
 
 /** The shopper removed the item's line: it is a new item again, and any charge of it still in flight

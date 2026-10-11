@@ -46,14 +46,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   floor rejects now rolls its flip back. The crossed-charge residual is filed as G26 (OPEN-ITEMS),
   with its reachability: Next 16's client action queue runs server functions one at a time, so the
   out-of-order answers these defences meet need a mid-flight navigation.
+- **Codex on `c03743f` (P2).** An idempotent replay of a removed scan answers ok with no view, so
+  it is recorded and owes a re-read; when that read (or any later one) applied a basket without the
+  code, only the list changed, and the camera refused the jar as "Already added" for the rest of the
+  basket. Every view the page APPLIES now drops each record it does not hold (`afterView`,
+  `lib/scan-billed.ts`) — safe because the floor admits only views issued after every recorded
+  charge landed; `markCartGone` does not. `check:scan-repeat` proposition 8 admits that write only in
+  `markCartAlive`, after its `applyLines`, over its own lines.
 - **Pinned.** `apps/qr/app/grocery/page.test.tsx` (new) renders the real page with the server
   modelled (its lines, `setQty`, every read), the session and the camera stubbed, and sights the jar
-  through the page's own `onScan`: sixteen rows — a live add and a replay with no view (refused, and
+  through the page's own `onScan`: seventeen rows — a live add and a replay with no view (refused, and
   re-read), the re-read bringing the line onto the list, a refused replay, a removal crossing a
   replay and a live add, a replay whose view lacks the code, a cart swap mid-replay, Codex's P1
   interleaving through a Browse add, a basket read issued before a live add or a replay landing
-  after it, a read issued during either's flight (landing after it, or applying before it), and a
-  refused stepper write under a raised floor. Red-first: the delivered-replay row charged twice on main; the crossing, view and
+  after it, a read issued during either's flight (landing after it, or applying before it), a
+  refused stepper write under a raised floor, and a view-less replay whose re-read shows the basket
+  without the jar (it scans in again). Red-first: the delivered-replay row charged twice on main; the crossing, view and
   re-read rows failed on the first head of this PR, the P1 and floor rows on the second, the
   in-flight read rows on the third. `lib/scan-billed.test.ts` (new) falsifies each rule by a value.
   `check:scan-repeat` proposition 8 parses the page: for every live `scanAdd`, the dispatch mark
@@ -61,9 +69,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 <its result>.lines)` stored in `billedRef` — in a top-level `if (R.ok)` after that era check, no ok
   exit between charge and record, and nothing else in the function writes the record; page-wide,
   every other write is `afterRemoval` or a `NO_BILLED` reset that follows the era's end, and the
-  classifier reads `billed: [...billedRef.current.billed]`. Twenty-two committed evasion rows, and
-  the matcher's own seven weakenings committed beside them — each lets exactly its evasion through.
-  Twenty-nine mutants (seventeen `grocery-page/`, twelve `scan-billed/`), all CAUGHT.
+  classifier reads `billed: [...billedRef.current.billed]`. Twenty-five committed evasion rows, and
+  the matcher's own eight weakenings committed beside them — each lets exactly its evasion through.
+  Thirty-two mutants (eighteen `grocery-page/`, fourteen `scan-billed/`), all CAUGHT.
 
 ### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra, #343)
 

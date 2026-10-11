@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { classifyScan } from "./scan-gate";
-import { afterCharge, afterRemoval, chargeMark, NO_BILLED, type BilledLedger } from "./scan-billed";
+import {
+  afterCharge,
+  afterRemoval,
+  afterView,
+  chargeMark,
+  NO_BILLED,
+  type BilledLedger,
+} from "./scan-billed";
 
 /**
  * M186 · G25 — the charge record the camera's repeat rule reads (lib/scan-billed.ts). Each rule is
@@ -136,5 +143,39 @@ describe("afterRemoval — a removed item is a new item again, and every removal
     expect(NO_BILLED.billed.size).toBe(0);
     expect(NO_BILLED.removals.size).toBe(0);
     expect(NO_BILLED.charges.size).toBe(0);
+  });
+});
+
+describe("afterView — an APPLIED view drops every record it does not hold (Codex on #344's c03743f)", () => {
+  const ledger: BilledLedger = {
+    billed: new Set([JAR, RICE]),
+    removals: new Map([[JAR, 2]]),
+    charges: new Map([[JAR, 3]]),
+  };
+
+  it("drops a recorded code the view lacks — the camera may charge that jar again", () => {
+    const after = afterView(ledger, [line(RICE)]);
+    // MUTANT scan-billed/after-view-keeps-what-the-view-lacks — an idempotent replay's record (no
+    // view of its own) outlives the read that shows the basket without it: refused for good.
+    expect([...after.billed]).toEqual([RICE]);
+    expect(judge(after, JAR)).toBe("add");
+    // The removal generation and the landed charges are the ledger's history, not the view's.
+    expect(after.removals).toBe(ledger.removals);
+    expect(after.charges).toBe(ledger.charges);
+  });
+
+  it("keeps every recorded code the view holds", () => {
+    const after = afterView(ledger, [line(RICE), line(JAR)]);
+    // MUTANT scan-billed/after-view-drops-what-the-view-holds — the camera re-charges a jar on screen.
+    expect([...after.billed].sort()).toEqual([JAR, RICE].sort());
+    expect(judge(after, JAR)).toBe("repeat");
+    expect(judge(afterView(ledger, [line(JAR)]), JAR)).toBe("repeat");
+  });
+
+  it("returns the SAME ledger when the view drops nothing (no needless churn), and never mutates it", () => {
+    expect(afterView(ledger, [line(JAR), line(RICE), line("000000000000")])).toBe(ledger);
+    expect(afterView(NO_BILLED, [])).toBe(NO_BILLED);
+    afterView(ledger, []);
+    expect([...ledger.billed].sort()).toEqual([JAR, RICE].sort());
   });
 });

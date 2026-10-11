@@ -7516,6 +7516,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "grocery-page/an-applied-view-keeps-a-stale-record",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: 'Codex on c03743f — an idempotent replay with no view records the jar; the re-read it owes applies a basket WITHOUT it, and the record outlives that view: every later sighting of the jar is refused as "Already added" for the rest of the basket',
+    find: "      billedRef.current = afterView(billedRef.current, lines);\n",
+    replace: "",
+  },
+  {
     id: "grocery-page/a-stale-view-passes-the-floor",
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
@@ -7580,6 +7588,22 @@ const MUTANTS = [
     why: "Every ok landing counts, or no later, older view can tell a newer charge landed",
     find: "  charges.set(barcode, now.charges + 1);\n",
     replace: "",
+  },
+  {
+    id: "scan-billed/after-view-keeps-what-the-view-lacks",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "Codex on c03743f — the applied view's filter keeps everything: a record the view disproves refuses the jar for good",
+    find: ".filter((code) => held.has(code))",
+    replace: ".filter(() => true)",
+  },
+  {
+    id: "scan-billed/after-view-drops-what-the-view-holds",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "The filter inverted: a view that shows the jar drops its record, and while the list lags behind (a later read applying first) the camera re-charges it",
+    find: ".filter((code) => held.has(code))",
+    replace: ".filter((code) => !held.has(code))",
   },
   {
     id: "scan-billed/an-absent-view-keeps-a-stale-record",
