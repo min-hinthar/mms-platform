@@ -127,7 +127,7 @@ describe("roundOrdinals — the session's rounds, by first fire time", () => {
     expect(r.get(B2)).toBe(2);
   });
 
-  it("isSettlementBatch reads the version character of a canonical UUID, and nothing else", () => {
+  it("isSettlementBatch reads the version character AND the RFC variant of a canonical UUID — no other text is a settlement batch", () => {
     expect(isSettlementBatch(SETTLE)).toBe(true);
     expect(isSettlementBatch(SETTLE.toUpperCase())).toBe(true);
     expect(isSettlementBatch(B1)).toBe(false);

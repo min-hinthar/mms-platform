@@ -74,12 +74,13 @@ export type RoundLine = {
  * PD5b — settlement food, told apart by its BATCH. `mms_fire_pending_food` (the drain that fires a
  * paid cart's unsent drafts) mints its batch as a version-8 UUID; every Send path mints
  * `gen_random_uuid()`, version 4 (`20261009120300_pd5b_settlement_batch_and_fold.sql` says why the
- * mark is the batch and not a column). So the version character IS the classification, and it is
- * positive: no Send can wear it. The SQL half is pinned by `supabase/tests/pd5b_settlement_batch_and_fold_test.sql`
- * (PD5B.1–3), this half by `kitchen-rounds.test.ts` — two mirrors of one rule, as `tax.ts` and
- * `mms_line_tax` are — both read the version AND keep the RFC variant (`8`–`b`, the bits
- * `gen_random_uuid()` sets and the mint leaves alone; Codex on #340). A string that is not a
- * canonical UUID of that shape is not a settlement batch.
+ * mark is the batch and not a column). The classification is the version character `8` TOGETHER
+ * with the RFC variant (`8`–`b`): the mint (`overlay(gen_random_uuid()::text placing '8' from 15 for 1)`)
+ * rewrites only character 15 and leaves character 20, the variant `gen_random_uuid()` sets, alone —
+ * so every batch the drain mints has both, and no Send (version 4) can wear the mark (Codex on #340).
+ * The SQL half is pinned by `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1 asserts
+ * both characters), this half by `kitchen-rounds.test.ts` — two mirrors of one rule, as `tax.ts` and
+ * `mms_line_tax` are. A string that is not a canonical UUID of that shape is not a settlement batch.
  */
 const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
