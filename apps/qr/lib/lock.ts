@@ -192,9 +192,27 @@ export async function acquireSettlement(cartId: string, owner: string): Promise<
   // `locked_at`, and using `cutoff` here would let a settlement take over a pay-lock at 10 minutes
   // that single-pay may take at 5 — two different answers to "is this attempt still alive?".
   const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  // ⚠️ THE TAKEOVER ENDS THE STALE ERA (Codex on #338 @ 90732bc, P1). "Stale and unlinked" is a
+  // guess that the attempt is dead, and one live shape defeats it: a create-intent request that
+  // minted its PaymentIntent and then stalled before `linkPaymentIntent`. Left as it was, its era
+  // still matched the link's `locked_by` + `locked_at` keys, so it could resume, link, and hand the
+  // diner a client secret on a cart this settlement was collecting — priced from a promo pin M268's
+  // release had just cleared: a charge fulfillment cannot reconcile, beside the counter's own. So the
+  // freeze clears the pay-lock columns in the SAME statement that admits it: the old era can never
+  // link again, and that request answers an error instead of a payable intent. On the
+  // `locked = false` arm this writes what is already there.
   const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString(), settle_by: owner }, { count: "exact" })
+    .update(
+      {
+        settle_at: new Date().toISOString(),
+        settle_by: owner,
+        locked: false,
+        locked_at: null,
+        locked_by: null,
+      },
+      { count: "exact" },
+    )
     .eq("id", cartId)
     .eq("status", "open")
     .or(`locked.eq.false,and(locked_at.lte.${lockCutoff},live_payment_intent_id.is.null)`)
@@ -423,8 +441,97 @@ export async function releaseStaleSettlement(
  * Lives here rather than inline in the route deliberately: `app/api/**` sits outside
  * `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s mutant set, so a money rule
  * written there cannot be guarded at all (the W17 lesson, in CLAUDE.md).
+ *
+ * ## M268 — the SETTLEMENT doors are a next attempt too
+ *
+ * The same rule — the attempt about to replace a pin clears it, under the mutex it holds, before it
+ * reads a total — applies on the other side of the table. The register's settle (cash, the Terminal,
+ * the secure-tab close) holds a SETTLEMENT freeze, not a pay-lock era, and before M268 it released
+ * nothing: `mms_promo_discount` honours any non-null pin outright (m70: "a granted pin wins
+ * outright"), so a pin an abandoned card attempt left behind — both client exits failed, or an
+ * attempt from before the cart→intent link existed — priced the counter's total with a discount a
+ * different basket earned. While phone pay is parked (PD2) the counter is a table's only door.
+ *
+ * So the holder is one of two proofs, and each has its own era-equivalent:
+ *   · a PAY attempt — the era its own `acquireCartLock` wrote (create-intent), through
+ *     `mms_release_promo_grant`, whose predicate is the era;
+ *   · a SETTLEMENT attempt — the request-unique owner its freeze wrote, through
+ *     `mms_release_promo_grant_for_settlement`, whose predicate is `settle_by = owner` with a FRESH
+ *     `settle_at`, on an OPEN cart that NO pay attempt has taken since the freeze and that names NO
+ *     live intent. Only a fresh freeze excludes pay attempts: `acquireCartLock` takes the cart under
+ *     a STALE `settle_at` and writes only the pay-lock columns, leaving `settle_by` behind — so a
+ *     settle stalled past the TTL still matched `settle_by` alone, and in a successor's
+ *     pin-before-link window cleared that successor's pin (Codex on #338 @ 56a4fd1).
+ *     ⚠️ AND FRESHNESS ALONE IS NOT THE PROOF (Codex on #338 @ 688bc1d, P2). The cutoff below is
+ *     computed BEFORE the awaited RPC, so a call delayed past the TTL — a wait on a row lock is one
+ *     way — still reads its freeze as fresh by the cutoff it carries, while the successor locks and
+ *     pins. So the RPC also requires `not locked or locked_at < settle_at`, IN the UPDATE and in the
+ *     probe that names the refusal: a freeze is only ever written over no pay lock or a STALE one
+ *     (`acquireSettlement`, `claimStaleSettlement`), so any lock present at the freeze predates it,
+ *     and `acquireCartLock` stamps `locked_at = now` only once `settle_at` is a full TTL old, so a
+ *     successor's lock postdates it. Stored values against stored values: no clock skew enters, and
+ *     a successor holding the cart answers -1, linked or not. Under a fresh freeze that no pay
+ *     attempt has taken since, a pin no intent names belongs to nobody.
+ * The era RPC cannot serve the settlement: on an unlocked cart it would need an era nobody holds, and
+ * a cart-wide clear is the successor-wiping hazard above.
+ *
+ * ⚠️ THE SETTLEMENT FORM CHECKS THE ANSWER, AND A REFUSAL SAYS WHICH ONE. Its RPC answers 1 only
+ * for a release: the fresh freeze is ours, no pay attempt has taken the cart since, the cart is open
+ * and unlinked, and its pin is null now.
+ * Anything else is a BLOCKED write, and answering ok there would hand the caller a total priced from
+ * the pin it failed to clear (CLAUDE.md: `.update()` returns no row count; a blocked write reports
+ * success). The refusal carries `linked: true` ONLY for the RPC's 0 — this request's fresh freeze
+ * still holds the open cart and a live intent is what stood in the way — because that is the one
+ * refusal under which the caller may supersede the intent: it holds the mutex. A -1 (another
+ * freeze, none, a stale one, a closed cart), a transport error, or any other answer is a request
+ * that does NOT hold the cart — a successor's pay lock taken after the freeze among them — and the
+ * caller stands down; superseding there cancelled whatever the cart named, after a stall a
+ * successor's live checkout. Called from ONE place:
+ * `acquireSettlementSuperseding`, before it answers `acquired` (lib/supersede.ts).
  */
-export async function releasePromoGrantFor(cartId: string, attempt: string): Promise<ReleaseError> {
+export type PromoPinRefusal =
+  | ReleaseError
+  /**
+   * The settlement's fresh freeze held the cart and a live intent was linked — at the RPC's moment
+   * only. The caller re-reads the link under its freeze (`readLiveIntentUnderFreeze`), supersedes,
+   * then releases AGAIN and proceeds only on that answer (lib/supersede.ts, `releaseStalePin`).
+   */
+  | { message: string; linked: true };
+
+export type PromoGrantHolder =
+  /** A PAY attempt's era (create-intent). */
+  | string
+  /** A SETTLEMENT attempt's request-unique owner (`acquireSettlementSuperseding`). */
+  | { settlement: string };
+
+export async function releasePromoGrantFor(
+  cartId: string,
+  holder: PromoGrantHolder,
+): Promise<PromoPinRefusal> {
+  if (typeof holder === "object") {
+    // No owner, no proof — and unlike the era form this is a REFUSAL, not a quiet no-op: the
+    // settlement reads a total next, and a pin left on the row would price it.
+    if (!holder.settlement)
+      return { message: "no settlement owner to release the promo pin under" };
+    const { data, error } = await serviceClient().rpc("mms_release_promo_grant_for_settlement", {
+      p_cart_id: cartId,
+      p_owner: holder.settlement,
+      // ⚠️ FRESHNESS ON THE APP CLOCK (the blind pass on #338 @ 5d19601). `settle_at` is stamped
+      // here, and `acquireCartLock` admits a pay attempt by `settleCutoff` — this same expression —
+      // so the release and the takeover it must never overlap read ONE clock. A DB-side
+      // `now() - interval` left them a skew apart, and in that window a late release cleared a
+      // successor's fresh pin. The TTL is named once, in lib/lock-ttl.ts. This value is captured
+      // BEFORE the await, so it cannot alone prove the freeze is still ours when the RPC runs — the
+      // RPC's pay-lock term does (docblock, Codex on #338 @ 688bc1d).
+      p_fresh_after: new Date(Date.now() - SETTLE_TTL_MS).toISOString(),
+    });
+    if (error) return error;
+    if (data === 1) return null;
+    if (data === 0)
+      return { message: "a live intent is linked under this settlement's freeze", linked: true };
+    return { message: `this settlement does not hold the cart (the release answered ${data})` };
+  }
+  const attempt = holder;
   // No era, no release. The caller passes the era ITS OWN acquisition wrote; an empty one means we
   // cannot show the cart is ours, and a cart-wide clear is exactly the successor-wiping hazard
   // above — so the pin stays and the next honest re-derivation (or the cart closing) settles it.
@@ -678,6 +785,47 @@ export async function claimStaleSettlement(
  * Every helper here is a query SHAPE — one predicate, one payload — and each is pinned by
  * `lock.test.ts` and a `verify:slice` mutant, because the predicate IS the rule.
  */
+
+/**
+ * M268 — the intent the cart names, read ONLY while THIS request's settlement freeze still holds the
+ * open cart (fresh on the app clock, like `settlementHeldBy`); null otherwise, link or not.
+ *
+ * ⚠️ WHY NOT `readLiveIntent` (the blind pass on #338 @ 5d19601). The settle reads the link after
+ * the release RPC said "your fresh freeze holds the cart, a live intent is linked" — but that
+ * answer is one moment. A request stalled past the TTL between the two finds the cart taken by a
+ * successor (`acquireCartLock` admits under a stale `settle_at` and leaves `settle_by`), and an
+ * unscoped read hands it the SUCCESSOR's link to cancel at Stripe. One row, one snapshot: the link
+ * and the proof that we may act on it come from the same read.
+ *
+ * ⚠️ FRESHNESS IS ONE CLOCK; THE PAY LOCK'S ERA IS THE ROW'S OWN ORDER (Codex on #338 @ 134ae08,
+ * P2). Freshness is judged on THIS server's clock, so a server running behind another can still
+ * read its freeze as fresh after an ahead server's `acquireCartLock` judged it stale, took the pay
+ * lock and linked its intent. The release RPC refuses that case on stored values
+ * (`not locked or locked_at < settle_at`); this read carries the SAME term, so the link it hands the
+ * supersede is never a successor's. A pay lock present at the freeze predates it (the freeze
+ * writers admit only an unlocked or stale-locked cart), and a successor's postdates it by about the
+ * settle TTL, so a millisecond parse cannot tie them. A `locked` row with no `locked_at` cannot be
+ * ordered against the freeze, and reads as taken: fail closed, as the SQL's NULL does.
+ */
+export async function readLiveIntentUnderFreeze(
+  cartId: string,
+  owner: string,
+): Promise<string | null> {
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("status,locked,locked_at,settle_at,settle_by,live_payment_intent_id")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || data.status !== "open" || data.settle_by !== owner) return null;
+  const fresh = data.settle_at != null && Date.parse(data.settle_at) > Date.now() - SETTLE_TTL_MS;
+  if (!fresh) return null;
+  const untaken =
+    !data.locked ||
+    (data.locked_at != null && Date.parse(data.locked_at) < Date.parse(data.settle_at!));
+  return untaken ? (data.live_payment_intent_id ?? null) : null;
+}
 
 /** The intent the cart currently names, or null. Read under the caller's own lock. */
 export async function readLiveIntent(cartId: string): Promise<string | null> {

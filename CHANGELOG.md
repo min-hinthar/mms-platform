@@ -4,6 +4,65 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M268 — the register's settle releases a dead card attempt's promo pin before it reads a total (2026-10-09, #338)
+
+- **The hole (filed by the blind pass on #331):** `mms_promo_discount` honours any non-null pin
+  outright (m70), and only create-intent released a predecessor's. A pin an abandoned card attempt
+  left — both client exits failed, or an attempt from before the cart→intent link — reached the
+  register, whose settle charged a discount a different basket earned. With phone pay parked (PD2)
+  the counter is a dine-in table's only door.
+- **The fix:** the settlement doors (cash, the Terminal, the secure-tab close) run create-intent's
+  sequence on their ordinary path. `acquireSettlementSuperseding` releases the pin under the freeze
+  it just took, awaited, before it answers `acquired`, through the ONE binding
+  (`releasePromoGrantFor`, now holder-aware) and `mms_release_promo_grant_for_settlement` (migration
+  `20261009120000`: every guard in the WHERE, the answer checked, service_role only). A live link
+  is superseded first under the settlement rules; any other refusal answers `unavailable`. A promo
+  applied at the register still discounts, re-derived live.
+- **The freeze must be FRESH (Codex on #338 @ 56a4fd1, P2):** `acquireCartLock` takes a cart under a
+  stale `settle_at` and leaves `settle_by`, so a settle stalled past the 10-minute TTL still matched
+  `settle_by` alone and could clear a successor diner's freshly pinned grant. The release now also
+  requires `settle_at > p_fresh_after`, where the cutoff is the app's own `now - SETTLE_TTL_MS` — the
+  clock `settle_at` is stamped on and the one `acquireCartLock` admits by (the blind pass on
+  5d19601: a DB-side `now() - interval` left a clock skew between them). It answers which refusal
+  it was: 0 when this fresh freeze holds the cart and a live link is in the way (the one answer that
+  may supersede), -1 when the request does not hold the cart.
+- **A `linked` answer is one moment (the blind pass on 5d19601):** the link is read UNDER the freeze
+  (`readLiveIntentUnderFreeze` — one row: the link and the proof this request may act on it), and
+  after the supersede the release runs AGAIN; only its 1 answers `acquired`. A stalled settle stands
+  down instead of cancelling a successor's checkout, and a link someone else dropped (leaving the
+  pin) is cleared by the re-proof instead of priced. Apply `20261009120000` before deploying the
+  code: until then every counter settle refuses as `unavailable` (fail closed).
+- **Freshness alone is not the proof (Codex on #338 @ 688bc1d, P2):** the cutoff is computed before
+  the awaited RPC, so a call delayed past the TTL (a wait on a row lock, say) still read its freeze as
+  fresh while a successor's `acquireCartLock` took the stale freeze and pinned, and cleared that pin
+  before the successor linked — a captured payment that cannot reconcile. The release and its
+  refusal probe now also require `not locked or locked_at < settle_at`: a freeze is only written
+  over no pay lock or a stale one, and a successor stamps `locked_at` only once `settle_at` is a TTL
+  old, so stored values order the two with no clock involved. A successor holding the cart answers
+  -1, linked or not (never the 0 that licenses a supersede); the freshness cutoff stays.
+- **The read under the freeze carries the same term (Codex on #338 @ 134ae08, P2):**
+  `readLiveIntentUnderFreeze` judged freshness on its own server's clock, so a server trailing the
+  one that ran `acquireCartLock` could hand the supersede a successor's link between the two release
+  calls. It now refuses a cart a pay attempt took after this freeze (`locked_at` before `settle_at`,
+  or unlocked; a dateless lock reads as taken), the release's own rule on the same row
+  (`lib/lock.test.ts`; mutants `m268/scoped-read-ignores-the-pay-lock`,
+  `-refuses-every-lock`, `-admits-a-dateless-lock`).
+- **A settlement takeover ends the stale attempt's era (Codex on #338 @ 90732bc, P1):**
+  `acquireSettlement` takes over a stale, unlinked pay lock as an abandoned attempt, but a
+  create-intent that minted its PaymentIntent and stalled before `linkPaymentIntent` is alive under
+  exactly that shape — its era still matched the link's keys, so it could resume, link, and hand the
+  diner a payable intent on a cart the counter was collecting, priced from the pin the release had
+  just cleared. The freeze now clears `locked` / `locked_at` / `locked_by` in the same UPDATE that
+  admits it, so the old era can never link again (`lib/lock.test.ts`; mutant
+  `m268/takeover-keeps-the-stale-era`).
+- **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
+  the legitimate promo, five refusals including the stale freeze at, past and one second inside the
+  TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
+  lock older than the freeze that still releases and a lock with no era that fails closed,
+  privileges, a mutant per guard and per probe guard built from the live definition);
+  `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
+  `m268/…` mutants.
+
 ### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
 
 - **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**

@@ -13,10 +13,12 @@ import {
   acquireSettlement,
   claimStaleSettlement,
   readLiveIntent,
+  readLiveIntentUnderFreeze,
   releaseByIntent,
   releaseSettlementFor,
   readLiveIntentFor,
   releasePayAttempt,
+  releasePromoGrantFor,
   unlinkPaymentIntent,
   type ReleaseError,
   type SettleResult,
@@ -364,6 +366,10 @@ export async function acquireSettlementSuperseding(
     await releaseOwn(cartId, owner, "diagnosing-acquire-threw");
     return "unavailable";
   }
+  // M268 — the ORDINARY path releases a dead attempt's promo pin under the freeze it just took,
+  // before the caller reads a total (`releaseStalePin`, below). No Stripe call unless a live link
+  // refuses that release.
+  if (first === "acquired") return await releaseStalePin(cartId, owner, supersede);
   if (first !== "locked_stale") return first;
 
   // ⚠️ EVERY STEP BELOW IS WRAPPED, because two of them THROW rather than answering (Codex round 2,
@@ -500,6 +506,112 @@ export async function acquireSettlementSuperseding(
 }
 
 /**
+ * M268 — the settlement's half of create-intent's sequence, on the ORDINARY path: under the freeze
+ * just acquired, release the promo pin a dead attempt left, BEFORE the caller reads a total.
+ *
+ * create-intent supersedes the cart's predecessor and then releases its pin (era-scoped), awaited, in
+ * a statement that finishes before `getCartTotals`; the stale-attempt takeover above does the same
+ * with `releaseByIntent`. The ordinary `acquired` answer did neither, and `mms_promo_discount`
+ * honours any non-null pin outright — so a pin an abandoned attempt left (both client exits failed,
+ * or an attempt from before the cart→intent link) priced the counter's cash, Terminal or tab-close
+ * total with a discount a different basket earned. While phone pay is parked the counter is a
+ * table's only door.
+ *
+ * The release is `releasePromoGrantFor(cart, { settlement: owner })` — the ONE binding create-intent
+ * uses, with this freeze as its proof (lib/lock.ts). It answers ok only when the RPC proves the
+ * postcondition: this FRESH freeze holds the open, unlinked cart and its pin is null.
+ *
+ * A refused release may supersede ONLY when the refusal says `linked` — the RPC's own probe found
+ * this request's fresh freeze still holding the open cart, with a live intent in the way (a lost
+ * link-write response, a cancel that never reached Stripe). That intent is then superseded exactly
+ * as the takeover does (settlement rules: a manual hold or committed money refuses, `captured`
+ * answers `paying` with the freeze HELD), and its pin and link go together (`releaseByIntent`).
+ * ⚠️ ANY OTHER REFUSAL STANDS DOWN WITHOUT READING THE LINK (Codex on #338 @ 56a4fd1, P2). A
+ * settle stalled past the TTL no longer holds the cart — `acquireCartLock` took it under the stale
+ * `settle_at` — so the link it would read is a SUCCESSOR's live checkout, and superseding it would
+ * cancel that diner's payment and then answer `acquired` on a freeze this request lost. Every
+ * non-`linked` refusal gives the freeze back and answers `unavailable` — never `acquired` over a pin
+ * we failed to clear (the `pin-clear-failed` rule above).
+ *
+ * ⚠️ A `linked` ANSWER IS ONE MOMENT, AND NOTHING AFTER IT TRUSTS IT (the blind pass on #338 @
+ * 5d19601). The same stall, one statement later, reopened the hole: the link read, the Stripe
+ * cancel and the `acquired` answer each came after the RPC's snapshot. So:
+ *   · the link is read UNDER the freeze (`readLiveIntentUnderFreeze`) — the link and the proof that
+ *     this request may act on it come from one row; a freeze that lapsed reads null and stands down;
+ *   · after the supersede and `releaseByIntent`, the release runs AGAIN and only ITS answer of 1
+ *     (this fresh freeze holds the open, unlinked cart and the pin is null now) answers `acquired`.
+ *     That re-proof is also what `releaseByIntent`'s `released: false` needs: a link a webhook or
+ *     a successor already dropped leaves the pin behind, and the second release clears it — or,
+ *     when the freeze is gone, refuses.
+ * What remains is an intent that was linked under THIS fresh freeze being cancelled after the freeze
+ * lapsed — a dead predecessor whose cancel every later attempt would also make (create-intent
+ * supersedes it first), never a successor's checkout.
+ */
+async function releaseStalePin(
+  cartId: string,
+  owner: string,
+  supersede: (cartId: string, intentId: string) => Promise<SupersedeOutcome>,
+): Promise<SettleTakeover> {
+  let superseding = false;
+  let predecessorDead = false;
+  try {
+    const refused = await releasePromoGrantFor(cartId, { settlement: owner });
+    if (!refused) return "acquired";
+    // Only a `linked` refusal holds the cart; any other must never reach the supersede (docblock).
+    const linked = "linked" in refused ? await readLiveIntentUnderFreeze(cartId, owner) : null;
+    if (!linked) {
+      console.error("[settle] stale promo pin not released — refusing to settle", {
+        cartId,
+        error: refused.message,
+      });
+      await releaseOwn(cartId, owner, "stale-pin-not-released");
+      return "unavailable";
+    }
+    superseding = true;
+    const verdict = await supersede(cartId, linked);
+    if (verdict !== "cleared") {
+      // HELD, for the takeover's reason: the cart is unlocked, so this freeze is the only thing
+      // `paymentInFlightReason` honours while a charging intent's webhook is on its way.
+      holdClaimed(cartId, owner, "supersede-refused", verdict);
+      return verdict === "captured" ? "paying" : "unavailable";
+    }
+    predecessorDead = true;
+    const { error: clearErr } = await releaseByIntent(cartId, linked);
+    if (clearErr) {
+      console.error("[settle] linked attempt's promo pin not cleared — refusing to settle", {
+        cartId,
+        intentId: linked,
+        error: clearErr.message,
+      });
+      await releaseOwn(cartId, owner, "pin-clear-failed");
+      return "unavailable";
+    }
+    // The postcondition, re-proved under this freeze — never inferred from the snapshot (docblock).
+    const reproved = await releasePromoGrantFor(cartId, { settlement: owner });
+    if (reproved) {
+      console.error("[settle] promo pin not re-proved after the supersede — refusing to settle", {
+        cartId,
+        intentId: linked,
+        error: reproved.message,
+      });
+      await releaseOwn(cartId, owner, "pin-not-reproved");
+      return "unavailable";
+    }
+    return "acquired";
+  } catch (e) {
+    console.error("[settle] stale-pin release threw", {
+      cartId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    // Mid-supersede, the predecessor's state is unknown and it may be charging: held. Otherwise
+    // nothing irreversible happened under this freeze, and it goes back.
+    if (superseding && !predecessorDead) holdClaimed(cartId, owner, "post-claim-throw", "unknown");
+    else await releaseOwn(cartId, owner, "post-claim-throw");
+    return "unavailable";
+  }
+}
+
+/**
  * Give back a freeze THIS REQUEST claimed and could not use — scoped to its request-unique owner.
  *
  * ⚠️ A3 · M201 IS WHAT MAKES THIS LINE WRITABLE. Codex rounds 8, 10, 11, 12 and 13 on #275 each
@@ -547,7 +659,13 @@ function holdClaimed(
 async function releaseOwn(
   cartId: string,
   owner: string,
-  at: "diagnosing-acquire-threw" | "ambiguous-claim" | "pin-clear-failed" | "post-claim-throw",
+  at:
+    | "diagnosing-acquire-threw"
+    | "ambiguous-claim"
+    | "pin-clear-failed"
+    | "post-claim-throw"
+    | "stale-pin-not-released"
+    | "pin-not-reproved",
 ): Promise<void> {
   try {
     const { error } = await releaseSettlementFor(cartId, owner);
