@@ -664,3 +664,18 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   `GRACE_REREAD_MARGIN_MS` (300 ms) past the deadline, which absorbs a skew below that; a larger one
   moves the flip by at most the skew, and the flip is a display state (no write, no amount) that the
   next applied view corrects. Reading the DB clock instead would cost a round trip on every view.
+
+**Codex's post-merge review of #335 (2026-10-11, two P2s; `claude/fix/pd1-codex-post-merge`).**
+
+- **A nudge waits for a switch to to-go.** `mms_set_line_fulfillment` locks only the line, and the
+  nudge decided from a plain read of the dine-in drafts, so a nudge racing a switch of the last one
+  stamped a cart no view could show the stamp on. `20261011123000_pd1_nudge_line_lock.sql` restates
+  `mms_nudge_host` with the cart's dine-in drafts `for share` after the cart lock and before the
+  decision, in id order, while the cart is open (PD1's file is applied and stays as it ran). Cart →
+  line still holds: the switch never takes the cart (measured, m17's definition). Proven with two
+  sessions in both orders and against an add and a bump (`verify-fire-cart-race.mjs` orders i–l and
+  their mutants). One session pins the lock taken (`pd1_nudge_line_lock_test.sql`, suite `pd1n`).
+- **A dish that joins the pass stays on it.** "The list follows the confirmed view" (screen 2) now
+  also KEEPS a tablemate's draft that joined the open pass (`passListedNow`). Once sent, it reads
+  "Sending…" and then "Sent to kitchen" like the dishes the pass opened on. Before this it left the
+  ticket, and the pass closed when those dishes had been removed.

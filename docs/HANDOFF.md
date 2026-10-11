@@ -87,7 +87,9 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp
-   (`20261008123000`, applied BEFORE #335 merges — the old build runs unchanged against it);
+   (`20261008123000`, applied BEFORE #335 merges — the old build runs unchanged against it); its
+   follow-up's line lock (`20261011123000`, Codex's post-merge review of #335 — applied before
+   `claude/fix/pd1-codex-post-merge` merges; same signature, the deployed build runs unchanged);
    M184's, carrying the widened `close` arm (D2; holding that line moves the arm to its own file and
    go); the other #5 files as their PRs go green (K30 with K34, M210 · M208 · M205, M182 · P2hf). M168
    (#21) and T4 (#22) each need their own go.

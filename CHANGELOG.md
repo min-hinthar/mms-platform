@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
+
+- **A nudge is serialized with a fulfillment change (comment 4240355357, P2).** `mms_nudge_host`
+  locked the cart and then decided from a plain `exists` over the dine-in drafts, while
+  `mms_set_line_fulfillment` locks only the line — so a nudge racing a switch of the LAST dine-in
+  draft to to-go read the pre-switch line, stamped the cart and answered `ok` ("Aye can see you're
+  waiting"), and once the switch committed every view read the stamp stale and the host never saw it.
+  Reproduced with two sessions before the fix. `20261011123000_pd1_nudge_line_lock.sql` restates the
+  function WHOLE (PD1's file is applied to prod and stays as it ran): one statement added after the
+  cart lock takes the cart's dine-in drafts `for share`, in id order, while the cart is open. A switch
+  in flight commits first (the nudge then answers `nothing_to_send`, no stamp), or waits for the
+  nudge. Same signature, return and grants; no `drop`, no `delete`; the deployed build runs unchanged.
+  The lock-cycle check, measured: `mms_set_line_fulfillment`'s latest definition (m17) never takes the
+  cart, and the nudge still takes the cart before any line.
+- **Proven with two and three sessions:** `scripts/verify-fire-cart-race.mjs` gains four orders —
+  switch-before-nudge (i), nudge-before-switch (j), add-before-nudge (k: the cart stays first) and
+  bump-in-the-way (l: the id order matches `mms_bump_ticket`'s) — and four mutants: the line lock
+  dropped (i, j, l), `for key share` (i, j), taken before the cart (k), against id order (l). Its
+  battery now replays the migration CHAIN (PD1's file, then the follow-up's), so PD1's nudge
+  cart-lock mutant patches the follow-up's text, caught by (k). All 7 mutants were caught on three
+  consecutive runs. `supabase/tests/pd1_nudge_line_lock_test.sql` (CI's required list) pins the lock
+  TAKEN, on which lines and only on an open cart (PD1N.1–4), red-first against PD1's body;
+  `verify-mode-authority.mjs` gains suite `pd1n` (4 killed, 3 documented survivors that only the race
+  harness can see), and suite `pd1`'s nudge mutants patch the new file.
+- **A dish that joins the open "Show a server" pass stays on it (comment 4240355354, P2).** A
+  tablemate's draft added while the pass was up was shown, but it was never added to `passListed`.
+  Once it was sent it left the ticket, and if the dishes the pass opened on had been removed, the
+  empty rows closed the pass instead of showing "Sending…" / "Sent to kitchen". `passListedNow`
+  (`lib/show-server.ts`) keeps every dine-in draft that joins, and returns the same set when nothing
+  joins, so Checkout's render-time update settles. Red-first in `lib/show-server.test.ts` and
+  `Checkout.test.tsx`. Mutants: `show-server/joined-dish-forgotten`, `show-server/join-never-settles`,
+  `checkout/pass-forgets-a-joined-dish`, all caught.
+
 ### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
 
 - **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**
