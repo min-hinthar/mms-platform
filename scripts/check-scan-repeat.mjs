@@ -1638,6 +1638,162 @@ const COVER = "useStageCover";
   }
 }
 
+// ── (8) Every ok charge RECORDS its code in `billedRef` — the live add AND the queue's replay (G25) ──
+// M186's classifier judges a sighting against three sources, and `billedRef` — what this session
+// charged — is the only one left when the post-write read fails (`scanAdd` answers `lines: null`).
+// The live add always recorded it; the offline queue's replay did not, so a replay delivered with no
+// view left the queue at the drain's `syncPending()` while the list did not show it yet, and the next
+// camera read of that jar classified `add` and billed a second unit (G25 — the defect was a MISSING
+// line, which no other proposition here could see: (1) exempts the replay from the classifier, by
+// design). So, for EVERY live `scanAdd(…)` in the page — whichever function makes it, F:
+//   a. its result is bound to exactly ONE identifier R in F (assigned or initialised from an
+//      expression holding the call);
+//   b. a TOP-LEVEL `if` of F's body, after the charge's own statement, tests exactly `R.ok` — never
+//      `R.ok && R.lines` (G25's own shape: the record would ride the view), never nested under
+//      another branch;
+//   c. its then-branch holds, at its own top level, the statement `billedRef.current.add(C)` — C
+//      printed exactly as the charge's barcode argument — with no earlier statement of that branch
+//      able to leave it (return · throw · break · continue · await: a rejection leaves too);
+//   d. F never takes it back: no `billedRef.current.delete(…)` / `.clear()`, and no assignment to
+//      `billedRef` or `billedRef.current`, anywhere in F;
+// and the set recorded is the set the classifier READS: `billedRef` is declared exactly ONCE in the
+// page (a shadow in F would record into a local set), and the one live `classifyScan(…)` takes
+// `billed: [...billedRef.current]`. Comments are not AST nodes; a literally-dead charge charges
+// nothing and is skipped. Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`.
+const BILLED = "billedRef";
+{
+  const leavesBefore = (st) => {
+    let found = false;
+    const look = (c) => {
+      if (found || ts.isFunctionLike(c)) return;
+      if (
+        ts.isReturnStatement(c) ||
+        ts.isThrowStatement(c) ||
+        ts.isAwaitExpression(c) ||
+        ts.isBreakStatement(c) ||
+        ts.isContinueStatement(c)
+      )
+        found = true;
+      else
+        ts.forEachChild(c, (g) => {
+          look(g);
+        });
+    };
+    look(st);
+    return found;
+  };
+  const isMember = (e, obj, name) =>
+    !!e &&
+    ts.isPropertyAccessExpression(e) &&
+    e.name.text === name &&
+    printed(e.expression) === obj;
+  /** `billedRef.current.add(<code>)` as a whole expression statement — the record. */
+  const recordOf = (st, code) =>
+    ts.isExpressionStatement(st) &&
+    ts.isCallExpression(st.expression) &&
+    isMember(st.expression.expression, `${BILLED}.current`, "add") &&
+    st.expression.arguments.length === 1 &&
+    printed(st.expression.arguments[0]) === code;
+  const billedDecls = [];
+  walk(src, (n) => {
+    if (
+      (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === BILLED
+    )
+      billedDecls.push(n);
+  });
+  if (billedDecls.length !== 1)
+    fail(
+      `proposition 8: \`${BILLED}\` is declared ${billedDecls.length} times in ${PAGE} — exactly ONE, the set\n` +
+        "  the classifier reads; a second (a shadow) takes the record where the classifier never looks.",
+    );
+  const classifiers = callsTo(CLASSIFIER).filter((c) => !isLiterallyDead(c));
+  const basket = classifiers.length === 1 ? classifiers[0].arguments[0] : null;
+  const billedProp =
+    basket && ts.isObjectLiteralExpression(basket)
+      ? basket.properties.filter((p) => p.name && p.name.getText(src) === "billed")
+      : [];
+  const readsBilled =
+    billedProp.length === 1 &&
+    ts.isPropertyAssignment(billedProp[0]) &&
+    printed(billedProp[0].initializer) === `[...${BILLED}.current]`;
+  if (!readsBilled)
+    fail(
+      `proposition 8: the live ${CLASSIFIER}() must take \`billed: [...${BILLED}.current]\` — the set every ok\n` +
+        "  charge records into. Read from anywhere else, the record is decorative and a charge whose\n" +
+        "  post-write read failed is billed again on the next sighting.",
+    );
+  const charges = callsTo(CHARGE).filter((c) => !isLiterallyDead(c));
+  for (const c of charges) {
+    const label = `\`${c.getText(src).slice(0, 60)}\``;
+    const code = c.arguments[1] ? printed(c.arguments[1]) : null;
+    const F = enclosingFunction(c);
+    const top = F && F.body && ts.isBlock(F.body) ? F.body.statements : [];
+    const at = top.findIndex((st) => c.pos >= st.pos && c.end <= st.end);
+    if (!F || !code || at < 0) {
+      fail(`proposition 8: ${label} is not a statement of a function body this guard can read.`);
+      continue;
+    }
+    const bound = new Set();
+    walk(F, (n) => {
+      const pair =
+        ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          ? [n.left, n.right]
+          : ts.isVariableDeclaration(n) && n.initializer
+            ? [n.name, n.initializer]
+            : null;
+      if (!pair || !ts.isIdentifier(pair[0])) return;
+      if (c.pos >= pair[1].pos && c.end <= pair[1].end) bound.add(pair[0].text);
+    });
+    if (bound.size !== 1) {
+      fail(
+        `proposition 8: ${label}'s result must be bound to exactly ONE identifier; found ${bound.size}` +
+          ` (${[...bound].join(", ") || "none"}).\n` +
+          "  An unbound charge cannot say it landed, so nothing can record it.",
+      );
+      continue;
+    }
+    const R = [...bound][0];
+    let recorded = false;
+    for (const st of top.slice(at + 1)) {
+      if (!ts.isIfStatement(st) || printed(st.expression) !== `${R}.ok`) continue;
+      const then = st.thenStatement;
+      const body = ts.isBlock(then) ? then.statements : [then];
+      for (let i = 0; i < body.length; i++) {
+        if (recordOf(body[i], code) && !body.slice(0, i).some(leavesBefore)) recorded = true;
+        if (leavesBefore(body[i])) break;
+      }
+    }
+    if (!recorded)
+      fail(
+        `proposition 8: ${label} never RECORDS its charge — no top-level \`if (${R}.ok)\` after it holds\n` +
+          `  \`${BILLED}.current.add(${code})\` at its own top level, ahead of anything that can leave it.\n` +
+          "  M186's record is the only one left when the post-write read fails: unrecorded, the code\n" +
+          "  leaves the queue while the list does not show it, and the next sighting bills it again (G25).",
+      );
+    walk(F, (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        (isMember(n.expression, `${BILLED}.current`, "delete") ||
+          isMember(n.expression, `${BILLED}.current`, "clear"))
+      )
+        fail(
+          `proposition 8: ${label}'s function takes its record back (\`${n.getText(src).slice(0, 50)}\`).\n` +
+            "  A charge the server made is still a charge.",
+        );
+      if (
+        ts.isBinaryExpression(n) &&
+        isAssignmentKind(n.operatorToken.kind) &&
+        (printed(n.left) === BILLED || printed(n.left) === `${BILLED}.current`)
+      )
+        fail(
+          `proposition 8: ${label}'s function reassigns \`${printed(n.left)}\` — the record it keeps is thrown away.`,
+        );
+    });
+  }
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -1651,5 +1807,6 @@ console.log(
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
     ` each sheet's cover lifted only by its exit end or the fail-safe;` +
     ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>);` +
-    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet\x1b[0m`,
+    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet;` +
+    ` every ok charge, live or replayed, records its code in ${BILLED}\x1b[0m`,
 );

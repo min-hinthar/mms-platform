@@ -7372,6 +7372,35 @@ const MUTANTS = [
     replace:
       '  if (verdict === "retry") return { pairing, close: false, speak: false, settled: true };',
   },
+  // ── G25 · M186's record — every ok charge, live or replayed, records its code in `billedRef`. The
+  // classifier's rule is pure (lib/scan-gate.ts); the RECORD is page wiring, so these mutate the page
+  // and its own suite (app/grocery/page.test.tsx) renders it with the server actions stubbed and
+  // sights the jar through the page's own onScan. check:scan-repeat proposition 8 pins the shape.
+  {
+    id: "grocery-page/a-replay-forgets-its-charge",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "G25 — a replay delivered with `lines: null` leaves the queue at the drain's syncPending() while the list does not show it yet; unrecorded, the next camera read of that jar classifies `add` and bills a second unit",
+    find: "          billedRef.current.add(entry.barcode);\n",
+    replace: "",
+  },
+  {
+    id: "grocery-page/a-live-add-forgets-its-charge",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "M186 — a live add whose post-write read failed (`lines: null`) leaves nothing on screen and nothing queued; the record is the only proof it was charged, and without it the jar still in frame is billed again",
+    find: "        billedRef.current.add(barcode);\n",
+    replace: "",
+  },
+  {
+    id: "grocery-page/a-refused-replay-recorded-as-charged",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "G25, the other direction — a replay the server REFUSED charged nothing. Recorded anyway, the shopper's next read of that code is refused as a repeat of a charge that never happened, and nothing says why",
+    find: "        if (r.ok) {\n          delivered += 1;\n",
+    replace:
+      "        billedRef.current.add(entry.barcode);\n        if (r.ok) {\n          delivered += 1;\n",
+  },
   {
     id: "grocery-focus/a-finished-basket-sheet-close-drops-focus",
     file: "apps/qr/lib/grocery-focus.ts",

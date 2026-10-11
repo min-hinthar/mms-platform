@@ -451,7 +451,95 @@ const WAITS: Fixture[] = [
   },
 ];
 
-const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO, ...WAITS];
+// ── (8) every ok charge, live or replayed, records its code in `billedRef` (G25) ──
+/** The replay's record, verbatim — the rows below drop, bend or move it. */
+const REPLAY_RECORD = "          billedRef.current.add(entry.barcode);\n";
+const REPLAY_UNRECORDED =
+  /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` never RECORDS its charge/;
+const RECORDED: Fixture[] = [
+  {
+    name: "G25 — the replay never records its charge (the page before the fix)",
+    find: REPLAY_RECORD,
+    replace: "",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the live add's record dropped (M186 reopened)",
+    find: "        billedRef.current.add(barcode);\n",
+    replace: "",
+    expect: /proposition 8: `scanAdd\(cartId, barcode, scanId\)` never RECORDS its charge/,
+  },
+  {
+    name: "the record left only in a comment",
+    find: REPLAY_RECORD,
+    replace: "          // billedRef.current.add(entry.barcode);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "G25's own shape — the record rides the view (`if (r.lines)`)",
+    find: REPLAY_RECORD,
+    replace: "          if (r.lines) billedRef.current.add(entry.barcode);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the ok-branch narrowed to the view (`r.ok && r.lines`)",
+    find: "        if (r.ok) {\n          delivered += 1;",
+    replace: "        if (r.ok && r.lines) {\n          delivered += 1;",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record parked behind `if (false)`",
+    find: REPLAY_RECORD,
+    replace: "          if (false) billedRef.current.add(entry.barcode);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record in a callback that never runs",
+    find: REPLAY_RECORD,
+    replace: "          const later = () => billedRef.current.add(entry.barcode);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record behind an early return of its own branch",
+    find: REPLAY_RECORD,
+    replace: `          if (!r.lines) return { ok: true };\n${REPLAY_RECORD}`,
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record of a code other than the one charged",
+    find: REPLAY_RECORD,
+    replace: "          billedRef.current.add(entry.scanId);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record into a set the classifier never reads",
+    find: REPLAY_RECORD,
+    replace: "          missedRef.current.add(entry.barcode);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record taken back in the same function",
+    find: REPLAY_RECORD,
+    replace: `${REPLAY_RECORD}          billedRef.current.delete(entry.barcode);\n`,
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)`'s function takes its record back/,
+  },
+  {
+    name: "the record shadowed by a local set in the drain",
+    find: "    const forCart = cartId;\n",
+    replace: "    const forCart = cartId;\n    const billedRef = { current: new Set<string>() };\n",
+    expect: /proposition 8: `billedRef` is declared 2 times/,
+  },
+  {
+    name: "the classifier reads another set (every record decorative)",
+    find: "            billed: [...billedRef.current],",
+    replace: "            billed: [],",
+    expect:
+      /proposition 8: the live classifyScan\(\) must take `billed: \[\.\.\.billedRef\.current\]`/,
+  },
+];
+
+const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO, ...WAITS, ...RECORDED];
 
 // Each row spawns node, which loads TypeScript and parses the page: measured 1.5–5 s per row at load
 // ~9 and up to 25 s at load 35 on the shared agent machine (2026-10-09). The rows run concurrently and

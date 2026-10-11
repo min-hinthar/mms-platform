@@ -1073,6 +1073,12 @@ export default function Grocery() {
         }
         if (r.ok) {
           delivered += 1;
+          // G25 — M186's record, exactly as the live add keeps it: the replay CHARGED this code. Its
+          // entry leaves the queue at this drain's `syncPending()`, and with `r.lines` null nothing
+          // on screen shows the line yet — unrecorded, the next camera read of that jar classifies
+          // `add` and bills a second unit (check:scan-repeat proposition 8). After the era check
+          // above: an abandoned basket's charge is not this one's.
+          billedRef.current.add(entry.barcode);
           if (r.lines) markCartAlive(seq, r.lines);
           return { ok: true };
         }
