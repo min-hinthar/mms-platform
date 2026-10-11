@@ -6,6 +6,9 @@ import { useJourneyRouter } from "./nav/TransitionNav";
 import { navEpoch } from "@/lib/nav-epoch";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
+import { cartBarCountShown, cartBarLine2, cartBarName } from "@/lib/cart-bar-state";
+import { t } from "@/lib/i18n";
+import { STAFF } from "@/lib/i18n/staff";
 
 // W13 review MED — the spring belongs to the bar's FIRST appearance this visit, not every /menu
 // remount (the SurfaceMemory precedent: entrance effects don't replay on revisit). Module-scoped:
@@ -27,7 +30,13 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId, drain, items } = useCart();
+  const { count, totals, cartId, drain, items, mode, role, sendNudge } = useCart();
+  // PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a dine-in table's cart is SHARED: no count capsule and
+  // no count in the name (a tablemate's tap away from wrong); a second line in the console's own
+  // words instead — "Not sent yet" while a dish waits on the Send, and, on the HOST's phone, "Someone's
+  // waiting" while a guest's nudge stands on the cart. Pickup and the market keep their count.
+  const shared = !cartBarCountShown(mode);
+  const line2 = cartBarLine2({ mode, role, items, nudgeStanding: sendNudge != null });
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
   // Codex round 1 on 3b (#312) — the drain's continuation outlives this bar: a diner who taps "View
@@ -107,7 +116,7 @@ export function CartBar() {
         });
       }}
       onPointerEnter={() => router.prefetch(href)}
-      aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
+      aria-label={cartBarName({ shared, count, line2, dollars })}
       // W13 — the bar springs up on its FIRST appearance this visit (v7.2 .cartbar). Token
       // duration → RM-safe; revisits render it already in place (review MED).
       className={`card${springIn ? " cartbar-in" : ""}`}
@@ -135,10 +144,25 @@ export function CartBar() {
       <span style={{ display: "inline-flex", alignItems: "center" }}>
         {/* W13 — the v7.2 count capsule; the keyed remount replays .mms-pop on each change.
             Presentation only (the static aria-label above carries the count for AT). */}
-        <span key={count} className="cartbar-cnt mms-pop" aria-hidden="true">
-          {count}
+        {!shared && (
+          <span key={count} className="cartbar-cnt mms-pop" aria-hidden="true">
+            {count}
+          </span>
+        )}
+        <span className="cartbar-label">
+          View order
+          {line2 && (
+            // Presentation: the static name above carries the line for assistive tech.
+            <span className="cartbar-line2" aria-hidden="true">
+              {line2 === "unsent" && <span className="mark-ring" />}
+              {line2 === "unsent" ? STAFF["pad.group.unsent"].en : t("en", "someoneWaiting")}
+              <span>·</span>
+              <span lang="my">
+                {line2 === "unsent" ? STAFF["pad.group.unsent"].my : t("my", "someoneWaiting")}
+              </span>
+            </span>
+          )}
         </span>
-        View order
       </span>
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
           above (read on focus) — the rolling figure is presentation, not a per-tap announcement.

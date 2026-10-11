@@ -164,6 +164,9 @@ const view = (over: Partial<CartView> = {}): CartView => ({
   tabType: "none",
   counterRequestedAt: null,
   tableNumber: null,
+  sendNudge: null,
+  nudgeReady: true,
+  serverNow: "2026-10-08T10:00:00.000Z",
   mode: "dinein",
   ...over,
 });

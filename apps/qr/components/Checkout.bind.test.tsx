@@ -49,6 +49,10 @@ vi.mock("@/lib/counter-pay", () => ({
 }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+// PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
+vi.mock("@/lib/send-nudge", () => ({
+  nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
+}));
 vi.mock("@/lib/useSessionPeek", () => ({ useSessionPeek: () => [] }));
 vi.mock("posthog-js", () => ({ default: { capture: (...a: unknown[]) => h.capture(...a) } }));
 vi.mock("@mms/ui", async (orig) => ({
@@ -129,6 +133,9 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: null,
+    sendNudge: null,
+    nudgeReady: true,
+    serverNow: "2026-10-08T10:00:00.000Z",
     mode: "dinein",
     ...over,
   } satisfies View;
@@ -244,7 +251,7 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
   );
 }
 
-const sendButton = () => screen.getByRole("button", { name: /^Send to kitchen · 1 item/ });
+const sendButton = () => screen.getByRole("button", { name: /^Send to kitchen(?! now)/ });
 /** PD2 · PD1 (P2y) — the Send→Undo relabel holds taps for `SAME_GESTURE_MS` (the double-tap's
  *  second half); a test that presses the new Undo waits that gesture out first, in real time. */
 async function afterGesture() {
@@ -257,7 +264,7 @@ async function press(name: string | RegExp) {
 }
 /** Press Send, and the ask opens. */
 async function askTable() {
-  await press(/^Send to kitchen · 1 item/);
+  await press(/^Send to kitchen(?! now)/);
   return screen.getByRole("dialog");
 }
 const chip = (n: number) => screen.getByRole("button", { name: new RegExp(`^Table ${n},`) });
@@ -360,7 +367,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
     await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
     expect(h.bindTable).toHaveBeenCalledTimes(1);
@@ -425,14 +432,14 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
     await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
   });
 
   it("a FROZEN cart is refused with FROZEN_NOTE — no sheet", async () => {
     mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(regionText()).toContain(FROZEN_NOTE);
     expect(h.sendToKitchen).not.toHaveBeenCalled();
@@ -460,7 +467,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
   it("a BOUND table (7) and an EMPTY registry never ask — the send goes straight to the server", async () => {
     mount({ initialTableNumber: 7 });
     expect(screen.getByText("Table 7")).toBeTruthy();
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
     cleanup();
@@ -468,7 +475,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     h.getCartView.mockResolvedValue(view());
     h.sendToKitchen.mockResolvedValue(SENT);
     mount({ tables: [] });
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
   });
@@ -669,7 +676,7 @@ describe("3c-ii (D30) — the table number is LIVE on /cart", () => {
     // — the bill keeps the page-load null, asks a table that is already bound, and the bind answers
     // `already`; red.
     await waitFor(() => expect(screen.getByText("Table 5")).toBeTruthy());
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
   });
