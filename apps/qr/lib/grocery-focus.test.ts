@@ -119,14 +119,25 @@ describe("freshBasketLanding — never the button that was pressed (it leaves wi
   it("the Scan door: no field — the stage once it mounts; null until then (the caller waits)", () => {
     // MUTATION: drop the stage → a fresh basket on the Scan door lands nowhere; red.
     const stage = el();
-    expect(freshBasketLanding({ field: null, stage, panelTitle: null })).toBe(stage);
-    expect(freshBasketLanding({ field: null, stage: null, panelTitle: null })).toBeNull();
+    expect(freshBasketLanding({ field: null, stage, panelTitle: null, retry: null })).toBe(stage);
+    expect(
+      freshBasketLanding({ field: null, stage: null, panelTitle: null, retry: null }),
+    ).toBeNull();
   });
 
-  it("the Browse field first; a camera panel's title last", () => {
+  it("the Browse field first; a camera panel's title after the stage", () => {
     const field = el();
     const title = el();
-    expect(freshBasketLanding({ field, stage: el(), panelTitle: title })).toBe(field);
-    expect(freshBasketLanding({ field: null, stage: null, panelTitle: title })).toBe(title);
+    expect(freshBasketLanding({ field, stage: el(), panelTitle: title, retry: el() })).toBe(field);
+    expect(freshBasketLanding({ field: null, stage: null, panelTitle: title, retry: el() })).toBe(
+      title,
+    );
+  });
+
+  it("the new basket FAILED to start (no stage ever mounts): the session banner's Retry (the blind pass on #329 @ f0d013f)", () => {
+    // MUTATION: drop the Retry → the request waits for a stage that never comes and focus stays on
+    // <body> under the role=alert banner; red.
+    const retry = el();
+    expect(freshBasketLanding({ field: null, stage: null, panelTitle: null, retry })).toBe(retry);
   });
 });

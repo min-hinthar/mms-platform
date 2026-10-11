@@ -937,9 +937,37 @@ record>))`, no client-view reference, no hand-written past tense, `undoOutcome` 
 - **Offline, the Name sheet waited for a failed lookup.** A keystroke resets the hits, so the offline
   state (which required a completed empty result) never showed and the request still went out.
   `lib/name-search.ts` decides both halves: no request with the radio down (the query is sent when it
-  returns — `online` is a dependency of the debounced search), and the sheet's offline state at once.
-  Browse keeps its shipped "Search unavailable — please try again.", now immediately.
+  returns), and the sheet's offline state at once. Browse keeps its shipped "Search unavailable —
+  please try again.", now immediately. (Making `online` a dependency of the debounced search was
+  wrong — §H.6 replaces it.)
 - **"Start a fresh basket" dropped focus on `<body>` on the Scan door.** `parkFocus` picked the pressed
   button (its `fresh` candidate) because the field and the stage were absent; the button then left
   with the banner. `freshBasketLanding` never names that button, and `usePendingFocus` waits for the
   new stage to mount, giving up if the shopper moved focus elsewhere.
+
+#### H.6 · The last capped blind pass on `f0d013f` — REJECT, fixed or justified
+
+- **Reconnect announced a failure that never happened** — **fixed.** The offline step marked a query
+  nobody sent as `searchFailed`, and `online` re-ran the search: the reconnect render read "Search
+  unavailable — please try again." with the "Try again" hero, which stayed up through the real fetch.
+  The search now lives in `lib/hooks/useNameSearch.ts`: a query typed offline is HELD (no request,
+  nothing failed), reads as on its way the moment the radio returns (`nameSearchPending`), and is sent
+  once. A search that was SENT and failed still says so on reconnect, with "Try again" (item 8 above
+  stands for that case).
+- **A radio drop wiped rows still on screen** — **fixed.** The radio is no longer a dependency of the
+  search; it is read where the step is decided. Rows stay tappable offline (the queue's "Already saved
+  — we'll check it when you're back online" path), and a focused Browse row keeps its focus. A NEW
+  query typed offline still drops the old query's rows.
+- **Proposition 6 f accepted a start hoisted above the early returns** — **fixed.** The write's own
+  top-level statement must be the `try` that lands it, with only declarations between the start and
+  it (no return, throw or await); two committed fixtures, red on the old guard.
+- **`usePendingFocus` gave up while the pressed button still held focus** — **fixed** (not live
+  today: the banner leaves in the click's own commit). The control focused at the request no longer
+  reads as "moved on".
+- **After "Start a fresh basket", a failed mint left focus on `<body>`** — **fixed.** The session
+  banner's Retry is the last landing candidate. `#scan-stage` itself mounts in the page's own commit
+  (ScanStage is a synchronous child; its panel branch carries `#scan-panel-title`, also a candidate).
+- **The Undo's own absolute write is not on the ledger** — **justified, filed.** Pre-existing: the
+  Undo's `setQty` is issued at the tap, before any replay a reconnect starts, and the replay's start
+  and landing both retire an untapped Undo. A tapped Undo racing a replay of the same item at the
+  server is a nice-to-do under PD4's row.

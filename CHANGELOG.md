@@ -98,6 +98,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   known down the Name sheet says "Search needs a connection" at once and no request is sent
   (`lib/name-search.ts`; the query re-runs when the radio returns); and "Start a fresh basket" hands
   focus to the new stage once it mounts, never to the leaving button (`usePendingFocus`).
+- **The last capped blind pass on `f0d013f` (REJECT), fixed** (the spec's §H.6): the name search moves
+  into `lib/hooks/useNameSearch.ts`, driven by its own suite through real `online` / `offline` events.
+  A query typed offline is HELD — no request, nothing marked failed — and reads as Searching… the
+  moment the radio returns, then is sent once; the reconnect no longer announces "Search
+  unavailable" about a search nobody sent, nor keeps "Try again" up through the real fetch. The radio
+  dropping no longer re-runs the search, so rows still on screen stay tappable (queued offline) and
+  Browse keeps a focused row. Proposition 6 f now requires each write's `writeStarted` right above
+  the `try` that lands it (no return, throw or await between); "Start a fresh basket" falls back to
+  the session banner's Retry when the new basket fails to start, and `usePendingFocus` keeps waiting
+  while the pressed button still holds focus.
 
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 

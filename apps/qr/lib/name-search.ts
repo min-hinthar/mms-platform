@@ -25,3 +25,14 @@ export function nameSearchOffline(
 ): boolean {
   return asked && !online && (hits === null || hits.length === 0);
 }
+
+/**
+ * PD4 (the blind pass on #329 @ f0d013f) — is a lookup ON ITS WAY? Either one is in flight, or a
+ * query the radio held back (typed offline, never sent) is about to go now that the radio is back.
+ * Reading only the in-flight flag left the reconnect render with nothing true to say, and the page
+ * filled it with a failure that never happened ("Search unavailable") and a "Try again" hero that
+ * stayed up through the real fetch.
+ */
+export function nameSearchPending(inFlight: boolean, held: boolean, online: boolean): boolean {
+  return inFlight || (held && online);
+}

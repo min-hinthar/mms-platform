@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { PaperAmbient } from "@/components/PaperAmbient";
@@ -45,7 +45,7 @@ import { useStageCover } from "@/lib/hooks/useStageCover";
 import { freshBasketLanding, nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
 import { usePendingFocus } from "@/lib/hooks/usePendingFocus";
 import { nextRefusal, type SheetRefusal } from "@/lib/sheet-refusal";
-import { nameSearchStep } from "@/lib/name-search";
+import { useNameSearch } from "@/lib/hooks/useNameSearch";
 import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
 import {
   chipArmed,
@@ -95,15 +95,6 @@ import {
 } from "@/lib/write-ledger";
 import { navEpoch } from "@/lib/nav-epoch";
 import { scanBasketReady } from "@/lib/camera-state";
-
-const subscribeOnline = (onChange: () => void) => {
-  window.addEventListener("online", onChange);
-  window.addEventListener("offline", onChange);
-  return () => {
-    window.removeEventListener("online", onChange);
-    window.removeEventListener("offline", onChange);
-  };
-};
 
 // The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
 // Weee!-anatomy cards, one-tap add) and Scan (camera on shelf barcodes), with the shared name-search
@@ -296,29 +287,19 @@ export default function Grocery() {
     };
   }, []);
 
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<GroceryHit[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
-  // PD4 — "Try again" in the Name sheet re-issues the SAME query: a nonce the search effect reads.
-  const [searchNonce, setSearchNonce] = useState(0);
-  // PD4 (Codex r1 on #329, 4222536418) — the ONE way a query changes: the previous query's rows
-  // leave at once (a row from "tea" must not be tappable under "durian" while the debounce waits)
-  // and "Searching…" shows in the same render; the debounced effect then fetches or clears.
-  const changeQuery = useCallback((q: string) => {
-    setQuery(q);
-    setHits(null);
-    setSearchFailed(false);
-    // "Searching…" only for a query that will actually be sent (lib/name-search.ts).
-    setSearching(nameSearchStep(q, navigator.onLine !== false) === "fetch");
-  }, []);
-  // PD4 — the radio, live (the ScanStage reads it the same way): the Name sheet's offline state is
-  // "Search needs a connection", not "unavailable". `truth` is the probe's cached verdict, not this.
-  const online = useSyncExternalStore(
-    subscribeOnline,
-    () => navigator.onLine !== false,
-    () => true,
-  );
+  // PD4 — the ONE name search behind Browse and the Name sheet (lib/hooks/useNameSearch.ts): the
+  // query, its rows, the radio, and a query the radio HELD (typed offline, sent when it returns).
+  const {
+    query,
+    hits,
+    searching,
+    searchFailed,
+    held: searchHeld,
+    online,
+    changeQuery,
+    retry: retrySearch,
+    reset: resetSearch,
+  } = useNameSearch(searchGroceryItems);
   const searchRef = useRef<HTMLInputElement>(null);
   // PD4 — the ONE focus-parking fallback. The Browse door's field is the stable element it always
   // was; on the Scan door that field is GONE (the Name sheet is its only search), so a removed row,
@@ -343,6 +324,7 @@ export default function Grocery() {
         field: searchRef.current,
         stage: document.getElementById("scan-stage"),
         panelTitle: document.getElementById("scan-panel-title"),
+        retry: document.getElementById("grocery-session-retry"),
       }),
     [],
   );
@@ -1130,19 +1112,20 @@ export default function Grocery() {
   // panels') opens the ONE Name sheet over the still-streaming lens. `miss` is the shelf code whose
   // tag opened it: only that sheet may draw the tag for the counter (B6). The opener is captured for
   // the close-restore; the field is cleared so a new miss starts clean.
-  const openNameSheet = useCallback((miss: string | null) => {
-    // iOS Safari leaves `activeElement` on <body> after a touch tap (blind pass on #329): a body
-    // "opener" would park the close-restore nowhere, so it is refused and the chain falls through
-    // to the chip's action, then the stage.
-    const ae = document.activeElement;
-    nameSheetOpenerRef.current = ae instanceof HTMLElement && ae !== document.body ? ae : null;
-    closedByAddRef.current = false;
-    setQuery("");
-    setHits(null);
-    setSearchFailed(false);
-    setSheetRefusal(null);
-    setNameSheet({ miss, openedAt: performance.now() });
-  }, []);
+  const openNameSheet = useCallback(
+    (miss: string | null) => {
+      // iOS Safari leaves `activeElement` on <body> after a touch tap (blind pass on #329): a body
+      // "opener" would park the close-restore nowhere, so it is refused and the chain falls through
+      // to the chip's action, then the stage.
+      const ae = document.activeElement;
+      nameSheetOpenerRef.current = ae instanceof HTMLElement && ae !== document.body ? ae : null;
+      closedByAddRef.current = false;
+      resetSearch();
+      setSheetRefusal(null);
+      setNameSheet({ miss, openedAt: performance.now() });
+    },
+    [resetSearch],
+  );
   const closeNameSheet = useCallback(() => {
     setSheetRefusal(null);
     setNameSheet(null);
@@ -1202,51 +1185,6 @@ export default function Grocery() {
     [add, addingBarcode, busyLine, cartId, cartGone, syncFailed, hydrated, flash],
   );
 
-  // Debounced name search. All setState lives in the async timeout callback — never synchronously in
-  // the effect body (cascading-render lint). A query under 2 chars clears results without a round-trip;
-  // otherwise we fetch 220 ms after the last keystroke.
-  useEffect(() => {
-    const q = query.trim();
-    let active = true;
-    const t = window.setTimeout(() => {
-      if (!active) return;
-      const step = nameSearchStep(q, online);
-      if (step === "clear") {
-        setHits(null);
-        setSearchFailed(false);
-        setSearching(false);
-        return;
-      }
-      if (step === "offline") {
-        // PD4 (Codex on #329's head ff29547) — the radio is KNOWN down: no request. Browse says its
-        // shipped "Search unavailable — please try again." at once (it used to after the lookup
-        // failed); the Name sheet reads the radio and says "Search needs a connection". `online` is
-        // a dependency, so the query is sent the moment the radio is back.
-        setHits([]);
-        setSearchFailed(true);
-        setSearching(false);
-        return;
-      }
-      setSearching(true);
-      searchGroceryItems(q)
-        .then((res) => {
-          if (!active) return;
-          setHits(res);
-          setSearchFailed(false);
-        })
-        .catch(() => {
-          if (!active) return;
-          setHits([]);
-          setSearchFailed(true); // distinguish a lookup failure from a genuine zero-result search
-        })
-        .finally(() => active && setSearching(false));
-    }, 220);
-    return () => {
-      active = false;
-      window.clearTimeout(t);
-    };
-  }, [query, searchNonce, online]);
-
   // Search-hit add — same serialization as the browse cards (adversarial MED-3: an unguarded
   // double-tap on a result row was two server adds). Pre-basket, `add` flashes the honest notice
   // and the results STAY (clearing them would read as success).
@@ -1282,8 +1220,7 @@ export default function Grocery() {
     // the sheet open with the rows still there. On the Browse door the field clears and takes focus
     // back from the unmounted row, as before.
     if (nameSheetRef.current) return;
-    setQuery("");
-    setHits(null);
+    resetSearch();
     // Tapping a hit unmounts the result button that held focus — return focus to the search input
     // (the natural place to keep going) so a keyboard / screen-reader diner isn't dropped to <body>.
     searchRef.current?.focus();
@@ -1450,7 +1387,12 @@ export default function Grocery() {
             Couldn’t start your grocery basket — this one’s usually on our end, and adding needs it
             working. Browsing may be spotty too.
           </p>
-          <button type="button" onClick={() => window.location.reload()} className="grocery-retry">
+          <button
+            id="grocery-session-retry"
+            type="button"
+            onClick={() => window.location.reload()}
+            className="grocery-retry"
+          >
             Retry
           </button>
         </div>
@@ -1592,7 +1534,9 @@ export default function Grocery() {
         <ul role="list" aria-label="Search results" className="grocery-results">
           {searching && hits.length === 0 ? (
             <li className="grocery-hint">Searching…</li>
-          ) : searchFailed ? (
+          ) : searchFailed || searchHeld ? (
+            // Held = typed with the radio down, never sent: still "unavailable" here (Browse's
+            // shipped line); the moment the radio is back it reads as Searching… and is sent.
             <li className="grocery-hint">Search unavailable — please try again.</li>
           ) : hits.length === 0 ? (
             <li className="grocery-hint">No matches — try fewer letters.</li>
@@ -2011,13 +1955,9 @@ export default function Grocery() {
         busyLineId={busyLine}
         refusal={sheetRefusal}
         onAddHit={(h) => void addHit(h)}
-        onRetry={() => {
-          // The hero must not swap to "Back to the camera" under the finger while the debounce
-          // waits (blind pass on #329): `searching` turns on in the SAME render as the retry.
-          setSearchFailed(false);
-          setSearching(true);
-          setSearchNonce((n) => n + 1);
-        }}
+        // The hero must not swap to "Back to the camera" under the finger while the debounce waits
+        // (blind pass on #329): `retry` turns `searching` on in the SAME render.
+        onRetry={retrySearch}
         onCloseAutoFocus={nameSheetCloseFocus}
       />
     </main>

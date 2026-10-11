@@ -181,6 +181,22 @@ const UNDO: Fixture[] = [
     expect: /proposition 6: `setQty\(line\.lineId, nextQty\)` is not on the write ledger/,
   },
   {
+    name: "the add's start HOISTED above its early returns — it never lands (the blind pass on f0d013f)",
+    find: "      if (!cartId) {",
+    replace:
+      "      writesRef.current = writeStarted(writesRef.current, barcode);\n      if (!cartId) {",
+    // The original start stays below, so this is the hoisted one's shape: the guard must look at
+    // the start it binds — the FIRST, above the `return`s.
+    expect: /`writeStarted` is not RIGHT ABOVE the try that\n {2}lands it/,
+  },
+  {
+    name: "an await between the stepper's start and its try (a rejection leaves it in flight)",
+    find: "      writesRef.current = writeStarted(writesRef.current, line.barcode);\n      try {",
+    replace:
+      "      writesRef.current = writeStarted(writesRef.current, line.barcode);\n      await Promise.resolve();\n      try {",
+    expect: /`writeStarted` is not RIGHT ABOVE the try that\n {2}lands it/,
+  },
+  {
     name: "the add's landing tallied under ANOTHER item",
     find: "      } finally {\n        writesRef.current = writeLanded(writesRef.current, barcode);\n      }",
     replace:

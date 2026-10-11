@@ -14,6 +14,7 @@ const pick = () =>
     field: document.getElementById("grocery-search"),
     stage: document.getElementById("scan-stage"),
     panelTitle: document.getElementById("scan-panel-title"),
+    retry: document.getElementById("grocery-session-retry"),
   });
 
 afterEach(() => {
@@ -42,6 +43,21 @@ describe("usePendingFocus — a fresh basket's focus lands on the NEW stage, not
     rerender();
     expect(document.activeElement).toBe(stage);
     expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("a commit that lands while the PRESSED button still has focus keeps waiting — the stage takes it once the button leaves (the blind pass on #329 @ f0d013f)", () => {
+    const fresh = mount("fresh", "button");
+    fresh.focus();
+    const { result, rerender } = renderHook(() => usePendingFocus(pick));
+    act(() => result.current());
+    // A commit BEFORE the banner leaves: the pressed button still holds focus.
+    // MUTATION: read that as "the shopper moved on" → the request gives up, and when the button
+    // leaves focus falls to <body>; red.
+    rerender();
+    fresh.remove();
+    const stage = mount("scan-stage");
+    rerender();
+    expect(document.activeElement).toBe(stage);
   });
 
   it("the Browse door: the field exists at the tap and takes focus at once", () => {

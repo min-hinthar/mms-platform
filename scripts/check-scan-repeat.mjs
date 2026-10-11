@@ -1364,6 +1364,11 @@ const COVER = "useStageCover";
   //    throw still lands it, or `inFlight` never falls and no later add of the item mints). And the
   //    mint's mark is taken AFTER its own start — a mark taken before it would count its own start
   //    as another writer's, and one taken later could miss a write that started in between.
+  //    ⚠️ AND THE START SITS RIGHT ABOVE THE TRY THAT LANDS IT (the blind pass on #329 @ f0d013f).
+  //    "Before it" let a start be hoisted above the add's early returns (the offline queue, no
+  //    cart): it never lands, `inFlight` stays raised, and no later add of that item ever mints an
+  //    Undo again. So the write's own top-level statement must BE that try, and between the start
+  //    and it only declarations that cannot leave the function — no return, no throw, no await.
   const ledgerStep = (st, fn, item) =>
     ts.isExpressionStatement(st) &&
     ts.isBinaryExpression(st.expression) &&
@@ -1404,6 +1409,43 @@ const COVER = "useStageCover";
         t.finallyBlock.statements.some((st) => ledgerStep(st, "writeLanded", item))
       )
         landed = true;
+    const exits = (n) => {
+      let found = false;
+      const look = (c) => {
+        if (found || ts.isFunctionLike(c)) return;
+        if (
+          ts.isReturnStatement(c) ||
+          ts.isThrowStatement(c) ||
+          ts.isAwaitExpression(c) ||
+          ts.isBreakStatement(c) ||
+          ts.isContinueStatement(c)
+        )
+          found = true;
+        else
+          ts.forEachChild(c, (g) => {
+            look(g);
+          });
+      };
+      look(n);
+      return found;
+    };
+    const own = at >= 0 ? top[at] : null;
+    const adjacent =
+      startAt >= 0 &&
+      own !== null &&
+      ts.isTryStatement(own) &&
+      w.pos >= own.tryBlock.pos &&
+      w.end <= own.tryBlock.end &&
+      !!own.finallyBlock &&
+      own.finallyBlock.statements.some((st) => ledgerStep(st, "writeLanded", item)) &&
+      top.slice(startAt + 1, at).every((st) => ts.isVariableStatement(st) && !exits(st));
+    if (startAt >= 0 && landed && !adjacent)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\`'s \`writeStarted\` is not RIGHT ABOVE the try that\n` +
+          "  lands it — the write's own top-level statement must be that try, and between the start and it\n" +
+          "  only declarations (no return, throw or await). A start that can leave before its try never\n" +
+          "  lands: `inFlight` stays raised and no later add of the item mints an Undo again.",
+      );
     if (startAt < 0 || !landed)
       fail(
         `proposition 6: \`${w.getText(src).slice(0, 60)}\` is not on the write ledger — it needs a top-level\n` +

@@ -16,10 +16,14 @@ import type { FocusTarget } from "../grocery-focus";
  */
 export function usePendingFocus(pick: () => FocusTarget | null): () => void {
   const pending = useRef(false);
+  /** Where focus was at the request — the pressed control. Still on it is not "moved on". */
+  const from = useRef<Element | null>(null);
   useEffect(() => {
     if (!pending.current) return;
     const ae = document.activeElement;
-    if (ae && ae !== document.body) {
+    // ⚠️ The pressed control keeping focus through a commit is NOT the shopper moving on (the blind
+    // pass on #329 @ f0d013f): giving up there let focus fall to <body> the moment it left.
+    if (ae && ae !== document.body && ae !== from.current) {
       pending.current = false;
       return;
     }
@@ -31,6 +35,9 @@ export function usePendingFocus(pick: () => FocusTarget | null): () => void {
   return useCallback(() => {
     const target = pick();
     if (target) target.focus({ preventScroll: true });
-    else pending.current = true;
+    else {
+      pending.current = true;
+      from.current = document.activeElement;
+    }
   }, [pick]);
 }

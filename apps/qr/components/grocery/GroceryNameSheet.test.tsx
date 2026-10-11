@@ -147,7 +147,9 @@ describe("the Name sheet — guided states", () => {
     expect(screen.getByText("မြန်မာ").getAttribute("lang")).toBe("my");
   });
 
-  it("search failed: 'Search unavailable', the hero becomes 'Try again', 'Back to the camera' is withheld, the tag shows", () => {
+  it("a SENT search that failed: 'Search unavailable', the hero becomes 'Try again', 'Back to the camera' is withheld, the tag shows", () => {
+    // Only a lookup that was sent and failed produces these props. A query the radio HELD (typed
+    // offline) never sets `searchFailed` — see the reconnect case below (lib/hooks/useNameSearch).
     const onRetry = vi.fn();
     render(
       <GroceryNameSheet {...base({ query: "durian", hits: [], searchFailed: true, onRetry })} />,
@@ -157,6 +159,19 @@ describe("the Name sheet — guided states", () => {
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(counterTag()).toBeTruthy();
+  });
+
+  it("the radio BACK with a held query (the blind pass on #329 @ f0d013f): 'Searching…' — never 'Search unavailable', never the 'Try again' hero", () => {
+    // What the page passes in that render: nothing failed (nothing was sent), the query on its way
+    // (`nameSearchPending`), the rows still empty.
+    render(
+      <GroceryNameSheet
+        {...base({ query: "durian", hits: [], searchFailed: false, searching: true, online: true })}
+      />,
+    );
+    expect(screen.getByText(/Searching/)).toBeTruthy();
+    expect(screen.queryByText("Search unavailable — please try again.")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Try again/ })).toBeNull();
   });
 
   it("offline: 'Search needs a connection — or ask at the counter.' with the tag and 'Back to the camera'", () => {

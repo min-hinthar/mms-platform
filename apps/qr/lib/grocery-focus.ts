@@ -56,11 +56,13 @@ export function nameSheetCloseTarget(c: {
 /** "Start a fresh basket": the pressed button leaves with the banner, so it is NEVER a candidate
  *  (parking on it dropped focus on <body> — Codex on #329's head ff29547). The Browse field when it
  *  exists; else the stage, which mounts on the next render (`usePendingFocus` waits for it); else a
- *  camera panel's title. */
+ *  camera panel's title; else — the new basket failed to start, so no stage ever mounts — the
+ *  session banner's Retry (the blind pass on #329 @ f0d013f). */
 export function freshBasketLanding(c: {
   field: Candidate;
   stage: Candidate;
   panelTitle: Candidate;
+  retry: Candidate;
 }): FocusTarget | null {
-  return live(c.field) ?? live(c.stage) ?? live(c.panelTitle);
+  return live(c.field) ?? live(c.stage) ?? live(c.panelTitle) ?? live(c.retry);
 }

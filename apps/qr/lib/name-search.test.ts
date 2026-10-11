@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nameSearchOffline, nameSearchStep } from "./name-search";
+import { nameSearchOffline, nameSearchPending, nameSearchStep } from "./name-search";
 
 /**
  * PD4 — the Name sheet's search with the radio known to be down. Each MUTATION is a row in
@@ -30,5 +30,19 @@ describe("nameSearchOffline — the sheet says so at ONCE, not after a lookup fa
     expect(nameSearchOffline(true, false, [{}])).toBe(false);
     expect(nameSearchOffline(true, true, null)).toBe(false);
     expect(nameSearchOffline(false, false, null)).toBe(false);
+  });
+});
+
+describe("nameSearchPending — a held query is ON ITS WAY the moment the radio is back (the blind pass on #329 @ f0d013f)", () => {
+  it("held + online reads as searching; held + offline does not (that is the offline line)", () => {
+    // MUTATION: read only the in-flight flag → the reconnect render has nothing true to say and
+    // the page filled it with a failure that never happened; red.
+    expect(nameSearchPending(false, true, true)).toBe(true);
+    expect(nameSearchPending(false, true, false)).toBe(false);
+  });
+
+  it("a lookup in flight is searching whatever the radio says; nothing held, nothing in flight is not", () => {
+    expect(nameSearchPending(true, false, false)).toBe(true);
+    expect(nameSearchPending(false, false, true)).toBe(false);
   });
 });
