@@ -85,6 +85,14 @@ import {
 } from "@/lib/grocery-queue";
 import { lookupCachedItem } from "@/lib/grocery-catalog-cache";
 import { classifyScan } from "@/lib/scan-gate";
+import {
+  afterCharge,
+  afterRemoval,
+  afterView,
+  chargeMark,
+  NO_BILLED,
+  type BilledLedger,
+} from "@/lib/scan-billed";
 import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
@@ -148,9 +156,12 @@ export default function Grocery() {
   // it — a fresh identity per basket change would tear down and restart the camera on every scan.
   // `billedRef` is this session's own record and the ONLY source that survives a failed post-write
   // read (`scanAdd` answers `lines: null`), which is exactly when the server view cannot prove it.
+  // EVERY ok charge records its code here — the live add and the offline queue's replay alike (G25;
+  // check:scan-repeat proposition 8) — through `afterCharge` (lib/scan-billed.ts), which also keeps a
+  // record from outliving its line: a removal that crossed the write, or a view without the code.
   const linesRef = useRef<GroceryLine[]>(lines);
   const pendingRef = useRef<QueuedScan[]>([]);
-  const billedRef = useRef<Set<string>>(new Set());
+  const billedRef = useRef<BilledLedger>(NO_BILLED);
   // The barcode the chip under the viewfinder is about. Set on every scan that lands OR is refused
   // as a repeat, so the "Add another" path is on screen BEFORE the shopper presents a second copy.
   // `viaPairing`: the chip was reached by judging a missed shelf code as the item the shopper added
@@ -262,6 +273,14 @@ export default function Grocery() {
   // later-issued read has already applied.
   const reqSeq = useRef(0);
   const appliedSeq = useRef(0);
+  // G25 (Codex P1 · the second blind pass on #344) — the ticket counter at the newest ok CHARGE's
+  // LANDING, plus one. Any view issued before that landing — before the charge left, or while it was
+  // in flight — may have been read before its write committed, so it never applies after it: not
+  // even when the charge brought no view of its own (`lines: null`), which advances `appliedSeq`
+  // nothing. The charge's OWN view applies first, under the floor it is about to raise. A view that
+  // already applied DURING the flight is superseded by the re-read the landing then asks for
+  // (`crossedRead`). `markCartGone` stays floor-free: a terminal answer is monotonic.
+  const viewFloor = useRef(0);
   // Codex round 4 on #300 — the header's "Your basket · N" counts only what a server read APPLIED
   // (the stepper's optimistic `setLines` never passes through here, so a refused edit is never
   // published as fact); the effect below publishes it, with the mode /grocery's URL does not carry.
@@ -515,7 +534,12 @@ export default function Grocery() {
   const markCartAlive = useCallback(
     (seq: number, lines: GroceryLine[]) => {
       if (seq <= appliedSeq.current) return; // stale — it lost the race; a fresher answer stands
+      if (seq < viewFloor.current) return; // issued before a charge that has since landed
       applyLines(seq, lines);
+      // G25 (Codex on c03743f) — a view that passes both guards was issued after every recorded charge
+      // landed: a recorded code it does not hold was removed after it was charged, and its record goes
+      // (`afterView`, lib/scan-billed.ts says why the floor makes that safe). Not in `markCartGone`.
+      billedRef.current = afterView(billedRef.current, lines);
       setHydrated(true);
       setSyncFailed(false);
       setCartGone(null);
@@ -606,7 +630,8 @@ export default function Grocery() {
       // the Undo: a "−" inside the window already reversed the add, and a live Undo would then write
       // one fewer again — removing a unit the basket held BEFORE the add.
       setUndo((prev) => undoAfterWrite(prev, line.barcode));
-      if (nextQty <= 0) billedRef.current.delete(line.barcode);
+      // …and every charge of it still in flight CROSSED this removal (`afterRemoval`, G25).
+      if (nextQty <= 0) billedRef.current = afterRemoval(billedRef.current, line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
       // PD4 (Codex r4 on #329, 4240341727) — the pairing as the removal found it: a re-read of the
@@ -649,6 +674,10 @@ export default function Grocery() {
         const r = await getGroceryLines(cartId);
         if (r.ok) {
           markCartAlive(seq, r.lines); // seq-guarded both ways — see the helper
+          // G25 — a charge that landed during this read raised the view floor past its ticket, so
+          // the view did not apply; a REFUSED write's flip must not outlive it (the charge's own
+          // re-read settles the list).
+          if (!wrote && appliedSeq.current === appliedAtFlip) setLines(snapshot);
         } else if (isTerminal(r.reason)) {
           // The write's failure had a terminal cause — the basket is finished; the shared
           // transition also overwrites the "try again" flash above with the honest reason.
@@ -766,7 +795,7 @@ export default function Grocery() {
           {
             lines: linesRef.current,
             queued: pendingRef.current.map((q) => q.barcode),
-            billed: [...billedRef.current],
+            billed: [...billedRef.current.billed],
           },
           judged,
         );
@@ -839,6 +868,9 @@ export default function Grocery() {
       // below can tell whether any other write of the item crossed it (lib/scan-undo.ts).
       writesRef.current = writeStarted(writesRef.current, barcode);
       const mark = writeMark(writesRef.current, barcode);
+      // G25 — the item's removal generation as the write leaves: a removal that crosses it means the
+      // response cannot say whether its line still stands (lib/scan-billed.ts).
+      const billedMark = chargeMark(billedRef.current, barcode);
       let r;
       try {
         r = await ledger.track(scanAdd(cartId, barcode, scanId));
@@ -884,20 +916,29 @@ export default function Grocery() {
         addedRef.current += 1;
         // M186 — this session's own record that the basket is now paying for this barcode. It is
         // the only one left when `r.lines` is null (the post-write read failed), and that is
-        // precisely when a second sighting would otherwise bill again.
-        billedRef.current.add(barcode);
-        setLastScanned({ code: barcode, viaPairing: false });
-        noteOutcome("ok", via, barcode);
+        // precisely when a second sighting would otherwise bill again. G25 — never recorded when a
+        // removal crossed the write or the add's own view lacks the code; `reread` asks the server
+        // again when nothing this response holds can show the line.
+        const billing = afterCharge(billedRef.current, barcode, billedMark, r.lines);
+        billedRef.current = billing.ledger;
+        // G25 — a read left while this charge was in flight: whatever it answers may predate the
+        // write, and if it applied first, this charge's own view below loses to its ticket.
+        const crossedRead = reqSeq.current > seq;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
-        // post-write read failed: keep the current list (a failed read is never an empty basket);
-        // the next scan/focus re-syncs.
+        // post-write read failed: keep the current list (a failed read is never an empty basket).
         // The alive answer clears the terminal banner too — but only through the seq guard: a slow
         // add issued pre-payment must not clear a banner a fresher read has since proven true
-        // (Codex P1 — the guard cuts both ways). `lines: null` = the post-write read failed: no
-        // view to apply and no ordering ticket to trust, so no state transition either — the next
-        // sync settles it.
+        // (Codex P1 — the guard cuts both ways). Applied BEFORE the floor below rises past it.
         if (r.lines) markCartAlive(seq, r.lines);
+        // G25 — every view issued before this landing may predate the write: none applies after it.
+        viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);
+        setLastScanned({ code: barcode, viaPairing: false });
+        noteOutcome("ok", via, barcode);
+        // G25 — a charge no view shows (the read failed, or a removal crossed it), or one a read
+        // crossed: ask again, through the ticketed read, so the list and its total catch up
+        // instead of waiting for a re-focus.
+        if (billing.reread || crossedRead) syncNow();
         // PD4 — the Toast only SPEAKS the add (B3); the Undo lives in the chip's slot.
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`, { my: ADDED_MY });
         // PD4 — an add from the Name sheet: the sheet closes on the server's ok ONLY (decision
@@ -1015,6 +1056,7 @@ export default function Grocery() {
       noteOutcome,
       ledger,
       closeSheetOnOk,
+      syncNow,
     ],
   );
 
@@ -1037,11 +1079,15 @@ export default function Grocery() {
       // (An assertion, not an annotation: TS would narrow an annotated `null` past the callback.)
       let speakIn = null as NameSheetOpen | null;
       const closed = new Set<NameSheetOpen>();
+      // G25 — a delivered replay no view showed: the basket is read once the drain is done.
+      let reread = false;
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
         setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too
         writesRef.current = writeStarted(writesRef.current, entry.barcode);
         const seq = ++reqSeq.current;
+        // G25 — the item's removal generation as the replay leaves (the live add's rule).
+        const billedMark = chargeMark(billedRef.current, entry.barcode);
         let r: Awaited<ReturnType<typeof scanAdd>>;
         try {
           r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
@@ -1073,7 +1119,20 @@ export default function Grocery() {
         }
         if (r.ok) {
           delivered += 1;
+          // G25 — M186's record, exactly as the live add keeps it: the replay CHARGED this code. Its
+          // entry leaves the queue at this drain's `syncPending()`, and with `r.lines` null nothing
+          // on screen shows the line yet — unrecorded, the next camera read of that jar classifies
+          // `add` and bills a second unit (check:scan-repeat proposition 8). After the era check
+          // above: an abandoned basket's charge is not this one's. A removal that crossed the replay,
+          // or a view without the code (an idempotent replay of a removed line), records nothing.
+          const billing = afterCharge(billedRef.current, entry.barcode, billedMark, r.lines);
+          billedRef.current = billing.ledger;
+          // The live add's landing rule: a read that crossed the replay, its own view first, then
+          // the floor at this landing — and a re-read owed for either.
+          const crossedRead = reqSeq.current > seq;
           if (r.lines) markCartAlive(seq, r.lines);
+          viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);
+          if (billing.reread || crossedRead) reread = true;
           return { ok: true };
         }
         // Narrow the catalog reasons away so isTerminal sees the CartUnavailable half of the union.
@@ -1102,11 +1161,14 @@ export default function Grocery() {
           setSheetRefusal((prev) => nextRefusal(prev, summary));
         else flash(summary);
       }
+      // G25 — a replay landed that nothing on screen shows: the ticketed read brings its line (and
+      // the total) up to date, once per drain, and only for the basket the drain ran for.
+      if (reread && cartIdRef.current === forCart) syncNow();
     } finally {
       drainingRef.current = false;
       syncPending();
     }
-  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger, closeSheetOnOk]);
+  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger, closeSheetOnOk, syncNow]);
 
   useEffect(() => {
     const onOnline = () => void drainNow();
@@ -1316,7 +1378,7 @@ export default function Grocery() {
     }
     if (wrote) {
       // M186 — the barcode is a new item again only once its line is gone.
-      if (target === 0) billedRef.current.delete(u.barcode);
+      if (target === 0) billedRef.current = afterRemoval(billedRef.current, u.barcode);
       // PD4 (Codex r4 on #329, 4240341730) — the Undo reversed the add, so the pairing the add MADE
       // goes with it whatever qty was written (an add that stepped ×1 → ×2, undone to ×1, must not
       // leave "you added {item} for this code"); an emptied line spends any pairing to the item.
@@ -1511,9 +1573,13 @@ export default function Grocery() {
               // React Compiler forbids mutating these refs from effect bodies.)
               appliedSeq.current = reqSeq.current;
               addedRef.current = 0;
+              // The era ends NOW, not when `cartId`'s effect runs (Codex P2 on #344): every
+              // continuation of the abandoned basket — a replay landing, an add's ok — checks
+              // `cartIdRef` before it touches this page, and none may pass it into the fresh one.
+              cartIdRef.current = undefined;
               // M186 — the abandoned basket's charges are not this one's: a barcode the dead cart
               // paid for must scan cleanly into the fresh one.
-              billedRef.current = new Set();
+              billedRef.current = NO_BILLED;
               setLastScanned(null);
               setSlot(null); // Phase 1c — the dead basket's result bar goes with it
               pairingRef.current = null; // PD4 — and its pairing, its Undo and its sheet

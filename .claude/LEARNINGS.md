@@ -3965,3 +3965,45 @@ traps from the same pass: a rescue for a new surface must never re-shape a shipp
 it (a `tabIndex={-1}` added to the live ticket grid changed the board for every cook) — follow the
 screen's own focus rule instead; and a liveness matcher must be aimed red-first at the literal-dead
 shapes too (`{false && <X/>}` satisfied a parse-only refusal).
+
+## #260
+
+**An exemption is a population cut: the obligations that still bind the exempt site need their own
+proposition (G25, 2026-10-11).** `check:scan-repeat` proposition 1 exempted the offline queue's replay
+from "every charge is classified first" — rightly: it was classified at scan time. But the exemption
+made the replay invisible to the only proposition about charges, and nothing asserted what EVERY
+charge owes regardless of door: recording its code in `billedRef` on ok. The live add kept that line;
+the replay never had it, so a replay delivered with `lines: null` was billed again on the next camera
+read, with every guard green. When a guard exempts a call site, list what the exempt site must still
+do, and pin THOSE over the whole population (proposition 8 walks every live `scanAdd`, exempt or
+not) — an exemption should narrow one rule, never the guard's sight.
+
+## #261
+
+**A race that React's scheduler closes cannot be watched open — pin the fix by its SHAPE, and do not
+register a mutant no render can kill (#344, 2026-10-11).** Codex named a window on the grocery page:
+the fresh-basket handler reset the charge record synchronously, but `cartIdRef` followed `cartId`
+only through a passive effect, so an old basket's replay resuming "in between" would pass its era
+check and mark the fresh basket. A page row that clicks "Start a fresh basket" and lands the replay
+in the same `act` stayed GREEN on the unfixed page: React 18+ flushes the passive effects of a
+discrete input (click, keydown) synchronously at the end of the event, before any microtask
+continuation runs. The defensive fix (end the era in the handler, before the reset) still belongs —
+the page should not lean on scheduler timing — but a mutant dropping it would SURVIVE every run, so
+it is pinned structurally (`check:scan-repeat` proposition 8: a `NO_BILLED` reset must follow
+`cartIdRef.current = undefined` in its block) and the row pins what a render CAN show (the record's
+placement behind the era check). Before writing "red-first" for a race, run the row against the
+unfixed code: green there means the harness cannot open the window, not that the fix works.
+
+## #262
+
+**Next 16 serializes server functions on the client, and a navigation releases the queue — measure
+that before building, or dismissing, an ordering defence (#344, 2026-10-11).** The grocery page's
+view floor defends against server-function answers arriving out of order (a read answered before a
+write committed, landing after it). Next 16.2.9's action queue (`app-router-instance.js`,
+`dispatchAction`) runs server functions ONE AT A TIME; only an ACTION_NAVIGATE / RESTORE starts early,
+and the queue resumes after it while the discarded action's fetch is still in flight. So those
+interleavings are reachable only across a mid-flight navigation — narrow, but real. Both mistakes
+are cheap to make: a reviewer can call such a defence decorative because "actions are serialized",
+and an author can build an elaborate one for an interleaving the framework never produces. Read the
+queue's dispatch rule in the INSTALLED version, name the one path that breaks serialization, and
+write the defence (and its residual's reachability) against that path.

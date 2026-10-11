@@ -1638,6 +1638,341 @@ const COVER = "useStageCover";
   }
 }
 
+// ── (8) Every ok charge RECORDS its code — the live add AND the queue's replay (G25) — and a record
+//        never outlives its line (the reviews of #344) ──────────────────────────────────────────────
+// M186's classifier judges a sighting against three sources, and the charge record (`billedRef`, a
+// `BilledLedger` — lib/scan-billed.ts) is the only one left when the post-write read fails (`scanAdd`
+// answers `lines: null`). The live add always recorded it; the offline queue's replay did not, so a
+// replay delivered with no view left the queue at the drain's `syncPending()` while the list did not
+// show it yet, and the next camera read of that jar billed a second unit (G25 — a MISSING line, which
+// no other proposition here could see: (1) exempts the replay from the classifier, by design). The
+// reviews of #344 found the opposite failure: a record that outlives its line (a removal that crossed
+// the write; a view without the code) makes the camera refuse an item the basket no longer holds.
+// The rules are pure (`afterCharge` · `afterRemoval` · `chargeMark`, mutant-pinned); this pins the
+// WIRING. For EVERY live `scanAdd(K, C, …)` in the page — whichever function makes it, F:
+//   a. its result is bound to exactly ONE identifier R in F;
+//   b. THE DISPATCH MARK: exactly one top-level `const M = chargeMark(billedRef.current, C)` of F,
+//      BEFORE the charge's own top-level statement — taken at landing, no removal could ever cross;
+//   c. THE ERA CHECK: after the charge's statement, a top-level `if (cartIdRef.current !== K) …` that
+//      leaves — an abandoned basket's charge is never this one's;
+//   d. THE RECORD: a top-level `if` AFTER that era check, testing exactly `R.ok` (never `R.ok &&
+//      R.lines` — G25's own shape), whose then-branch holds at its own top level `const B =
+//      afterCharge(billedRef.current, C, M, R.lines)` and then `billedRef.current = B.ledger`, nothing
+//      before either able to leave the branch (return · throw · break · continue · await);
+//   e. NO EXIT BETWEEN (the blind pass on #344): every top-level statement between the charge's and
+//      the record's, the era check aside, cannot leave F — `if (R.ok && !R.lines) { …; return; }`
+//      parked above the record would end an ok charge unrecorded;
+//   f. F writes the record nowhere else: no other assignment to `billedRef` / `billedRef.current`, and
+//      no call whose callee reaches `billedRef` (a method on the ledger) anywhere in F.
+// And page-wide: `billedRef` is declared exactly ONCE; the one live `classifyScan(…)` takes
+// `billed: [...billedRef.current.billed]`; every other write of `billedRef.current` is
+// `afterRemoval(billedRef.current, …)` (a removal — a new generation), `afterView(billedRef.current,
+// <its lines>)` as a top-level statement of `markCartAlive` after its `applyLines(…)` (an APPLIED
+// view drops the records it lacks — Codex on c03743f; anywhere else a floor-refused view would drop a
+// newer charge's record) or `NO_BILLED` (a fresh basket), and a `NO_BILLED` reset is preceded in its own block by `cartIdRef.current = undefined` — the era
+// ends BEFORE the record resets, or a continuation of the abandoned basket passes (c) and marks the
+// fresh one (Codex P2 on #344). Comments are not AST nodes; a literally-dead charge charges nothing
+// and is skipped. Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, and
+// the matcher's own weakenings committed beside them.
+const BILLED = "billedRef";
+{
+  const leaves = (st) => {
+    let found = false;
+    const look = (c) => {
+      if (found || ts.isFunctionLike(c)) return;
+      if (
+        ts.isReturnStatement(c) ||
+        ts.isThrowStatement(c) ||
+        ts.isAwaitExpression(c) ||
+        ts.isBreakStatement(c) ||
+        ts.isContinueStatement(c)
+      )
+        found = true;
+      else
+        ts.forEachChild(c, (g) => {
+          look(g);
+        });
+    };
+    look(st);
+    return found;
+  };
+  const LEDGER = `${BILLED}.current`;
+  const isCallTo = (e, name) =>
+    !!e && ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === name;
+  const isAssignTo = (st, target) =>
+    ts.isExpressionStatement(st) &&
+    ts.isBinaryExpression(st.expression) &&
+    st.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    printed(st.expression.left) === target;
+  const reachesBilled = (n) => {
+    let hit = false;
+    walk(n, (m) => {
+      if (ts.isIdentifier(m) && m.text === BILLED) hit = true;
+    });
+    return hit;
+  };
+  const billedDecls = [];
+  walk(src, (n) => {
+    if (
+      (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === BILLED
+    )
+      billedDecls.push(n);
+  });
+  if (billedDecls.length !== 1)
+    fail(
+      `proposition 8: \`${BILLED}\` is declared ${billedDecls.length} times in ${PAGE} — exactly ONE, the record\n` +
+        "  the classifier reads; a second (a shadow) takes the record where the classifier never looks.",
+    );
+  const classifiers = callsTo(CLASSIFIER).filter((c) => !isLiterallyDead(c));
+  const basket = classifiers.length === 1 ? classifiers[0].arguments[0] : null;
+  const billedProp =
+    basket && ts.isObjectLiteralExpression(basket)
+      ? basket.properties.filter((p) => p.name && p.name.getText(src) === "billed")
+      : [];
+  const readsBilled =
+    billedProp.length === 1 &&
+    ts.isPropertyAssignment(billedProp[0]) &&
+    printed(billedProp[0].initializer) === `[...${LEDGER}.billed]`;
+  if (!readsBilled)
+    fail(
+      `proposition 8: the live ${CLASSIFIER}() must take \`billed: [...${LEDGER}.billed]\` — the record every ok\n` +
+        "  charge lands in. Read from anywhere else, the record is decorative and a charge whose\n" +
+        "  post-write read failed is billed again on the next sighting.",
+    );
+  const charges = callsTo(CHARGE).filter((c) => !isLiterallyDead(c));
+  const recordStatements = new Set();
+  for (const c of charges) {
+    const label = `\`${c.getText(src).slice(0, 60)}\``;
+    const code = c.arguments[1] ? printed(c.arguments[1]) : null;
+    const cart = c.arguments[0] ? printed(c.arguments[0]) : null;
+    const F = enclosingFunction(c);
+    const top = F && F.body && ts.isBlock(F.body) ? F.body.statements : [];
+    const at = top.findIndex((st) => c.pos >= st.pos && c.end <= st.end);
+    if (!F || !code || !cart || at < 0) {
+      fail(`proposition 8: ${label} is not a statement of a function body this guard can read.`);
+      continue;
+    }
+    const bound = new Set();
+    walk(F, (n) => {
+      const pair =
+        ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          ? [n.left, n.right]
+          : ts.isVariableDeclaration(n) && n.initializer
+            ? [n.name, n.initializer]
+            : null;
+      if (!pair || !ts.isIdentifier(pair[0])) return;
+      if (c.pos >= pair[1].pos && c.end <= pair[1].end) bound.add(pair[0].text);
+    });
+    if (bound.size !== 1) {
+      fail(
+        `proposition 8: ${label}'s result must be bound to exactly ONE identifier; found ${bound.size}` +
+          ` (${[...bound].join(", ") || "none"}).\n` +
+          "  An unbound charge cannot say it landed, so nothing can record it.",
+      );
+      continue;
+    }
+    const R = [...bound][0];
+    // b. the dispatch mark
+    const marks = [];
+    top.slice(0, at).forEach((st) => {
+      if (!ts.isVariableStatement(st)) return;
+      for (const d of st.declarationList.declarations)
+        if (
+          ts.isIdentifier(d.name) &&
+          isCallTo(d.initializer, "chargeMark") &&
+          d.initializer.arguments.length === 2 &&
+          printed(d.initializer.arguments[0]) === LEDGER &&
+          printed(d.initializer.arguments[1]) === code
+        )
+          marks.push(d.name.text);
+    });
+    if (marks.length !== 1) {
+      fail(
+        `proposition 8: ${label} needs exactly ONE top-level \`const <M> = chargeMark(${LEDGER}, ${code})\` BEFORE it\n` +
+          `  (found ${marks.length}). The mark is the item's removal generation as the write leaves; taken any\n` +
+          "  later, a removal that crossed the write is invisible and its record outlives the line.",
+      );
+      continue;
+    }
+    const M = marks[0];
+    // c. the era check
+    const era = top.findIndex(
+      (st, i) =>
+        i > at &&
+        ts.isIfStatement(st) &&
+        printed(st.expression) === `cartIdRef.current !== ${cart}` &&
+        leaves(st.thenStatement),
+    );
+    // d. the record, after the era check
+    let recordAt = -1;
+    if (era >= 0)
+      top.forEach((st, i) => {
+        if (recordAt >= 0 || i <= era) return;
+        if (!ts.isIfStatement(st) || printed(st.expression) !== `${R}.ok`) return;
+        const body = ts.isBlock(st.thenStatement)
+          ? st.thenStatement.statements
+          : [st.thenStatement];
+        let B = null;
+        let ok = false;
+        for (let k = 0; k < body.length; k++) {
+          const b = body[k];
+          if (
+            !B &&
+            ts.isVariableStatement(b) &&
+            b.declarationList.declarations.length === 1 &&
+            ts.isIdentifier(b.declarationList.declarations[0].name)
+          ) {
+            const init = b.declarationList.declarations[0].initializer;
+            if (
+              isCallTo(init, "afterCharge") &&
+              init.arguments.length === 4 &&
+              printed(init.arguments[0]) === LEDGER &&
+              printed(init.arguments[1]) === code &&
+              printed(init.arguments[2]) === M &&
+              printed(init.arguments[3]) === `${R}.lines`
+            )
+              B = b.declarationList.declarations[0].name.text;
+          } else if (B && isAssignTo(b, LEDGER) && printed(b.expression.right) === `${B}.ledger`) {
+            ok = true;
+            recordStatements.add(b);
+            break;
+          }
+          if (leaves(b)) break;
+        }
+        if (ok) recordAt = i;
+      });
+    if (era < 0)
+      fail(
+        `proposition 8: ${label} has no era check after it — a top-level \`if (cartIdRef.current !== ${cart}) …\`\n` +
+          "  that leaves. An abandoned basket's charge must never land in the fresh basket's record.",
+      );
+    else if (recordAt < 0)
+      fail(
+        `proposition 8: ${label} never RECORDS its charge — no top-level \`if (${R}.ok)\` after its era check holds\n` +
+          `  \`const <B> = afterCharge(${LEDGER}, ${code}, ${M}, ${R}.lines)\` then \`${LEDGER} = <B>.ledger\` at its own\n` +
+          "  top level, ahead of anything that can leave it. M186's record is the only one left when the\n" +
+          "  post-write read fails: unrecorded, the code leaves the queue while the list does not show\n" +
+          "  it, and the next sighting bills it again (G25).",
+      );
+    else {
+      // e. no exit between the charge and the record but the era check
+      const exit = top.slice(at + 1, recordAt).find((st, k) => at + 1 + k !== era && leaves(st));
+      if (exit)
+        fail(
+          `proposition 8: ${label} can leave before its record (\`${exit.getText(src).slice(0, 60)}\`).\n` +
+            "  Between the charge and its record only the era check may leave: any other exit ends an ok\n" +
+            "  charge unrecorded, and its code is billed again on the next sighting (the blind pass on #344).",
+        );
+    }
+    // f. F writes the record nowhere else
+    walk(F, (n) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        isAssignmentKind(n.operatorToken.kind) &&
+        (printed(n.left) === BILLED || printed(n.left) === LEDGER) &&
+        ![...recordStatements].some((st) => st.expression === n)
+      )
+        fail(
+          `proposition 8: ${label}'s function writes \`${printed(n.left)}\` outside its record (\`${n.getText(src).slice(0, 60)}\`).`,
+        );
+      if (ts.isCallExpression(n) && reachesBilled(n.expression))
+        fail(
+          `proposition 8: ${label}'s function calls a method on the record (\`${n.getText(src).slice(0, 60)}\`) —\n` +
+            "  it changes only through `afterCharge` / `afterRemoval`, never in place.",
+        );
+    });
+  }
+  // Page-wide: every other write of the record is a removal or a fresh basket's reset, and the reset
+  // comes after the era ends.
+  walk(src, (n) => {
+    if (
+      !ts.isBinaryExpression(n) ||
+      !isAssignmentKind(n.operatorToken.kind) ||
+      (printed(n.left) !== BILLED && printed(n.left) !== LEDGER)
+    )
+      return;
+    if ([...recordStatements].some((st) => st.expression === n)) return;
+    const removal =
+      printed(n.left) === LEDGER &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isCallTo(n.right, "afterRemoval") &&
+      n.right.arguments.length === 2 &&
+      printed(n.right.arguments[0]) === LEDGER;
+    const reset =
+      printed(n.left) === LEDGER &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(n.right) &&
+      n.right.text === "NO_BILLED";
+    // An APPLIED view drops the records it does not hold (Codex on c03743f): only where a view has
+    // passed both guards — a top-level statement of `markCartAlive`, after its `applyLines(…)`, over
+    // its own `lines`. Before the floor guard, in `markCartGone`, or over another list, a view the
+    // floor refuses (Codex P1's older view) would drop a NEWER charge's record.
+    const viewDrop =
+      printed(n.left) === LEDGER &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isCallTo(n.right, "afterView") &&
+      n.right.arguments.length === 2 &&
+      printed(n.right.arguments[0]) === LEDGER;
+    if (viewDrop) {
+      const alive = callbackBoundTo("markCartAlive");
+      const top = alive && ts.isBlock(alive.body) ? alive.body.statements : [];
+      const at = top.indexOf(n.parent);
+      const applyAt = top.findIndex(
+        (st) => ts.isExpressionStatement(st) && isCallTo(st.expression, "applyLines"),
+      );
+      const own = alive?.parameters[1];
+      const placed =
+        at >= 0 &&
+        applyAt >= 0 &&
+        at > applyAt &&
+        !!own &&
+        ts.isIdentifier(own.name) &&
+        printed(n.right.arguments[1]) === own.name.text;
+      if (!placed)
+        fail(
+          `proposition 8: \`${n.getText(src).slice(0, 70)}\` drops records outside an APPLIED view — an\n` +
+            "  `afterView(…)` write must be a top-level statement of `markCartAlive`, after its `applyLines(…)`,\n" +
+            "  over its own lines. Anywhere else a view the floor refuses drops a newer charge's record.",
+        );
+      return;
+    }
+    if (!removal && !reset) {
+      fail(
+        `proposition 8: \`${n.getText(src).slice(0, 70)}\` writes the record by hand — only a charge's record,\n` +
+          "  `afterRemoval(…)` (a removal: a new generation every charge in flight can see), `afterView(…)` in\n" +
+          "  `markCartAlive` (an applied view) or `NO_BILLED` (a fresh basket) may.",
+      );
+      return;
+    }
+    if (!reset) return;
+    const stmt = n.parent;
+    const block = stmt && stmt.parent;
+    const sibs =
+      stmt && ts.isExpressionStatement(stmt) && block && ts.isBlock(block)
+        ? block.statements
+        : null;
+    const i = sibs ? sibs.indexOf(stmt) : -1;
+    const ended =
+      i > 0 &&
+      sibs
+        .slice(0, i)
+        .some(
+          (st) =>
+            isAssignTo(st, "cartIdRef.current") &&
+            st.expression.right.kind === ts.SyntaxKind.Identifier &&
+            st.expression.right.text === "undefined",
+        );
+    if (!ended)
+      fail(
+        "proposition 8: the record resets to `NO_BILLED` without first ending the era — `cartIdRef.current =\n" +
+          "  undefined` must come before it in the same block. Until `cartId`'s effect runs, a continuation of\n" +
+          "  the abandoned basket passes its era check and marks the fresh one (Codex P2 on #344).",
+      );
+  });
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -1651,5 +1986,6 @@ console.log(
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
     ` each sheet's cover lifted only by its exit end or the fail-safe;` +
     ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>);` +
-    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet\x1b[0m`,
+    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet;` +
+    ` every ok charge, live or replayed, records its code in ${BILLED} through afterCharge, behind its era check, from its dispatch mark\x1b[0m`,
 );
