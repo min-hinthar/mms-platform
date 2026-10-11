@@ -46,8 +46,8 @@ const TOKENS = "packages/ui/src/tokens.css";
 const SHEETS = ["apps/qr/app/globals.css"];
 /** Host classes rendered INSIDE a CounterPass (a class token, matched whole). */
 // `.counter-pass*` — the counter ask's pass (PD2); `.pass-dish*` — the dish rows on the "Show a
-// server" pass (PD1).
-const IN_PASS = /\.(?:counter-pass|pass-dish(?:es)?)(?:-[\w-]+)?(?![\w-])/;
+// server" pass (PD1); `.live-pass*` — the Bill's live One Pass and its boarded pay-step twin (PD10).
+const IN_PASS = /\.(?:counter-pass|pass-dish(?:es)?|live-pass)(?:-[\w-]+)?(?![\w-])/;
 
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 

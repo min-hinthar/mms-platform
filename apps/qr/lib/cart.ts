@@ -672,6 +672,10 @@ export async function getCartView(cartId: string): Promise<{
   nudgeReady: boolean;
   /** PD1 — the app server's clock (ISO) as this view was made. */
   serverNow: string;
+  /** PD10 — the DATABASE clock (`mms_now()`, ISO), read BEFORE the lines: what a bump's undo window
+   *  and a Send's grace are measured against on the guest's pass (falls back, logged, to this
+   *  server's clock at the same point when the clock read fails). */
+  dbNow: string;
   /** The session's mode (`table_sessions.mode`), from the fail-closed authorization read. */
   mode: string;
 }> {
@@ -694,16 +698,43 @@ export async function getCartView(cartId: string): Promise<{
   // 503 for BOTH arms is deliberate even though `.single()` also errors on zero rows: this function
   // cannot tell "gone" from "unreadable", and `assertCartMember` — which can, and answers 404
   // `no_cart` — proved this cart open one statement earlier. Unknowable is not a verdict.
-  const { data: cart, error: cartErr } = await db
-    .from("qr_carts")
-    .select("pickup_slot,fire_at,tab_type,counter_requested_at,table_sessions(table_number)")
-    .eq("id", id)
-    .single();
+  // PD10 — THE DB CLOCK, READ BEFORE THE LINES (D5, Codex round 4). The guest's pass counts a bump
+  // as Served only once it is `KDS_UNDO_MS` old on the DB clock (`lib/kitchen-track.ts`), and that
+  // comparison is honest only if the clock was read NO LATER than the lines: a clock read after them
+  // can land past a bump's six seconds while the lines predate an Undo Mom sent inside them — the
+  // pass would read Served (and the door, after the flip, would open) over a dish she took back. So
+  // `mms_now()` rides beside the cart read, and both answer before the line read begins — no extra
+  // round trip on the hot path. ADVISORY, like the lookups below: a failed clock read falls back to
+  // this server's clock taken at the same point (still before the lines), logged — the authoritative
+  // gate is `create-intent`'s own read, which fails CLOSED (`readServedGateInput`).
+  const [{ data: cart, error: cartErr }, clockRes] = await Promise.all([
+    db
+      .from("qr_carts")
+      .select("pickup_slot,fire_at,tab_type,counter_requested_at,table_sessions(table_number)")
+      .eq("id", id)
+      .single(),
+    db.rpc("mms_now"),
+  ]);
   if (cartErr) throw UNAVAILABLE();
+  const dbNow =
+    !clockRes.error &&
+    typeof clockRes.data === "string" &&
+    Number.isFinite(Date.parse(clockRes.data))
+      ? clockRes.data
+      : (() => {
+          console.error(
+            "[cart] getCartView: mms_now unreadable — the pass is timed on the app clock",
+            {
+              cartId: id,
+              error: clockRes.error?.message,
+            },
+          );
+          return new Date().toISOString();
+        })();
   const { data: rows, error: rowsErr } = await db
     .from("qr_cart_items")
     .select(
-      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes,created_at",
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,bumped_at,comped,fulfillment,notes,created_at",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
@@ -767,6 +798,9 @@ export async function getCartView(cartId: string): Promise<{
     // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).
     lineState: (r.state ?? "draft") as LineState,
     fireAt: r.fire_at ?? null,
+    // PD10 — the bump stamp, raw: the track reads it against `dbNow` (served only once it is
+    // `KDS_UNDO_MS` old), so the pass never reads a bare `served` as Served.
+    bumpedAt: r.bumped_at ?? null,
     // Comped (S2.3): the kitchen still makes it but the guest isn't charged — the cart shows a "Comped"
     // chip and the totals (getCartTotals) exclude it. Distinct from 'voided' (removed entirely).
     comped: r.comped ?? false,
@@ -833,6 +867,9 @@ export async function getCartView(cartId: string): Promise<{
     // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
     // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.
     serverNow: new Date().toISOString(),
+    // PD10 — the DB clock read before the lines (above): the one clock the guest's pass and its
+    // served door compare `fire_at` / `bumped_at` against (lib/live-pass).
+    dbNow,
     // Codex round 2 on #331 — the session's mode from the SAME fail-closed read that authorized this
     // view (`assertCartMember`, M108), so the Bill's parked phone-pay door never hangs off the
     // best-effort split context (`doorMode`, lib/checkout-stage).

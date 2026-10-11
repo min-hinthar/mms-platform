@@ -4,6 +4,100 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD10 — the guest's live One Pass, with card and Apple Pay after served built behind the parked flag (2026-10-11, `claude/feat/pd10-live-pass`)
+
+- **The Bill's rows are the live One Pass** (PATH_DESIGN decision 10;
+  `docs/path-design-2026-10-07/m10-live-pass-pay.md` screen 1, §I).
+  - Live today on the counter-only Bill: the receipt card is post-pay's `CounterPass` at the holder
+    tier (`components/LivePass.tsx`).
+  - Its head is the kitchen roll-up on the ONE KITCHEN TRACK, worded in English with the console's
+    Burmese: Sent to kitchen · ပို့ပြီး, Cooking · ချက်နေဆဲ, Served · ထုတ်ပြီး (`DINER_STAGE_WORD`).
+  - Its stub is Host · Sent, on the restaurant's clock.
+  - Every dish carries its track, in cart order:
+    - a to-go draft keeps "Not sent yet — goes to the kitchen when you pay";
+    - a comped dish keeps its track, with "On the house";
+    - a voided dish is struck and reads "Removed";
+    - a grocery line reads "In your basket".
+  - The foot is the one total binding.
+  - The pay step boards the same pass, compact. The menu's `TableTimeline` draws the same track.
+- **Stages move on the DB clock, never the phone's.**
+  - `getCartView` reads `mms_now()` before the lines and returns `dbNow` and each line's `bumped_at`.
+  - A bump reads Served only once it is `KDS_UNDO_MS` old there (Codex round 4).
+  - ONE re-read is scheduled for the moment the clock alone changes a stage (`settleRereadDelayMs`),
+    on the Bill and in the menu's provider.
+  - Motion is one thing at a time, and only on an observed advance (`planPassMotion`): a row FILLs,
+    the head TURNs into Served, then the door.
+  - Nothing plays on a first read or a foreground re-read, and nothing is announced.
+- **After the flip: D5's served door, built and wired behind `SURFACES.dineInPhonePay`** (still
+  `false`; the flip is its own PR).
+  - **The verdict** (`servedGateVerdict` in `lib/checkout-stage.ts`) holds any food line in draft,
+    fired or in progress, and a served one inside Mom's undo window.
+    - An unknown state holds; voided and grocery lines never do.
+    - Each hold carries one reason, in precedence: unsent (the host sends), hostless (a server sends,
+      or the counter), to-go (its ⋯), then the kitchen.
+  - **create-intent** refuses from ONE error-aware read (`readServedGateInput`: the clock, then the
+    lines) that fails CLOSED with a 503.
+    - It sits in the unsent refusal's slot: after the supersede and the parked door, before the
+      pickup block, the promo pin and Stripe.
+    - `check:phone-pay-door` parses that order.
+    - There is no gate at fulfillment.
+  - **The Bill's Pay is docked** (`PayDock`).
+    - Held, Pay keeps its name and amount, `aria-disabled` and described by "Pay opens once
+      everything’s served." (or the unsent, hostless or to-go reason).
+    - Open, the slot reads "Ready to pay.".
+    - No tip is asked or previewed until the door opens.
+    - A closing gate clears the chosen tip, preset and custom (Codex round 5).
+    - The door moment (a POP and one "Ready to pay.") plays only on an observed held → open edge.
+  - **The counter is never gated by served.**
+  - **The table's pay step leads with the wallet.** The card form is folded behind "Pay with card",
+    decided once at the reveal. A quiet "Pay at the counter" leaves Pay, releasing the lock, then asks.
+  - `selfServeSplit`'s reopen list gains "wire the D5 verdict into `openSettlement` and
+    `create-share-intent`".
+- **Retired:**
+  - `PayAtCounterButton` and `PayAtCounterCard`;
+  - the Bill's unsent capsule and W19's note card (the pass head owns the mark; the host keeps "Back
+    to send them");
+  - the menu timeline's breathing dot.
+- **Proof:**
+  - 44 mutants added (`checkout-stage/served-gate-*`, `checkout-verb/*`, `live-pass/*`,
+    `line-state-copy/*`, `unsent-read/served-gate-*`, `pay-element/fold-*`, `served-gate/*`,
+    `checkout/*`, `payment-section/*`) and 8 re-pointed.
+  - No migration: `mms_now()` and `bumped_at` already exist.
+  - New English-only lines are listed for K15 (m10 §I).
+- **After the capped blind pass on #346** (m10 §I):
+  - **C1, live today.** The cart page now passes the view's DB clock (`initialDbNow`, a REQUIRED
+    prop). Without it production opened every Bill on an unknown clock, so a served dish read
+    "Cooking", and the first realtime self-heal replayed every dish's FILL and TURN.
+  - **C2, behind the flag.** A dine-in table whose split read missed is still staged after the flip
+    (`staged` reads the authoritative mode), so its dock, its counter and the pass are drawn.
+  - **C3, behind the flag.** The dock's held counter says its own reason, tied to it by
+    `aria-describedby`. It never borrows Pay's "Pay opens once everything’s served." (D5).
+  - 5 mutants added, 3 re-pointed.
+- **After Codex round 1 on #346** (m10 §I):
+  - **N1, live today.** The One Pass's rows show each dish's charged options and the diner's note
+    again, in the receipt line's format, on the Bill and the boarded pay step.
+  - **N2.** The menu's kitchen strip counts a dish still inside the Send's undo window as "sending",
+    never "sent to kitchen", and never heads itself "with the kitchen" on it alone.
+  - 2 mutants added.
+- **After Codex round 2 on #346** (m10 §I):
+  - **Unknown host (behind the flag).** When the Bill cannot read the table's host, it says so
+    honestly. It never promises the counter or tells a guest to send.
+  - **Boarded rows (live).** The pay step's rows keep "On the house" and "Removed".
+  - **Leaving mid-sequence.** Leaving the Bill drops a queued pass sequence, so "Ready to pay." is
+    never said on the Order screen.
+  - **Folded visit.** It records the wallet's height, so the next visit predicts the fold.
+  - 8 mutants added, 3 re-pointed.
+- **After Codex round 3 on #346** (m10 §I):
+  - **Unknown clock (defense).** An unknown clock reads fired lines as "sending", never a false
+    "sent" through a NaN comparison. It is unreachable today, because a view's lines and its clock
+    arrive together.
+  - **Unreadable membership (behind the flag).** Pay names the whole order at a table whose
+    membership cannot be read.
+  - **Order-stage start (behind the flag).** A checkout that opened on the Order stage still plays the
+    door moment on the Bill.
+  - 3 mutants added, 1 re-pointed. The last capped blind pass added one more: an open door seeds
+    OPEN on Bill entry, so the same view applied again plays nothing.
+
 ### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
 
 - **The defect (W7b × M186).** M186's classifier refuses a camera sighting of a code the basket

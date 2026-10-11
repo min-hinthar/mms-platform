@@ -74,8 +74,16 @@ export function trackStage(line: TrackLine, nowIso: string): KitchenStage | null
     case "fired": {
       // A fired line with no fire time was fired at or before now (the KDS read's M2 reading), so
       // it is past any grace; only a FUTURE fire time is the diner's undo window.
-      const fire = line.fire_at === null ? Number.NaN : Date.parse(line.fire_at);
-      return Number.isFinite(fire) && fire > Date.parse(nowIso) ? "sending" : "sent";
+      if (line.fire_at === null) return "sent";
+      // PD10 (Codex round 3 on #346) — a fire time this reader cannot COMPARE (an unknown clock "",
+      // or an unreadable stamp) proves nothing about the grace: "sending" (unconfirmed), never "sent"
+      // by a NaN comparison falling through. With a known clock a parseable fire time reads exactly
+      // as before; an UNPARSEABLE `fire_at` now reads "sending" where it read "sent" (a `timestamptz`
+      // column cannot produce one).
+      const fire = Date.parse(line.fire_at);
+      const now = Date.parse(nowIso);
+      if (!Number.isFinite(fire) || !Number.isFinite(now)) return "sending";
+      return fire > now ? "sending" : "sent";
     }
     case "in_progress":
       return "cooking";

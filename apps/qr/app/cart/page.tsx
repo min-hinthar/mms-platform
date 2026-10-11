@@ -201,6 +201,12 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialSendNudge={view.sendNudge}
       initialNudgeReady={view.nudgeReady}
       initialServerNow={view.serverNow}
+      // PD10 — the DATABASE clock the view's lines were read against (`mms_now()`, before them): the
+      // live pass and the served door read every stage on it. Without it the Bill opens on an UNKNOWN
+      // clock, every settled bump reads "Cooking", no settle re-read is scheduled, and the first
+      // self-heal replays FILL and TURN for every dish (the capped blind pass on #346, C1). Required
+      // on `Checkout`, so a call site that forgets it does not compile.
+      initialDbNow={view.dbNow}
       // 3c-ii (D30): a SEED — the number is live state in Checkout from here (every applied view,
       // the bind's confirmed answer).
       initialTableNumber={view.tableNumber}

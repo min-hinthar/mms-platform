@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { TABLE_STARTER } from "./confirm-copy";
-import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "./checkout-verb";
+import {
+  billDoorLabel,
+  COUNTER_AFTER_UNDO,
+  counterHoldCopy,
+  orderStageHero,
+  payBlock,
+  payBlockCopy,
+  PAY_OPENS_SERVED,
+  servedHoldCopy,
+} from "./checkout-verb";
 
 /**
  * Phase 3c-i (D13 · D16) — the dine-in checkout's one hero verb per state, Pay's one reason, and the
@@ -73,7 +82,13 @@ describe("orderStageHero — one verb per state (D13)", () => {
 });
 
 describe("payBlock — Pay's one reason, in precedence (D16)", () => {
-  const none = { frozenByPeer: false, unsentBlocks: false, graceOpen: false, undoInFlight: false };
+  const none = {
+    frozenByPeer: false,
+    unsentBlocks: false,
+    servedHold: null,
+    graceOpen: false,
+    undoInFlight: false,
+  };
 
   it("peer > unsent > grace", () => {
     // MUTATION (checkout-verb/peer-lock-dropped-from-pay): the peer arm deleted — a tablemate's
@@ -102,6 +117,29 @@ describe("payBlock — Pay's one reason, in precedence (D16)", () => {
     // MUTATION (checkout-verb/grace-does-not-wait-pay): the graceOpen||undoInFlight arm → null
     // — Pay charges in-grace lines the diner can still pull back; red (the cases above).
     expect(payBlock(none)).toBeNull();
+  });
+
+  it("PD10 · D5 — the served gate's reason holds Pay, between unsent and grace", () => {
+    // MUTATION (checkout-verb/served-hold-dropped-from-pay): the served arm deleted — a table pays
+    // by card for food still on the wok (D5's whole point); red.
+    expect(payBlock({ ...none, servedHold: "kitchen" })).toBe("kitchen");
+    expect(payBlock({ ...none, servedHold: "hostless" })).toBe("hostless");
+    expect(payBlock({ ...none, servedHold: "togo" })).toBe("togo");
+    expect(payBlock({ ...none, servedHold: "unsent" })).toBe("unsent");
+    // MUTATION (checkout-verb/grace-outranks-kitchen): the grace arm hoisted above the gate — "Pay
+    // opens when the undo window closes" over a Send whose window closes onto food that is only
+    // SENT, not served; D5: the kitchen outranks the grace; red.
+    expect(payBlock({ ...none, servedHold: "kitchen", graceOpen: true })).toBe("kitchen");
+    expect(payBlock({ ...none, servedHold: "kitchen", undoInFlight: true })).toBe("kitchen");
+    // …and the wider facts still outrank it: a tablemate's lock, then the Send still owed.
+    expect(payBlock({ ...none, servedHold: "kitchen", frozenByPeer: true })).toBe("peer");
+    expect(payBlock({ ...none, servedHold: "kitchen", unsentBlocks: true })).toBe("unsent");
+  });
+
+  it("PD10 · D5 — a null gate (parked, or the counter's own block) changes nothing", () => {
+    // The counter door passes `servedHold: null` always (D5: the kitchen never holds the counter).
+    expect(payBlock({ ...none, servedHold: null })).toBeNull();
+    expect(payBlock({ ...none, servedHold: null, graceOpen: true })).toBe("grace");
   });
 });
 
@@ -151,21 +189,110 @@ describe("payBlockCopy — one sentence per state", () => {
     );
   });
 
-  it("unsent: the host is told to send; a guest is told who does", () => {
+  it("unsent: the host is told to send; a guest is told who does — in D5's words (PD10)", () => {
+    // PD10 — Pay is drawn only while the phone-pay door is open, and that door is the SERVED door:
+    // "— then the bill is ready to pay" is false under D5 (a sent bill is not ready until served).
     expect(payBlockCopy("unsent", ctx)).toBe(
-      "Send everything to the kitchen first — then the bill is ready to pay.",
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
     // MUTATION (checkout-verb/guest-unsent-copy-orders-the-guest-to-send): canSend ignored — a
     // guest is told to send dishes only the host can; red.
     expect(payBlockCopy("unsent", { ...ctx, canSend: false })).toBe(
-      "Aung sends them — then the bill is ready to pay.",
+      "Aung sends them — Pay opens once everything’s served.",
     );
     expect(payBlockCopy("unsent", { ...ctx, canSend: false, hostName: null })).toBe(
-      `${TABLE_STARTER} sends them — then the bill is ready to pay.`,
+      `${TABLE_STARTER} sends them — Pay opens once everything’s served.`,
     );
+  });
+
+  it("PD10 · D5 — the served gate's reasons are servedHoldCopy's, verbatim", () => {
+    for (const hold of ["hostless", "togo", "kitchen"] as const)
+      expect(payBlockCopy(hold, ctx)).toBe(servedHoldCopy(hold, ctx));
   });
 
   it("grace: Pay waits for the window", () => {
     expect(payBlockCopy("grace", ctx)).toBe("Pay opens when the undo window closes.");
+  });
+});
+
+describe("servedHoldCopy — D5's sentences, one function for the dock and create-intent (PD10)", () => {
+  it("kitchen: D5's own sentence", () => {
+    expect(servedHoldCopy("kitchen", { canSend: true, hostName: "Aye" })).toBe(
+      "Pay opens once everything’s served.",
+    );
+    expect(PAY_OPENS_SERVED).toBe("Pay opens once everything’s served.");
+  });
+
+  it("hostless: names the two doors that serve a table with no host — the server, the counter", () => {
+    // A hostless table's drafts fire only from the console; telling a guest to "send" them, or
+    // only that Pay opens later, would leave them waiting on a person who is not at the table.
+    expect(servedHoldCopy("hostless", { canSend: false, hostName: null })).toBe(
+      "A server will send these to the kitchen — or pay at the counter.",
+    );
+  });
+
+  it("togo: points at the shipped ⋯ → Send to kitchen now (Codex round 3)", () => {
+    expect(servedHoldCopy("togo", { canSend: true, hostName: null })).toBe(
+      "Send your to-go dish to the kitchen first (More ⋯) — Pay opens once everything’s served.",
+    );
+  });
+
+  it("unknownHost: says only what is known — never the counter, never 'send' (Codex round 2 on #346)", () => {
+    // MUTATION (checkout-verb/unknown-host-promises-the-counter): the hostless sentence for an
+    // unknown host — a counter promise the server may refuse; red.
+    const copy = servedHoldCopy("unknownHost", { canSend: false, hostName: null });
+    expect(copy).toBe(
+      "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.",
+    );
+    expect(copy).not.toMatch(/counter/i);
+    expect(copy).not.toMatch(/\bsend\b/i);
+    expect(
+      payBlockCopy("unknownHost", { lockedByName: null, canSend: false, hostName: null }),
+    ).toBe(copy);
+  });
+
+  it("unsent with no name to give (the server's case) says D5's sentence — it names nobody", () => {
+    expect(servedHoldCopy("unsent", { canSend: false, hostName: null })).toBe(
+      "Pay opens once everything’s served.",
+    );
+    expect(servedHoldCopy("unsent", { canSend: true, hostName: null })).toBe(
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
+    );
+  });
+});
+
+describe("counterHoldCopy — the dock counter says ITS OWN reason, never the kitchen's (PD10 · D5; #346 C3)", () => {
+  const ctx = { lockedByName: "Tin", canSend: true, hostName: "Aye" };
+
+  it("the undo window: the COUNTER's sentence — never Pay's 'Pay opens when the undo window closes.'", () => {
+    // MUTATION (checkout-verb/counter-grace-says-pay-opens): the grace arm answers with Pay's own
+    // sentence — beside Pay's "Pay opens once everything’s served." the dock then says two contradictory
+    // things about Pay and nothing about the counter; red.
+    expect(counterHoldCopy("grace", ctx)).toBe("Pay at the counter once the undo window closes.");
+    expect(COUNTER_AFTER_UNDO).toBe("Pay at the counter once the undo window closes.");
+    expect(counterHoldCopy("grace", ctx)).not.toContain("Pay opens");
+  });
+
+  it("the Send still owed: the host is told to send; a guest is told WHO sends — then the counter", () => {
+    // MUTATION (checkout/dock-counter-guest-told-to-send): the host's sentence for every role — a
+    // guest's tap on the dock's counter tells them to send dishes only the host can; red.
+    expect(counterHoldCopy("unsent", ctx)).toBe(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+    expect(counterHoldCopy("unsent", { ...ctx, canSend: false })).toBe(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    // A table that cannot name its host says the role, never a name invented.
+    expect(counterHoldCopy("unsent", { ...ctx, canSend: false, hostName: null })).toBe(
+      `${TABLE_STARTER} sends everything to the kitchen first — then pay at the counter.`,
+    );
+  });
+
+  it("a tablemate's lock reads exactly as Pay's — one fact, said once", () => {
+    expect(counterHoldCopy("peer", ctx)).toBe(payBlockCopy("peer", ctx));
+  });
+
+  it("a served-gate reason handed in by mistake still HOLDS the counter and says so — never silently live", () => {
+    expect(counterHoldCopy("kitchen", ctx)).toBe("Pay opens once everything’s served.");
   });
 });
