@@ -47,6 +47,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   or unlocked; a dateless lock reads as taken), the release's own rule on the same row
   (`lib/lock.test.ts`; mutants `m268/scoped-read-ignores-the-pay-lock`,
   `-refuses-every-lock`, `-admits-a-dateless-lock`).
+- **A settlement takeover ends the stale attempt's era (Codex on #338 @ 90732bc, P1):**
+  `acquireSettlement` takes over a stale, unlinked pay lock as an abandoned attempt, but a
+  create-intent that minted its PaymentIntent and stalled before `linkPaymentIntent` is alive under
+  exactly that shape — its era still matched the link's keys, so it could resume, link, and hand the
+  diner a payable intent on a cart the counter was collecting, priced from the pin the release had
+  just cleared. The freeze now clears `locked` / `locked_at` / `locked_by` in the same UPDATE that
+  admits it, so the old era can never link again (`lib/lock.test.ts`; mutant
+  `m268/takeover-keeps-the-stale-era`).
 - **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
   the legitimate promo, five refusals including the stale freeze at, past and one second inside the
   TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
