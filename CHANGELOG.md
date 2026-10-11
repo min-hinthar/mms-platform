@@ -4,7 +4,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### G25 — a delivered offline replay records its charge, so the camera never bills it twice (2026-10-11)
+### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
 
 - **The defect (W7b × M186).** M186's classifier refuses a camera sighting of a code the basket
   already pays for, judged from the lines on screen, the offline queue, and `billedRef` — what this
@@ -12,20 +12,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `lines: null`). The live add always recorded it; the reconnect drain (`drainNow`) did not. A replay
   delivered with no view left the queue at the drain's `syncPending()` while the list did not show it
   yet, so the next camera read of that jar classified `add` and charged a second unit.
-- **The fix.** The drain's ok branch records `entry.barcode` exactly as the live add records its
-  code, after the era check (an abandoned basket's replay never marks the fresh one); a refused
-  replay records nothing.
+- **The fix.** Both charge paths record through ONE pure rule, `lib/scan-billed.ts` (new): each charge
+  carries the item's removal generation from dispatch (`chargeMark`), every removal bumps it
+  (`afterRemoval` — the stepper and the add-Undo), and `afterCharge` records the code only when no
+  removal crossed the write and the charge's own view (when it came back) holds the code. The
+  replay's record sits after the drain's era check; a refused replay records nothing.
+- **The reviews of #344, each verified in source first.** The blind pass (CRITICAL): a removal
+  tapped while an add or a replay is in flight lands first, and the add's response — its view read
+  before the removal — recorded a line that was gone, so the camera refused that jar for good; a
+  crossed charge is now never recorded, and the page re-reads instead. Codex (P2): an idempotent
+  replay of a scan whose earlier, lost-response attempt committed (the scan-event ledger answers `ok`
+  and writes nothing) can return a view without the code once the shopper removed it — not recorded,
+  and an older record goes too. Codex (P2): the fresh-basket handler now ends the era synchronously
+  (`cartIdRef.current = undefined`) before it resets the record; React's synchronous flush of a
+  click's effects already closed that window, and the page no longer depends on it. The blind pass's
+  open question: a charge no view shows (`lines: null`, or crossed) re-reads the basket through the
+  ticketed `syncNow` — after a live add, once per drain — so the list and its total include it.
 - **Pinned.** `apps/qr/app/grocery/page.test.tsx` (new) renders the real page with the server
-  actions, the session and the camera stubbed, and sights the jar through the page's own `onScan`: a
-  live add, a delivered replay and a refused replay, each with `lines: null`. Red-first: the
-  delivered-replay row charged twice on main. `check:scan-repeat` proposition 8 parses the page:
-  every live `scanAdd`'s top-level `if (R.ok)` records its own code at its top level, ahead of
-  anything that can leave the branch, and the function never takes it back; `billedRef` is declared
-  once and is the set `classifyScan` reads. Thirteen committed matcher rows (the record dropped,
-  left in a comment, riding `r.lines`, parked, deferred to a callback, after a return, of another
-  code, into another set, taken back, shadowed, the classifier reading another set) — each red, and
-  three weakenings of the matcher each turned a row red. Three `grocery-page/` mutants, owned by the
-  page suite, all CAUGHT.
+  modelled (its lines, `setQty`, every read), the session and the camera stubbed, and sights the jar
+  through the page's own `onScan`: eight rows — a live add and a replay with no view (refused, and
+  re-read), the re-read bringing the line onto the list, a refused replay, a removal crossing a
+  replay and a live add, a replay whose view lacks the code, and a cart swap mid-replay. Red-first:
+  the delivered-replay row charged twice on main; the crossing, view and re-read rows failed on the
+  first head of this PR. `lib/scan-billed.test.ts` (new) falsifies each rule by a value.
+  `check:scan-repeat` proposition 8 parses the page: for every live `scanAdd`, the dispatch mark
+  before it, an era check after it, the record — `afterCharge(…, <its code>, <its mark>,
+<its result>.lines)` stored in `billedRef` — in a top-level `if (R.ok)` after that era check, no ok
+  exit between charge and record, and nothing else in the function writes the record; page-wide,
+  every other write is `afterRemoval` or a `NO_BILLED` reset that follows the era's end, and the
+  classifier reads `billed: [...billedRef.current.billed]`. Twenty-two committed evasion rows, and
+  the matcher's own seven weakenings committed beside them — each lets exactly its evasion through.
+  Seventeen mutants (nine `grocery-page/`, eight `scan-billed/`), all CAUGHT.
 
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
 

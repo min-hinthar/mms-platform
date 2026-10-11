@@ -3927,3 +3927,19 @@ the replay never had it, so a replay delivered with `lines: null` was billed aga
 read, with every guard green. When a guard exempts a call site, list what the exempt site must still
 do, and pin THOSE over the whole population (proposition 8 walks every live `scanAdd`, exempt or
 not) — an exemption should narrow one rule, never the guard's sight.
+
+## #261
+
+**A race that React's scheduler closes cannot be watched open — pin the fix by its SHAPE, and do not
+register a mutant no render can kill (#344, 2026-10-11).** Codex named a window on the grocery page:
+the fresh-basket handler reset the charge record synchronously, but `cartIdRef` followed `cartId`
+only through a passive effect, so an old basket's replay resuming "in between" would pass its era
+check and mark the fresh basket. A page row that clicks "Start a fresh basket" and lands the replay
+in the same `act` stayed GREEN on the unfixed page: React 18+ flushes the passive effects of a
+discrete input (click, keydown) synchronously at the end of the event, before any microtask
+continuation runs. The defensive fix (end the era in the handler, before the reset) still belongs —
+the page should not lean on scheduler timing — but a mutant dropping it would SURVIVE every run, so
+it is pinned structurally (`check:scan-repeat` proposition 8: a `NO_BILLED` reset must follow
+`cartIdRef.current = undefined` in its block) and the row pins what a render CAN show (the record's
+placement behind the era check). Before writing "red-first" for a race, run the row against the
+unfixed code: green there means the harness cannot open the window, not that the fix works.
