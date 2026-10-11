@@ -172,18 +172,36 @@ describe("drainCart — serialized FIFO with the terminal flush", () => {
 
 describe("drainSummary — one composed toast, rejections never vanish", () => {
   it("a mixed drain reports BOTH — the rejection must not hide behind the success line", () => {
-    const msg = drainSummary(2, ["12345678"]);
+    const msg = drainSummary(2, ["unknown_barcode"]);
     expect(msg).toContain("added 2 saved scans");
-    expect(msg).toContain("12345678");
-    expect(msg).toContain("no longer available");
+    expect(msg).toContain("1 saved scan couldn’t be added");
+    // PD4 (B4) — never a barcode's digits, and never the false cause "no longer available": the
+    // common rejection is a code that was never in the app.
+    expect(msg).not.toMatch(/\d{8}/);
+    expect(msg).not.toContain("no longer available");
+    expect(msg).toContain("not in the app yet, or not available today");
   });
   it("delivered-only keeps the plain success line", () => {
     expect(drainSummary(1, [])).toBe("Back online — added 1 saved scan.");
   });
-  it("rejected-only names every refused barcode", () => {
-    const msg = drainSummary(0, ["11111111", "22222222"]);
-    expect(msg).toContain("2 saved scans");
-    expect(msg).toContain("11111111, 22222222");
+  it("rejected-only counts the refused scans by their honest causes, no digits (PD4)", () => {
+    const msg = drainSummary(0, ["unknown_barcode", "unavailable"]);
+    expect(msg).toBe(
+      "2 saved scans couldn’t be added — not in the app yet, or not available today.",
+    );
+    expect(msg).not.toMatch(/\d{8}/);
+  });
+  it("a WEIGHED replay is told it needs the scale — never 'not in the app' (blind pass on #329)", () => {
+    // MUTATION: fold weighed into the generic bucket → a real jar that merely needs the scale is
+    // told it is not in the app, or not available today; red.
+    expect(drainSummary(0, ["weighed_item"])).toBe(
+      "1 saved scan needs the scale — please bring it to the counter.",
+    );
+    const mixed = drainSummary(1, ["weighed_item", "weighed_item", "unknown_barcode"]);
+    expect(mixed).toBe(
+      "Back online — added 1 saved scan; 1 saved scan couldn’t be added — not in the app yet, or not available today; 2 saved scans need the scale — please bring them to the counter.",
+    );
+    expect(mixed).not.toMatch(/\d{8}/);
   });
   it("an empty drain says nothing", () => {
     expect(drainSummary(0, [])).toBeNull();

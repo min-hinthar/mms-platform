@@ -37,8 +37,9 @@ export type CartClaim = {
   ms?: number;
 };
 
-/** The trusted, shipped Burmese "added" — the MY half every add claim has carried since W13. */
-const ADDED_MY = "ထည့်ပြီးပါပြီ";
+/** The trusted, shipped Burmese "added" — the MY half every add claim has carried since W13.
+ *  Exported for the market's "Added {name}" (PD4): one word for one act, never a second draft. */
+export const ADDED_MY = "ထည့်ပြီးပါပြီ";
 
 /** The pill's 0→1 tap: the dish, by name, quietly. */
 export function pillAddClaim(name: string): CartClaim {

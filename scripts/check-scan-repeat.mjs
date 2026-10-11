@@ -52,7 +52,12 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// `SCAN_REPEAT_ROOT` points the gate at a COPY of the tree — `apps/qr/lib/check-scan-repeat.test.ts`
+// runs it against committed mutations of the page and its sheets (each must turn it red). Unset, it
+// reads this checkout.
+const ROOT = process.env.SCAN_REPEAT_ROOT
+  ? path.resolve(process.env.SCAN_REPEAT_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = "apps/qr/app/grocery/page.tsx";
 const CLASSIFIER = "classifyScan";
 const CHARGE = "scanAdd";
@@ -413,6 +418,1226 @@ for (const st of liveStages) {
     );
 }
 
+// ── (4) The charge takes the SIGHTED code, never a judged / paired one (PD4) ──────────────────────
+// m4 graft 3 lets a missed shelf code be JUDGED as the item it was paired to, so a re-read jar gets
+// M186's repeat verdict. The critic's blocking finding (m4 appendix B1): the moment that item leaves
+// the basket, `classifyScan` answers `add`, and a page that then charged the PAIRED barcode would
+// charge an item the shopper never pointed at — from a sighting of a jar whose code is not in the
+// app. `lib/scan-pairing.ts` spends the pairing on `add`; this proposition pins the other half,
+// which is page wiring no suite sees: the non-exempt `scanAdd(...)`'s barcode argument RESOLVES to
+// the enclosing function's own PARAMETER — the code the camera decoded.
+//
+// Bound to the parameter's DECLARATION, not its name (the blind pass on #329): a `barcode = judged`
+// reassignment at the top of `add`, or a block-scoped `const barcode = judged` above the charge,
+// ships the judged code under the same spelling. So the function body may hold NO assignment to
+// that name (`=`, `+=`, `++`, a destructuring target, a `for (… of / in …)` head) and NO shadowing
+// declaration of it (a const, a binding element, a nested function's parameter).
+//
+// PROVENANCE (blind pass 2 on #329): "the parameter" is only the decoded code if every caller says
+// so — and `addAnother` charged the chip's code, which a paired re-read had set to the JUDGED item.
+// So every live call of the page's `add` is accounted for, with a literal door:
+//   · "scan"   — exactly one, in the function bound (via `useCallback`) to the identifier every live
+//                <ScanStage> takes as `onScan`, passing that function's own untouched parameter;
+//   · "rescan" — exactly one, in the function bound to `addAnother`, passing `lastScanned.code`,
+//                behind a TOP-LEVEL early `return` that precedes it and tests `<B> !== "add-another"`,
+//                B being the one binding of `chipAction(chipFactsFor(lastScanned.code,
+//                lastScanned.viaPairing, …))` — the binding the chip's `action` prop also reads;
+//   · "search" / "browse" — the shopper's own pick by name, unconstrained here.
+// `add` may not escape as a value (an alias would call it unseen) — only calls and hook dep arrays —
+// and no string in the page may hand-write the "Add another" clause (`repeatSentence` speaks it).
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
+const isAssignmentKind = (k) =>
+  k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+/** Problems if `name` is assigned, mutated or shadowed anywhere inside `fn`'s body. */
+const touches = (fn, name) => {
+  const out = [];
+  const namesIn = (node) => {
+    let hit = false;
+    walk(node, (m) => {
+      if (ts.isIdentifier(m) && m.text === name) hit = true;
+    });
+    return hit;
+  };
+  walk(fn.body, (n) => {
+    if (ts.isBinaryExpression(n) && isAssignmentKind(n.operatorToken.kind) && namesIn(n.left))
+      out.push(
+        `\`${name}\` is ASSIGNED inside the charging function (\`${n.getText(src).slice(0, 60)}\`).\n` +
+          "  The parameter must reach the charge untouched: an assignment ships a judged code under\n" +
+          "  the sighted code's own name.",
+      );
+    if (
+      (ts.isForOfStatement(n) || ts.isForInStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer) &&
+      namesIn(n.initializer)
+    )
+      out.push(
+        `\`${name}\` is the HEAD of a \`for (… of/in …)\` inside the charging function — an assignment.`,
+      );
+    if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken ||
+        n.operator === ts.SyntaxKind.MinusMinusToken) &&
+      ts.isIdentifier(n.operand) &&
+      n.operand.text === name
+    )
+      out.push(`\`${name}\` is mutated inside the charging function.`);
+    if (
+      (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    )
+      out.push(
+        `\`${name}\` is DECLARED again inside the charging function (a shadowing \`${
+          ts.isParameter(n) ? "parameter" : "binding"
+        }\`).\n` + "  The argument then resolves to the shadow, not to the camera's code.",
+      );
+  });
+  return out;
+};
+/** Every `const NAME = …` in the page. */
+const declsOf = (name) => {
+  const out = [];
+  walk(src, (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) out.push(n);
+  });
+  return out;
+};
+/** `fn` when `const NAME = useCallback(fn, …)` is the page's ONE declaration of NAME. */
+const callbackBoundTo = (name) => {
+  const d = declsOf(name);
+  if (d.length !== 1) return null;
+  const init = d[0].initializer;
+  if (
+    !init ||
+    !ts.isCallExpression(init) ||
+    !ts.isIdentifier(init.expression) ||
+    init.expression.text !== "useCallback"
+  )
+    return null;
+  const f = init.arguments[0];
+  return f && (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) ? f : null;
+};
+/** The name a `useCallback(fn)` declaration binds `fn` to. */
+const callbackName = (fn) => {
+  const call = fn?.parent;
+  if (!call || !ts.isCallExpression(call) || call.arguments[0] !== fn) return null;
+  if (!ts.isIdentifier(call.expression) || call.expression.text !== "useCallback") return null;
+  const d = call.parent;
+  return d && ts.isVariableDeclaration(d) && ts.isIdentifier(d.name) ? d.name.text : null;
+};
+if (!problems.length) {
+  const charge = chargeCalls[0];
+  const fn = enclosingFunction(charge);
+  const arg = charge.arguments[1];
+  const param =
+    arg && ts.isIdentifier(arg)
+      ? (fn?.parameters ?? []).find((p) => ts.isIdentifier(p.name) && p.name.text === arg.text)
+      : undefined;
+  if (!arg || !ts.isIdentifier(arg) || !param)
+    fail(
+      `${CHARGE}()'s barcode argument must be the enclosing function's own parameter (the code the\n` +
+        `  camera decoded); found \`${arg ? arg.getText(src) : "(none)"}\`.\n` +
+        "  A judged or paired code must never be charged — a pairing may only ever REPEAT (PD4,\n" +
+        "  lib/scan-pairing.ts); charging it bills an item the shopper never pointed at.",
+    );
+  else {
+    for (const m of touches(fn, arg.text)) fail(m);
+    // ── provenance: who calls the charging function, and with what ──
+    const ADD = callbackName(fn);
+    const paramIdx = fn.parameters.indexOf(param);
+    if (!ADD || declsOf(ADD).length !== 1)
+      fail(
+        `proposition 4: the function holding ${CHARGE}() must be ONE \`const <name> = useCallback(…)\`\n` +
+          "  so every caller can be accounted for.",
+      );
+    else {
+      const calls = [];
+      walk(src, (n) => {
+        if (!ts.isIdentifier(n) || n.text !== ADD) return;
+        const p = n.parent;
+        if (ts.isVariableDeclaration(p) && p.name === n) return;
+        if (ts.isPropertyAccessExpression(p) && p.name === n) return;
+        if ((ts.isPropertyAssignment(p) || ts.isJsxAttribute(p)) && p.name === n) return;
+        if (ts.isCallExpression(p) && p.expression === n) {
+          calls.push(p);
+          return;
+        }
+        const deps =
+          ts.isArrayLiteralExpression(p) &&
+          ts.isCallExpression(p.parent) &&
+          p.parent.arguments[1] === p &&
+          ts.isIdentifier(p.parent.expression) &&
+          /^use(Callback|Effect|LayoutEffect|Memo)$/.test(p.parent.expression.text);
+        if (!deps)
+          fail(
+            `proposition 4: \`${ADD}\` escapes as a value (\`${p.getText(src).slice(0, 60)}\`).\n` +
+              "  An alias calls the charge where this guard cannot see which code it passes.",
+          );
+      });
+      const byDoor = { scan: [], rescan: [] };
+      for (const c of calls) {
+        if (isLiterallyDead(c)) continue;
+        const door = c.arguments[1];
+        if (!door || !ts.isStringLiteral(door)) {
+          fail(
+            `proposition 4: \`${c.getText(src).slice(0, 60)}\` — every call of \`${ADD}\` names its door as a literal.`,
+          );
+          continue;
+        }
+        if (door.text === "scan" || door.text === "rescan") byDoor[door.text].push(c);
+        else if (door.text !== "search" && door.text !== "browse")
+          fail(`proposition 4: \`${ADD}(…, "${door.text}")\` is a door this guard does not know.`);
+      }
+      // "scan": the decoded code, from the function the camera is handed.
+      if (byDoor.scan.length !== 1)
+        fail(
+          `proposition 4: expected exactly ONE live \`${ADD}(…, "scan")\`; found ${byDoor.scan.length}.\n` +
+            "  The camera door is the function <ScanStage> is handed, and nowhere else.",
+        );
+      else {
+        const c = byDoor.scan[0];
+        const f = enclosingFunction(c);
+        const name = callbackName(f);
+        const code = c.arguments[0];
+        const own =
+          code &&
+          ts.isIdentifier(code) &&
+          f.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === code.text);
+        if (!name || !own)
+          fail(
+            `proposition 4: \`${c.getText(src).slice(0, 60)}\` must pass its own function's parameter — the\n` +
+              "  code the camera decoded — from a `useCallback` the stage is handed.",
+          );
+        else {
+          for (const m of touches(f, code.text)) fail(m);
+          for (const st of liveStages) {
+            const a = st.attributes.properties.find(
+              (q) => ts.isJsxAttribute(q) && q.name.getText(src) === "onScan",
+            );
+            const e =
+              a?.initializer && ts.isJsxExpression(a.initializer) ? a.initializer.expression : null;
+            if (!e || !ts.isIdentifier(e) || e.text !== name)
+              fail(
+                `proposition 4: <ScanStage> must take \`onScan={${name}}\` — the one function whose "scan" door\n` +
+                  "  passes the decoded code.",
+              );
+          }
+        }
+      }
+      // "rescan": Add another, behind the chip's own predicate.
+      if (byDoor.rescan.length !== 1)
+        fail(
+          `proposition 4: expected exactly ONE live \`${ADD}(…, "rescan")\` (Add another); found ${byDoor.rescan.length}.`,
+        );
+      else {
+        const c = byDoor.rescan[0];
+        const f = enclosingFunction(c);
+        const owner = callbackName(f);
+        const isLastCode = (e) => !!e && printed(e) === "lastScanned.code";
+        let code = c.arguments[0];
+        if (code && ts.isIdentifier(code)) {
+          const local = [];
+          walk(f.body, (n) => {
+            if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === code.text)
+              local.push(n);
+          });
+          if (local.length === 1) code = local[0].initializer;
+          for (const m of touches(f, c.arguments[0].text).filter((m) => !/DECLARED again/.test(m)))
+            fail(m);
+        }
+        if (owner !== "addAnother" || !isLastCode(code))
+          fail(
+            `proposition 4: the "rescan" door must be \`addAnother\` charging \`lastScanned.code\` — the chip's\n` +
+              `  own code; found \`${c.getText(src).slice(0, 60)}\` in \`${owner}\`. A judged or paired code is\n` +
+              "  never charged.",
+          );
+        else {
+          // The chip's predicate binding: const B = <expr holding chipAction(F)>, F = chipFactsFor(
+          // lastScanned.code, lastScanned.viaPairing, …) directly or through a const.
+          const predicateOk = (bName) => {
+            const d = declsOf(bName);
+            if (d.length !== 1 || !d[0].initializer) return false;
+            let ok = false;
+            walk(d[0].initializer, (n) => {
+              if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
+              if (n.expression.text !== "chipAction" || isLiterallyDead(n)) return;
+              let facts = n.arguments[0];
+              if (facts && ts.isIdentifier(facts)) {
+                const fd = declsOf(facts.text);
+                facts = fd.length === 1 ? fd[0].initializer : null;
+              }
+              walk(facts ?? n, (m) => {
+                if (
+                  ts.isCallExpression(m) &&
+                  ts.isIdentifier(m.expression) &&
+                  m.expression.text === "chipFactsFor" &&
+                  m.arguments.length === 3 &&
+                  printed(m.arguments[0]) === "lastScanned.code" &&
+                  printed(m.arguments[1]) === "lastScanned.viaPairing"
+                )
+                  ok = true;
+              });
+            });
+            return ok;
+          };
+          const top = f.body && ts.isBlock(f.body) ? f.body.statements : [];
+          const callStmt = top.findIndex((st) => c.pos >= st.pos && c.end <= st.end);
+          let guard = null;
+          top.slice(0, Math.max(0, callStmt)).forEach((st) => {
+            if (!ts.isIfStatement(st) || isLiterallyDead(st)) return;
+            const then = st.thenStatement;
+            const returns =
+              ts.isReturnStatement(then) ||
+              (ts.isBlock(then) &&
+                then.statements.length > 0 &&
+                ts.isReturnStatement(then.statements[0]));
+            if (!returns) return;
+            walk(st.expression, (n) => {
+              if (
+                ts.isBinaryExpression(n) &&
+                (n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+                  n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken) &&
+                !isLiterallyDead(n) &&
+                ts.isIdentifier(n.left) &&
+                ts.isStringLiteral(n.right) &&
+                n.right.text === "add-another" &&
+                predicateOk(n.left.text)
+              )
+                guard = n.left.text;
+            });
+          });
+          if (callStmt < 0 || !guard)
+            fail(
+              "proposition 4: `addAnother` charges without a TOP-LEVEL early return, BEFORE the charge, on\n" +
+                '  `<B> !== "add-another"` — B the one binding of `chipAction(chipFactsFor(lastScanned.code,\n' +
+                "  lastScanned.viaPairing, …))`. Without it Add another charges a chip reached through a\n" +
+                "  pairing — an item the camera never sighted.",
+            );
+          else {
+            if (f.parameters.length || declsOf(guard).some((d) => d.pos >= f.pos && d.end <= f.end))
+              fail(`proposition 4: \`${guard}\` is shadowed inside \`addAnother\`.`);
+            const told = [];
+            walk(src, (n) => {
+              if (
+                ts.isPropertyAssignment(n) &&
+                n.name.getText(src) === "action" &&
+                n.parent &&
+                ts.isObjectLiteralExpression(n.parent) &&
+                n.parent.properties.some((q) => q.name && q.name.getText(src) === "onAddAnother")
+              )
+                told.push(n);
+            });
+            if (!told.length || told.some((t) => printed(t.initializer) !== guard))
+              fail(
+                `proposition 4: the chip's \`action\` must be \`${guard}\` — the predicate \`addAnother\` is gated on —\n` +
+                  "  or the button drawn and the charge allowed are two different answers.",
+              );
+          }
+        }
+      }
+    }
+  }
+  walk(src, (n) => {
+    const text =
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n) ||
+      ts.isJsxText(n)
+        ? n.text
+        : null;
+    if (text && /Add another[”"] for a second/.test(text))
+      fail(
+        "proposition 4: the page hand-writes the “Add another” clause — only `repeatSentence` (lib/scan-chip.ts)\n" +
+          "  speaks it, from the predicate the chip draws from.",
+      );
+  });
+}
+
+// ── (5) A sheet's COVER outlasts its `open`: only its exit end (or the fail-safe) lifts the hold ──
+// Codex round 2 on #329 (4226434718): a sheet's `open` turns false at the START of its exit, while
+// Radix keeps the sheet and its scrim mounted for the whole `--dur-sheet` exit. Proposition (3) tells
+// the stage each sheet's `open` — so the hold lifted as the exit began, `BarcodeScanner` announced
+// the next FRESH sighting (`sightBarcode` emits on any new barcode) and `add()` charged a jar behind
+// a scrim the shopper was still looking at. `lib/hooks/useStageCover.ts` keeps a cover up from open
+// until the exit end (the Sheet fires `onCloseAutoFocus` at unmount, after the exit — M76) or, with
+// no exit end, until its fail-safe (above `--dur-sheet`, its suite reads the token). Its suite pins
+// the hook; this pins the WIRING, for EVERY sheet the page renders:
+//   a. exactly ONE `const { covering: C[, exitEnd: E] } = useStageCover(<that sheet's open>)` — for
+//      a sheet that reports through `onOpenChange={setX}`, its open is the state X writes;
+//   b. `C` is a disjunct of every live `<ScanStage sheetOpen>` (the stage is told the cover);
+//   c. a PAGE-OWNED sheet (`open={…}`) destructures `E`, and `E()` is a top-level statement of the
+//      handler passed as its `onCloseAutoFocus` — reachable: no earlier top-level statement can
+//      leave the handler — and `E` is referenced NOWHERE else (no other call, no alias, no value
+//      passed on; hook dep arrays aside): a call at the close's START lifts the cover exactly when
+//      the hole opens. The handler is an inline function or the ONE `const` bound to a function or
+//      `useCallback(fn)` — a name declared twice is refused, never picked by position;
+//   d. that sheet's component forwards `onCloseAutoFocus` to its one live `<Sheet>`;
+//   e. a REPORTED sheet (the DoorSheet owns its Sheet and exposes no exit end) destructures NO `E` —
+//      its cover is lifted by the fail-safe alone (blind pass 2 on #329: the exemption that stood
+//      here left its ~340 ms exit uncovered);
+//   and every `useStageCover(…)` covers a sheet the page renders, and is only ever called in that
+//   destructuring shape (`useStageCover(x).covering`, an alias of the hook, are refused).
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
+const COVER = "useStageCover";
+{
+  const covers = [];
+  walk(src, (n) => {
+    if (!ts.isIdentifier(n) || n.text !== COVER) return;
+    const p = n.parent;
+    if (ts.isImportSpecifier(p)) return;
+    const call = ts.isCallExpression(p) && p.expression === n ? p : null;
+    const decl = call?.parent;
+    if (
+      !call ||
+      !decl ||
+      !ts.isVariableDeclaration(decl) ||
+      decl.initializer !== call ||
+      !ts.isObjectBindingPattern(decl.name) ||
+      call.arguments.length !== 1
+    ) {
+      fail(
+        `proposition 5: \`${(call ?? p).getText(src).slice(0, 60)}\` — a ${COVER}() result must be ONE\n` +
+          "  `const { covering, exitEnd } = useStageCover(<one open expression>)`; any other use hides\n" +
+          "  which cover reaches the stage.",
+      );
+      return;
+    }
+    const pick = (key) => {
+      const el = decl.name.elements.find((e) => (e.propertyName ?? e.name).getText(src) === key);
+      return el && ts.isIdentifier(el.name) ? el.name.text : null;
+    };
+    covers.push({
+      open: printed(call.arguments[0]),
+      covering: pick("covering"),
+      exitEnd: pick("exitEnd"),
+    });
+  });
+  const told = new Set();
+  for (const st of liveStages) {
+    const attr = st.attributes.properties.find(
+      (a) => ts.isJsxAttribute(a) && a.name.getText(src) === "sheetOpen",
+    );
+    const init = attr?.initializer;
+    const expr = init && ts.isJsxExpression(init) ? init.expression : null;
+    for (const d of expr ? disjuncts(expr) : []) told.add(d);
+  }
+  const attrOf = (el, name) => {
+    const a = el.attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(src) === name,
+    );
+    const init = a?.initializer;
+    return init && ts.isJsxExpression(init) ? init.expression : null;
+  };
+  // The population: every <…Sheet> the page renders, page-owned (`open=`) or reported (the state
+  // its `onOpenChange` setter writes — proposition 3's resolution).
+  const pageSheets = [];
+  walk(src, (n) => {
+    if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
+    const tag = n.tagName.getText(src);
+    if (!/Sheet$/.test(tag)) return;
+    const open = attrOf(n, "open");
+    if (open) {
+      pageSheets.push({ tag, el: n, open: printed(open), owned: true });
+      return;
+    }
+    const report = attrOf(n, "onOpenChange");
+    const states = new Set();
+    if (report)
+      walk(report, (m) => {
+        if (ts.isIdentifier(m) && statePairs.has(m.text)) states.add(statePairs.get(m.text));
+      });
+    if (states.size === 1) pageSheets.push({ tag, el: n, open: [...states][0], owned: false });
+    // anything else is already refused by proposition 3
+  });
+  /** Every declaration of `name` in the page: const, function, parameter, binding element. */
+  const declarationsOf = (name) => {
+    const out = [];
+    walk(src, (n) => {
+      if (
+        (ts.isVariableDeclaration(n) ||
+          ts.isBindingElement(n) ||
+          ts.isParameter(n) ||
+          ts.isFunctionDeclaration(n)) &&
+        n.name &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === name
+      )
+        out.push(n);
+    });
+    return out;
+  };
+  /** The function a JSX handler attribute resolves to: an inline function, or the ONE declaration of
+   *  the identifier bound to a function or to `useCallback(fn, …)`. Ambiguity is refused. */
+  const resolveHandler = (expr, tag) => {
+    if (!expr) return null;
+    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return expr;
+    if (!ts.isIdentifier(expr)) return null;
+    const ds = declarationsOf(expr.text);
+    if (ds.length !== 1) {
+      fail(
+        `proposition 5: <${tag}>'s onCloseAutoFocus names \`${expr.text}\`, declared ${ds.length} times —\n` +
+          "  a shadowed or duplicated handler is ambiguous, and ambiguity is refused.",
+      );
+      return null;
+    }
+    const d = ds[0];
+    if (ts.isFunctionDeclaration(d)) return d;
+    const init = ts.isVariableDeclaration(d) ? d.initializer : null;
+    if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return init;
+    if (
+      init &&
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === "useCallback" &&
+      init.arguments[0] &&
+      (ts.isArrowFunction(init.arguments[0]) || ts.isFunctionExpression(init.arguments[0]))
+    )
+      return init.arguments[0];
+    return null;
+  };
+  /** Does `tag`'s own component forward `onCloseAutoFocus` to its one live `<Sheet>`? */
+  const forwardsExit = (tag) => {
+    let spec = null;
+    for (const st of src.statements)
+      if (
+        ts.isImportDeclaration(st) &&
+        st.importClause?.namedBindings &&
+        ts.isNamedImports(st.importClause.namedBindings) &&
+        st.importClause.namedBindings.elements.some((e) => e.name.text === tag) &&
+        ts.isStringLiteral(st.moduleSpecifier)
+      )
+        spec = st.moduleSpecifier.text;
+    if (!spec || !spec.startsWith("@/"))
+      return `<${tag}> is not imported from an @/ path this guard can read`;
+    const rel = path.join("apps/qr", `${spec.slice(2)}.tsx`);
+    const comp = ts.createSourceFile(
+      rel,
+      readFileSync(path.join(ROOT, rel), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const live = [];
+    walk(comp, (n) => {
+      if (
+        (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
+        n.tagName.getText(comp) === "Sheet" &&
+        !isLiterallyDead(n)
+      )
+        live.push(n);
+    });
+    if (live.length !== 1)
+      return `${rel} renders ${live.length} live <Sheet> (ambiguity is refused)`;
+    const a = live[0].attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(comp) === "onCloseAutoFocus",
+    );
+    const init = a?.initializer;
+    const ok =
+      init &&
+      ts.isJsxExpression(init) &&
+      init.expression &&
+      init.expression.getText(comp) === "onCloseAutoFocus";
+    return ok
+      ? null
+      : `${rel}'s <Sheet> does not take \`onCloseAutoFocus={onCloseAutoFocus}\` — the exit end never arrives`;
+  };
+  /** Can a top-level statement leave the handler before the one that follows it? */
+  const mayLeave = (st) => {
+    if (ts.isReturnStatement(st) || ts.isThrowStatement(st)) return true;
+    let leaves = false;
+    walk(st, (n) => {
+      if (n !== st && ts.isFunctionLike(n)) return;
+      if (ts.isReturnStatement(n) || ts.isThrowStatement(n)) leaves = true;
+    });
+    return leaves;
+  };
+  /** Every reference to `name` that is not its declaration, a property name, or a hook dep. */
+  const usesOf = (name) => {
+    const out = [];
+    walk(src, (n) => {
+      if (!ts.isIdentifier(n) || n.text !== name) return;
+      const p = n.parent;
+      if ((ts.isBindingElement(p) || ts.isVariableDeclaration(p)) && p.name === n) return;
+      if (ts.isBindingElement(p) && p.propertyName === n) return;
+      if (ts.isPropertyAccessExpression(p) && p.name === n) return;
+      if ((ts.isPropertyAssignment(p) || ts.isJsxAttribute(p)) && p.name === n) return;
+      if (
+        ts.isArrayLiteralExpression(p) &&
+        ts.isCallExpression(p.parent) &&
+        p.parent.arguments[1] === p &&
+        ts.isIdentifier(p.parent.expression) &&
+        /^use(Callback|Effect|LayoutEffect|Memo)$/.test(p.parent.expression.text)
+      )
+        return;
+      out.push(n);
+    });
+    return out;
+  };
+  for (const sh of pageSheets) {
+    const mine = covers.filter((c) => c.open === sh.open);
+    if (mine.length !== 1) {
+      fail(
+        `<${sh.tag}> (open: ${sh.open}) needs exactly ONE \`${COVER}(${sh.open})\`; found ${mine.length}.\n` +
+          "  Without it the camera's hold lifts as the sheet's exit STARTS, while it is still on screen.",
+      );
+      continue;
+    }
+    const c = mine[0];
+    if (!c.covering || !told.has(c.covering))
+      fail(
+        `the stage is not told <${sh.tag}>'s cover: \`${c.covering}\` is not a <ScanStage sheetOpen> disjunct.\n` +
+          "  A sighting during the sheet's exit is then announced — and charged — behind its scrim.",
+      );
+    if (!sh.owned) {
+      if (c.exitEnd)
+        fail(
+          `proposition 5: <${sh.tag}> reports only its open state and exposes no exit end, yet its cover\n` +
+            `  destructures \`${c.exitEnd}\` — anything that calls it lifts the cover before the exit ends.\n` +
+            "  Its cover is lifted by the hook's fail-safe alone.",
+        );
+      continue;
+    }
+    if (!c.exitEnd) {
+      fail(`proposition 5: <${sh.tag}>'s cover takes no exitEnd — its exit end has no way in.`);
+      continue;
+    }
+    const handler = resolveHandler(attrOf(sh.el, "onCloseAutoFocus"), sh.tag);
+    if (!handler) {
+      fail(`<${sh.tag}> takes no resolvable onCloseAutoFocus — its exit end has no way in.`);
+      continue;
+    }
+    const uses = usesOf(c.exitEnd);
+    const isLift = (u) => {
+      const call = u.parent;
+      if (!ts.isCallExpression(call) || call.expression !== u || call.arguments.length)
+        return false;
+      const stmt = call.parent;
+      if (ts.isArrowFunction(handler) && handler.body === call) return true;
+      if (!ts.isExpressionStatement(stmt) || !handler.body || !ts.isBlock(handler.body))
+        return false;
+      const top = handler.body.statements;
+      const i = top.indexOf(stmt);
+      return i >= 0 && !top.slice(0, i).some(mayLeave);
+    };
+    const lifts = uses.filter(isLift);
+    if (lifts.length !== 1)
+      fail(
+        `\`${c.exitEnd}()\` is not ONE reachable top-level statement of <${sh.tag}>'s onCloseAutoFocus\n` +
+          "  handler. That handler is the exit end (the Sheet fires it at unmount, after the exit); a\n" +
+          "  call nested in a branch, a callback or after an early return may never run.",
+      );
+    const elsewhere = uses.filter((u) => !isLift(u));
+    if (elsewhere.length)
+      fail(
+        `\`${c.exitEnd}\` is referenced OUTSIDE <${sh.tag}>'s exit end (\`${elsewhere[0].parent.getText(src).slice(0, 60)}\`).\n` +
+          "  Anywhere else — a close handler, an alias — lifts the cover at the START of the exit.",
+      );
+    const fwd = forwardsExit(sh.tag);
+    if (fwd) fail(fwd);
+  }
+  for (const c of covers)
+    if (!pageSheets.some((sh) => sh.open === c.open))
+      fail(`\`${COVER}(${c.open})\` covers no sheet the page renders — a cover tied to nothing.`);
+}
+
+// ── (6) The add-Undo writes from the add's OWN confirmed qty and speaks from its follow-up read ──
+// Blind pass 2 on #329: `undoAdd` took its target from `linesRef` (the client view, which a read
+// issued after the add can leave a unit short — "one fewer" of THAT removed the unit the basket held
+// before the add) and said "Removed" on any ok read without reading its lines. The rules are pure
+// (`lib/scan-undo.ts`, mutant-pinned); this pins the page's WIRING, in the function bound to `undoAdd`:
+//   a. exactly ONE live `setQty(…)`, whose qty is `undoTargetQty(R)` (directly, or through a const
+//      bound to it), R being the Undo record (`undo`, or a const bound to it);
+//   b. no reference to the client view (`linesRef`, `lines`), and no hand-written "Removed…" text;
+//   c. a live `undoOutcome(R, …)` — the words come from what the follow-up read confirms;
+// and, file-wide, d. every `setUndo(…)` is `null`, a retiring updater (`(u) => (c ? null : u)` or
+// `(p) => undoAfterWrite(p, …)`), or a binding to `undoFromAdd(…)` — the record is built only from
+// the add's own confirmed view; and e. every OTHER write of a line — each live `scanAdd(…)` and
+// `setQty(…)` outside `undoAdd` — is preceded in its own function by a TOP-LEVEL
+// `setUndo((p) => undoAfterWrite(p, B))`, B the item it writes (`scanAdd`'s code; `X.barcode` for
+// `setQty(X.lineId, …)`): the Undo's absolute write must never outlive a second write of that item
+// (the hand-read of this round's own fix found a Browse add inside the window taking both units).
+{
+  const fnOf = (name) => {
+    const decls = [];
+    walk(src, (n) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
+        decls.push(n);
+    });
+    if (decls.length !== 1)
+      return { problem: `${decls.length} declarations of \`${name}\` (ambiguity is refused)` };
+    const init = decls[0].initializer;
+    const fn =
+      init &&
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === "useCallback"
+        ? init.arguments[0]
+        : init;
+    return fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+      ? { fn }
+      : { problem: `\`${name}\` is not a function` };
+  };
+  const { fn, problem } = fnOf("undoAdd");
+  if (problem) fail(`proposition 6: ${problem}.`);
+  else {
+    // R — the record: `undo`, or a const in the function bound to it.
+    const records = new Set(["undo"]);
+    const constInit = new Map();
+    walk(fn, (n) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+        constInit.set(n.name.text, n.initializer);
+        if (ts.isIdentifier(n.initializer) && n.initializer.text === "undo")
+          records.add(n.name.text);
+      }
+    });
+    const callsIn = (name) => {
+      const out = [];
+      walk(fn, (n) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === name &&
+          !isLiterallyDead(n)
+        )
+          out.push(n);
+      });
+      return out;
+    };
+    const isTargetOfRecord = (e) => {
+      if (e && ts.isIdentifier(e) && constInit.has(e.text)) e = constInit.get(e.text);
+      return (
+        !!e &&
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        e.expression.text === "undoTargetQty" &&
+        e.arguments.length === 1 &&
+        ts.isIdentifier(e.arguments[0]) &&
+        records.has(e.arguments[0].text)
+      );
+    };
+    const writes = callsIn("setQty");
+    if (writes.length !== 1 || !isTargetOfRecord(writes[0].arguments[1]))
+      fail(
+        "proposition 6: `undoAdd` must make exactly ONE live `setQty(lineId, undoTargetQty(<the Undo record>))`.\n" +
+          "  `setQty` is absolute: a qty from anywhere else — the client view above all — can remove the\n" +
+          "  unit the basket held before the add.",
+      );
+    // Names `undoAdd` declares itself (a `const { lines } = r` is the follow-up read's, not the view).
+    const ownNames = new Set();
+    walk(fn, (n) => {
+      if (
+        (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+        ts.isIdentifier(n.name)
+      )
+        ownNames.add(n.name.text);
+    });
+    /** A REFERENCE — not a member name (`r.lines`), a property key or a declaration's own name. */
+    const isReference = (n) => {
+      const p = n.parent;
+      if (ts.isPropertyAccessExpression(p) && p.name === n) return false;
+      if (ts.isPropertyAssignment(p) && p.name === n) return false;
+      if (ts.isBindingElement(p) && p.propertyName === n) return false;
+      if (
+        (ts.isVariableDeclaration(p) || ts.isBindingElement(p) || ts.isParameter(p)) &&
+        p.name === n
+      )
+        return false;
+      return true;
+    };
+    walk(fn, (n) => {
+      if (
+        ts.isIdentifier(n) &&
+        isReference(n) &&
+        (n.text === "linesRef" || (n.text === "lines" && !ownNames.has("lines")))
+      )
+        fail(
+          `proposition 6: \`undoAdd\` reads the client view (\`${n.text}\`).\n` +
+            "  The Undo's target and words come from the add's own confirmed view and the follow-up read.",
+        );
+      if (
+        (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateHead(n)) &&
+        /\bRemoved\b/.test(n.text)
+      )
+        fail(
+          'proposition 6: `undoAdd` hand-writes a "Removed…" — the past tense comes only from `undoSentence(undoOutcome(…))`.',
+        );
+    });
+    const outcomes = callsIn("undoOutcome").filter(
+      (c) => ts.isIdentifier(c.arguments[0]) && records.has(c.arguments[0].text),
+    );
+    if (!outcomes.length)
+      fail(
+        "proposition 6: `undoAdd` never calls `undoOutcome(<the Undo record>, …)` — its words are not the read's.",
+      );
+  }
+  // d. every setUndo(...) — null, a retiring updater, or a binding to undoFromAdd(...) over the
+  //    add's OWN response: `{ barcode: <scanAdd's code>, lines: <R>.lines }`, R assigned from the
+  //    `scanAdd(…)` call — never the client view handed to the same builder.
+  const charged = chargeCalls[0];
+  const chargedCode = charged?.arguments[1]?.getText(src);
+  /** Identifiers assigned (or initialised) from an expression holding the `scanAdd(…)` call. */
+  const responses = new Set();
+  walk(src, (n) => {
+    const target =
+      ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ? [n.left, n.right]
+        : ts.isVariableDeclaration(n) && n.initializer
+          ? [n.name, n.initializer]
+          : null;
+    if (!target || !ts.isIdentifier(target[0]) || !charged) return;
+    if (charged.pos >= target[1].pos && charged.end <= target[1].end) responses.add(target[0].text);
+  });
+  const isNull = (e) => !!e && e.kind === ts.SyntaxKind.NullKeyword;
+  const mintMarks = [];
+  const fromAdd = new Set();
+  /** `writesRef.current` — the ledger, read where the decision is made. */
+  const isLedger = (e) => !!e && printed(e) === "writesRef.current";
+  walk(src, (n) => {
+    if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
+    if (n.expression.text !== "undoFromAdd") return;
+    // THE MINT IS GATED (Codex on #329's head ff29547): every `undoFromAdd(…)` is the taken arm of
+    // `const U = undoMayMint(writesRef.current, <code>, <mark>) ? undoFromAdd(…) : null`, <mark> the
+    // ONE `const <mark> = writeMark(writesRef.current, <code>)` of that function, taken after its own
+    // `writeStarted` (checked with the writes below).
+    let cond = n.parent;
+    while (cond && ts.isParenthesizedExpression(cond)) cond = cond.parent;
+    const decl = cond && cond.parent && ts.isVariableDeclaration(cond.parent) ? cond.parent : null;
+    const gate =
+      cond && ts.isConditionalExpression(cond) && cond.whenTrue === n ? cond.condition : null;
+    const gated =
+      !!decl &&
+      ts.isIdentifier(decl.name) &&
+      !!gate &&
+      ts.isCallExpression(gate) &&
+      ts.isIdentifier(gate.expression) &&
+      gate.expression.text === "undoMayMint" &&
+      gate.arguments.length === 3 &&
+      isLedger(gate.arguments[0]) &&
+      printed(gate.arguments[1]) === chargedCode &&
+      ts.isIdentifier(gate.arguments[2]) &&
+      isNull(unwrap(cond.whenFalse));
+    if (!gated) {
+      fail(
+        `proposition 6: \`${n.getText(src).slice(0, 60)}\` mints an Undo UNGATED — it must be the taken arm of\n` +
+          "  `undoMayMint(writesRef.current, <code>, <mark>) ? undoFromAdd(…) : null`: a write of the item\n" +
+          "  that crossed this add leaves its view short, and the Undo's absolute write takes both units.",
+      );
+      return;
+    }
+    const markName = gate.arguments[2].text;
+    const marks = declsOf(markName).filter(
+      (d) =>
+        d.initializer &&
+        ts.isCallExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        d.initializer.expression.text === "writeMark" &&
+        isLedger(d.initializer.arguments[0]) &&
+        printed(d.initializer.arguments[1]) === chargedCode,
+    );
+    if (declsOf(markName).length !== 1 || marks.length !== 1)
+      fail(
+        `proposition 6: the mint's mark \`${markName}\` must be ONE \`const ${markName} = writeMark(writesRef.current, ${chargedCode})\`.`,
+      );
+    else mintMarks.push(marks[0]);
+    const obj = n.arguments[0];
+    const prop = (key) => {
+      if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
+      const p = obj.properties.find((q) => q.name && q.name.getText(src) === key);
+      if (!p) return null;
+      if (ts.isShorthandPropertyAssignment(p)) return p.name;
+      return ts.isPropertyAssignment(p) ? p.initializer : null;
+    };
+    const lines = prop("lines");
+    const code = prop("barcode");
+    const ownLines =
+      lines &&
+      ts.isPropertyAccessExpression(lines) &&
+      lines.name.text === "lines" &&
+      ts.isIdentifier(lines.expression) &&
+      responses.has(lines.expression.text);
+    const ownCode = code && ts.isIdentifier(code) && code.text === chargedCode;
+    if (ownLines && ownCode) fromAdd.add(decl.name.text);
+    else
+      fail(
+        `proposition 6: \`${n.getText(src).slice(0, 80)}\` — undoFromAdd must take the add's OWN response\n` +
+          `  (\`lines: <the scanAdd result>.lines\`, \`barcode\` the code scanAdd charged), never the client view.`,
+      );
+  });
+  /** `(p) => undoAfterWrite(p, B)` — the barcode B's printed text, or null when it is not that shape. */
+  const afterWrite = (e) => {
+    if (!e || !ts.isArrowFunction(e) || e.parameters.length !== 1) return null;
+    const p = e.parameters[0].name;
+    if (!ts.isIdentifier(p)) return null;
+    let body = e.body;
+    while (ts.isParenthesizedExpression(body)) body = body.expression;
+    return ts.isCallExpression(body) &&
+      ts.isIdentifier(body.expression) &&
+      body.expression.text === "undoAfterWrite" &&
+      body.arguments.length === 2 &&
+      ts.isIdentifier(body.arguments[0]) &&
+      body.arguments[0].text === p.text
+      ? printed(body.arguments[1])
+      : null;
+  };
+  /** `(u) => (cond ? null : u)` — an updater that can only retire the record or keep it. */
+  const retiring = (e) => {
+    if (
+      !ts.isArrowFunction(e) ||
+      e.parameters.length !== 1 ||
+      !ts.isIdentifier(e.parameters[0].name)
+    )
+      return false;
+    const p = e.parameters[0].name.text;
+    let body = e.body;
+    while (ts.isParenthesizedExpression(body)) body = body.expression;
+    return (
+      ts.isConditionalExpression(body) &&
+      [body.whenTrue, body.whenFalse].every(
+        (b) => isNull(b) || (ts.isIdentifier(b) && b.text === p),
+      )
+    );
+  };
+  walk(src, (n) => {
+    if (
+      !ts.isCallExpression(n) ||
+      !ts.isIdentifier(n.expression) ||
+      n.expression.text !== "setUndo"
+    )
+      return;
+    const a = n.arguments[0];
+    const ok =
+      a &&
+      (isNull(a) ||
+        retiring(a) ||
+        afterWrite(a) !== null ||
+        (ts.isIdentifier(a) && fromAdd.has(a.text)));
+    if (!ok)
+      fail(
+        `proposition 6: \`setUndo(${a ? a.getText(src).slice(0, 50) : ""})\` — an Undo record may only be\n` +
+          "  built by `undoFromAdd(…)` from the add's own confirmed view (or retired with null).",
+      );
+  });
+  // e. every other write of a line retires an open Undo for that item first
+  const undoFn = fn ?? null;
+  walk(src, (w) => {
+    if (!ts.isCallExpression(w) || !ts.isIdentifier(w.expression)) return;
+    const kind = w.expression.text;
+    if ((kind !== CHARGE && kind !== "setQty") || isLiterallyDead(w)) return;
+    if (undoFn && w.pos >= undoFn.pos && w.end <= undoFn.end) return;
+    let item = null;
+    if (kind === CHARGE) item = w.arguments[1] ? printed(w.arguments[1]) : null;
+    else {
+      const id = w.arguments[0];
+      if (id && ts.isPropertyAccessExpression(id) && id.name.text === "lineId")
+        item = `${printed(id.expression)}.barcode`;
+    }
+    const f = enclosingFunction(w);
+    const top = f && f.body && ts.isBlock(f.body) ? f.body.statements : [];
+    const at = top.findIndex((st) => w.pos >= st.pos && w.end <= st.end);
+    const retired =
+      item !== null &&
+      at > 0 &&
+      top
+        .slice(0, at)
+        .some(
+          (st) =>
+            ts.isExpressionStatement(st) &&
+            ts.isCallExpression(st.expression) &&
+            ts.isIdentifier(st.expression.expression) &&
+            st.expression.expression.text === "setUndo" &&
+            afterWrite(st.expression.arguments[0]) === item,
+        );
+    if (!retired)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\` writes ${item ?? "a line"} without first retiring an\n` +
+          `  open Undo for it — a top-level \`setUndo((p) => undoAfterWrite(p, ${item ?? "<the item>"}))\` above it in\n` +
+          "  the same function. The Undo writes the add's confirmed qty minus one ABSOLUTELY, so a second\n" +
+          "  write of the same item would make it take that unit too.",
+      );
+  });
+  // f. THE LEDGER (Codex on #329's head ff29547): every write of a line outside the Undo — each live
+  //    `scanAdd` and `setQty` — is tallied: a TOP-LEVEL `writesRef.current = writeStarted(
+  //    writesRef.current, B)` before it in its own function, and the write inside a `try` whose
+  //    `finally` holds `writesRef.current = writeLanded(writesRef.current, B)` at its top level (a
+  //    throw still lands it, or `inFlight` never falls and no later add of the item mints). And the
+  //    mint's mark is taken AFTER its own start — a mark taken before it would count its own start
+  //    as another writer's, and one taken later could miss a write that started in between.
+  //    ⚠️ AND THE START SITS RIGHT ABOVE THE TRY THAT LANDS IT (the blind pass on #329 @ f0d013f).
+  //    "Before it" let a start be hoisted above the add's early returns (the offline queue, no
+  //    cart): it never lands, `inFlight` stays raised, and no later add of that item ever mints an
+  //    Undo again. So the write's own top-level statement must BE that try, and between the start
+  //    and it only declarations that cannot leave the function — no return, no throw, no await.
+  const ledgerStep = (st, fn, item) =>
+    ts.isExpressionStatement(st) &&
+    ts.isBinaryExpression(st.expression) &&
+    st.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    isLedger(st.expression.left) &&
+    ts.isCallExpression(st.expression.right) &&
+    ts.isIdentifier(st.expression.right.expression) &&
+    st.expression.right.expression.text === fn &&
+    st.expression.right.arguments.length === 2 &&
+    isLedger(st.expression.right.arguments[0]) &&
+    printed(st.expression.right.arguments[1]) === item;
+  walk(src, (w) => {
+    if (!ts.isCallExpression(w) || !ts.isIdentifier(w.expression)) return;
+    const kind = w.expression.text;
+    if ((kind !== CHARGE && kind !== "setQty") || isLiterallyDead(w)) return;
+    if (undoFn && w.pos >= undoFn.pos && w.end <= undoFn.end) return;
+    let item = null;
+    if (kind === CHARGE) item = w.arguments[1] ? printed(w.arguments[1]) : null;
+    else {
+      const id = w.arguments[0];
+      if (id && ts.isPropertyAccessExpression(id) && id.name.text === "lineId")
+        item = `${printed(id.expression)}.barcode`;
+    }
+    const f = enclosingFunction(w);
+    const top = f && f.body && ts.isBlock(f.body) ? f.body.statements : [];
+    const at = top.findIndex((st) => w.pos >= st.pos && w.end <= st.end);
+    const startAt =
+      item === null || at < 0
+        ? -1
+        : top.slice(0, at).findIndex((st) => ledgerStep(st, "writeStarted", item));
+    let landed = false;
+    for (let t = w.parent; t && t !== f; t = t.parent)
+      if (
+        ts.isTryStatement(t) &&
+        w.pos >= t.tryBlock.pos &&
+        w.end <= t.tryBlock.end &&
+        t.finallyBlock &&
+        t.finallyBlock.statements.some((st) => ledgerStep(st, "writeLanded", item))
+      )
+        landed = true;
+    const exits = (n) => {
+      let found = false;
+      const look = (c) => {
+        if (found || ts.isFunctionLike(c)) return;
+        if (
+          ts.isReturnStatement(c) ||
+          ts.isThrowStatement(c) ||
+          ts.isAwaitExpression(c) ||
+          ts.isBreakStatement(c) ||
+          ts.isContinueStatement(c)
+        )
+          found = true;
+        else
+          ts.forEachChild(c, (g) => {
+            look(g);
+          });
+      };
+      look(n);
+      return found;
+    };
+    const own = at >= 0 ? top[at] : null;
+    const adjacent =
+      startAt >= 0 &&
+      own !== null &&
+      ts.isTryStatement(own) &&
+      w.pos >= own.tryBlock.pos &&
+      w.end <= own.tryBlock.end &&
+      !!own.finallyBlock &&
+      own.finallyBlock.statements.some((st) => ledgerStep(st, "writeLanded", item)) &&
+      top.slice(startAt + 1, at).every((st) => ts.isVariableStatement(st) && !exits(st));
+    if (startAt >= 0 && landed && !adjacent)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\`'s \`writeStarted\` is not RIGHT ABOVE the try that\n` +
+          "  lands it — the write's own top-level statement must be that try, and between the start and it\n" +
+          "  only declarations (no return, throw or await). A start that can leave before its try never\n" +
+          "  lands: `inFlight` stays raised and no later add of the item mints an Undo again.",
+      );
+    if (startAt < 0 || !landed)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\` is not on the write ledger — it needs a top-level\n` +
+          `  \`writesRef.current = writeStarted(writesRef.current, ${item ?? "<the item>"})\` before it and a\n` +
+          `  \`writesRef.current = writeLanded(writesRef.current, ${item ?? "<the item>"})\` in the \`finally\` of a try\n` +
+          "  around it. An untallied write can cross a sheet add unseen, and that add mints an Undo from\n" +
+          "  a view a unit short — the Undo then removes both units.",
+      );
+    // The mint's mark, if this function mints: declared after the start, before the write.
+    for (const m of mintMarks) {
+      if (!(m.pos >= f.pos && m.end <= f.end)) continue;
+      const markAt = top.findIndex((st) => m.pos >= st.pos && m.end <= st.end);
+      if (markAt <= startAt || markAt >= at)
+        fail(
+          "proposition 6: the mint's `writeMark` must be taken AFTER this add's own `writeStarted` and\n" +
+            "  before its write — anywhere else it counts its own start as another writer's, or misses one.",
+        );
+    }
+  });
+}
+
+// ── (7) A Name-sheet tap whose code waits in the queue writes NOTHING, whatever the radio says; a
+//        replayed sheet add answers the sheet that asked (PD4, Codex round 4 on #329, 4240341719) ──
+// The P1: the refusal of a second tap sat INSIDE `add`'s offline branch, so once the radio returned
+// — before the replay answered — the same row charged live under a fresh scan id and the replay
+// landed a second unit behind it; and the replay never closed the asking sheet, so the moment the
+// entry left the queue the row was live again under a "Saved…" line that was no longer true. The
+// rules are pure (`lib/sheet-replay.ts`, mutant-pinned); this pins the page's WIRING:
+//   a. in the function bound to `add`, exactly ONE live `sheetTapWaits(pendingRef.current, B)` — B
+//      `add`'s own barcode parameter — as the test of a TOP-LEVEL `if` of `add`'s body (never nested
+//      under the radio or any other branch), the test being exactly `S && <that call>`, S a
+//      top-level `const` of `add` read off `nameSheetRef.current` (the asking sheet): a further
+//      conjunct could make it the radio's again. Its then-branch returns at its own top level, and
+//      the `if` comes BEFORE every top-level statement of `add` holding a live `queueOffline(…)` or
+//      the charge;
+//   b. in the function bound to `drainNow`, exactly ONE live `const D = replayForSheet(
+//      classifyReplay(R), …)`, R a binding the drain's own `scanAdd(…)` result is assigned to (the
+//      replay's REAL verdict), and a live `closeSheetOnOk(…)` — the live ok's own close, arm and
+//      close-restore — in the then-branch of the nearest `if` around it, whose test is exactly
+//      `D.close`.
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
+{
+  const liveCallsIn = (fn, name) => {
+    const out = [];
+    walk(fn, (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === name &&
+        !isLiterallyDead(n)
+      )
+        out.push(n);
+    });
+    return out;
+  };
+  const parentPastParens = (n) => {
+    let p = n.parent;
+    while (p && ts.isParenthesizedExpression(p)) p = p.parent;
+    return p;
+  };
+  const fnAdd = callbackBoundTo("add");
+  if (!fnAdd) fail("proposition 7: `add` must be ONE `const add = useCallback(fn, …)`.");
+  else {
+    const p0 = fnAdd.parameters[0];
+    const code = p0 && ts.isIdentifier(p0.name) ? p0.name.text : null;
+    const top = ts.isBlock(fnAdd.body) ? fnAdd.body.statements : [];
+    /** Top-level consts of `add` read off `nameSheetRef.current` — the asking sheet, captured. */
+    const askers = new Set();
+    for (const st of top)
+      if (ts.isVariableStatement(st))
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name) || !d.initializer) continue;
+          let reads = false;
+          walk(d.initializer, (m) => {
+            if (ts.isPropertyAccessExpression(m) && printed(m) === "nameSheetRef.current")
+              reads = true;
+          });
+          if (reads) askers.add(d.name.text);
+        }
+    const waits = liveCallsIn(fnAdd, "sheetTapWaits");
+    if (waits.length !== 1)
+      fail(
+        `proposition 7: \`add\` must ask \`sheetTapWaits(pendingRef.current, ${code ?? "<code>"})\` exactly ONCE, live; found ${waits.length}.\n` +
+          "  A sheet tap whose code already waits in the queue must write nothing — each tap mints a fresh\n" +
+          "  scan id, and the queued add replays behind a second one.",
+      );
+    else {
+      const call = waits[0];
+      const argsOk =
+        call.arguments.length === 2 &&
+        printed(call.arguments[0]) === "pendingRef.current" &&
+        ts.isIdentifier(unwrap(call.arguments[1])) &&
+        unwrap(call.arguments[1]).text === code;
+      const test = parentPastParens(call);
+      const ifSt = test ? parentPastParens(test) : null;
+      const shapeOk =
+        !!test &&
+        ts.isBinaryExpression(test) &&
+        test.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        unwrap(test.right) === call &&
+        ts.isIdentifier(unwrap(test.left)) &&
+        askers.has(unwrap(test.left).text) &&
+        !!ifSt &&
+        ts.isIfStatement(ifSt) &&
+        unwrap(ifSt.expression) === test;
+      const at = shapeOk ? top.indexOf(ifSt) : -1;
+      const then = shapeOk ? ifSt.thenStatement : null;
+      const returns =
+        !!then &&
+        (ts.isReturnStatement(then) ||
+          (ts.isBlock(then) && then.statements.some((st) => ts.isReturnStatement(st))));
+      const writesAt = top.findIndex((st) => {
+        let hit = false;
+        walk(st, (n) => {
+          if (
+            ts.isCallExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            (n.expression.text === "queueOffline" || n.expression.text === CHARGE) &&
+            !isLiterallyDead(n)
+          )
+            hit = true;
+        });
+        return hit;
+      });
+      if (!argsOk || !shapeOk || at < 0 || !returns || (writesAt >= 0 && at > writesAt))
+        fail(
+          "proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL\n" +
+            `  \`if (<the asking sheet> && sheetTapWaits(pendingRef.current, ${code ?? "<code>"})) { …; return; }\`,\n` +
+            "  ahead of every `queueOffline(…)` and the charge — never under the radio (Codex r4 on #329:\n" +
+            "  a tap after reconnect charged live, and the queued add replayed a second unit behind it).",
+        );
+    }
+  }
+  const fnDrain = callbackBoundTo("drainNow");
+  if (!fnDrain)
+    fail("proposition 7: `drainNow` must be ONE `const drainNow = useCallback(fn, …)`.");
+  else {
+    const charges = liveCallsIn(fnDrain, CHARGE);
+    /** Identifiers assigned (or initialised) from an expression holding the drain's charge. */
+    const results = new Set();
+    walk(fnDrain, (n) => {
+      const pair =
+        ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          ? [n.left, n.right]
+          : ts.isVariableDeclaration(n) && n.initializer
+            ? [n.name, n.initializer]
+            : null;
+      if (!pair || !ts.isIdentifier(pair[0])) return;
+      if (charges.some((c) => c.pos >= pair[1].pos && c.end <= pair[1].end))
+        results.add(pair[0].text);
+    });
+    const answers = liveCallsIn(fnDrain, "replayForSheet");
+    const answer = answers.length === 1 ? answers[0] : null;
+    const verdict = answer?.arguments[0] ? unwrap(answer.arguments[0]) : null;
+    const realVerdict =
+      !!verdict &&
+      ts.isCallExpression(verdict) &&
+      ts.isIdentifier(verdict.expression) &&
+      verdict.expression.text === "classifyReplay" &&
+      verdict.arguments.length === 1 &&
+      ts.isIdentifier(unwrap(verdict.arguments[0])) &&
+      results.has(unwrap(verdict.arguments[0]).text);
+    const decl = answer ? parentPastParens(answer) : null;
+    const D =
+      decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : null;
+    if (!answer || !realVerdict || !D)
+      fail(
+        "proposition 7: `drainNow` must answer a queued sheet add with exactly ONE live\n" +
+          "  `const <D> = replayForSheet(classifyReplay(<the replay's scanAdd result>), …)` — the replay's\n" +
+          "  REAL verdict is the asking sheet's answer.",
+      );
+    else {
+      const closes = liveCallsIn(fnDrain, "closeSheetOnOk").filter((c) => {
+        for (let n = c.parent; n && n !== fnDrain; n = n.parent)
+          if (ts.isIfStatement(n))
+            return (
+              c.pos >= n.thenStatement.pos &&
+              c.end <= n.thenStatement.end &&
+              printed(n.expression) === `${D}.close`
+            );
+        return false;
+      });
+      if (!closes.length)
+        fail(
+          `proposition 7: a delivered replay never closes its sheet — \`drainNow\` needs a live\n` +
+            `  \`closeSheetOnOk(…)\` under \`if (${D}.close)\`. Left open, the queue entry leaves and the same row\n` +
+            "  charges a second unit (Codex r4 on #329).",
+        );
+    }
+  }
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -421,6 +1646,10 @@ if (problems.length) {
 console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
-    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
-    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")})\x1b[0m`,
+    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired)` +
+    ` and charges the decoded code; "Add another" only behind the chip's chipAction();` +
+    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
+    ` each sheet's cover lifted only by its exit end or the fail-safe;` +
+    ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>);` +
+    ` a queued sheet tap waits before any write, and a replayed sheet add closes its sheet\x1b[0m`,
 );

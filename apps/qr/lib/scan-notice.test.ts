@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { fromCamera, scanHint, scanNoticeFor, slotAfter, type ScanSlot } from "./scan-notice";
+import {
+  fromCamera,
+  looksLikeBarcode,
+  offlineClaim,
+  offlineSavedToast,
+  queuedChipName,
+  scanHint,
+  scanNoticeFor,
+  slotAfter,
+  type ScanSlot,
+} from "./scan-notice";
 
 /** Phase 1c — the Scan door's result bar. Each MUTATION was induced and watched go red. */
 
@@ -74,6 +84,21 @@ describe("slotAfter — the bar follows every outcome", () => {
     ).toEqual({ kind: "notice", notice: { kind: "unavailable", barcode: "299003" }, key: 12 });
   });
 
+  it("the SAME jar re-read while its tag shows keeps its key — no re-rise, no second announcement (PD4)", () => {
+    // MUTATION: re-key every camera miss → the tag rises again and the Toast re-speaks on every
+    // 1.5 s gap in the decode stream while the jar rests in frame; red.
+    expect(
+      slotAfter(miss, { outcome: "unknown_barcode", via: "scan", barcode: "299001", key: 7 }),
+    ).toBe(miss);
+    // A DIFFERENT jar, or the same jar with a different verdict, is a new outcome: re-keyed.
+    expect(
+      slotAfter(miss, { outcome: "unknown_barcode", via: "scan", barcode: "299009", key: 8 }),
+    ).toEqual({ kind: "notice", notice: { kind: "unknown", barcode: "299009" }, key: 8 });
+    expect(
+      slotAfter(miss, { outcome: "weighed_item", via: "scan", barcode: "299001", key: 9 }),
+    ).toEqual({ kind: "notice", notice: { kind: "weighed", barcode: "299001" }, key: 9 });
+  });
+
   it("a transport failure or a basket reason leaves the slot alone", () => {
     expect(slotAfter(miss, { outcome: "transport", via: "scan", barcode: "299004", key: 5 })).toBe(
       miss,
@@ -99,6 +124,54 @@ describe("scanHint — one line of guidance", () => {
   it("all good → aim", () => {
     expect(scanHint({ cartReady: true, online: true, storage: true })).toBe("aim");
     expect(scanHint({ cartReady: true, online: true, storage: false })).toBe("aim");
+  });
+});
+
+describe("PD4 — what an OFFLINE sighting may claim (the cache omits weighed + unavailable items)", () => {
+  const cached = { barcode: "2990000000017", name: "Tea Leaves -400g", priceCents: 644 };
+
+  it("a cached code is KNOWN, with its display-only estimate", () => {
+    expect(offlineClaim(cached)).toEqual({
+      kind: "known",
+      name: "Tea Leaves -400g",
+      priceCents: 644,
+    });
+  });
+
+  it("a code absent from the cache is UNKNOWN — never 'not in the app'", () => {
+    expect(offlineClaim(null)).toEqual({ kind: "unknown" });
+  });
+
+  it("the queued chip is named by the cache, or 'A saved scan' — never by its digits", () => {
+    expect(queuedChipName("2990000000017", cached)).toEqual({ name: "Tea Leaves -400g", my: null });
+    // MUTATION: fall back to the barcode → a 13-digit "name" under the in-basket disc, which is
+    // the shipped defect brief-m4 Today #7 names; red.
+    const unknown = queuedChipName("0123456789012", null);
+    expect(unknown.name).toBe("A saved scan");
+    expect(unknown.name).not.toMatch(/\d/);
+    expect(unknown.my).toBe("သိမ်းထားတဲ့ စကင်");
+  });
+
+  it("the saved toast promises the CHECK, and the unknown arm never claims the code is not in the app", () => {
+    expect(offlineSavedToast(cached).text).toBe(
+      "Saved Tea Leaves -400g ≈$6.44 — we’ll check it when you’re back online.",
+    );
+    const unknown = offlineSavedToast(null);
+    // MUTATION: say the tag's headline here → "isn't in the app" about a code the cache cannot
+    // judge (a weighed jar, an item out today); red.
+    expect(unknown.text).toBe("Saved — we’ll check this code when you’re back online.");
+    expect(unknown.text).not.toMatch(/in the app/);
+    expect(unknown.text).not.toMatch(/\badds?\b/);
+    expect(unknown.my).toContain("စစ်ပေးပါမယ်");
+  });
+
+  it("8–14 digits in the name field is a code being typed, not a name", () => {
+    expect(looksLikeBarcode("01234567")).toBe(true);
+    expect(looksLikeBarcode(" 2990000000017 ")).toBe(true);
+    expect(looksLikeBarcode("1234567")).toBe(false);
+    expect(looksLikeBarcode("123456789012345")).toBe(false);
+    expect(looksLikeBarcode("laphet")).toBe(false);
+    expect(looksLikeBarcode("400g")).toBe(false);
   });
 });
 

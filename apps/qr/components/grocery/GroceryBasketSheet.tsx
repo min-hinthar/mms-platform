@@ -91,6 +91,12 @@ export function GroceryBasketSheet({
                         EBT
                       </small>
                     )}
+                    {/* G20 (ruling #19) — the catalog's Burmese name under the English, as a block. */}
+                    {l.nameMy && (
+                      <small className="grocery-line-my" lang="my">
+                        {l.nameMy}
+                      </small>
+                    )}
                     <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
                       {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
                     </small>

@@ -4,6 +4,122 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD4 — the grocery miss: the guided tag inside the lens (2026-10-08, `claude/feat/pd4-grocery-miss`)
+
+- **The miss is a paper tag INSIDE the live lens** (m4 spec, round 3): "This code isn’t in the app yet."
+  — one primary, "Search by name" (an ink pill whose accessible name is its visible bilingual text),
+  and the quiet, non-interactive "Or ask at the counter" (PATH*DESIGN decision 6). No ✕, no step
+  rail, no drawn toast: the miss is \_spoken* (Toast `quiet`), and the same jar re-read while its tag
+  shows keeps its key — no re-rise, no second announcement (`slotAfter`, mutant-pinned). The tag's
+  punched hole shows the camera through it (clip-path + mask, the drop-shadow on the wrapper so it
+  follows the cut); constant cream with ink in both themes. Weighed and unavailable keep the kiosk's
+  shipped sentences; unavailable gains the quiet line (B8). **The camera never scrolls away:** the
+  Scan door loses the search field that pushed the stage down; Browse keeps it.
+- **The Name sheet over the still-streaming lens is the Scan door's only search**
+  (`GroceryNameSheet`): "It’s not you — most shelf codes aren’t in the app yet." in its just-opened and
+  no-match states, "laphet" as the one-word example (appendix C), the NOW → NEXT → hero → fallback
+  order of the diner register (B9: "Keep scanning — this one can wait for the counter." above "Back
+  to the camera"), "Try again" as the failed state's one hero, an honest offline line, package 2's
+  "That looks like a barcode" line, and a locked/settling refusal that replaces the state line instead
+  of a toast behind the keyboard. **The tag for the counter shows only in a sheet a miss opened** (B6),
+  led by the receipt glyph (A1), carrying the lens tag's own words, the Burmese at the counter's
+  reading size and the query the shopper tried — never a code, a price or a sale. The sheet joins the
+  camera hold (`check:scan-repeat` reads its `open`), closes on the server's ok only, and opens with
+  the field focused (`initialFocus`).
+- **Never a charge from a guess.** `lib/scan-pairing.ts` (4 mutants): a shelf code rescued by name is
+  _judged_ as the item it became, so a re-read gets M186's repeat verdict and the disc chip — and the
+  pairing is spent the moment that item leaves the basket by any path (B1). `check:scan-repeat`
+  proposition 4 parses that `scanAdd`'s barcode argument is `add()`'s own parameter, never the
+  judged code (red-first: the argument swapped, a const copy). **The add-Undo waits for the confirmed
+  write** (`lib/scan-undo.ts`, 4 mutants; B2 · D3): it sits in the chip's action slot as the one
+  Undo form (dashed `--sf`, "Undo · ပြန်ဖျက်", an aria-hidden seconds leaf, held by keyboard focus
+  through `lib/undo-hold.ts`), reads "Removing…" in flight and "Removed {name}" only after `setQty`
+  resolves and the confirmed read lands; amounts never move optimistically. **The chip arms 350 ms
+  after the sheet closes** (Codex correction 15) through `chipArmed` reading `@mms/ui`'s
+  `SAME_GESTURE_MS` — never a second constant — with full ink while refused.
+- **Offline honesty (B4 · B5).** A code absent from the cache is UNKNOWN, never "not in the app" (the
+  cache omits weighed and unavailable items): `offlineClaim` / `queuedChipName` / `offlineSavedToast`
+  (3 mutants) name a queued unknown code "A saved scan", never its digits, promise only the check
+  ("Saved — we’ll check this code when you’re back online."), and `drainSummary` reports a rejection by
+  count with its honest causes, no digits (1 mutant). The lens hint reads "saved and checked".
+- **Busy rows keep full ink** (B10): the ONE shared `GroceryResultRow` (Browse and the sheet) marks
+  busy with `aria-busy` and the word "Adding…", never opacity. **G20 (ruling #19):** basket lines and
+  the chip carry the catalog's Burmese name (`GroceryLine.nameMy`).
+- **guards-style's piece, its own commit:** `@mms/ui` `Sheet` gains an opt-in `initialFocus` (a ref or
+  selector; `sheet-focus.ts` refuses a target outside the sheet and falls back to the container, never
+  the ✕), documented beside the J21 note and pinned by the ui package's own suite — `verify:slice`
+  cannot mutate `packages/ui` (M77, left open with a note). Grocery opts in with one prop from
+  `GroceryNameSheet.tsx`; `lib/sheet-initial-focus-callers.test.ts` PARSES every `<Sheet>` under
+  `components/` and `app/` so the prop never reaches a money sheet (a fake cash caller, a dead parked
+  copy and an aliased import are each refused on fixtures).
+- **Left for the device sitting (#12):** whether iPhone Safari raises the keyboard when the sheet
+  opens with `initialFocus`; the tag's height in Padauk at 375px. **Parked by ruling #20:** the
+  flashlight, the decoder, the device scan check. Every new Burmese string is a `K15 · grocery` draft.
+- **The blind pass on #329 (REJECT) and Codex round 1, fixed in one commit** (the spec's §H.2, every
+  finding verified against source): the Undo's words follow the confirmed read ("Removed" only when the
+  line is gone, "{name} × {qty}" when it stepped down, nothing past-tense when the read did not land)
+  and any manual step on that line retires the Undo; off-camera refusals are drawn and, inside the Name
+  sheet, every refusal is said in the sheet's own `role="status"` line (the toast sits behind the
+  keyboard) with the sheet context captured before the await; a sheet row tapped twice offline no
+  longer queues twice; a weighed replay gets its own honest drain sentence (reasons ride
+  `DrainOutcome`, mutant `grocery-queue/a-weighed-replay-blamed-on-the-catalog`); `sameTag` keys on
+  the verdict too; a sheet no code opened withholds "It’s not you" and the camera hero; stale rows leave
+  with the query and "Searching…" is synchronous; the Undo's focus handoff runs post-commit; the
+  paper tag's ring is `:focus-visible`; `check:scan-repeat` proposition 4 binds to the parameter's
+  DECLARATION (an assignment or a shadowing `const barcode` reddens it); the allowlist's money sheets
+  are the M82 GUARDED set, each proven to render a `<Sheet>`, with spreads refused and namespace
+  imports read.
+- **Codex round 2 on #329, fixed in one commit** (the spec's §H.3): the camera's hold now lasts
+  through a sheet's EXIT, not only while it is open (`lib/hooks/useStageCover.ts`, lifted by the
+  Sheet's `onCloseAutoFocus` at unmount or a fail-safe; five mutants), so a different jar in frame is
+  never charged behind a closing scrim — pinned in the page by `check:scan-repeat` proposition 5, with
+  the shared DoorSheet named as the one exempt sheet and filed (`PD4 · door`); a refused removal no
+  longer spends the miss→item pairing (`pairingAfterRemoval`); and a finished basket hands focus to
+  "Start a fresh basket" from the Name sheet and the basket sheet (`lib/grocery-focus.ts`).
+- **The second capped blind pass on #329 (REJECT), fixed in nine commits** (the spec's §H.4): the
+  add-Undo writes one fewer than the add's OWN confirmed qty, is retired by any other write of the
+  same item, and speaks only what the follow-up read shows (`undoFromAdd` · `undoAfterWrite` ·
+  `undoOutcome`, proposition 6); the chip's action slot and the repeat toast's
+  "Add another" clause read ONE predicate (`lib/scan-chip.ts`), and a chip reached through a pairing
+  offers no "Add another" — a re-read is announced as the shopper's own act ("You added X for this
+  code"), so no charge ever takes a judged code (proposition 4 now proves every caller's provenance);
+  the Name sheet re-announces an identical refusal and keeps its Burmese half (`lib/sheet-refusal.ts`);
+  the DoorSheet's exit is covered by `useStageCover`'s fail-safe (`PD4 · door` closed; proposition 5
+  has no exemption and refuses ambiguity); the chip arms unconditionally at the same-gesture window and
+  focus never lands on the Undo programmatically; a malformed `initialFocus` selector falls back to the
+  container; and the `initialFocus` allowlist reads every app and `@mms/ui` source, refusing aliases,
+  `createElement`, re-exports and deep imports it cannot read. Every `check:scan-repeat` evasion is a
+  committed fixture run in CI (`lib/check-scan-repeat.test.ts`).
+- **Codex on #329's merge head `ff29547`, three P2s, fixed in one commit** (the spec's §H.5): a sheet
+  add mints its Undo only when no other write of the item started or landed inside its window and
+  none is in flight — a per-barcode write ledger every write (live adds, replays, the stepper) is
+  routed through (`undoMayMint`, proposition 6 f), and a replay's landing retires the Undo too, so a
+  replay that crossed the add can no longer leave an Undo that removes both units; with the radio
+  known down the Name sheet says "Search needs a connection" at once and no request is sent
+  (`lib/name-search.ts`; the query re-runs when the radio returns); and "Start a fresh basket" hands
+  focus to the new stage once it mounts, never to the leaving button (`usePendingFocus`).
+- **The last capped blind pass on `f0d013f` (REJECT), fixed** (the spec's §H.6): the name search moves
+  into `lib/hooks/useNameSearch.ts`, driven by its own suite through real `online` / `offline` events.
+  A query typed offline is HELD — no request, nothing marked failed — and reads as Searching… the
+  moment the radio returns, then is sent once; the reconnect no longer announces "Search
+  unavailable" about a search nobody sent, nor keeps "Try again" up through the real fetch. The radio
+  dropping no longer re-runs the search, so rows still on screen stay tappable (queued offline) and
+  Browse keeps a focused row. Proposition 6 f now requires each write's `writeStarted` right above
+  the `try` that lands it (no return, throw or await between); "Start a fresh basket" falls back to
+  the session banner's Retry when the new basket fails to start, and `usePendingFocus` keeps waiting
+  while the pressed button still holds focus.
+- **Codex round 4 on `dc85e80` (one P1, three P2s), fixed or filed** (the spec's §H.7): a Name-sheet
+  tap whose code waits in the offline queue is refused whatever the radio says, so a tap after
+  reconnect can no longer charge live while the queued add replays behind it; the replay now answers
+  the sheet that queued the add (`lib/sheet-replay.ts`) — delivered closes it with the live ok's own
+  routine (arm and close-restore included) and pairs its miss, a rejection replaces its stale
+  "Saved…" line — and `check:scan-repeat` proposition 7 pins both wirings (nine committed
+  fixtures). A refused removal restores a pairing a re-read spent while the line was flipped away,
+  and a landed Undo takes back the pairing its own add made whatever qty it wrote
+  (`pairingAfterRemoval` · `pairingAfterUndo`). Twelve new mutants. The Undo minted after an add
+  from a sheet a camera panel opened is never drawn (the result slot lives in the live lens) — filed
+  as a nice-to-do under PD4; a replay's missing `billedRef` record is filed as G25.
+
 ### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
 
 - **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**

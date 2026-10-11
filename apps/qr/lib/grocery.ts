@@ -154,6 +154,10 @@ export type GroceryLine = {
   lineId: string;
   barcode: string;
   name: string;
+  /** G20 (owner ruling #19, 2026-10-07) — the catalog's Burmese name for the basket rows and the
+   *  lens chip. Display only, read from the catalog at read time (the cart line stores only the
+   *  add-time English `name`); null when the catalog row has none or went away. */
+  nameMy: string | null;
   qty: number;
   unitPriceCents: number;
   /** W4e: the catalog's current compare-at (market ref) for this barcode — drives the basket's
@@ -186,7 +190,7 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
   const barcodes = [...new Set(lines.map((l) => l.menu_item_id))];
   const { data: items, error: catErr } = await db
     .from("grocery_items")
-    .select("barcode,ebt_eligible,image_url,compare_at_cents")
+    .select("barcode,name_my,ebt_eligible,image_url,compare_at_cents")
     .in("barcode", barcodes);
   if (catErr) {
     console.error("[grocery] readGroceryLines catalog read failed", catErr);
@@ -200,6 +204,7 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
       lineId: l.id,
       barcode: l.menu_item_id,
       name: l.name,
+      nameMy: cat?.name_my ?? null,
       qty: l.qty,
       unitPriceCents: l.unit_price_cents,
       // Only a genuine discount (compare-at strictly above the CHARGED unit price) counts — a stale
