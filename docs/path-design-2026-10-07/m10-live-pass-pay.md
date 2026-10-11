@@ -1302,3 +1302,103 @@ is the holder tier's `min-height`; the status row's 11/700 caps are `--fs-xs` + 
 the track's English word in the head context. **K15:** this PR ships no Burmese string — the
 primitives hold none; the test fixtures use the shipped `table.line.state.*` words and `floor.table`'s
 "စားပွဲ". **Not in this PR:** a `/kit` section (consumer wiring is the streams'); `lib/kitchen-track.ts`.
+
+### I · Build notes (2026-10-11, `claude/feat/pd10-live-pass`) — the live pass, and the served door behind the parked flag
+
+What diner-cart and money-rails built before C2. `SURFACES.dineInPhonePay` stays `false`: the flip is
+its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, the reading is here.
+
+**Shipped live (the counter-only Bill, today).**
+
+- `components/LivePass.tsx` renders the Bill's rows as the body of `CounterPass` (holder tier, torn
+  foot). The head is `rollUp`'s stage as a `KitchenTrack` glyph with its word. The stub holds Host and
+  Sent: Sent is `passSentAt` on the restaurant's clock (`passClock`, which folds ICU's narrow
+  no-break space so the server and the browser render the same bytes). Each dish row carries its
+  track and word in cart order. The foot is `orderTotalCents`. The words are
+  `DINER_STAGE_WORD` (`lib/line-state-copy.ts`): the guest's English, plus the console's Burmese for
+  the same stage.
+- The clock is `getCartView.dbNow`, which `mms_now()` reads in parallel with the cart row and before the
+  lines. If that read fails, the view falls back to the app server's time and logs an error. That
+  fallback is display only: the server gate never uses it. `bumped_at` now rides every view line
+  (`CartItem.bumpedAt`). A stage changes only on an applied view. `settleRereadDelayMs` schedules ONE
+  re-read for the moment the clock alone changes a stage: a fire leaving its grace, or a bump leaving
+  Mom's window, plus `GRACE_REREAD_MARGIN_MS`. The Bill and `TableCartProvider` both schedule it, so
+  the menu's `TableTimeline`, which now draws the track and the console words, agrees with the pass.
+- Motion is `lib/live-pass.ts` `planPassMotion`, planned once per applied view and played one step at
+  a time (PD9's player): FILL where a new segment lights, then TURN on the edge into Served, then the
+  door. Nothing plays on a first read or on the visibility re-read (`refreshForeground` marks that view
+  quiet; m10 A4). These are edges, never latches: a recall, then a re-serve, is news again.
+- The pay step's rows are the same pass, `boarded` (compact, no tracks), over the locked read's money
+  rows (`MoneyRows`, shared with the Bill).
+
+**Built behind the flag (reachable only once `dineInPhonePay` is true).**
+
+- `servedGateVerdict` · `servedGateDecision` · `holdsServedGate` (`lib/checkout-stage.ts`) state the hold
+  as "not served", so a state the rule does not know HOLDS. Precedence: a dine-in draft first
+  (`unsent` with a host, `hostless` without one), then a to-go draft (`togo`), then the kitchen. Mutants
+  separate it from `payBlockedByUnsent` three ways: a fired or cooking line, a hostless draft and a to-go
+  draft.
+- create-intent: `servedGateDecision(sess.mode, read, host_seat != null)` sits in the unsent refusal's
+  old slot, over `readServedGateInput` (`lib/unsent-read.ts`). That function reads `mms_now()` first,
+  then `state, fulfillment, fire_at, bumped_at`, and returns null if either read fails. Null is
+  `unreadable`, refused with 503 and the shipped "We’re having trouble on our end…". The read is spent
+  only for dine-in. The copy is `servedHoldCopy` with no host name, since the server knows the host's
+  seat, not the table's chosen name. The host's unsent refusal keeps the reload hint (#301).
+  `check:phone-pay-door` parses the wiring: one live decision on one awaited read, its `if` next,
+  refusing and freeing the lock, after the supersede and the parked door, before the pin and
+  `paymentIntents.create`, and no live `payBlockedByUnsent(`. Red-first: each of 14 violations turned
+  it red.
+- The Bill's Pay is docked (`components/PayDock.tsx`, `PayAtCounterDock`'s geometry): the one line
+  slot, then Pay, then the quiet counter. Held, Pay keeps its name and amount, is `aria-disabled`, and
+  is described by the slot. Every blocked tap re-says the reason in the one live region. `payBlock`'s
+  precedence is peer > unsent > served gate > grace. The kitchen outranks the grace, because a line
+  inside its undo window is `sending`, which the gate holds anyway. The counter reads `counterBlock`:
+  the same precedence with `servedHold: null`, so it is never gated by served.
+- No tip is asked, and no tip previewed, while the gate holds. The close edge clears the preset and
+  the custom tip; this is derived state, adjusted during render (Codex round 5). The door moment
+  (`.checkout-door-pop`, 0.96 → none over `--dur-fast` × 1.5, with an RM escort) plays only on an
+  observed held → open edge, and the view's one region says "Ready to pay." once.
+- `PaymentSection` `fold`: `cardFoldedAtReveal` latches ONCE at the reveal, so a late wallet folds
+  nothing. While folded, the card's note and submit hide behind the "Pay with card" disclosure
+  (`aria-expanded` / `aria-controls`, the form kept mounted). The skeleton predicts the folded height
+  from the wallet reserve (`PAY_FOLD_TOGGLE_PX`), and the folded geometry is never stored, because
+  `payElementReserve` refuses a height under 160. The quiet "Pay at the counter" leaves Pay through
+  `leavePay`, which releases the pay-window lock, then asks once the Bill is back (`payToCounter`). A
+  tablemate's lock landing between the two writes is said in Pay's words.
+
+**Readings the spec left open.**
+
+1. **No migration.** `mms_now()` and `qr_cart_items.bumped_at` exist, and both reads run on the
+   service client.
+2. **The view's clock is read before the lines**, the safe direction: a bump the rows carry can only
+   look younger, never older.
+3. **On the Bill, the pass head owns the "Not sent yet" mark.** The shared capsule and W19's note card
+   retire there, and the host keeps "Back to send them".
+4. **"On the house" sits on the state line beside the track**, since a comped dish still cooks.
+5. **The counter pass draws in both flag states.** Its withdraw reads "Changed your mind? Pay on your
+   phone" only while the served door is open, and "We’re not done yet" otherwise. `PayAtCounterButton`
+   and `PayAtCounterCard` retire for the dock's quiet counter.
+6. **`payBlockCopy("unsent")` is D5's wording without conditions.** Pay is drawn only while the door
+   is open, and the parked dock keeps PD2's own sentence.
+7. **The grace edge's "Ready to pay." is now reachable only while parked.** With the door open, a line
+   in its grace holds the gate, so the door moment says it instead.
+8. **A hostless table's Pay is held** with the server-and-counter reason. The counter itself is still
+   never gated.
+9. **One binding for the authoritative mode** (`gateMode = doorMode(viewMode, sessionMode)`), read by
+   the parked door, the served gate and the pay flow's post-drain re-ask.
+10. **The post-drain re-ask reads the render's clock**, which is never newer than the drained view.
+    It can hold more but never less (fail closed).
+
+**For the flip PR, and others.** These stay open:
+
+- the flip itself (D5's three conditions and the refunded Apple Pay sale);
+- Dad's after-flip cash-only line (counter-floor);
+- screen 3's stamped pass on PaySuccess (post-pay);
+- wiring the verdict into `openSettlement` and `create-share-intent` (now on `selfServeSplit`'s reopen
+  list);
+- a device measurement of the folded pay step's height.
+
+**K15:** no Burmese string is authored. The new English-only lines are those this spec's COPY already
+lists: "Pay opens once everything’s served.", the unsent, hostless and to-go reasons, and "Ready to
+pay.". To these the build adds "Pay with card", "Removed", "In your basket", "On the house", and the
+stub's "Host" and "Sent".
