@@ -29808,22 +29808,6 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
-    id: "kitchen/settlement-on-a-staff-settled-cart",
-    file: "apps/qr/lib/kitchen-round-read.ts",
-    suite: "lib/kitchen-queue-counter.test.ts",
-    why: "Codex round 2 on #328 — a staff-settled cart cannot carry settlement food (every staff tender refuses unsent dine-in drafts), so a Send the settle landed inside its 10 s grace is a numbered round; read as settlement food, the table's later rounds shift down",
-    find: "  for (const cartId of staffSettled) paidAtByCart.delete(cartId);\n",
-    replace: "",
-  },
-  {
-    id: "kitchen/round-orders-saturation-ignored",
-    file: "apps/qr/lib/kitchen-round-read.ts",
-    suite: "lib/kitchen-queue-counter.test.ts",
-    why: "Codex round 2 on #328 — an orders leg at its cap cannot say which carts were paid when: settlement food would be ranked as a Send. Every round must read unknown",
-    find: '  if (queueEmptiness(ordersRes.data.length, ROUND_CART_CAP) === "cannot-say") {',
-    replace: "  if (false) {",
-  },
-  {
     id: "kitchen-rounds/round-duplicates-undiscriminated",
     file: "apps/qr/lib/kitchen-rounds.ts",
     suite: "lib/kitchen-rounds.test.ts",
@@ -30286,6 +30270,14 @@ const MUTANTS = [
     why: "PD9 (round 3 D4) — the round read is asked for the wall's DINE-IN sessions only; asked for every session, it reads every pickup's carts on every poll",
     find: "    ...new Set(kitchenCarts.filter((c) => isTableCart(c.id)).map((c) => c.session_id)),",
     replace: "    ...new Set(kitchenCarts.map((c) => c.session_id)),",
+  },
+  {
+    id: "board/settlement-food-numbered-on-the-wall",
+    file: "apps/qr/lib/kitchen-rounds.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "PD5b, ported into PD9's shared round read (m5 §H.4) — the wall numbers a table's rounds through the KDS's own read, which tells settlement food apart by its batch's version-8 mark alone; with the mark check dropped, the drain's batch takes a number on the wall and the table's next Send reads 'Round 3'",
+    find: "    if (isSettlementBatch(l.fire_batch)) settlement.add(l.fire_batch);\n",
+    replace: "",
   },
   {
     id: "board-tables/idle-counts-tables-only",

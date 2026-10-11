@@ -1286,3 +1286,23 @@ continue` read it as cleared: "All clear" for one poll over the merged food. The
   `board/idle-on-the-app-clock`, `board-wall/english-dish-under-a-burmese-mark`).
 - **Known limit, not changed:** the shaper still drops, for one poll, a line whose cart a merge has
   just cancelled; the next poll draws it on the target. That is a missing pass for 5 s, never a claim.
+
+#### G.4 · Main's PD5b (#340) ported into the shared round read (2026-10-11)
+
+PD5b changed the KDS's round read while PD9 had moved it into `lib/kitchen-round-read.ts`, so the
+merge of main took PD9's `lib/kitchen.ts` and this commit carries PD5b's change into the module both
+screens call (m5 §H.4, "Stacking").
+
+- **The read reads no orders.** Settlement food is told apart by its batch's version-8 mark
+  (`isSettlementBatch`, `lib/kitchen-rounds.ts`), never by the paid moment: the orders leg,
+  `paidAtByCart` and the staff-settled carve-out are gone, and `roundOrdinals` takes the lines and the
+  clock only. `readRoundLegs` is now line for line the body PD5b shipped in `lib/kitchen.ts`.
+- **Mutants.** `kitchen/settlement-on-a-staff-settled-cart` and `kitchen/round-orders-saturation-ignored`
+  retire with the code they mutated (PD5b retired both on main; PD9 had re-pointed them here). The
+  other seven re-pointed with the read still anchor. One added: `board/settlement-food-numbered-on-the-wall`
+  drops the mark check in `roundOrdinals` and must turn the route suite red.
+- **The wall numbers rounds the way the KDS does.** A route case runs the REAL round read against the
+  route's fake database, on the KDS case's own shape: round 1 served and gone from the wall, settlement
+  food under a version-8 batch, then a new Send. The wall draws the settlement food unnumbered and the
+  Send as round 2, the numbers the KDS case pins. The case went red on the unported read (its orders
+  leg meets a `qr_orders` read the fake refuses, so every round read unknown).

@@ -65,6 +65,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     cancelled, or whose table reads closed, is re-read for its current cart. A clear leaves the line
     there (still "All clear"), a merge moves it (not idle), and a failed re-read is not idle.
   - 11 mutants added, 9 re-pointed.
+- **Main's PD5b (#340), ported into the shared round read** (m9 §G.4):
+  - `lib/kitchen-round-read.ts` reads no orders. Settlement food is told apart by its batch's
+    version-8 mark (`isSettlementBatch`), the same read the KDS runs, so the wall and Mom's board
+    still give one card one number.
+  - `kitchen/settlement-on-a-staff-settled-cart` and `kitchen/round-orders-saturation-ignored` retire
+    with the orders leg.
+  - 1 mutant added (`board/settlement-food-numbered-on-the-wall`), caught by a route case that runs
+    the real round read.
 - **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
   `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
   read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.

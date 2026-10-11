@@ -103,14 +103,23 @@ let roundsAnswer: ReadonlyMap<
   string,
   { ordinals: ReadonlyMap<string, number>; seen: ReadonlySet<string> }
 > | null = new Map();
+/** PD5b, ported — run the KDS's REAL round read against this file's fake database instead of
+ *  answering `roundsAnswer`, so a case can pin what the read itself decides. */
+let realRounds = false;
+/** Lines only the ROUND read sees: a table's earlier Sends, served and gone from the wall, which the
+ *  round read ranks and the wall's own line reads never return. */
+let roundOnly: LineRow[] = [];
 
-vi.mock("@/lib/kitchen-round-read", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/kitchen-round-read")>()),
-  readRounds: (_db: unknown, ids: readonly string[]) => {
-    roundSessions = [...ids];
-    return Promise.resolve(roundsAnswer);
-  },
-}));
+vi.mock("@/lib/kitchen-round-read", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/kitchen-round-read")>();
+  return {
+    ...actual,
+    readRounds: (...args: Parameters<typeof actual.readRounds>) => {
+      roundSessions = [...args[1]];
+      return realRounds ? actual.readRounds(...args) : Promise.resolve(roundsAnswer);
+    },
+  };
+});
 
 /**
  * The mock APPLIES the `.in()` predicates rather than ignoring them (Codex round 2, P2): a chain that
@@ -175,6 +184,8 @@ vi.mock("@mms/db/server", () => ({
       if (table === "qr_cart_items") {
         let batches: unknown[] | null = null;
         let states: unknown[] | null = null;
+        /** The ROUND read's lines leg (`in("cart_id")`): every batched line of the asked carts. */
+        let roundCarts: unknown[] | null = null;
         const chain: Record<string, unknown> = {
           select: (cols: string) => {
             lineCols.push(cols);
@@ -203,11 +214,24 @@ vi.mock("@mms/db/server", () => ({
             }
             if (col === "fire_batch") batches = values;
             else if (col === "state") states = values;
+            else if (col === "cart_id") roundCarts = values;
             else throw new Error(`unexpected qr_cart_items filter ${col}`);
+            return chain;
+          },
+          not: (col: string, op: string, v: unknown) => {
+            if (col !== "fire_batch" || op !== "is" || v !== null)
+              throw new Error(`unexpected qr_cart_items not(${col}, ${op})`);
             return chain;
           },
           order: () => chain,
           limit: (n: number) => {
+            if (roundCarts !== null) {
+              const asked = roundCarts;
+              const all = [
+                ...new Map([...roundOnly, ...lines, ...sendExtra].map((l) => [l.id, l])).values(),
+              ].filter((l) => asked.includes(l.cart_id) && l.fire_batch !== null);
+              return Promise.resolve({ data: all.slice(0, n), error: null, count: all.length });
+            }
             if (batches === null) {
               // The LINE read.
               if (linesError) return Promise.resolve({ data: null, error: linesError });
@@ -226,9 +250,27 @@ vi.mock("@mms/db/server", () => ({
       }
       if (table === "qr_carts") {
         let ids: unknown[] = [];
+        /** The ROUND read's carts leg: the asked sessions' carts, minus the status it refuses. */
+        let roundSessionIds: unknown[] | null = null;
+        let refused: unknown = undefined;
         const chain: Record<string, unknown> = {
           select: () => chain,
+          neq: (col: string, v: unknown) => {
+            if (col !== "status") throw new Error(`unexpected qr_carts neq ${col}`);
+            refused = v;
+            return chain;
+          },
+          limit: (n: number) => {
+            if (roundSessionIds === null) throw new Error("qr_carts limit outside the round read");
+            const asked = roundSessionIds;
+            const rows = carts.filter((c) => asked.includes(c.session_id) && c.status !== refused);
+            return Promise.resolve({ data: rows.slice(0, n), error: null });
+          },
           in: (col: string, values: unknown[]) => {
+            if (col === "session_id") {
+              roundSessionIds = values;
+              return chain;
+            }
             if (col === "id") {
               ids = values;
               return chain;
@@ -375,6 +417,8 @@ beforeEach(() => {
   lineOrFilters = [];
   requestedCartStatuses = [];
   roundSessions = null;
+  realRounds = false;
+  roundOnly = [];
   roundsAnswer = new Map([
     ["sess-dinein", { ordinals: new Map([[BATCH, 1]]), seen: new Set([BATCH]) }],
   ]);
@@ -620,6 +664,55 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
     roundsAnswer = null;
     const body = (await (await GET(req())).json()) as Body;
     expect(body.tables![0]!.rounds[0]).toMatchObject({ n: null, next: false });
+  });
+
+  it("the wall numbers a table's rounds by the batch's MARK, through the KDS's own read: settlement food is never a round, and the next Send stays round 2 (PD5b, ported; m5 §H.4; `board/settlement-food-numbered-on-the-wall`)", async () => {
+    // The KDS's case "settlement food — its batch marked by the drain — is never a numbered round"
+    // (`kitchen-queue-counter.test.ts`), drawn on the wall with the REAL round read: table 4 sent round
+    // 1 (B1, served long ago — only the round read still sees it), paid at the counter with drafts,
+    // which `mms_fire_pending_food` fired under a version-8 batch (BS), then sent again on a new cart
+    // (BATCH). The read reads no order (this file's `qr_orders` fake refuses a `cart_id` filter, so
+    // an orders leg throws and every round reads unknown): the mark alone decides.
+    realRounds = true;
+    const B1 = "11111111-1111-4111-8111-111111110001";
+    const BS = "55555555-5555-8555-9555-555555550005";
+    seedCookingTable();
+    lines.unshift({
+      ...lines[0]!,
+      id: "line-s",
+      cart_id: "cart-paid",
+      name: "Tea",
+      menu_item_id: "tea",
+      fire_batch: BS,
+      fire_at: new Date(NOW - 43 * MIN).toISOString(),
+      created_at: new Date(NOW - 50 * MIN).toISOString(),
+    });
+    roundOnly = [
+      {
+        ...lines[1]!,
+        id: "line-r1",
+        cart_id: "cart-paid",
+        fire_batch: B1,
+        state: "served",
+        fire_at: new Date(NOW - 50 * MIN).toISOString(),
+        created_at: new Date(NOW - 51 * MIN).toISOString(),
+        bumped_at: new Date(NOW - 45 * MIN).toISOString(),
+      },
+    ];
+    carts.push({ id: "cart-paid", session_id: "sess-dinein", status: "paid" });
+    const body = (await (await GET(req())).json()) as Body;
+    expect(roundSessions).toEqual(["sess-dinein"]);
+    expect(
+      body.tables!.map((t) => [t.table, t.rounds.map((r) => [r.dishes[0]!.name, r.n, r.next])]),
+    ).toEqual([
+      [
+        4,
+        [
+          ["Tea", null, false],
+          ["Mohinga", 2, false],
+        ],
+      ],
+    ]);
   });
 
   it("no kitchen food at all asks the round read for no session, and publishes an empty kitchen", async () => {
