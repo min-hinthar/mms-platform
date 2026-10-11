@@ -60,6 +60,8 @@ const mount = (p: {
   /** 3c-ii (D27) — the table gate and the host's ask. */
   needsTable?: boolean;
   onNeedTable?: () => void;
+  /** PD1 — the caption / waiting line ids. */
+  describedBy?: string;
 }) => {
   const g = p.grace ?? grace();
   const onMessage = p.onMessage ?? vi.fn();
@@ -76,6 +78,7 @@ const mount = (p: {
       onChanged={() => {}}
       needsTable={p.needsTable}
       onNeedTable={p.onNeedTable}
+      describedBy={p.describedBy}
     />,
   );
   return { g, onMessage, handle };
@@ -358,5 +361,33 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
     mount({ verb: "bill", draftCount: 2 });
     expect(screen.queryByRole("button")).toBeNull();
     expect(document.body.textContent).not.toContain("with the kitchen");
+  });
+});
+
+describe("PD1 (m1 A5 · B6; DESIGN-LANGUAGE §21) — the Send names no count on a shared cart", () => {
+  it("the label is the verb in both tongues, never 'Send to kitchen · 3 items'", () => {
+    mount({ verb: "send", draftCount: 3 });
+    const send = screen.getByRole("button", { name: /^Send to kitchen/ });
+    // MUTATION (send-button/send-label-counts-a-shared-cart): the count comes back into the label —
+    // a tablemate's tap away from wrong on a cart the whole table shares; red.
+    expect(send.textContent).not.toMatch(/\d/);
+    expect(send.textContent).toContain("Send to kitchen");
+    expect(send.querySelector('[lang="my"]')?.textContent).toBe("မီးဖိုချောင်ဆီ ပို့လိုက်မယ်");
+  });
+
+  it("Send and Undo carry the ids they are told — the host's waiting line and the caption", () => {
+    mount({ verb: "send", describedBy: "nudge-line send-caption" });
+    expect(
+      screen.getByRole("button", { name: /^Send to kitchen/ }).getAttribute("aria-describedby"),
+    ).toBe("nudge-line send-caption");
+    cleanup();
+    mount({
+      verb: "undo",
+      grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" }),
+      describedBy: "send-caption",
+    });
+    expect(screen.getByRole("button", { name: /^Undo/ }).getAttribute("aria-describedby")).toBe(
+      "send-caption",
+    );
   });
 });

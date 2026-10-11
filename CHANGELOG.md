@@ -38,6 +38,86 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
   `m268/…` mutants.
 
+### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
+
+- **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**
+  `orderStageHero` gains a fourth arm, `"wait"` — a guest with dine-in drafts at a host table. Its
+  block says the state in the console's own words ("Not sent yet · မပို့ရသေး", the hollow ring), the
+  next step and who takes it (the shipped `hostSendsCopy`, the host named only as the table named them
+  — `chosenName`, so the default "Guest" is never read as a person), then two ways forward: the quiet
+  "Let {host} know" and "If {host} is away, our staff can send it too." The one filled verb is "Show
+  a server"; the Total door goes quiet beside it. Under a tablemate's pay lock both ways forward hide.
+  A hostless table keeps the bill door. No count anywhere on a shared cart before the Send: the door's
+  "N items not sent yet" note is gone and the Send's label is count-free (`sentCopy` still reports
+  the server's fired count after).
+- **"Show a server" (m1 screen 2):** a full-screen dialog on the Sheet primitive holding post-pay's
+  `CounterPass` — "Table 7" printed once (a numberless table: "Aye’s table" / "Your table", never
+  the join code — below), the
+  waiting dishes in the catalog's words with the kitchen's qty token in the pass's own inks, no
+  prices, no total, no names. The status is the kitchen track in the pass head and the dialog's one
+  live region: the hollow ring and "Not sent yet", the dashed segment and "Sending…" inside the grace,
+  and — the moment's one delight — segment 1 FILLs with "Sent to kitchen · ပို့ပြီး" only when an
+  applied server view shows the dishes past their grace (`serverNow` rides the cart view; one re-read
+  at the grace's end). A removal of every listed dish closes it. Rules: `lib/show-server.ts`.
+- **"Let Aye know" is a DURABLE STAMP (Codex round 3):** `20261008123000_pd1_send_nudge.sql` adds
+  `qr_carts.send_nudge_seat` / `send_nudge_at`, `mms_nudge_host` (every rule IN the WHERE — cart open,
+  session active, a host, the nudger a member and not the host, at most once a minute; a read-only
+  diagnosis on a miss) and restates `mms_fire_cart` whole so the fire clears the stamp in the same
+  transaction, under the cart lock. `supabase/tests/pd1_send_nudge_test.sql` (named in CI's required list) pins each guard
+  beside the legitimate write — run red-first on LEARNINGS #95's throwaway Postgres 16 (all 108
+  migrations + seed; the other 30 SQL tests green beside it), every guard dropped in turn going red. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
+  success carrying the standing stamp; a pay lock or settle freeze refuses it before the RPC — nobody
+  can send under one, and `check-freeze-parity` now counts it among 17 lock-bearing mutations);
+  `getCartView` reads the stamp ADVISORY, beside the sold-out
+  lookups, so an unmigrated project renders every order as before. **Applied by the owner, not here.**
+- **The host's half (m1 screen 3):** the waiting guest's avatar and "Thiri is waiting on this send."
+  above Send (or "Someone’s waiting"), carried in Send's description; the caption "The kitchen sees it
+  when the countdown ends." under Send and Undo, the same node across the relabel. The /menu order bar
+  on a shared cart drops its count capsule and count-bearing name and reads "Not sent yet" — or, on
+  the host's phone while a stamp stands, "Someone’s waiting" (`lib/cart-bar-state.ts`).
+- **Guards:** 53 verify:slice mutants, measured on this branch with
+  `git diff "$(git merge-base origin/main HEAD)" HEAD -- scripts/verify-slice.mjs | grep -cE '^\+    id: "'`
+  (an earlier draft of this line said 28 — transcribed, never measured; it was 30 then) — checkout-verb's wait arm,
+  send-nudge's rules and action, show-server, cart-bar, the stamp read, the copy, the pass identity
+  and the Checkout wiring); the pass's dish rows are in-pass for `check-pass-inks`. Every new Burmese
+  string is a K15 draft (`K15 · diner-cart`).
+- **The capped blind pass on #335 (REJECT) — every finding fixed, red-first:**
+  - **The Send no longer deadlocks a tablemate's "+".** The restated `mms_fire_cart` locked the LINES
+    (`UPDATE … FROM qr_carts` locks its target) and then the cart (the stamp's clear), against the
+    line RPCs' cart-then-line (P2cy): a wait cycle, 40P01. Both functions now take the cart row
+    `for no key update` FIRST — cart → line, the order m261 records; the merge, both undos and the
+    line RPCs re-checked against it. Proven with two sessions by the new
+    `scripts/verify-fire-cart-race.mjs` (eight orders: add · qty · nudge · merge, each both ways) and
+    its `--mutants` (the lock dropped, the lock moved after the lines — the first draft — and the
+    nudge's lock dropped), in ci.yml's sql lane. The clear runs only when a stamp stands, so a Send
+    writes no `qr_carts` row (and raises no realtime event) for nothing.
+  - **A tablemate's nudge is never claimed.** `mms_nudge_host` returns the stamp's SEAT; another
+    seat inside the minute is `taken` ("Mya already let Aye know — they can see the table’s
+    waiting."), and the Bill records the server's seat, never its own.
+  - **A stamp needs a dish to send.** The nudge's WHERE requires a dine-in draft on an active dine-in
+    table and no fresh pay lock or split freeze (the freeze now IN the statement, beside the
+    authz-time refusal); the host's bar says "Someone’s waiting" only while a dine-in draft stands.
+  - **"Already paid" is gone:** a closed cart reads "This order has moved or closed — there’s nothing
+    to send."
+  - **No pass prints the join code** (owner-delegated, widened to #331's counter pass): a
+    numberless table holds up "Aye’s table" or "Your table" (`lib/pass-identity.ts`) — the code is the
+    session's bearer join secret and RLS key, and a pass is held up in the dining room.
+  - **Deploy order:** apply `20261008123000` FIRST, then merge; the Bill offers "Let {host} know" only
+    when the stamp read succeeds (`nudgeReady`), and `/cart` now passes the first view's stamp and
+    clock to `Checkout` (there is no mount-time read, so the host's waiting line waited for one).
+  - **The last capped pass on #335 (REJECT), fixed red-first:** a stamp is a wait only while a
+    dine-in draft that PREDATES it still waits (`nudgeLive` in the view; the same rule in
+    `mms_nudge_host`, PD1.19) — a stale stamp no longer revives over a later, unrelated dish; an
+    `ok` naming another seat is refused like a foreign `recent`; the migration carries no `drop`
+    (the prod apply path stalls on one, and no database has had `mms_nudge_host`); the lock-order
+    claim is narrowed to what is proven (two sessions: add · qty · nudge · merge) and what is
+    measured (a statement-order scan of all 88 functions: the 13 that lock both tables take the
+    cart first; the rest lock one table).
+  - **Replayable, not prose:** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
+    `scripts/verify-mode-authority.mjs` (suite `pd1`, 23 mutants, one documented survivor — the
+    lock's ORDER, killed by the race harness); the decorative `NUDGE_COOLDOWN_MS` and its
+    literal-against-literal test are deleted.
+
 ### PD6 — the walk-up cash sale: the crowned till tray and the seal; PD2's pane twin; PD1's ring (2026-10-09)
 
 - **One money verb, one cash sheet** (`docs/path-design-2026-10-07/m6-walk-up-cash.md`; build notes
@@ -214,7 +294,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ("Your table asked to pay at the counter."), focus moving to the heading only if it was lost; this
   phone's own ask lands focus there and plays the one RISE. The pass paper is post-pay's
   `CounterPass` primitive (PATH_DESIGN "ONE PASS", #327), rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
-  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier.
+  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier
+  (reversed by PD1's fix round on #335: no pass prints the join code — "Aye’s table" / "Your table").
 - **create-intent:** the parked refusal (410, like the other parked doors) sits AFTER
   `supersedeCartIntent` and its captured / unknown exits (#257's CRITICAL, M151) and before the
   shipped unsent refusal, freeing the lock under its era. New `scripts/check-phone-pay-door.mjs`
@@ -231,7 +312,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   350 ms same-gesture hold on both relabels (`undoTapHeld`), so a double-tap's second half never
   un-sends the round (`send-button/undo-tap-not-held`).
 - **Plumbing both PRs need (Codex correction 10):** `getSplitContext` carries the session's `qr_code`
-  (`SplitContext.qrCode`) so a table with no number yet can print its code on a pass.
+  (`SplitContext.qrCode`) so a table with no number yet can print its code on a pass (since #335's fix
+  round no pass prints it, and nothing reads the field — OPEN-ITEMS PD1 files dropping it).
 - **Mutants:** `surfaces/dine-in-phone-pay-reopened`, `surfaces/create-intent-route-answers-open`,
   `checkout-stage/parked-door-admits-a-table`, `checkout-stage/parked-door-refuses-pickup`,
   `checkout-verb/door-promises-pay-while-parked`, `checkout/door-ignores-the-parked-door`,

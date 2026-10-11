@@ -86,7 +86,8 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
    `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass once the check is required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits — the last agent round (owner, 2026-10-08: "Yes one more"; WORKFLOW step 5 (g)).
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
-4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp;
+4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp
+   (`20261008123000`, applied BEFORE #335 merges — the old build runs unchanged against it);
    M184's, carrying the widened `close` arm (D2; holding that line moves the arm to its own file and
    go); the other #5 files as their PRs go green (K30 with K34, M210 · M208 · M205, M182 · P2hf). M168
    (#21) and T4 (#22) each need their own go.
@@ -168,7 +169,8 @@ One bullet per stream; a stream edits only its own bullet.
   `claude/feat/pd-pass-primitives`, merged in), the create-intent
   refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
   money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
-  owner's go. Build notes: m2 / m1 specs' `### H`.
+  owner's go — apply it before or with PD1's merge (until then "Let {host} know" answers "That didn’t
+  go through"). Build notes: m2 / m1 specs' `### H`.
 
 ## Environment facts (measured 2026-10-08 unless cited)
 
