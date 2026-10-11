@@ -26023,6 +26023,31 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "setup-teardown/focus-scope-drain",
+    file: "apps/qr/lib/test-setup.ts",
+    suite: "lib/test-setup.teardown.test.tsx",
+    why: "the #340 CI flake — a jsdom case drains one macrotask after its cleanup, so Radix FocusScope's unmount timer fires inside that case. Without it the timer crosses into the next case, and the file's LAST one can outlive jsdom's teardown: Node's CustomEvent dispatched on a jsdom node, an unhandled TypeError that fails a run whose every test passed",
+    find: '  if (typeof document !== "undefined") await drainUnmountTimers();\n',
+    replace: "",
+  },
+  {
+    id: "setup-teardown/focus-scope-real-clock",
+    file: "apps/qr/lib/test-setup.ts",
+    suite: "lib/test-setup.teardown.test.tsx",
+    why: "the drain waits on the REAL clock captured at load. On the global setTimeout, a suite that leaves vi.useFakeTimers() on through its hooks hangs the setup's afterEach until the hook timeout — and the resets behind it never run",
+    find: "    REAL_SET_TIMEOUT(resolve, 0);\n",
+    replace: "    setTimeout(resolve, 0);\n",
+  },
+  {
+    id: "setup-teardown/drain-after-resets",
+    file: "apps/qr/lib/test-setup.ts",
+    suite: "lib/test-setup.teardown.test.tsx",
+    why: "the blind pass on #343 — the drain runs BEFORE the per-case resets. Moved below them, an unmount timer still fires inside its case, but what it runs (caller code: a close-restore's focus handler that starts a tracked call) lands after the ledger was emptied, so its hang is read by the next case — a money door there refuses as 'stuck — reload' for a hang that case never made",
+    find: '  if (typeof document !== "undefined") await drainUnmountTimers();\n  resetModuleState();\n',
+    replace:
+      '  resetModuleState();\n  if (typeof document !== "undefined") await drainUnmountTimers();\n',
+  },
+  {
     id: "p2i-setup/listeners-leak",
     file: "apps/qr/lib/settled-view.ts",
     suite: "lib/test-setup.test.ts",
