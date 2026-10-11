@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,10 +44,10 @@ type Fixture = {
   expect: RegExp;
 } & (Edit | { edits: Edit[] });
 
-async function runGate(mutate?: { file: string; edits: Edit[] }) {
+async function runGate(mutate?: { file: string; edits: Edit[] }, gate?: Edit[]) {
   const root = mkdtempSync(path.join(os.tmpdir(), "scan-repeat-"));
   try {
-    return await gateIn(root, mutate);
+    return await gateIn(root, mutate, gate);
   } finally {
     // Each row removes its own copy: one teardown of every copy at once outran a hook's timeout
     // on a loaded machine.
@@ -47,7 +55,17 @@ async function runGate(mutate?: { file: string; edits: Edit[] }) {
   }
 }
 
-async function gateIn(root: string, mutate?: { file: string; edits: Edit[] }) {
+/** Apply `edits` to `text` in order — each find must match exactly once, or the row is stale. */
+function applyEdits(text: string, edits: Edit[], where: string) {
+  for (const edit of edits) {
+    const hits = text.split(edit.find).length - 1;
+    if (hits !== 1) throw new Error(`stale fixture: the find matches ${hits} times in ${where}`);
+    text = text.replace(edit.find, () => edit.replace);
+  }
+  return text;
+}
+
+async function gateIn(root: string, mutate?: { file: string; edits: Edit[] }, gate?: Edit[]) {
   for (const rel of TREE)
     cpSync(path.join(REPO, rel), path.join(root, rel), {
       recursive: true,
@@ -55,17 +73,19 @@ async function gateIn(root: string, mutate?: { file: string; edits: Edit[] }) {
     });
   if (mutate) {
     const target = path.join(root, mutate.file);
-    let text = readFileSync(target, "utf8");
-    for (const edit of mutate.edits) {
-      const hits = text.split(edit.find).length - 1;
-      if (hits !== 1)
-        throw new Error(`stale fixture: the find matches ${hits} times in ${mutate.file}`);
-      text = text.replace(edit.find, () => edit.replace);
-    }
-    writeFileSync(target, text);
+    writeFileSync(target, applyEdits(readFileSync(target, "utf8"), mutate.edits, mutate.file));
+  }
+  // A WEAKENED gate (the matcher's own red-first, below) runs from the copy; its `typescript` import
+  // resolves through a link to the repo's node_modules.
+  let script = GATE;
+  if (gate) {
+    script = path.join(root, "scripts", "check-scan-repeat.mjs");
+    mkdirSync(path.dirname(script), { recursive: true });
+    writeFileSync(script, applyEdits(readFileSync(GATE, "utf8"), gate, "the gate"));
+    symlinkSync(path.join(REPO, "node_modules"), path.join(root, "node_modules"), "dir");
   }
   try {
-    const { stdout } = await execFileP(process.execPath, [GATE], {
+    const { stdout } = await execFileP(process.execPath, [script], {
       cwd: REPO,
       env: { ...process.env, SCAN_REPEAT_ROOT: root },
     });
@@ -451,7 +471,259 @@ const WAITS: Fixture[] = [
   },
 ];
 
-const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO, ...WAITS];
+// ── (8) every ok charge, live or replayed, records its code — through `afterCharge`, behind its era
+//        check, from its dispatch mark — and nothing else writes the record by hand (G25 · #344) ──
+/** The replay's record, verbatim — the rows below drop, bend or move it. */
+const REPLAY_RECORD =
+  "          const billing = afterCharge(billedRef.current, entry.barcode, billedMark, r.lines);\n" +
+  "          billedRef.current = billing.ledger;\n";
+const REPLAY_MARK = "        const billedMark = chargeMark(billedRef.current, entry.barcode);\n";
+const DRAIN_ERA =
+  "        if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;\n";
+const REPLAY_UNRECORDED =
+  /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` never RECORDS its charge/;
+const RECORDED: Fixture[] = [
+  {
+    name: "CODEX ON c03743f — the applied view's drop moved above the floor guard",
+    edits: [
+      { find: "      billedRef.current = afterView(billedRef.current, lines);\n", replace: "" },
+      {
+        find: "      if (seq < viewFloor.current) return; // issued before a charge that has since landed\n",
+        replace:
+          "      billedRef.current = afterView(billedRef.current, lines);\n      if (seq < viewFloor.current) return; // issued before a charge that has since landed\n",
+      },
+    ],
+    expect:
+      /proposition 8: `billedRef\.current = afterView\(billedRef\.current, lines\)` drops records outside an APPLIED view/,
+  },
+  {
+    name: "the record dropped by a terminal answer (`afterView` in markCartGone)",
+    find: "      applyLines(seq, []);\n",
+    replace:
+      "      applyLines(seq, []);\n      billedRef.current = afterView(billedRef.current, []);\n",
+    expect:
+      /proposition 8: `billedRef\.current = afterView\(billedRef\.current, \[\]\)` drops records outside an APPLIED view/,
+  },
+  {
+    name: "the record dropped against a list other than the applied view's",
+    find: "      billedRef.current = afterView(billedRef.current, lines);\n",
+    replace: "      billedRef.current = afterView(billedRef.current, linesRef.current);\n",
+    expect: /drops records outside an APPLIED view/,
+  },
+  {
+    name: "G25 — the replay never records its charge (the page before the fix)",
+    find: REPLAY_RECORD,
+    replace: "",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the live add's record dropped (M186 reopened)",
+    find: "        const billing = afterCharge(billedRef.current, barcode, billedMark, r.lines);\n        billedRef.current = billing.ledger;\n",
+    replace: "",
+    expect: /proposition 8: `scanAdd\(cartId, barcode, scanId\)` never RECORDS its charge/,
+  },
+  {
+    name: "the record computed and never stored",
+    find: "          billedRef.current = billing.ledger;\n",
+    replace: "          void billing.ledger;\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record left only in a comment",
+    find: "          billedRef.current = billing.ledger;\n",
+    replace: "          // billedRef.current = billing.ledger;\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "G25's own shape — the record rides the view (`if (r.lines)`)",
+    find: "          billedRef.current = billing.ledger;\n",
+    replace: "          if (r.lines) billedRef.current = billing.ledger;\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the ok-branch narrowed to the view (`r.ok && r.lines`)",
+    find: "        if (r.ok) {\n          delivered += 1;",
+    replace: "        if (r.ok && r.lines) {\n          delivered += 1;",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record parked behind `if (false)`",
+    find: "          billedRef.current = billing.ledger;\n",
+    replace: "          if (false) billedRef.current = billing.ledger;\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record in a callback that never runs",
+    find: "          billedRef.current = billing.ledger;\n",
+    replace: "          const later = () => (billedRef.current = billing.ledger);\n",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record behind an early return of its own branch",
+    find: REPLAY_RECORD,
+    replace: `          if (!r.lines) return { ok: true };\n${REPLAY_RECORD}`,
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record of a code other than the one charged",
+    find: "afterCharge(billedRef.current, entry.barcode, billedMark, r.lines)",
+    replace: "afterCharge(billedRef.current, entry.scanId, billedMark, r.lines)",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the record judged without the replay's own view",
+    find: "afterCharge(billedRef.current, entry.barcode, billedMark, r.lines)",
+    replace: "afterCharge(billedRef.current, entry.barcode, billedMark, null)",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "THE BLIND PASS ON #344 — the crossing check dropped: the mark taken as the replay LANDS",
+    find: "afterCharge(billedRef.current, entry.barcode, billedMark, r.lines)",
+    replace:
+      "afterCharge(billedRef.current, entry.barcode, chargeMark(billedRef.current, entry.barcode), r.lines)",
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the dispatch mark moved after the write (no removal can ever cross it)",
+    edits: [
+      { find: REPLAY_MARK, replace: "" },
+      { find: DRAIN_ERA, replace: `${DRAIN_ERA}${REPLAY_MARK}` },
+    ],
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` needs exactly ONE top-level `const <M> = chargeMark/,
+  },
+  {
+    name: "THE BLIND PASS ON #344 — an ok exit parked above the record",
+    find: DRAIN_ERA,
+    replace: `${DRAIN_ERA}        if (r.ok && !r.lines) {\n          delivered += 1;\n          return { ok: true };\n        }\n`,
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` can leave before its record/,
+  },
+  {
+    name: "THE BLIND PASS ON #344 — the record moved above the era check",
+    edits: [
+      { find: REPLAY_RECORD, replace: "" },
+      {
+        find: "        if (r.ok) setUndo((prev) => undoAfterWrite(prev, entry.barcode));\n",
+        replace: `        if (r.ok) {\n          setUndo((prev) => undoAfterWrite(prev, entry.barcode));\n${REPLAY_RECORD}        }\n`,
+      },
+    ],
+    expect: REPLAY_UNRECORDED,
+  },
+  {
+    name: "the era check widened into an ok exit",
+    find: DRAIN_ERA,
+    replace:
+      "        if (cartIdRef.current !== entry.cartId || !r.lines) return r.ok ? { ok: true } : null;\n",
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)` has no era check after it/,
+  },
+  {
+    name: "the record taken back in the same function",
+    find: REPLAY_RECORD,
+    replace: `${REPLAY_RECORD}          billedRef.current = NO_BILLED;\n`,
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)`'s function writes `billedRef\.current` outside its record/,
+  },
+  {
+    name: "the record edited in place through a method",
+    find: REPLAY_RECORD,
+    replace: `${REPLAY_RECORD}          (billedRef.current.billed as Set<string>).delete(entry.barcode);\n`,
+    expect:
+      /proposition 8: `scanAdd\(entry\.cartId, entry\.barcode, entry\.scanId\)`'s function calls a method on the record/,
+  },
+  {
+    name: "a removal that writes the record by hand (no new generation)",
+    find: "      if (nextQty <= 0) billedRef.current = afterRemoval(billedRef.current, line.barcode);\n",
+    replace:
+      "      if (nextQty <= 0)\n        billedRef.current = { ...billedRef.current, billed: new Set<string>() };\n",
+    expect: /proposition 8: `billedRef\.current = \{ \.\.\.billedRef\.current, billed: new Set/,
+  },
+  {
+    name: "CODEX P2 ON #344 — the fresh basket resets the record before the era ends",
+    find: "              cartIdRef.current = undefined;\n",
+    replace: "",
+    expect: /proposition 8: the record resets to `NO_BILLED` without first ending the era/,
+  },
+  {
+    name: "the record shadowed by a local in the drain",
+    find: "    const forCart = cartId;\n",
+    replace: "    const forCart = cartId;\n    const billedRef = { current: NO_BILLED };\n",
+    expect: /proposition 8: `billedRef` is declared 2 times/,
+  },
+  {
+    name: "the classifier reads another set (every record decorative)",
+    find: "            billed: [...billedRef.current.billed],",
+    replace: "            billed: [],",
+    expect:
+      /proposition 8: the live classifyScan\(\) must take `billed: \[\.\.\.billedRef\.current\.billed\]`/,
+  },
+];
+
+/**
+ * The matcher's OWN red-first, committed (the blind pass on #344: "three weakenings … each turned a
+ * row red" was prose). Each row weakens proposition 8's matcher one way and runs the evasion that
+ * weakening lets through: the weakened gate must pass it CLEAN — so the evasion's own row above is
+ * red only because of the rule this weakening removes. A weakening whose find no longer matches the
+ * gate fails as stale.
+ */
+const WEAKENED: { name: string; gate: Edit; evasion: string }[] = [
+  {
+    name: "an applied view's drop may sit before `applyLines` (before the guards that refuse a view)",
+    gate: { find: "        at > applyAt &&\n", replace: "" },
+    evasion: "CODEX ON c03743f — the applied view's drop moved above the floor guard",
+  },
+  {
+    name: "the record's `if` accepts any test, not exactly `R.ok`",
+    gate: {
+      find: "        if (!ts.isIfStatement(st) || printed(st.expression) !== `${R}.ok`) return;\n",
+      replace: "        if (!ts.isIfStatement(st)) return;\n",
+    },
+    evasion: "the ok-branch narrowed to the view (`r.ok && r.lines`)",
+  },
+  {
+    name: "an exit inside the record's branch is not looked for",
+    gate: { find: "          if (leaves(b)) break;\n", replace: "" },
+    evasion: "the record behind an early return of its own branch",
+  },
+  {
+    name: "the record's code is not compared with the charge's",
+    gate: {
+      find: "              printed(init.arguments[1]) === code &&\n",
+      replace: "              true &&\n",
+    },
+    evasion: "the record of a code other than the one charged",
+  },
+  {
+    name: "the record's mark is not bound to the dispatch mark",
+    gate: {
+      find: "              printed(init.arguments[2]) === M &&\n",
+      replace: "              true &&\n",
+    },
+    evasion:
+      "THE BLIND PASS ON #344 — the crossing check dropped: the mark taken as the replay LANDS",
+  },
+  {
+    name: "an exit between the charge and its record is not looked for",
+    gate: { find: "      if (exit)\n", replace: "      if (false && exit)\n" },
+    evasion: "THE BLIND PASS ON #344 — an ok exit parked above the record",
+  },
+  {
+    name: "the record may sit before the era check",
+    gate: {
+      find: "        if (recordAt >= 0 || i <= era) return;\n",
+      replace: "        if (recordAt >= 0) return;\n",
+    },
+    evasion: "THE BLIND PASS ON #344 — the record moved above the era check",
+  },
+  {
+    name: "a reset is not required to end the era first",
+    gate: { find: "    if (!ended)\n", replace: "    if (false && !ended)\n" },
+    evasion: "CODEX P2 ON #344 — the fresh basket resets the record before the era ends",
+  },
+];
+
+const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO, ...WAITS, ...RECORDED];
 
 // Each row spawns node, which loads TypeScript and parses the page: measured 1.5–5 s per row at load
 // ~9 and up to 25 s at load 35 on the shared agent machine (2026-10-09). The rows run concurrently and
@@ -483,3 +755,22 @@ describe.concurrent("check:scan-repeat refuses each committed evasion", () => {
       SPAWN_MS,
     );
 });
+
+describe.concurrent(
+  "check:scan-repeat's proposition 8 — each rule is load-bearing (the matcher, weakened, lets its evasion through)",
+  () => {
+    for (const w of WEAKENED)
+      it(
+        w.name,
+        async () => {
+          const f = FIXTURES.find((x) => x.name === w.evasion);
+          expect(f, `no committed evasion named "${w.evasion}"`).toBeDefined();
+          const edits = "edits" in f! ? f!.edits : [{ find: f!.find, replace: f!.replace }];
+          const r = await runGate({ file: f!.file ?? PAGE, edits }, [w.gate]);
+          expect(r.out).toMatch(/scan repeat gate … \S*clean/);
+          expect(r.code).toBe(0);
+        },
+        SPAWN_MS,
+      );
+  },
+);
