@@ -8,6 +8,8 @@ import {
   clearPreviewOf,
   clearRefusalSays,
   clearSentLine,
+  clearStopsKitchen,
+  type ClearPreview,
   type ClearRow,
 } from "./clear-table";
 import { clearHint, type ClearVerdictInput } from "./clear-verdict";
@@ -110,6 +112,34 @@ describe("clearPreviewOf — the slip's dishes and its ONE figure", () => {
     // MUTATION clear/every-clear-a-loss → red.
     expect(clearIsLoss(free)).toBe(false);
     expect(free.lossCents).toBe(0);
+  });
+});
+
+describe("clearStopsKitchen — the slip says 'tells the kitchen to stop' only when it will (M270 (1))", () => {
+  const look = (...states: ("fired" | "in_progress" | "served")[]): ClearPreview => ({
+    seenAt: "2026-10-09T18:00:00Z",
+    sent: states.map((state, i) => ({
+      id: `l${i}`,
+      qty: 1,
+      name: "Mohinga",
+      nameMy: null,
+      state,
+      amountCents: 1400,
+    })),
+    lossCents: 1400 * states.length,
+    units: states.length,
+    droppedUnits: 0,
+    lines: [],
+  });
+  it("a SENT dish still fired or cooking: the clear stops it, and the kitchen's card says so", () => {
+    expect(clearStopsKitchen(look("fired"))).toBe(true);
+    expect(clearStopsKitchen(look("served", "in_progress"))).toBe(true);
+  });
+  it("every SENT dish served — or none sent: nothing to stop, and the slip says nothing of the kitchen", () => {
+    // MUTATION m270/clear-table/served-stops: a served table hears a promise no card keeps.
+    expect(clearStopsKitchen(look("served"))).toBe(false);
+    expect(clearStopsKitchen(look("served", "served"))).toBe(false);
+    expect(clearStopsKitchen(look())).toBe(false);
   });
 });
 

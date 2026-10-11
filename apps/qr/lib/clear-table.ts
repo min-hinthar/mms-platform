@@ -129,6 +129,21 @@ export function clearPaidUnserved(
   return paidLines.some((l) => PAID_UNSERVED_STATES.has(l.state) && l.fulfillment !== "grocery");
 }
 
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — may the slip mention the kitchen at all? When the LOOK shows
+ * a SENT dish still fired or cooking (never served): a subset of `mms_clear_table`'s own stop set
+ * (fired · in progress, past the grace, never grocery — SENT is all three). ⚠️ It reads the look, not
+ * the commit (#347, Codex P2): a dish served during the slip or the six-second window commits with
+ * nothing left to stop, and no stop card is drawn. So the clause it unlocks promises no particular
+ * stop — "tells the kitchen to stop anything still cooking" (`settle.clear.loss.bodyStop.*`), true
+ * whatever the kitchen finishes in between — and this gate only keeps a table whose food the look saw
+ * all served from hearing about the kitchen at all. It may under-say (a comped dish still cooking is
+ * stopped too, and is never on the slip).
+ */
+export function clearStopsKitchen(p: ClearPreview): boolean {
+  return p.sent.some((l) => l.state === "fired" || l.state === "in_progress");
+}
+
 /** Whether the clear is a LOSS (the slip and its "Did Table N pay?" fork), or free (straight into
  *  the Undo window — §22's undo over confirm). Only the server's SENT set decides it. */
 export function clearIsLoss(p: ClearPreview): boolean {

@@ -19,6 +19,7 @@ import {
   counterGuideQuiet,
   guideActAccepted,
   guideFloor,
+  guideReplacedHeld,
   kitchenGuideQuiet,
   staffGuideKey,
   staffGuideKeyFor,
@@ -219,6 +220,27 @@ describe("when a guide offers itself — quiet at mount; work always wins", () =
     ).toBe(false);
     expect(counterAskingAtMount([])).toBe(false);
   });
+  it("#347 (C1) — the stop step says what one Got it does on a kitchen with several screens", () => {
+    const step = STAFF_GUIDE_STEPS.kitchen[4]!;
+    expect(step.lines.map((l) => l.k)).toEqual(["help.guide.kitchen.stop"]);
+    const en = STAFF["help.guide.kitchen.stop"].en;
+    // MUTATION m270/i18n/guide-promises-you: "it stays until you do" — false the moment another
+    // station's tablet taps Got it (one acknowledgement per clear, M271).
+    expect(en).not.toContain("until you do");
+    expect(en).toContain("one Got it clears it on every screen");
+  });
+
+  it("M270 (1) — work that replaced the guide holds the board's controls for the guide's own arm, from that moment", () => {
+    // The flip's condition (b): a tap aimed at Next meets the All done or the Got it that took the
+    // guide's place. MUTATION m270/staff-guide/replaced-never-held: it acts — and Got it has no undo.
+    expect(guideReplacedHeld(1_000, 1_000)).toBe(true);
+    expect(guideReplacedHeld(1_000, 1_000 + GUIDE_ARM_MS - 1)).toBe(true);
+    // MUTATION m270/staff-guide/replaced-held-forever: the board's controls never act again.
+    expect(guideReplacedHeld(1_000, 1_000 + GUIDE_ARM_MS)).toBe(false);
+    // The guide never stood here, or the person closed it: nothing is held.
+    expect(guideReplacedHeld(null, 1_000)).toBe(false);
+  });
+
   it("the kitchen: an empty board that is updating, with no error — and a landing ticket ends it", () => {
     const quiet = { tickets: 0, degraded: false, failed: false };
     expect(kitchenGuideQuiet(quiet)).toBe(true);
@@ -299,6 +321,10 @@ describe("the ships gate — each station's guide after every control it teaches
   const board = () => readFileSync(join(__dirname, "../components/staff/KdsBoard.tsx"), "utf8");
   const wrap = (body: string) => `export function Board({ x }: { x: boolean }) {\n${body}\n}`;
   it("the kitchen guide ships only once the board draws the stop card it teaches", () => {
+    // M270 (1) — it ships: `KdsBoard` draws a LIVE `<KdsStopCard>` for every open stop record. The
+    // refusal stays armed: a board that parks the card in a dead branch reddens this
+    // (`pd12/staff-guide/kitchen-ships-without-its-card`).
+    expect(STAFF_GUIDE_SHIPS.kitchen).toBe(true);
     if (STAFF_GUIDE_SHIPS.kitchen) expect(rendersLive(board(), "KdsStopCard")).toBe(true);
     expect(staffGuideShips("kitchen")).toBe(STAFF_GUIDE_SHIPS.kitchen);
   });

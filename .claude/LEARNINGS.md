@@ -4010,6 +4010,22 @@ write the defence (and its residual's reachability) against that path.
 
 ## #263
 
+**Flipping a ship gate turns every mutant that guarded the HELD state into a survivor — re-aim them
+at the gate's consult on a held station, never delete them (2026-10-11, M270 (1) · the kitchen flip).**
+#259's fix pinned `KdsBoard`'s consult of `staffGuideShips` with the REAL gate, which only worked while
+the kitchen was held: once `STAFF_GUIDE_SHIPS.kitchen` is `true`, a board that drops the consult and a
+board that keeps it render the same guide, so `pd12/kds-board/kitchen-gate-dropped` SURVIVES, and
+`pd12/staff-guide/kitchen-ships-without-its-card` (`false → true`) has nothing left to flip. Measure it
+at the flip, not after: `check:mutant-anchors` reports the flipped value STALE, but the consult mutant
+stays anchored and silently stops being killable. The fix keeps the real gate for every case and adds a
+hoisted override that HOLDS one station through it (`vi.hoisted` set → `!held.has(s) &&
+real.staffGuideShips(s)`), so one case can still ask "a held station: nothing offered"; the ships
+mutant re-anchors on the CONSUMER (the board parking its `<KdsStopCard>` in a `false ?` branch). Same
+shape for any feature flag: the day it flips, every test written for its off side needs an off side to
+stand on.
+
+## #264
+
 **There IS a headless Chromium in the agent environment — measure a screen instead of estimating it
 (PD11, 2026-10-11).** PD12's record said "no browser in the agent environment"; Playwright's
 `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell` runs — with
@@ -4027,7 +4043,7 @@ collided three-across, a picture that overflowed its tray, a grid row that centr
 a wrapped Burmese label). Caveat: raising the root font-size does not move `em` media queries, so it
 approximates text zoom without exercising breakpoints.
 
-## #264
+## #265
 
 **Radix moves a dialog's close-time focus in a `setTimeout(0)`, and `await act(async () => {})`
 resolves through `setImmediate` — so a suite that reads `document.activeElement` right after closing

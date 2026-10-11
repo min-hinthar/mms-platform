@@ -1,6 +1,21 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ackTableClearStop,
+  bumpLine,
+  bumpTicket,
+  fireTicketNow,
+  getKitchenQueue,
+  recallTicket,
+} from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { boundWrite } from "@/lib/bounded-write";
@@ -23,11 +38,13 @@ import {
 } from "@/lib/kds-line";
 import { RailRowText, TicketLineText, TicketNote } from "./TicketText";
 import { KdsLineMenu } from "./KdsLineMenu";
+import { KdsStopCard } from "./KdsStopCard";
 import type {
   KdsThresholds,
   KitchenLine,
   KitchenQueue,
   KitchenStation,
+  KitchenStop,
   KitchenTicket,
 } from "@/lib/kitchen-types";
 import Link from "next/link";
@@ -59,8 +76,32 @@ import { al, chromeVisible, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { servedMoreKey } from "@/lib/kitchen-stats";
 import { KDS_UNDO_MS } from "@/lib/kds-undo";
-import { kitchenGuideQuiet, staffGuideKeyFor, staffGuideShips } from "@/lib/staff-guide";
+import {
+  guideReplacedHeld,
+  kitchenGuideQuiet,
+  staffGuideKeyFor,
+  staffGuideShips,
+} from "@/lib/staff-guide";
 import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
+import {
+  boardOrder,
+  foldStopRead,
+  STOP_NEWS_MS,
+  stopAckVerdict,
+  stopArrivals,
+  stopReadDegraded,
+  stopsForStation,
+  stopNewsAcked,
+  stopNewsMerged,
+  stopNewsWithin,
+  stopNewsText,
+  stopsKnown,
+  stopsSaidAfter,
+  visibleStops,
+  withStopAck,
+  type StopNews,
+  type StopState,
+} from "@/lib/kds-stop";
 import {
   cardTags,
   decideRounds,
@@ -265,6 +306,8 @@ type KdsSay = {
  *  CARD's writes (its bump, its Cook now, its recall) hold the card's key, never the cart: a waiting
  *  bump on round 1 must not refuse round 2's bump (m5 risk 1). */
 const cardKey = (key: string) => `card:${key}`;
+/** M270 (1) — a stop card's "Got it" holds its CLEAR (every card of that clear answers to one tap). */
+const stopKey = (clearId: string) => `stop:${clearId}`;
 const lineKey = (lineId: string) => `line:${lineId}`;
 const dishKey = (menuItemId: string) => `dish:${menuItemId}`;
 
@@ -398,22 +441,70 @@ export function KdsBoard({
   // bug the pre-merge review caught.
   const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // one-shot SR announcement (bump/recall)
+  // ── M270 (1) · the stop cards ── "Table N left — stop cooking", one per Send of every open stop
+  // record (`snap.stops`, read from the durable record PD7's clear writes), held apart from the
+  // snapshot: a stop read that did not answer keeps the cards last drawn (`foldStopRead` — soft), and
+  // a "Got it" hides its clear's cards at the TAP (`acks` — the optimistic doctrine: instant flip,
+  // revert to confirmed + re-read). #347 (Codex P1 · blind C2) — a stop read that never answered,
+  // the server render's included, is UNKNOWN (`stops: null`), never "none": until one answers the
+  // board never says All clear, never stands its empty state and never offers its guide, and reads
+  // that keep failing get the board's own STOP warning (`stopsStale`, below) — never its "not
+  // updating" state: the tickets still land, so their chimes, hint and bar stay true.
+  const [stopState, setStopState] = useState<StopState>(() => ({
+    stops: initial.stops,
+    acks: new Map(),
+  }));
+  const stopsSeen = stopsKnown(stopState);
+  // Every station's cards (the guide's quiet reads the whole board); the view draws `stops`, below.
+  const allStops = useMemo(() => visibleStops(stopState.stops ?? [], stopState.acks), [stopState]);
+  // The stop cards this board has SAID, for saying a NEW one once (the server render's are not news —
+  // except the ones a restored station never draws, below: `stopsSaidAfter`'s rule at mount).
+  const mountStops = useRef(initial.stops ?? []);
+  const seenStops = useRef(new Set((initial.stops ?? []).map((s) => s.key)));
+  // Stop reads in a row that did not answer (the server render's counts): past `STOP_MISS_LIMIT`
+  // (`stopReadDegraded`) the board says ITS STOP CARDS may be missing (`stopsStale`) — a table that
+  // leaves cannot reach this kitchen while it lasts. Never `degraded` (the blind pass's C2): the
+  // tickets are still landing, so the frozen line, "take orders on paper", the bar's not-updating
+  // and the muted re-chimes would all be false.
+  const stopMisses = useRef(initial.stops === null ? 1 : 0);
+  const [stopsStale, setStopsStale] = useState(false);
+  // Unknown is never none — the first read never answered, OR the reads since keep failing: no All
+  // clear, no "Nothing to cook", no guide (round 1's degrade said this through `degraded`).
+  const stopsUnknown = !stopsSeen || stopsStale;
+  // #347 (a11y) — a NEW stop card's sentence, the region's ALARM: it rides BESIDE a transient notice
+  // and a standing refusal for `STOP_NEWS_MS`, never replaced by either — and a table's words leave
+  // the moment its own clear is acknowledged (`stopNewsAcked`), never standing over a card gone.
+  const [stopNews, setStopNews] = useState<StopNews | null>(null);
+  const stopNewsSeq = useRef(0);
+  const stopNewsSaid = stopNewsText(stopNews);
+  // The device language for the poll's announcement: `refresh` is stable for the board's life, so a
+  // closure would keep the language the console started in (the `onBumped` lesson, below).
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
   // ── PD12 · the kitchen's step guide (m12) ── offered ONCE per person, per station, per tablet, on
-  // the EMPTY board (no ticket of any station, updating, no error) as it stands at MOUNT, in place of
-  // the empty state — never a modal. Work always wins: the first ticket that lands (or a freeze, or
-  // an error) takes its place for good, and focus follows the board's OWN catch-all rule (its
-  // heading — never a bump, and no `tabIndex` on the live grid: the blind pass on #345). Held behind
-  // `staffGuideShips("kitchen")` until the board draws the stop card its fifth step teaches
-  // (OPEN-ITEMS M270 (1)); the shipped Help cards stand until then. No person, or an id that is not a
-  // key segment, is no guide (`staffGuideKeyFor`) — never a throw during render.
+  // the EMPTY board (no ticket of any station, no stop card, updating, no error) as it stands at
+  // MOUNT, in place of the empty state — never a modal. Work always wins: the first ticket or stop
+  // card that lands (or a freeze, or an error) takes its place for good, and focus follows the
+  // board's OWN catch-all rule (its heading — never a bump, and no `tabIndex` on the live grid: the
+  // blind pass on #345). Ships with the stop card its fifth step teaches (M270 (1); the gate is still
+  // consulted, so a held station keeps its shipped Help cards). No person, or an id that is not a key
+  // segment, is no guide (`staffGuideKeyFor`) — never a throw during render.
   const guide = useGuideFirstRun(
     staffGuideShips("kitchen") ? staffGuideKeyFor("kitchen", staffId) : null,
+    // Unknown stop cards are a board this guide cannot call quiet (#347): never offered, never
+    // claimed (marked seen) over them.
     () =>
-      kitchenGuideQuiet({ tickets: snap.tickets.length, degraded: false, failed: err !== null }),
+      kitchenGuideQuiet({
+        tickets: snap.tickets.length + allStops.length,
+        degraded: stopsUnknown,
+        failed: err !== null,
+      }),
   );
   const guideQuiet = kitchenGuideQuiet({
-    tickets: snap.tickets.length,
-    degraded: degraded !== null,
+    tickets: snap.tickets.length + allStops.length,
+    degraded: degraded !== null || stopsUnknown,
     failed: err !== null,
   });
   // How the guide left, for where focus goes (the effect sits after the focus catch-all, below).
@@ -455,6 +546,12 @@ export function KdsBoard({
 
   // Board controls (persisted per device).
   const [station, setStation] = useState<"all" | KitchenStation>("all");
+  // The station the POLL reads (its callback is stable for the board's life): a new stop card is news
+  // only on the views that draw it.
+  const stationRef = useRef<"all" | KitchenStation>("all");
+  useEffect(() => {
+    stationRef.current = station;
+  }, [station]);
   const [railOpen, setRailOpen] = useState(false);
   // K31 (A4·1) — the rail's two views. Not persisted: the served rail is a question ("did table
   // 6's go out?"), the all-day counts are the standing view a cook works from.
@@ -550,7 +647,14 @@ export function KdsBoard({
       }))
       .then(({ station: s, rail, size: sz, sound }) => {
         if (!active) return;
-        if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
+        if (s === "wok" || s === "cold" || s === "drinks") {
+          setStation(s);
+          // #347 (Codex r2) — the server render's cards this restored station never draws were
+          // never said: they are said on the first read after the view starts drawing them.
+          const drawn = new Set(stopsForStation(mountStops.current, s).map((st) => st.key));
+          for (const st of mountStops.current)
+            if (!drawn.has(st.key)) seenStops.current.delete(st.key);
+        }
         if (rail === "1") setRailOpen(true);
         setSize(parseKdsSize(sz));
         setSoundWanted(sound);
@@ -664,6 +768,35 @@ export function KdsBoard({
       setRounds((prev) => decideRounds(prev, queue.tickets, priors));
       // Phase 2b — in the same batch as the snapshot: every override this fetch supersedes drops.
       setSoldOverrides((prev) => pruneSoldOut(prev, seq));
+      // M270 (1) — the stop cards, in the same batch: a read that did not answer changes nothing
+      // (`foldStopRead`); one that did replaces them and retires every confirmed "Got it" this fetch
+      // started after. A stop card NEW to this board is said once in the ONE region, in the device
+      // language — it has no motion and no chime, so this is the alarm a screen reader hears.
+      setStopState((prev) => foldStopRead(prev, queue.stops, seq));
+      stopMisses.current = queue.stops === null ? stopMisses.current + 1 : 0;
+      if (queue.stops !== null) {
+        // Only the cards THIS view draws are news here (a wok screen is not told about a drinks stop),
+        // and only they are marked said: a card the filter hides is said on the first read after the
+        // view starts drawing it (`stopsSaidAfter`, Codex r2 on #347).
+        // A table whose clear this read no longer holds was acknowledged elsewhere: its words leave
+        // the region now, as they would at this tablet's own Got it (Codex r4 on #347).
+        const open = new Set(queue.stops.map((st) => st.clearId));
+        setStopNews((prev) => stopNewsWithin(prev, open));
+        const drawn = stopsForStation(queue.stops, stationRef.current);
+        const arrived = stopArrivals(seenStops.current, drawn);
+        seenStops.current = stopsSaidAfter(seenStops.current, queue.stops, drawn);
+        if (arrived.length > 0) {
+          const next = {
+            id: ++stopNewsSeq.current,
+            parts: arrived.map((st) => ({
+              clearId: st.clearId,
+              text: tf(langRef.current, "kds.stop", { id: st.tableNumber ?? st.label }),
+            })),
+          };
+          // A second wave inside the first's dwell joins it — never replaces it (Codex r2 on #347).
+          setStopNews((prev) => stopNewsMerged(prev, next));
+        }
+      }
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
       // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.
       if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
@@ -673,6 +806,9 @@ export function KdsBoard({
       }
       fails.current = 0;
       setDegraded(null);
+      // #347 — the tickets answered, but stop reads that keep failing are a board that cannot hear a
+      // table leave: it says so in its OWN stop line, never by freezing the tickets that do land.
+      setStopsStale(stopReadDegraded(stopMisses.current));
     } catch (e) {
       // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
@@ -742,6 +878,14 @@ export function KdsBoard({
     const id = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(id);
   }, [notice]);
+  // #347 — a stop card's arrival stands its own dwell, never the notice's 4 s.
+  // Keyed by the arrival, so an acknowledgement that only trims it never restarts the dwell.
+  const stopNewsId = stopNews?.id ?? null;
+  useEffect(() => {
+    if (stopNewsId === null) return;
+    const id = setTimeout(() => setStopNews(null), STOP_NEWS_MS);
+    return () => clearTimeout(id);
+  }, [stopNewsId]);
 
   // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a ticket unmounts the
   // control that held focus. Edge-triggered — restore to the board heading only when focus HAD been on
@@ -788,15 +932,29 @@ export function KdsBoard({
   );
 
   const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
+  // M270 (1) — the grid's slots: the station's tickets, with every stop card in the slot its ticket
+  // stood in (`boardOrder`: among the LIVE ones, by its Send's own stamp — the card turns face where
+  // it was, and nothing around it moves). A stop card is on EVERY station's view: a table that left
+  // is the whole kitchen's news, and its one "Got it" retires it on every screen.
+  // C1 on #347 — a station's view draws a stop card only when it stopped that station's dishes
+  // (`stopsForStation`, the tickets' station rule); the all-stations view draws every card.
+  const stops = useMemo(() => stopsForStation(allStops, station), [allStops, station]);
+  const items = useMemo(() => boardOrder(filtered, stops), [filtered, stops]);
   const pageSize = kdsPageSize(size);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visible = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
-  const moreAfter = filtered.length - (safePage + 1) * pageSize;
+  const visible = items.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const moreAfter = items.length - (safePage + 1) * pageSize;
   // New LIVE tickets land at the tail of the live SECTION — which sorts BEFORE the held cards, so
   // "last page" is the wrong jump target when holds exist (adversarial MED-1: the pill would send the
-  // cook to a page of held cards). The live tail's page is where an arrival actually renders.
-  const liveTailPage = Math.floor(Math.max(0, live.length - 1) / pageSize);
+  // cook to a page of held cards). The live tail's page is where an arrival actually renders: the
+  // page of the LAST live ticket in the grid (a stop card slotted after it is not an arrival).
+  let lastLive = -1;
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i]!;
+    if (it.kind === "ticket" && !it.t.held) lastLive = i;
+  }
+  const liveTailPage = Math.floor(Math.max(0, lastLive) / pageSize);
 
   // Phase 3d — the glance strip's Late: the station-filtered tickets whose badge says Late (one
   // predicate, `kdsTicketLevel`, for the count and every badge). The Oldest stat is retired: tickets
@@ -1070,16 +1228,32 @@ export function KdsBoard({
   // The focus catch-all (above) — declared AFTER the landing, ON PURPOSE (Phase 2h · integration b,
   // K1): React runs a commit's effects in declaration order, and a landed 86 can commit together
   // with a snapshot. Run first, the catch-all took the orphaned focus to the heading, and the landing
-  // then found focus "somewhere real" and left it there — never on the dish's line.
+  // then found focus "somewhere real" and left it there — never on the dish's line. M270 (1) — it
+  // answers the stop cards too: a "Got it" hides its card at the TAP, with no new snapshot, and the
+  // button that held focus leaves with it (QA §A: focus moved on remove — to the heading, as a bump).
   useEffect(() => {
     if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
-  }, [snap]);
+  }, [snap, stops]);
+  // When work replaced the guide (`performance.now()`), or null; read at every control's tap.
+  const replacedAt = useRef<number | null>(null);
+  const landingHeld = useCallback(
+    () => guideReplacedHeld(replacedAt.current, performance.now()),
+    [],
+  );
   // PD12 — the guide left. Close / Got it land on the empty state's title (the person was in it to
   // tap them). Work (a ticket, a freeze, an error) follows the catch-all's own rule: the heading,
   // only when focus had been on a real control and fell to <body> — declared after it, so a landing
   // ticket's snapshot is the catch-all's to answer, and a freeze (which changes no snapshot) is ours.
+  // M270 (1) — the flip's condition (b): work took the guide's place, so the board's controls hold
+  // for the guide's arm from NOW (`guideReplacedHeld`) — a tap aimed at Next never lands on the All
+  // done or the "Got it" (no undo) that replaced it. A LAYOUT effect (#347, blind): it runs in the
+  // commit itself, before the browser paints the card, so no real tap between the paint and a
+  // passive effect can act on it.
+  useLayoutEffect(() => {
+    if (guideLeft === "work") replacedAt.current = performance.now();
+  }, [guideLeft]);
   useEffect(() => {
     if (guideLeft === null) return;
     if (guideLeft === "user") document.getElementById("kds-empty-h")?.focus();
@@ -1090,6 +1264,7 @@ export function KdsBoard({
   }, [guideLeft]);
 
   const openMenu = (line: KitchenLine) => {
+    if (landingHeld()) return; // M270 (1) — the tap was aimed at the guide this card replaced
     // A dish whose 86 is in flight refuses its ⋯ (aria-disabled says so); a sold-out or grocery line
     // has no ⋯ at all.
     if (!canEightySix(line) || (line.menuItemId && pending86Ref.current.has(line.menuItemId)))
@@ -1271,6 +1446,60 @@ export function KdsBoard({
     }
   };
 
+  // ── M270 (1) — "Got it" on a stop card ── the optimistic doctrine (DESIGN-LANGUAGE): every card of
+  // the clear leaves at the TAP (`acks`: `out`); the answer confirms it (`stopAckVerdict` — `already`
+  // and `nothing_to_stop` are the kitchen having it, never failures: `done`, hidden until a read that
+  // started after the answer) or takes it back to the confirmed state — a refusal (said, in the
+  // device language), `not_found`, a throw, or a write still out at the bound (its waiting line said
+  // by `kitchenWrite`, the card back and held) — and a re-read decides. A late answer still lands.
+  // One write per clear: the REF refuses a second tap while one is out (LEARNINGS #126).
+  const ackOut = useRef(new Set<string>());
+  const ackStop = async (s: KitchenStop) => {
+    const id = s.clearId;
+    if (landingHeld()) return; // the tap was aimed at the guide this card replaced — and no undo
+    if (ackOut.current.has(id)) return; // §17 — refused in the handler, never by `disabled`
+    // Critic B1 — this clear's last "Got it" is still out past the bound: said again, nothing sent.
+    if (say.refuse(stopKey(id))) return;
+    haptic("commit"); // §3 — at the tap; the card leaving is the visible half
+    say.clear();
+    ackOut.current.add(id);
+    setStopState((p) => ({ ...p, acks: withStopAck(p.acks, id, { phase: "out" }) }));
+    // The arrival's words leave with its card: never an alarm over a table already acknowledged.
+    setStopNews((n) => stopNewsAcked(n, id));
+    const label = tf(lang, "kds.table", { id: s.tableNumber ?? s.label });
+    let answered = false;
+    try {
+      await kitchenWrite(
+        ackTableClearStop({ clearId: id }),
+        label,
+        stopKey(id),
+        say,
+        async (res) => {
+          answered = true;
+          if (res.ok && stopAckVerdict(res.status) === "gone") {
+            // `fetchSeq` at the ANSWER: a read already in flight may have run before the write.
+            const afterSeq = fetchSeq.current;
+            setStopState((p) => ({
+              ...p,
+              acks: withStopAck(p.acks, id, { phase: "done", afterSeq }),
+            }));
+          } else {
+            setStopState((p) => ({ ...p, acks: withStopAck(p.acks, id, null) }));
+            if (!res.ok) onRefused(res, "stop", label);
+          }
+          await refresh();
+        },
+      );
+      if (!answered) {
+        // Thrown, or still out at the bound: back to the confirmed state, and a read decides.
+        setStopState((p) => ({ ...p, acks: withStopAck(p.acks, id, null) }));
+        void refresh();
+      }
+    } finally {
+      ackOut.current.delete(id);
+    }
+  };
+
   const count = live.length;
   const heldCount = filtered.length - live.length;
 
@@ -1402,8 +1631,14 @@ export function KdsBoard({
               BOTH in server-space, so a skewed tablet clock can't decide when staff are told to fall
               back to paper. Elapsed clocks keep ticking on the frozen cards: the food really has
               been waiting that long — that's the truth, not fake liveness. */}
+          {/* #347 (a11y) — a NEW stop card's sentence (`stopNews`) is the one ALARM with no motion and
+              no chime: it rides BESIDE a standing refusal, a frozen line and a transient notice (one
+              region, all said) — never lost to any of them. */}
           {err ? (
-            <MsgText lang={lang} msg={err} />
+            <>
+              <MsgText lang={lang} msg={err} />
+              {stopNewsSaid !== null && <span lang={lang}> {stopNewsSaid}</span>}
+            </>
           ) : (
             <span lang={lang}>
               {degraded
@@ -1413,12 +1648,27 @@ export function KdsBoard({
                     nowMs - degraded.since,
                     "what.queue",
                     degraded.cause,
-                  )
-                : (notice ??
-                  (count === 0
-                    ? ts(lang, "kds.allclear")
-                    : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
-                      (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
+                  ) + (stopNewsSaid === null ? "" : ` ${stopNewsSaid}`)
+                : stopNewsSaid !== null
+                  ? // The arrival, and beside it any notice that lands in its dwell (#347 r2).
+                    stopNewsSaid + (notice === null ? "" : ` ${notice}`)
+                  : (notice ??
+                    // M270 (1) — never "All clear" over a stop card still waiting for its Got it,
+                    // nor while the stops are unknown (#347: unknown is never none): the count then
+                    // says the open tickets as they are (a stop card is not one).
+                    (count === 0 && stops.length === 0 && !stopsUnknown
+                      ? ts(lang, "kds.allclear")
+                      : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
+                        (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
+            </span>
+          )}
+          {/* #347 Codex r3 (a11y) — the stop warning is SAID through this one region (the static line
+              and the empty state's heading below only show it): visually hidden here, so a sighted
+              cook reads it once. A frozen board's own line already says nothing is landing. */}
+          {stopsStale && degraded === null && (
+            <span className="sr-only" lang={lang}>
+              {" "}
+              {ts(lang, "kds.stops.unknown")}
             </span>
           )}
         </p>
@@ -1429,6 +1679,16 @@ export function KdsBoard({
           <div className="mms-rise">
             <ReloadButton lang={lang} />
           </div>
+        )}
+        {/* #347 r2 (the blind pass's C2) — stop reads that keep failing: the board's OWN stop
+            warning, static text beside the one region (never a second region, never the board's
+            "not updating" state — the tickets still land). Not drawn where the empty board already
+            says it (the unknown-stops line below). */}
+        {stopsStale && items.length > 0 && (
+          <p className="kds-stop-stale">
+            <Icon name="alert" size={18} aria-hidden />
+            <Chrome lang={lang} k="kds.stops.unknown" />
+          </p>
         )}
 
         <div className="kds-controls">
@@ -1500,9 +1760,19 @@ export function KdsBoard({
       </div>
 
       <div className="kds-body">
-        {filtered.length === 0 ? (
+        {items.length === 0 ? (
           <div style={{ flex: 1 }}>
-            {guide.shown ? (
+            {stopsUnknown ? (
+              // #347 (Codex P1 · blind C2) — no stop read has answered, or the reads since keep
+              // failing: the board cannot say "Nothing to cook" over a table that may have left. It
+              // says it could not look (the empty state's `error` tone) — the board's own stop line,
+              // here, never its "not updating" state.
+              <EmptyState
+                titleId="kds-empty-h"
+                tone="error"
+                title={<Chrome lang={lang} k="kds.stops.unknown" />}
+              />
+            ) : guide.shown ? (
               // PD12 — the guide where "Nothing to cook" stands, the board's own truth still said
               // above it (a <p>: the guide's title is the heading). Inside the board's region, a
               // labelled group — never a second region.
@@ -1536,28 +1806,42 @@ export function KdsBoard({
           </div>
         ) : (
           <ul className="kds-grid" role="list" aria-label={sx(lang, "kds.a11y.tickets")}>
-            {visible.map((t) => (
-              <TicketCard
-                key={t.key}
-                ticket={t}
-                tag={tags.get(t.key) ?? null}
-                stub={stubOf(rounds.get(t.key))}
-                decision={rounds.get(t.key)}
-                // Decision 12: the table's OTHER card is on the board — the whole snapshot, held
-                // cards included, never the station-filtered view (m5 risk 9).
-                stillOn={t.channel === "dinein" && sessionStillOn(t, tickets)}
-                nowMs={nowMs}
-                thresholds={snap.thresholds}
-                pulse={pulses.get(t.key) ?? null}
-                onBumped={onBumped}
-                menuOpenId={menuLineId}
-                pending86={pending86}
-                onOpenMenu={openMenu}
-                onRefused={onRefused}
-                say={say}
-                onRefresh={refresh}
-              />
-            ))}
+            {visible.map((it) =>
+              it.kind === "stop" ? (
+                // M270 (1) — "Table N left — stop cooking" in its ticket's slot (m7 decision 20): no
+                // flash, no chime, no stub, no clock — ALARM without motion, until "Got it".
+                <KdsStopCard
+                  key={it.s.key}
+                  table={it.s.tableNumber ?? it.s.label}
+                  lines={it.s.lines}
+                  onAck={() => void ackStop(it.s)}
+                  held={held.has(stopKey(it.s.clearId))}
+                />
+              ) : (
+                <TicketCard
+                  key={it.t.key}
+                  ticket={it.t}
+                  tag={tags.get(it.t.key) ?? null}
+                  stub={stubOf(rounds.get(it.t.key))}
+                  decision={rounds.get(it.t.key)}
+                  // Decision 12: the table's OTHER card is on the board — the whole snapshot, held
+                  // cards included, never the station-filtered view (m5 risk 9). A stop card is
+                  // never one (m5 B1: a table that left has nothing "still" to cook).
+                  stillOn={it.t.channel === "dinein" && sessionStillOn(it.t, tickets)}
+                  nowMs={nowMs}
+                  thresholds={snap.thresholds}
+                  pulse={pulses.get(it.t.key) ?? null}
+                  onBumped={onBumped}
+                  menuOpenId={menuLineId}
+                  pending86={pending86}
+                  onOpenMenu={openMenu}
+                  onRefused={onRefused}
+                  say={say}
+                  onRefresh={refresh}
+                  landingHeld={landingHeld}
+                />
+              ),
+            )}
           </ul>
         )}
 
@@ -1812,6 +2096,7 @@ function TicketCard({
   onRefused,
   say,
   onRefresh,
+  landingHeld,
 }: {
   ticket: KitchenTicket;
   /** PD5 — what this card's name, pill and chip add after the table (`cardTags`); null = today's. */
@@ -1835,6 +2120,8 @@ function TicketCard({
   /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
   say: KdsSay;
   onRefresh: () => Promise<void> | void;
+  /** M270 (1) — work just replaced the guide: a tap now was aimed at its Next (`guideReplacedHeld`). */
+  landingHeld: () => boolean;
 }) {
   const lang = useStaffLang();
   // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
@@ -1864,6 +2151,7 @@ function TicketCard({
   const waiting = say.held.has(subject);
 
   const bumpAll = async () => {
+    if (landingHeld()) return; // M270 (1) — aimed at the guide's Next, never at this All done
     if (pendingRef.current) return; // §17 — refuse re-entry here; native `disabled` drops focus
     if (say.refuse(subject)) return;
     haptic("commit"); // kitchen-9 — the biggest commit on the console buzzes like every door does
@@ -1921,6 +2209,7 @@ function TicketCard({
   };
 
   const fireNow = async () => {
+    if (landingHeld()) return; // M270 (1) — aimed at the guide's Next
     if (pendingRef.current) return; // §17
     if (say.refuse(subject)) return;
     haptic("commit");
@@ -2031,6 +2320,7 @@ function TicketCard({
             onRefused={onRefused}
             say={say}
             onRefresh={onRefresh}
+            landingHeld={landingHeld}
           />
         ))}
       </ul>
@@ -2083,6 +2373,7 @@ function KdsLineRow({
   onRefused,
   say,
   onRefresh,
+  landingHeld,
 }: {
   line: KitchenLine;
   held: boolean;
@@ -2096,6 +2387,8 @@ function KdsLineRow({
   /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
   say: KdsSay;
   onRefresh: () => Promise<void> | void;
+  /** M270 (1) — work just replaced the guide (see TicketCard). */
+  landingHeld: () => boolean;
 }) {
   const lang = useStaffLang();
   // Phase 2h (9b) — state busy cleared in `finally`, the ref the tap-time guard (see TicketCard).
@@ -2104,6 +2397,7 @@ function KdsLineRow({
   const to = line.state === "fired" ? "in_progress" : "served";
 
   const tap = async () => {
+    if (landingHeld()) return; // M270 (1) — aimed at the guide's Next
     if (pendingRef.current || held) return; // §17 — refused in the handler; a held line has nothing to act on
     // Critic B1 — this line's last write is still out past the bound: said again, nothing sent.
     if (say.refuse(lineKey(line.id))) return;

@@ -1215,7 +1215,7 @@ Fixed on the branch (each with a red row and a mutant run with `--only=`):
    (`ACCOUNT_PANELS`). The spec body above keeps the old sentence as the record of what was drawn.
 5. **The door test's title claimed "44px"**, which jsdom cannot measure; the size rests on the
    `.diner-guide-door` rule, and the title says so.
-6. **The headless recipe** (LEARNINGS #263) binds the local server to `127.0.0.1` and says why
+6. **The headless recipe** (LEARNINGS #264) binds the local server to `127.0.0.1` and says why
    `--no-sandbox` is there (the agent container runs as root).
 7. **A focus flake in `DinerGuideFirstRun.test.tsx`** (red on `99b354e` in CI, green on `fbed8d4`, no
    change to the file). Radix moves the dialog's close-time focus in a `setTimeout(0)` after the
@@ -1224,7 +1224,7 @@ Fixed on the branch (each with a red row and a mutant run with `--only=`):
    event to the first run alone, which prevents the default restore and focuses the heading — one
    step, one mover. Reproduced red on demand (zero-delay timers held back), and the suite now waits on
    the outcome with the same exact assertion (`waitFor`), with the held-back-timer case kept as a row.
-   LEARNINGS #264.
+   LEARNINGS #265.
 
 Not fixed, recorded: a cross-site POST to `/api/guide-seen` can only set the "seen" mark in the
 victim's own browser — it hides a first-run guide that Account still reopens; nothing is read or

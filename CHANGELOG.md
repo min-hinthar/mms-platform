@@ -36,9 +36,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `lib/guest-list.ts` that GuestList reads too.
 - **Measured, not estimated:** headless Chromium with the production CSS and fonts at 390×844,
   375×667 and 320×568, 100% and 200% root text — every picture inside its tray, the dock in view, no
-  sideways scroll (36 cases; the measurement fixed four layout defects — LEARNINGS #263).
-- 59 `pd11/*` mutants, each CAUGHT with `--only=`; DESIGN-LANGUAGE §37; OPEN-ITEMS PD11 built and a
+  sideways scroll (36 cases; the measurement fixed four layout defects — LEARNINGS #264).
+- 59 `pd11/*` mutants, each CAUGHT with `--only=`; DESIGN-LANGUAGE §38; OPEN-ITEMS PD11 built and a
   `K15 · diner-guide` row (no new Burmese — the English the guide adds is listed for the sitting).
+
+### M270 (1) — the kitchen's "Table N left — stop cooking" card, and the kitchen guide ships (2026-10-11)
+
+- **A cleared table never vanishes from the kitchen board** (PATH_DESIGN correction 12; m7 decision 20;
+  m5 B1). The board reads the durable stop record PD7's clear writes (`qr_table_clears.stop_line_ids`):
+  each Send that was still cooking turns into a `KdsStopCard` in the slot its ticket stood in — the Late
+  tint without the pulse, its dishes struck, the warn word — until a cook taps "Got it · ရပြီ"
+  (`mms_ack_table_clear_stop`, acknowledged as the signed-in person). No timer. A station's view draws a
+  stop card only when it stopped one of that station's dishes (the tickets' station rule, now
+  `lib/kitchen-station.ts`), and draws it WHOLE — one Got it clears the whole clear on every screen, so
+  no cook acknowledges a dish not shown (per-station acknowledgement: M271).
+  The read (`lib/kitchen-stop-read.ts`) takes the open records newest first, capped, refusing a record
+  with nothing stopped in the SQL before the cap; it chunks the dishes read (≤ 100 ids a request) and
+  never cuts a record; it fails soft — a failed or late read keeps the cards the board last drew, and
+  the queue is answered regardless; the menu read (stations, Burmese) is chunked the same way.
+  **Unknown is never none:** until a stop read has answered, the board never says All clear, never
+  stands "Nothing to cook" ("Couldn’t check for tables that left…"), never offers its guide; two misses
+  in a row make it unknown again (the same refusals) and are said by its own stop line — never its
+  "not updating" state, since the tickets still land (their chimes, hint and bar stay true).
+- **"Got it" is optimistic** (`lib/kds-stop.ts`): every card of that clear leaves at the tap; another
+  tablet's acknowledgement is not a failure; a refusal, a throw or a write still out brings the cards
+  back and the board re-reads. Focus goes to the board's heading; a new stop card is said in the
+  board's one region for its own dwell — beside a transient notice and a standing refusal, joined by a
+  second table inside the dwell, gone at its own Got it, and said when a station filter that hid it
+  starts drawing it — and the region never says "All clear" while one stands. The stop read cannot
+  use M182's partial index (PostgREST cannot express `cardinality`): filed as M272, 0 rows in prod.
+- **The slip says "tells the kitchen to stop anything still cooking"** — when its look shows a dish
+  the kitchen still holds (`clearStopsKitchen`), worded to stay true if that dish is served before the
+  commit; two keys, K15-HIGH.
+- **The kitchen's step guide ships** (`STAFF_GUIDE_SHIPS.kitchen`, PD12): the board now draws the card
+  its fifth step teaches. Its Help door takes the counter's two rows. Work that replaces the guide holds
+  the board's controls for the guide's arm (stamped in a layout effect), so a tap aimed at Next never
+  lands on an All done or a "Got it" (m12 §I). Its stop step now says one Got it clears it on every
+  screen.
+- 87 `m270/*` mutants; no migration (M182 made the record and the RPC).
 
 ### PD10 — the guest's live One Pass, with card and Apple Pay after served built behind the parked flag (2026-10-11, `claude/feat/pd10-live-pass`)
 

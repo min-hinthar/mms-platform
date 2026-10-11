@@ -20,7 +20,7 @@ import type { SoldOutErrCode } from "./menu-availability";
  * Pure so a value falsifies it: the board's suite only pins the WIRING (a refusal reaches the
  * region marked `lang="my"`, a twin-less sentence reaches it unmarked).
  */
-export type KdsAct = "bump" | "fire" | "recall" | "line";
+export type KdsAct = "bump" | "fire" | "recall" | "line" | "stop";
 
 /** What the region holds: a dictionary key with its slots, or a server sentence. */
 export type KdsMsg = { k: StaffKey; vars?: Record<string, string | number> } | string;
@@ -32,6 +32,9 @@ const FAILED: Record<KdsAct, StaffKey> = {
   fire: "kds.err.fire",
   recall: "kds.err.recall",
   line: "kds.err.line",
+  // M270 (1) — "Got it" on a stop card that did not land: "Couldn’t update Table 3 — try again." The
+  // shipped sentence (no new Burmese), said about the table the card names.
+  stop: "kds.err.line",
 };
 
 export function kitchenErrOutcome(

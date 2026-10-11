@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KdsStopCard, type KdsStopLine } from "./KdsStopCard";
 import { StaffLangProvider } from "./StaffLangProvider";
-import { tf } from "@/lib/i18n/fill";
+import { localizeCount, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 
 /**
  * PD5 / m7 — the "stop cooking" card's SHAPE, pinned from props (PATH_DESIGN reconciliation 1): ALARM
  * tier without motion, struck rows, the warn word, "Got it" until tapped — never dashed, never cream,
- * never a stub. The data read is PD7's; this suite renders the component alone.
+ * never a stub. The board mounts it (M270 (1), `KdsBoard.stop.test.tsx`); this suite renders the
+ * component alone.
  */
 afterEach(cleanup);
 
@@ -51,6 +52,10 @@ describe("KdsStopCard — the reserved shape", () => {
     expect(struck).toHaveLength(2);
     expect(struck[0]!.textContent).toContain("မုန့်ဟင်းခါး");
     expect(struck[1]!.textContent).toContain("Shan Noodles");
+    // MUTATION m270/stop-card/qty-unsaid: the drawn numeral is aria-hidden, so a screen reader hears
+    // which dish to stop but not how many (Codex r5 on #347). Said in the device's prose numerals.
+    expect(struck[0]!.querySelector(".sr-only")?.textContent).toBe(`${localizeCount(2, "my")} `);
+    expect(struck[1]!.querySelector(".sr-only")?.textContent).toBe(`${localizeCount(1, "my")} `);
     // The rows are not controls: nothing on a dish nobody will eat is tappable.
     expect(card.querySelectorAll(".kds-lines button")).toHaveLength(0);
     const ack = getByRole("button", { name: new RegExp(ts("my", "help.done")) });
@@ -68,6 +73,39 @@ describe("KdsStopCard — the reserved shape", () => {
     expect(btn.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(btn);
     expect(held.onAck).not.toHaveBeenCalled();
+  });
+
+  it("M270 (1) — held (a Got it still out past the bound): the attribute says so, and the tap still reaches the board, whose refusal says the waiting line", () => {
+    const onAck = vi.fn();
+    const { getByRole } = render(
+      <StaffLangProvider lang="en">
+        <ul>
+          <KdsStopCard table={7} lines={lines} onAck={onAck} held />
+        </ul>
+      </StaffLangProvider>,
+    );
+    const btn = getByRole("button", { name: /Got it/ });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(btn.hasAttribute("aria-busy")).toBe(false);
+    fireEvent.click(btn);
+    expect(onAck).toHaveBeenCalledTimes(1);
+  });
+
+  it("M270 (1) — Got it is described by the warn line (two stop cards are two Got its), and a table with no number is named by its sticker", () => {
+    const { getByRole, container } = render(
+      <StaffLangProvider lang="en">
+        <ul>
+          <KdsStopCard table="a12" lines={lines} onAck={vi.fn()} />
+        </ul>
+      </StaffLangProvider>,
+    );
+    const btn = getByRole("button", { name: /Got it/ });
+    const word = container.querySelector(".kds-stop-word")!;
+    expect(btn.getAttribute("aria-describedby")).toBe(word.id);
+    expect(word.textContent).toContain(tf("en", "kds.stop", { id: "a12" }));
+    expect(container.querySelector("li")!.getAttribute("aria-label")).toBe(
+      tf("en", "kds.stop", { id: "a12" }),
+    );
   });
 
   it("ALARM tier WITHOUT motion: the warn tint without the pulse class, never dashed, never cream, never a stub", () => {
