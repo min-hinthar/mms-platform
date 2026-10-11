@@ -489,8 +489,9 @@ async function readRounds(
 
 /**
  * The legs: the sessions' non-cancelled carts (a table visit is one open cart plus its paid ones),
- * then, in parallel, every batched line on them (any state — a void keeps its batch) and their
- * orders (the paid moment, so settlement food is never numbered — Codex on #328).
+ * then every batched line on them (any state — a void keeps its batch). Settlement food is told
+ * apart by its batch's own mark (`isSettlementBatch`, PD5b), so no order is read: the paid moment
+ * this read once ranked by is gone with the guess it fed.
  */
 async function readRoundLegs(
   db: ReturnType<typeof serviceClient>,
@@ -518,26 +519,16 @@ async function readRoundLegs(
   if (carts.length === 0) return new Map();
   const sessionByCart = new Map(carts.map((c) => [c.id, c.session_id]));
   const cartIds = [...sessionByCart.keys()];
-  const [linesRes, ordersRes] = await Promise.all([
-    db
-      .from("qr_cart_items")
-      .select("cart_id,fire_batch,fire_at,fulfillment", { count: "exact" })
-      .in("cart_id", cartIds)
-      .not("fire_batch", "is", null)
-      .limit(ROUND_LINE_CAP),
-    // The paid moment, and who took it. Settlement food (`mms_fire_pending_food`) fires only on a
-    // cart paid with unsent drafts, and every staff tender refuses unsent dine-in drafts
-    // (`staffSettleUnsentVerdict`: cash and the secure tab, `staff-cart.ts`; the reader,
-    // `terminal.ts`) — but only cash and the reader stamp `settled_by`. The secure-tab close is
-    // recorded by the webhook with `settled_by` null, exactly like a guest's own payment, so this
-    // read cannot tell the two apart (the residual below).
-    db
-      .from("qr_orders")
-      .select("cart_id,created_at,settled_by")
-      .in("cart_id", cartIds)
-      .limit(ROUND_CART_CAP),
-  ]);
-  const { data: batched, error: linesError, count: linesCount } = linesRes;
+  const {
+    data: batched,
+    error: linesError,
+    count: linesCount,
+  } = await db
+    .from("qr_cart_items")
+    .select("cart_id,fire_batch,fire_at,fulfillment", { count: "exact" })
+    .in("cart_id", cartIds)
+    .not("fire_batch", "is", null)
+    .limit(ROUND_LINE_CAP);
   if (linesError || !batched) {
     console.error("[kitchen] round read (lines) failed — rounds unknown this poll", {
       message: linesError?.message,
@@ -562,36 +553,6 @@ async function readRoundLegs(
     );
     return null;
   }
-  if (ordersRes.error || !ordersRes.data) {
-    console.error("[kitchen] round read (orders) failed — rounds unknown this poll", {
-      message: ordersRes.error?.message,
-    });
-    return null;
-  }
-  if (queueEmptiness(ordersRes.data.length, ROUND_CART_CAP) === "cannot-say") {
-    console.error("[kitchen] round read (orders) saturated — rounds unknown this poll", {
-      cap: ROUND_CART_CAP,
-    });
-    return null;
-  }
-  // Settlement food is told apart by the paid moment, except on a cart a STAMPED staff tender
-  // settled (cash or the reader: `settled_by` set). Such a cart cannot carry it, so every batch there
-  // is a Send — including one fired inside the 10-second grace the settle landed in (its `fire_at`,
-  // the grace deadline, is after the order). Every other cart is read as guest-paid: a batch whose
-  // `fire_at` is at or after its order is settlement food. Two sequences no stamp decides read a
-  // real Send that way, and it loses its number (the table's later rounds count one fewer): a Send
-  // landing inside the 10 s before a GUEST's own card payment is recorded (m5 §H.2), and one inside
-  // the 10 s before a staff SECURE-TAB close, which carries no `settled_by` (m5 §H.3). Both are
-  // owner items; stamping `settled_by` on the secure tab would move /staff/tips attribution.
-  const staffSettled = new Set<string>();
-  const paidAtByCart = new Map<string, string>();
-  for (const o of ordersRes.data) {
-    if (o.cart_id === null) continue;
-    if (o.settled_by) staffSettled.add(o.cart_id);
-    const prev = paidAtByCart.get(o.cart_id);
-    if (prev === undefined || o.created_at < prev) paidAtByCart.set(o.cart_id, o.created_at);
-  }
-  for (const cartId of staffSettled) paidAtByCart.delete(cartId);
   const bySession = new Map<string, RoundLine[]>();
   for (const r of batched) {
     const sid = sessionByCart.get(r.cart_id);
@@ -604,7 +565,7 @@ async function readRoundLegs(
     [...bySession].map(([sid, ls]) => [
       sid,
       {
-        ordinals: roundOrdinals(ls, nowIso, paidAtByCart),
+        ordinals: roundOrdinals(ls, nowIso),
         seen: new Set(ls.flatMap((l) => (l.fire_batch === null ? [] : [l.fire_batch]))),
       },
     ]),
