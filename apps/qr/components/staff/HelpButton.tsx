@@ -16,6 +16,8 @@ import {
   type HelpDoorScreen,
 } from "@/lib/help";
 import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
+import { STAFF_GUIDE_STEPS, staffGuideOpensItself, staffGuideShips } from "@/lib/staff-guide";
+import { PANE_IDLE_QUERY } from "@/lib/floor-pane";
 import type { SlotsOf } from "@/lib/i18n/fill";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { APP_VERSION } from "@/lib/app-version";
@@ -35,6 +37,7 @@ import { boundWrite, track } from "@/lib/bounded-write";
 import type { StaffLang, StaffLangMode } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
+import { StepGuide } from "./StepGuide";
 import { ReloadButton } from "./ReloadOffer";
 import { useLiveConnection } from "./LiveConnection";
 import { useStaffLangMode } from "./StaffLangProvider";
@@ -44,7 +47,7 @@ import { TicketDishTitle } from "./TicketText";
 import { useReloadHold } from "./useReloadHold";
 import { draftHeld } from "@/lib/reload-guard";
 
-type View = "menu" | "how" | "size" | "lang" | "report";
+type View = "menu" | "guide" | "how" | "size" | "lang" | "report";
 
 /** Slot values a card interpolates, keyed by card number. */
 type HelpCardVars = Partial<Record<number, Record<string, string | number>>>;
@@ -158,6 +161,18 @@ function safe(read: () => string | undefined): string | undefined {
  * the row always did, and the Sheet returns focus to the circle that opened it. The open still rides
  * `show`'s M76 reset — only the view it lands on differs — so an Aa visit never leaks into the next
  * "?" open.
+ *
+ * PD12 — THE STEP GUIDE (m12 decision 6; the owner's scoped unfreeze of this file, PATH_DESIGN round
+ * 3 D1, "scoped to the staff guide": the two rows and the guide host, nothing else). On a screen whose
+ * guide has shipped (`staffGuideShips`), the first row, "How this screen works", opens the five-step
+ * guide (`StepGuide`, the `sheet` host) in this sheet — its shipped title kept, its sub-line now true
+ * of the guide (and, where the guide can never open itself on this device — a counter narrower than
+ * the pane — without the auto-open promise). A NEW second row, "More on this screen", keeps every
+ * shipped card whole: nothing is retired. And the device-keyed AUTO-OPEN of the cards RETIRES there:
+ * the guide's own first run (once per person, per station, per tablet, in the screen's quiet space,
+ * never a modal — `useGuideFirstRun`) replaces it, so a fresh tablet never gets this modal sheet AND
+ * the in-place guide on one load (the critic's B5). A station whose guide is held keeps all of this
+ * exactly as shipped — its cards, its row, its auto-open.
  */
 export function HelpButton(props: HelpProps) {
   const { lang, screen, size, sheetClassName } = props;
@@ -172,6 +187,10 @@ export function HelpButton(props: HelpProps) {
   const wide = useMediaQuery(`(min-width: ${KDS_WIDE_MIN_PX}px)`);
   const [view, setView] = useState<View>("menu");
   const [step, setStep] = useState(1);
+  // PD12 — this screen's step guide has shipped: row 1 opens it, row 2 the cards, no card auto-open.
+  const guided = staffGuideShips(screen);
+  // …and whether it can open ITSELF on this device (the counter's host is the pane, from 64em).
+  const paneWide = useMediaQuery(PANE_IDLE_QUERY);
   const ledeRef = useRef<HTMLParagraphElement>(null);
 
   // ── the report ──
@@ -239,6 +258,8 @@ export function HelpButton(props: HelpProps) {
   };
 
   useEffect(() => {
+    // PD12 — a guided screen's first run is the guide's, in place; the cards never open themselves.
+    if (guided) return;
     let active = true;
     void Promise.resolve()
       .then(() => localStorage.getItem(helpSeenKey(screen)) !== "1")
@@ -259,7 +280,7 @@ export function HelpButton(props: HelpProps) {
     return () => {
       active = false;
     };
-  }, [screen]);
+  }, [screen, guided]);
 
   // The view changed under the reader — move focus to what changed (QA §A), never leave it on a
   // button that just re-labelled itself. On the AUTO-open this finds no lede yet (the sheet mounts
@@ -434,7 +455,7 @@ export function HelpButton(props: HelpProps) {
   const total = helpCardCount(screen);
   const last = step === total;
   const title =
-    view === "how"
+    view === "how" || view === "guide"
       ? helpTitleKey(screen)
       : view === "size"
         ? "kds.size.title"
@@ -522,7 +543,7 @@ export function HelpButton(props: HelpProps) {
                   onClick={() => {
                     haptic("pick");
                     setStep(1);
-                    setView("how");
+                    setView(guided ? "guide" : "how");
                   }}
                 >
                   <span className="staff-row-glyph" aria-hidden>
@@ -531,12 +552,55 @@ export function HelpButton(props: HelpProps) {
                   <span className="staff-row-name">
                     <Chrome lang={lang} k="help.row.how" echo="stack" />
                     <span className="help-row-sub">
-                      <Chrome lang={lang} k="help.row.how.sub" vars={{ n: total }} echo="stack" />
+                      {guided ? (
+                        <Chrome
+                          lang={lang}
+                          k={
+                            staffGuideOpensItself(screen, paneWide)
+                              ? "help.row.how.sub"
+                              : "help.row.how.subPlain"
+                          }
+                          vars={{ n: STAFF_GUIDE_STEPS[screen].length }}
+                          echo="stack"
+                        />
+                      ) : (
+                        <Chrome lang={lang} k="help.row.how.sub" vars={{ n: total }} echo="stack" />
+                      )}
                     </span>
                   </span>
                   <Icon name="chevron" size={20} className="staff-row-chev" aria-hidden />
                 </button>
               </li>
+              {/* PD12 — the shipped cards, whole, behind the guide (m12 change 3): nothing retired. */}
+              {guided && (
+                <li>
+                  <button
+                    type="button"
+                    className="staff-row help-row staff-press"
+                    onClick={() => {
+                      haptic("pick");
+                      setStep(1);
+                      setView("how");
+                    }}
+                  >
+                    <span className="staff-row-glyph" aria-hidden>
+                      <Icon name="more" size={20} />
+                    </span>
+                    <span className="staff-row-name">
+                      <Chrome lang={lang} k="help.row.more" echo="stack" />
+                      <span className="help-row-sub">
+                        <Chrome
+                          lang={lang}
+                          k="help.row.more.sub"
+                          vars={{ n: total }}
+                          echo="stack"
+                        />
+                      </span>
+                    </span>
+                    <Icon name="chevron" size={20} className="staff-row-chev" aria-hidden />
+                  </button>
+                </li>
+              )}
               {size && (
                 <li>
                   <button
@@ -623,6 +687,18 @@ export function HelpButton(props: HelpProps) {
               </p>
             )}
           </div>
+        )}
+
+        {view === "guide" && (
+          // PD12 — the step guide in the sheet the person chose: the sheet's ✕, Escape and scrim are
+          // its close (no Close of its own), its title takes focus, and Got it closes the sheet.
+          <StepGuide
+            screen={screen}
+            host="sheet"
+            lang={lang}
+            size={size?.value}
+            onDone={() => show(false)}
+          />
         )}
 
         {view === "how" && (

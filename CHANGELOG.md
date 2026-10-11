@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD12 — the staff step guides: five steps per station, in the screen's quiet space, once per person (2026-10-11)
+
+- **The counter guide ships** (m12 "Point and Call"; PATH_DESIGN decision 12). The first time a
+  signed-in person opens the counter on a tablet — when the pane is a column beside the floor, no table
+  is open (the URL included) and none is asking to pay — five steps stand where "Pick a table" stands,
+  never a modal: the floor at a glance, the hollow ring (Not sent yet), the one filled tile and the
+  pane's ask pass, the till tray's Take cash, the clear window and its Undo. Each title is the control's
+  own key; each picture is the real control (`FloorKitchenLine`, `CounterPass`, the strip's tiles, the
+  tray's notes, the clear window), inert and cropped; the only motion is the till's own pop on the
+  change, once. Work wins: a table tap replaces it for good. Close · ပိတ် top-right; one foot on every
+  step; every control arms 400 ms after the guide shows and after every step change, and a press that
+  began before the arm never counts (Codex round 3).
+- **The kitchen guide is built and HELD** until the board draws the stop card its fifth step teaches
+  (OPEN-ITEMS M270 (1)): its host on the empty board, its five pictures (the arrival flash, the round
+  stub, D3's two words in their places — ပြန်ဖျက် on the cream pill, ပြန်ယူ on the rail — Late drawn
+  still, the real `KdsStopCard`) and its keys are pinned; the flip is `STAFF_GUIDE_SHIPS.kitchen`, which
+  a parsed test refuses while `KdsBoard` renders no `<KdsStopCard>`.
+- **The ONE seen-key helper** (`lib/guide-seen.ts` + `lib/hooks/useGuideFirstRun.ts`) PD11's diner
+  guide will import unchanged: `mms.guide.seen:<surface>:<rev>[:<who>]`, marked the moment it shows, a
+  busy open marks nothing, a refused store never auto-shows.
+- **Help** (`HelpButton`, the scoped unfreeze): on the counter, row 1 "How this screen works" opens the
+  guide in the sheet; NEW row 2 "More on this screen" keeps all six shipped cards; the cards'
+  device-keyed auto-open retires there. The kitchen's Help door is unchanged.
+- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 26
+  `pd12/*` mutants; DESIGN-LANGUAGE §36 (the step guide).
+
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
 
 - **A nudge is serialized with a fulfillment change (comment 4240355357, P2).** `mms_nudge_host`

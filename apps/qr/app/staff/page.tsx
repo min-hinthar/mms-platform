@@ -32,6 +32,7 @@ import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
+import { counterAskingAtMount } from "@/lib/staff-guide";
 
 export const dynamic = "force-dynamic";
 
@@ -249,7 +250,15 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             thumb-zone Undo pill. Phase 2d · split — the column IS the split (`CounterSplit`): the
             zones in its main column, the selected table's pane beside them on a tablet. One tree
             around the boards (the bell's seam: no second provider, no remount on rotation). */}
-          <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
+          <CounterSplit
+            terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
+            // PD12 — the counter guide's first run, keyed to THIS person, and whether a table was
+            // already asking to pay as the floor was read (then this open is not a quiet one).
+            guide={{
+              staffId: caller.staffId,
+              askingAtMount: counterAskingAtMount(floor.snapshot.tables),
+            }}
+          >
             {greeting}
             {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
             <CounterZoneStrip lang={lang} zones={zones} />

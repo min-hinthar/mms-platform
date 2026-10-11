@@ -1,3 +1,4 @@
+import type { IconName } from "@mms/ui";
 import type { FloorStatus } from "./floor-types";
 import type { RefundState } from "./refund-view";
 
@@ -50,3 +51,17 @@ export function floorTone(
       return refundState === "partial" || refundState === "full" ? "returned" : "done";
   }
 }
+
+/**
+ * The tone's GLYPH on a strip tile and in the strip's key — never colour alone: each tone carries a
+ * shape. One map for the strip (`TableStrip`) and the counter guide's strip picture (PD12), so the
+ * picture can never teach a glyph the strip does not draw.
+ */
+export const FLOOR_TONE_GLYPH: Readonly<Record<FloorTone, IconName>> = {
+  ask: "receipt",
+  inflight: "card",
+  live: "cart",
+  rest: "people",
+  done: "check",
+  returned: "undo",
+};

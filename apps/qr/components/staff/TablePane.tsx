@@ -14,6 +14,7 @@ import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { raceTimeout } from "@/lib/staff-outage";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import {
+  PANE_IDLE_QUERY,
   PANE_QUERY,
   acceptPaneRead,
   closedCounterNote,
@@ -23,6 +24,7 @@ import {
   lostResolved,
   paneEscapeCloses,
   paneFailKeys,
+  paneFromHash,
   paneStatusSays,
   readHandoffStash,
   type LateAnswer,
@@ -41,6 +43,17 @@ import type { CloseReason, PaneRow } from "./TablePaneContext";
 import { handoffRefunded, type Handoff } from "@/lib/register-ui";
 import type { RefundState } from "@/lib/refund-view";
 import { ReaderShown } from "./ReaderCollectContext";
+import { StepGuide } from "./StepGuide";
+import { counterGuideQuiet, staffGuideKey, staffGuideShips } from "@/lib/staff-guide";
+import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
+
+/** PD12 — what the page hands the pane for the counter guide's first run. */
+export type CounterGuideSeed = {
+  /** The signed-in person: the guide is offered once per person, per station, per tablet. */
+  staffId: string;
+  /** A table was asking to pay as the floor was read — then this open is not a quiet one. */
+  askingAtMount: boolean;
+};
 
 /**
  * Phase 2d · split — the selected table, beside the floor. States:
@@ -70,6 +83,18 @@ import { ReaderShown } from "./ReaderCollectContext";
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
  * another table); otherwise this pane's single sr-only `role=status` does (`paneStatusSays`: a lost
  * write, "Loading…" when the head is a name, the closed title, the failure). Never two at once.
+ *
+ * PD12 — THE COUNTER GUIDE'S HOST (m12; counter-floor's one handoff, PATH_DESIGN D1's scoped
+ * unfreeze of the idle host). Offered ONCE per person, per station, per tablet, in place of "Pick a
+ * table" — and only on a QUIET open, decided at mount (`counterGuideQuiet`): the pane is a column
+ * beside the floor (`PANE_IDLE_QUERY`; narrower, nothing auto-opens — Help still opens it), no table
+ * is selected (the URL's hash included, which the split seeds AFTER mount), and none was asking to
+ * pay. Never a modal: the floor beside it stays live, and WORK WINS — a tap on any table opens it
+ * here in the guide's place, for good (it is marked seen as it shows, so it never comes back by
+ * itself). The guide adds no live region (this pane's one region keeps speaking) and is a labelled
+ * group inside this section, never a second region of the same name; while it stands, the section
+ * is named by the Help title ("How the counter works"). Close and Got it land focus on the empty
+ * state's title.
  */
 /** Every read carries its selection's `gen`: a table picked AGAIN (A → ✕ → A, A → B → A) starts in
  *  `loading` and reads afresh — a previous pick's detail would seed `FloorDetailLive`'s state
@@ -103,11 +128,14 @@ export function TablePane({
   settleOnce,
   onSettleConsumed,
   terminalReady,
+  guide = null,
   onClose,
   onSelect,
   onLostWrite,
   onLostLanded,
 }: {
+  /** PD12 — the counter guide's first-run seed (null: no guide offered here). */
+  guide?: CounterGuideSeed | null;
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
   sel: { id: string; hint: TableHint | null; focus: number; gen: number } | null;
@@ -127,6 +155,25 @@ export function TablePane({
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // ── PD12 · the counter guide (see the docblock) ──
+  const counterGuide = useGuideFirstRun(
+    guide !== null && staffGuideShips("counter") ? staffGuideKey("counter", guide.staffId) : null,
+    () =>
+      counterGuideQuiet({
+        wide: typeof window.matchMedia === "function" && window.matchMedia(PANE_IDLE_QUERY).matches,
+        paneIdle: selectedNow() === null && paneFromHash(window.location.hash) === null,
+        asking: guide?.askingAtMount ?? true,
+      }),
+  );
+  // Work wins: a table opened in the pane replaces the guide for good.
+  if (counterGuide.shown && sel !== null) counterGuide.dismiss();
+  // Close / Got it → the empty state's title (the person was inside the guide to tap it).
+  const [guideClosed, setGuideClosed] = useState(false);
+  useEffect(() => {
+    if (!guideClosed) return;
+    document.getElementById("table-pane-h")?.focus();
+    void Promise.resolve().then(() => setGuideClosed(false));
+  }, [guideClosed]);
   const [read, setRead] = useState<Read | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
@@ -369,15 +416,34 @@ export function TablePane({
           )}
           {/* Hidden below 64em while only a lost write stands (`data-pane="lost"`): there the pane
               is the warning line above the floor, never a "Pick a table" page over it. */}
-          <div className="staff-pane-empty">
-            <EmptyState
-              titleAs="h2"
-              titleId="table-pane-h"
-              icon={<Icon name="receipt" size={24} />}
-              title={<Chrome lang={lang} k="floor.pane.empty.title" />}
-              subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
-            />
-          </div>
+          {counterGuide.shown ? (
+            <div className="staff-pane-guide">
+              {/* The section's name while the guide stands: the Help title, one tongue (a `hidden`
+                  label is still a name — it is never read as text of its own). */}
+              <span id="table-pane-h" hidden>
+                <Chrome lang={lang} k="help.how.title.counter" />
+              </span>
+              <StepGuide
+                screen="counter"
+                host="inplace"
+                lang={lang}
+                onDone={() => {
+                  counterGuide.dismiss();
+                  setGuideClosed(true);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="staff-pane-empty">
+              <EmptyState
+                titleAs="h2"
+                titleId="table-pane-h"
+                icon={<Icon name="receipt" size={24} />}
+                title={<Chrome lang={lang} k="floor.pane.empty.title" />}
+                subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
+              />
+            </div>
+          )}
         </>
       ) : (
         <>

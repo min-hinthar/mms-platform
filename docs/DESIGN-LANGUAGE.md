@@ -2644,3 +2644,41 @@ food in the kitchen is shown, dish by dish. What that may and may not look like:
   them the route sends `{ orders, tables, kitchenIdle, serverNow }` and nothing else — `kitchenIdle`
   is one boolean (is any food of any channel on the wok?), never a count. The pickup
   column shows the code alone — no name, no wait — and a collected bag leaves at once.
+
+## 36 · The step guide: the real control, in the quiet space, once (PD12 · m12)
+
+Decided in `lib/guide-seen.ts` (the ONE seen-key rule every guide reads — the staff guides now, the
+diner's guide with PD11) and `lib/staff-guide.ts` (the steps, the arm, the quiet); drawn by `StepGuide`
+and `GuidePicture`. What a first-run guide may and may not be:
+
+- **It lives in the screen's quiet space, never as a modal over live work.** The counter's guide is
+  where "Pick a table" stands (the idle pane, from 64em, beside a floor that stays live and tappable);
+  the kitchen's where "Nothing to cook" stands. Narrower, nothing opens itself — Help's first row opens
+  the same guide in the sheet the person chose. A screen whose guide has shipped never also auto-opens
+  its Help cards: one first run per load.
+- **Once per person, per station, per tablet; marked the moment it shows; quiet decided at mount.** A
+  busy first open (a table asking to pay, a ticket on the board) shows nothing and marks nothing; a store
+  that refuses never auto-shows. Close, the last step, a reload or work pushing it away all leave it
+  seen. **Work always wins:** a table tap or a landing ticket replaces it for good, and focus that was
+  inside it goes to the work (the ticket list — never an All done).
+- **A guide teaches only what ships.** Each station's guide is ONE revision, after every control it
+  teaches (`STAFF_GUIDE_SHIPS`, refused by a parsed test while a control is missing); a guide whose
+  steps change is a new revision, a new first morning.
+- **Titles are the controls' own keys; pictures are the real controls, inert.** "See the mark, say its
+  word": every title renders through the key printed on the control it pictures. A picture is the
+  shipped component or the control's own classes at real size, cropped by a fixed-height well that is
+  `aria-hidden` and `inert`; `guide-pic-*` is placement only. Never a scaled drawing, never a complete
+  ticket on a live board, never a second filled primary in view, never a head stat repeated under the
+  real head.
+- **Motion is the product's own, or none.** A picture plays its control's shipped motion once (the
+  board's arrival flash, the till's pop) and a revisit draws the end frame; a tile's tone change is
+  instant, a MARK never moves, an ALARM-without-motion card stays still, and **no guide picture ever
+  pulses** — the board's one motion stays the board's. No auto-advance, no swipe, no sound; the "pick"
+  haptic on Next, Back and each dot.
+- **The grammar:** "Close · ပိတ်" top-right (the sheet's ✕ in the sheet); one foot on every step — five
+  44px dots (the current a `--tx` capsule: shape, never accent), Back's slot held on step 1, ONE Next
+  whose last word is "Got it · ရပြီ"; the eyebrow and footer in `--t2`; accent on the one primary only.
+  The card is a `role="group"` named by its title — never a region — and adds no live region: a step
+  change moves focus to the new title. Every control arms after the guide shows AND after every step
+  change (`GUIDE_ARM_MS`, ≥ the 350 ms gesture guard), and a press that began before the arm never
+  counts — a double-tap on step 4's Next never finishes the guide unseen.

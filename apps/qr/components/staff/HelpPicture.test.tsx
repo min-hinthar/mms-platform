@@ -6,7 +6,16 @@ import { join } from "node:path";
 import ts from "typescript";
 import { HELP_SCREENS, helpCardCount, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
-import { HelpPicture } from "./HelpPicture";
+import { CLEAR_UNDO_MS } from "@/lib/clear-window";
+import { FLOOR_TONE_GLYPH } from "@/lib/floor-tone";
+import { quickCashTenders } from "@/lib/register-math";
+import {
+  GUIDE_SAMPLE,
+  STAFF_GUIDE_STEPS,
+  type GuidePicture as GuidePictureId,
+} from "@/lib/staff-guide";
+import { GuidePicture, HelpPicture } from "./HelpPicture";
+import { StaffLangProvider } from "./StaffLangProvider";
 
 /**
  * P7·3 — every picture is the real control's OWN declaration, bound structurally: the class the
@@ -228,22 +237,35 @@ describe("help-1 — pictures are declarations, never drawings", () => {
   const BOX_BY_SELECTOR = new Map<string, Set<string>>([
     [".help-pic-stage", new Set(["padding"])],
     [".help-pic-ticket", new Set(["min-width"])],
+    // PD12 — a ticket outside the board's grid has no column to size it: the grid's own column
+    // width (and, in a pair, the two share the well).
+    [".guide-pic-ticket", new Set(["width"])],
+    [".guide-pic-pair > .guide-pic-ticket", new Set(["width"])],
+    // A bump outside its card has no card to fill: the card's width.
+    [".guide-pic-bump", new Set(["min-width"])],
+    // The <ul> holding the real stop card's <li>: the list's own indent and marker reset.
+    [".guide-pic-list", new Set(["padding", "list-style"])],
   ]);
   // The picture's OWN furniture, not a replica of any control: the arrow between two stages.
   const OWN = new Set([".help-pic-arrow"]);
   const props = (body: string) => [...body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1]!);
 
-  it("every rule whose EVERY selector names a help-pic-* class declares placement only — compound selectors included", () => {
+  it("every rule whose EVERY selector names a help-pic-* or guide-pic-* class declares placement only — compound selectors included", () => {
     // Every selector, in any position (`.help-pic > .help-pic-bump` is as much the picture's own
     // rule as `.help-pic-bump`); a rule that ALSO names a real control (`.kds-undo button, .kds-undo
     // .help-pic-undo-btn`) is the sharing idiom and declares the control, so it is not subject.
     const own = rules.filter(
       (r) =>
         r.selectors.length > 0 &&
-        r.selectors.every((s) => /\.help-pic-[a-z0-9-]+/.test(s)) &&
+        r.selectors.every((s) => /\.(?:help|guide)-pic-[a-z0-9-]+/.test(s)) &&
         !r.selectors.some((s) => OWN.has(s)),
     );
     expect(own.length).toBeGreaterThanOrEqual(4);
+    // PD12 — the guide's placement classes are held by the same refusal (MUTATION: drop `guide` from
+    // the selector match — these fall out of `own` and this count goes red).
+    expect(
+      own.filter((r) => r.selectors.some((x) => x.includes(".guide-pic-"))).length,
+    ).toBeGreaterThanOrEqual(6);
     for (const r of own) {
       const declared = props(r.body);
       expect(declared.length, r.selectors.join()).toBeGreaterThan(0);
@@ -345,5 +367,202 @@ describe("help-1 — pictures are declarations, never drawings", () => {
       rules.flatMap((r) => r.selectors).flatMap((s) => s.match(/\.help-pic-[a-z0-9-]+/g) ?? []),
     );
     expect([...worn].sort()).toEqual([...declared].sort());
+  });
+});
+
+/**
+ * PD12 — the staff guides' pictures (m12): the real controls, inert, cropped. Bound the same way as
+ * the cards above — the component the control is, or the class/rule it wears — and held to the
+ * critic's fixes: no picture pulses (B1), no complete ticket on a live board (B4), the pass rendered
+ * not redrawn (A5), the Undo cell with ONE seconds leaf (B3c), the ring a MARK that never moves.
+ */
+describe("GuidePicture — the real control, inert, cropped", () => {
+  afterEach(cleanup);
+  const gpic = (picture: GuidePictureId, lang: "en" | "my" = "en", motion = false) =>
+    render(
+      <StaffLangProvider lang={lang}>
+        <GuidePicture picture={picture} lang={lang} motion={motion} />
+      </StaffLangProvider>,
+    ).container.querySelector(".guide-well")!;
+  const ALL = HELP_SCREENS.flatMap((s) => STAFF_GUIDE_STEPS[s].map((st) => st.picture));
+
+  it("every step's picture is hidden, inert, never empty — and never pulses", () => {
+    expect(ALL).toHaveLength(10);
+    for (const p of ALL) {
+      const w = gpic(p, "en", true);
+      expect(w.getAttribute("aria-hidden"), p).toBe("true");
+      expect(w.hasAttribute("inert"), p).toBe(true);
+      expect(w.classList.contains("help-pic"), p).toBe(true); // the help picture's ground and inertness
+      expect(w.children.length, p).toBeGreaterThan(0);
+      expect(w.querySelector(".kds-strip-pulse"), p).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("counter 1 — the strip's own tiles and key: free tiles to start, Table 3 ordering, Table 5 seated", () => {
+    const w = gpic("counter.floor");
+    const tiles = [...w.querySelectorAll(".floor-strip > .floor-tile")];
+    expect(tiles.map((t) => t.querySelector(".floor-tile-n")!.textContent)).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+    ]);
+    expect(
+      tiles.map((t) => (t.hasAttribute("data-free") ? "free" : t.getAttribute("data-tone"))),
+    ).toEqual(["free", "free", "live", "free", "rest"]);
+    // A started table with nothing on it is SEATED (rest: people, no bar) — never "Ordering" (m12 change 7).
+    expect(tiles[GUIDE_SAMPLE.counter.seated - 1]!.getAttribute("data-tone")).toBe("rest");
+    expect(FLOOR_TONE_GLYPH.rest).toBe("people");
+    expect([...w.querySelectorAll(".floor-key-item")].map((k) => k.textContent)).toEqual([
+      STAFF["floor.status.ordering"].en,
+      STAFF["floor.status.seated"].en,
+    ]);
+    // Only the ask tile fills — and the calm floor has none.
+    expect(w.querySelector('.floor-tile[data-tone="ask"]')).toBeNull();
+  });
+
+  it("counter 2 — the hollow ring is the REAL kitchen row's mark and word; no filled Send competes", () => {
+    const w = gpic("counter.ring");
+    const seg = w.querySelector('.floor-kitchen-seg[data-seg="floor.kitchen.notSent"]')!;
+    expect(seg.querySelector(".staff-unsent-ring")).not.toBeNull();
+    expect(w.querySelector('.card.card-textured > .floor-edge[data-tone="live"]')).not.toBeNull();
+    expect(w.querySelector(".ui-btn-primary")).toBeNull();
+  });
+
+  it("counter 3 — the ONE filled tile, and the pane's ask pass RENDERED with FloorDetailLive's own props", () => {
+    const w = gpic("counter.ask");
+    expect(w.querySelectorAll('.floor-tile[data-tone="ask"]')).toHaveLength(1);
+    const pass = w.querySelector(".ui-pass.floor-ask-pass")!;
+    expect(pass.getAttribute("data-tier")).toBe("counter");
+    expect(pass.hasAttribute("data-tear")).toBe(true);
+    expect(pass.hasAttribute("data-inert")).toBe(true);
+    expect(pass.querySelector(".ui-pass-fallback-lead")!.textContent).toBe(
+      STAFF["table.detail.counterAsk"].en,
+    );
+    expect(pass.querySelector(".floor-ask-total dd")!.textContent).toBe("$46.41");
+    // The pane's own pass, parsed off FloorDetailLive's JSX: the same tier, class, tear and identity
+    // key — so the picture can never teach a pass the pane does not draw.
+    const src = readFileSync(join(__dirname, "FloorDetailLive.tsx"), "utf8");
+    const sf = ts.createSourceFile("FloorDetailLive.tsx", src, ts.ScriptTarget.Latest, true);
+    let found: Record<string, string> | null = null;
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxOpeningElement(node) && node.tagName.getText() === "CounterPass") {
+        const attrs: Record<string, string> = {};
+        for (const a of node.attributes.properties.filter(ts.isJsxAttribute))
+          attrs[a.name.getText()] = a.initializer ? a.initializer.getText() : "true";
+        if (attrs.className === '"floor-ask-pass"') found = attrs;
+      }
+      ts.forEachChild(node, (c) => {
+        visit(c);
+      });
+    };
+    visit(sf);
+    expect(found).not.toBeNull();
+    expect(found!.tier).toBe('"counter"');
+    expect(found!.tear).toBe("true");
+    expect(found!.fallback).toContain('STAFF["table.detail.counterAsk"]');
+  });
+
+  it("counter 4 — the tray's own notes for this bill, the $50 lit by the one cap, and the change computed", () => {
+    const S = GUIDE_SAMPLE.counter;
+    const w = gpic("counter.cash", "en", true);
+    const notes = [...w.querySelectorAll(".till-sheet .reg-tender-grid > .staff-chip-cash")];
+    expect(notes.map((n) => n.textContent)).toEqual(
+      quickCashTenders(S.askTotalCents)
+        .filter((c) => c >= S.noteCents)
+        .map((c) => `$${c / 100}`),
+    );
+    expect(
+      notes.filter((n) => n.getAttribute("aria-pressed") === "true").map((n) => n.textContent),
+    ).toEqual(["$50"]);
+    const dd = w.querySelector(".till-band-row .reg-change-row dd")!;
+    expect(dd.textContent).toBe(`$${((S.noteCents - S.askTotalCents) / 100).toFixed(2)}`);
+    expect(dd.className).toBe("mms-pop");
+  });
+
+  it("counter 5 — the clear window: the dashed chip, the in-slot Undo with ONE seconds leaf, Seat next party", () => {
+    const w = gpic("counter.clear");
+    expect(w.querySelector(".clear-window > .clear-chip")!.textContent).toBe(
+      `Clearing Table ${GUIDE_SAMPLE.counter.clearing}`,
+    );
+    const undo = w.querySelector(".clear-window-cells > .clear-undo")!;
+    expect(undo.textContent).toContain(STAFF["kds.undo"].en);
+    expect(undo.querySelectorAll(".clear-undo-left")).toHaveLength(1);
+    expect(undo.querySelector(".clear-undo-left")!.textContent!.trim()).toBe(
+      `· ${CLEAR_UNDO_MS / 1000}s`,
+    );
+    expect(w.textContent).toContain(STAFF["settle.clear.seatNext"].en);
+    // No pending hatch and no green slab (m7 B5/B8): nothing but the window's own classes.
+    expect(w.querySelector(".floor-card-hint")).toBeNull();
+  });
+
+  it("kitchen 1 & 2 — the board's own arrival flash, only on the card where new work landed", () => {
+    expect(
+      gpic("kitchen.card", "en", true).querySelectorAll(".kds-ticket > .kds-flash"),
+    ).toHaveLength(1);
+    cleanup();
+    expect(gpic("kitchen.card", "en", false).querySelector(".kds-flash")).toBeNull();
+    cleanup();
+    const r = gpic("kitchen.round", "en", true);
+    const cards = [...r.querySelectorAll(".kds-ticket")];
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.querySelector(".kds-flash")).toBeNull();
+    expect(cards[1]!.querySelector(":scope > .kds-flash")).not.toBeNull();
+    // The stub is the board's own `.kds-round`, on the second card only, through `kds.round`.
+    expect(cards[0]!.querySelector(".kds-round")).toBeNull();
+    expect(cards[1]!.querySelector(".kds-strip-rows > .kds-round")!.textContent).toBe(
+      `Round ${GUIDE_SAMPLE.kitchen.round}`,
+    );
+  });
+
+  it("no picture draws a complete ticket on a live board (B4): every ticket but the stop card is cropped above its bump", () => {
+    for (const p of ALL.filter((x) => x.startsWith("kitchen."))) {
+      expect(gpic(p).querySelector(".kds-ticket:not(.kds-ticket-stop) .kds-bump"), p).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("kitchen 3 — the bump, the cream pill's Undo (the ONE shared rule), and the rail's label and dashed chip", () => {
+    const w = gpic("kitchen.bump");
+    expect(w.querySelector(".kds-bump.help-pic-bump")).not.toBeNull();
+    expect(w.querySelector(".kds-undo.help-pic-undo > .help-pic-undo-btn")!.textContent).toBe(
+      STAFF["kds.undo"].en,
+    );
+    expect(w.querySelector(".kds-recall > .kds-recall-label")!.textContent).toBe(
+      STAFF["kds.recall"].en,
+    );
+    expect(w.querySelector(".kds-recall > .kds-recall-btn")!.textContent).toBe(
+      `Table ${GUIDE_SAMPLE.kitchen.bumped}`,
+    );
+    // The rail's label is ONE rule, worn by the board too — never an inline copy beside it.
+    expect(css.match(/(^|[\s,}])\.kds-recall-label\s*\{/gm)).toHaveLength(1);
+    const board = readFileSync(join(__dirname, "KdsBoard.tsx"), "utf8");
+    expect(board).toContain('className="kds-recall-label"');
+  });
+
+  it("kitchen 4 — three strips, still; only the red one says Late (the word, since nothing moves)", () => {
+    const w = gpic("kitchen.late");
+    const strips = [...w.querySelectorAll(".kds-strip")];
+    expect(strips).toHaveLength(3);
+    expect(strips.map((s) => s.classList.contains("kds-strip-red"))).toEqual([false, false, true]);
+    expect(
+      strips.map((s) =>
+        s.querySelector(".kds-badge")!.textContent!.startsWith(STAFF["kds.stat.late"].en),
+      ),
+    ).toEqual([false, false, true]);
+    // B4 — no head-stat replica under the real head.
+    expect(w.querySelector(".kds-stat, .kds-stats")).toBeNull();
+  });
+
+  it("kitchen 5 — the REAL stop card: struck rows and its warn word", () => {
+    const w = gpic("kitchen.stop");
+    const card = w.querySelector(".guide-pic-list > .kds-ticket.kds-ticket-stop")!;
+    expect(card).not.toBeNull();
+    expect(card.querySelectorAll(".kds-stop-line")).toHaveLength(2);
+    expect(card.querySelector(".kds-stop-word")!.textContent).toContain(
+      `Table ${GUIDE_SAMPLE.kitchen.stopped} left`,
+    );
   });
 });
