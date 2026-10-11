@@ -7372,16 +7372,19 @@ const MUTANTS = [
     replace:
       '  if (verdict === "retry") return { pairing, close: false, speak: false, settled: true };',
   },
-  // ── G25 · M186's record — every ok charge, live or replayed, records its code in `billedRef`. The
-  // classifier's rule is pure (lib/scan-gate.ts); the RECORD is page wiring, so these mutate the page
-  // and its own suite (app/grocery/page.test.tsx) renders it with the server actions stubbed and
-  // sights the jar through the page's own onScan. check:scan-repeat proposition 8 pins the shape.
+  // ── G25 · M186's record — every ok charge, live or replayed, records its code; a record never outlives
+  // the line it stands for (the reviews of #344). The rules are pure (lib/scan-billed.ts, its own suite);
+  // the WIRING is the page's, so the grocery-page/ mutants mutate it and its own suite
+  // (app/grocery/page.test.tsx) renders it with the server modelled and sights the jar through the
+  // page's own onScan. check:scan-repeat proposition 8 pins the shape. Not here: dropping the fresh
+  // basket's synchronous `cartIdRef.current = undefined` — React flushes a click's effects
+  // synchronously, so no render can open that window; proposition 8 pins it.
   {
     id: "grocery-page/a-replay-forgets-its-charge",
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: "G25 — a replay delivered with `lines: null` leaves the queue at the drain's syncPending() while the list does not show it yet; unrecorded, the next camera read of that jar classifies `add` and bills a second unit",
-    find: "          billedRef.current.add(entry.barcode);\n",
+    find: "          billedRef.current = billing.ledger;\n",
     replace: "",
   },
   {
@@ -7389,8 +7392,8 @@ const MUTANTS = [
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: "M186 — a live add whose post-write read failed (`lines: null`) leaves nothing on screen and nothing queued; the record is the only proof it was charged, and without it the jar still in frame is billed again",
-    find: "        billedRef.current.add(barcode);\n",
-    replace: "",
+    find: "        billedRef.current = billing.ledger;\n        setLastScanned({ code: barcode, viaPairing: false });\n",
+    replace: "        setLastScanned({ code: barcode, viaPairing: false });\n",
   },
   {
     id: "grocery-page/a-refused-replay-recorded-as-charged",
@@ -7399,7 +7402,123 @@ const MUTANTS = [
     why: "G25, the other direction — a replay the server REFUSED charged nothing. Recorded anyway, the shopper's next read of that code is refused as a repeat of a charge that never happened, and nothing says why",
     find: "        if (r.ok) {\n          delivered += 1;\n",
     replace:
-      "        billedRef.current.add(entry.barcode);\n        if (r.ok) {\n          delivered += 1;\n",
+      "        billedRef.current = afterCharge(billedRef.current, entry.barcode, billedMark, null).ledger;\n        if (r.ok) {\n          delivered += 1;\n",
+  },
+  {
+    id: "grocery-page/a-replay-recorded-before-the-era-check",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: 'The blind pass on #344 — recorded before the era check, an abandoned basket\'s replay that lands as the shopper starts a fresh one marks the FRESH basket, whose first scan of that jar is refused as "Already added"',
+    find: "        if (r.ok) setUndo((prev) => undoAfterWrite(prev, entry.barcode));\n",
+    replace:
+      "        if (r.ok) {\n          setUndo((prev) => undoAfterWrite(prev, entry.barcode));\n          billedRef.current = afterCharge(billedRef.current, entry.barcode, billedMark, r.lines).ledger;\n        }\n",
+  },
+  {
+    id: "grocery-page/a-replay-mark-taken-at-landing",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The blind pass on #344 (CRITICAL) — the crossing check dropped: a mark taken as the replay LANDS always equals the generation, so a removal tapped while it was in flight is invisible, and the camera refuses forever a jar the basket no longer holds",
+    find: "afterCharge(billedRef.current, entry.barcode, billedMark, r.lines)",
+    replace:
+      "afterCharge(billedRef.current, entry.barcode, chargeMark(billedRef.current, entry.barcode), r.lines)",
+  },
+  {
+    id: "grocery-page/a-live-add-mark-taken-at-landing",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: 'The same race on a live add ("Add another" in flight, Remove tapped): the add\'s record outlives the removal and the jar is refused forever',
+    find: "afterCharge(billedRef.current, barcode, billedMark, r.lines)",
+    replace:
+      "afterCharge(billedRef.current, barcode, chargeMark(billedRef.current, barcode), r.lines)",
+  },
+  {
+    id: "grocery-page/a-removal-is-not-a-crossing",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The blind pass on #344 — a removal that drops the record by hand but takes no new generation: a charge in flight cannot see it crossed, and its record outlives the line",
+    find: "      if (nextQty <= 0) billedRef.current = afterRemoval(billedRef.current, line.barcode);\n",
+    replace:
+      "      if (nextQty <= 0)\n        billedRef.current = { billed: new Set([...billedRef.current.billed].filter((b) => b !== line.barcode)), removals: billedRef.current.removals };\n",
+  },
+  {
+    id: "grocery-page/a-replay-unseen-is-never-reread",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The blind pass on #344 (open question) — a replay landed that no view shows; a repeat sighting is now refused locally, so without the re-read the list and its total leave the charged item out until the shopper leaves the tab",
+    find: "      if (reread && cartIdRef.current === forCart) syncNow();\n",
+    replace: "",
+  },
+  {
+    id: "grocery-page/a-live-add-unseen-is-never-reread",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The same for a live add whose post-write read failed: nothing asks the server again, and the total omits a charged item",
+    find: "        if (billing.reread) syncNow();\n",
+    replace: "",
+  },
+  {
+    id: "scan-billed/a-crossing-removal-is-ignored",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "The blind pass on #344 (CRITICAL) — the add lands after a removal the shopper tapped while it was in flight, with a view read before that removal: recorded, the camera refuses forever a jar the basket no longer holds",
+    find: "  if (chargeMark(ledger, barcode) !== mark) return { ledger, reread: true };\n",
+    replace: "",
+  },
+  {
+    id: "scan-billed/a-crossed-charge-is-not-reread",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "A crossed charge is not recorded because nothing the page holds can order the two writes — only a fresh read settles the list. Not asked, the list keeps whichever view applied",
+    find: "  if (chargeMark(ledger, barcode) !== mark) return { ledger, reread: true };\n",
+    replace: "  if (chargeMark(ledger, barcode) !== mark) return { ledger, reread: false };\n",
+  },
+  {
+    id: "scan-billed/the-view-is-not-consulted",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "Codex P2 on #344 — an idempotent replay of a scan whose line the shopper since removed answers ok with a view WITHOUT the code; recorded anyway, the camera refuses the jar for good",
+    find: "  if (lines !== null && !lines.some((l) => l.barcode === barcode)) {\n",
+    replace: "  if (false) {\n",
+  },
+  {
+    id: "scan-billed/an-absent-view-keeps-a-stale-record",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "The view is the server's word after this charge: absent means not charged, and an older record of the code must go with it, or it still refuses the jar",
+    find: "    billed.delete(barcode);\n    return { ledger: { billed, removals: ledger.removals }, reread: false };\n",
+    replace: "    return { ledger: { billed, removals: ledger.removals }, reread: false };\n",
+  },
+  {
+    id: "scan-billed/an-unseen-charge-is-not-reread",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "A charge with no view is recorded and nothing shows it; without the re-read the total leaves it out until the shopper leaves the tab",
+    find: "  return { ledger: { billed, removals: ledger.removals }, reread: lines === null };\n",
+    replace: "  return { ledger: { billed, removals: ledger.removals }, reread: false };\n",
+  },
+  {
+    id: "scan-billed/a-removal-keeps-the-record",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "M186 — removing a line is the shopper saying they don't want it: kept, the removed jar is refused as a repeat",
+    find: "  billed.delete(barcode);\n  const removals",
+    replace: "  const removals",
+  },
+  {
+    id: "scan-billed/a-removal-does-not-bump",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "A removal no charge in flight can see: the record of an add that crossed it outlives the line",
+    find: "  removals.set(barcode, chargeMark(ledger, barcode) + 1);\n",
+    replace: "  removals.set(barcode, chargeMark(ledger, barcode));\n",
+  },
+  {
+    id: "scan-billed/a-removal-pins-the-generation",
+    file: "apps/qr/lib/scan-billed.ts",
+    suite: "lib/scan-billed.test.ts",
+    why: "Every removal is a NEW generation: pinned at one, a second removal crossing a charge dispatched after the first is invisible",
+    find: "  removals.set(barcode, chargeMark(ledger, barcode) + 1);\n",
+    replace: "  removals.set(barcode, 1);\n",
   },
   {
     id: "grocery-focus/a-finished-basket-sheet-close-drops-focus",

@@ -1,52 +1,82 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScanAddResult } from "@/lib/grocery";
+import type { GroceryLine, GroceryLinesResult, ScanAddResult } from "@/lib/grocery";
 
 /**
- * G25 — every charge this page makes ok-ed is RECORDED, so the camera can never bill it twice.
+ * G25 — every ok charge this page makes is RECORDED, so the camera never bills it twice — and a
+ * record never outlives the line it stands for, so the camera never refuses an item the basket does
+ * not hold.
  *
  * M186's charge rule (`classifyScan`, lib/scan-gate.ts) refuses a camera sighting of a code the basket
  * already pays for, judged from three sources: the lines the server last showed, the offline queue,
- * and `billedRef` — what this session charged, the ONLY one that survives a failed post-write read
+ * and the charge record (lib/scan-billed.ts) — the ONLY one that survives a failed post-write read
  * (`scanAdd` answering `lines: null`). A LIVE add always recorded it. The offline queue's REPLAY did
  * not: a replay delivered with `lines: null` left the queue (the drain's `syncPending()`) while the
- * list did not show it yet, so the next camera read of that jar classified `add` and charged a
- * second unit — until some later read applied.
+ * list did not show it yet, so the next camera read of that jar charged a second unit. The record's
+ * own rules (a removal that crossed the write, a view that no longer holds the code) are pure and
+ * pinned in lib/scan-billed.test.ts.
  *
- * The decisions are pure and pinned elsewhere (`lib/scan-gate.test.ts`, `lib/grocery-queue.test.ts`);
- * this suite is the page's WIRING, which has nowhere else to live (T18): the real page, with the
- * server actions, the session and the camera stubbed. The stage stub hands back the page's own
- * `onScan` — what the camera calls on a decoded frame — so each row is a sighting, not a tap.
- * `check:scan-repeat` proposition 8 pins the same rule structurally (every ok charge records its
- * code); this suite pins the behaviour.
+ * This suite is the page's WIRING, which has nowhere else to live (T18): the real page, with the
+ * server actions, the session and the camera stubbed. The server is a small model — its lines,
+ * `setQty` writes them, every read returns them — so a row can interleave a removal with a write in
+ * flight. The stage stub hands back the page's own `onScan` — what the camera calls on a decoded
+ * frame — so each sighting is the camera's, not a tap. `check:scan-repeat` proposition 8 pins the
+ * same wiring structurally.
  */
 const CART = "c-0000-g25";
+const FRESH = "c-0001-g25";
 const JAR = "012345678905";
 
 const h = vi.hoisted(() => ({
   onScan: null as ((code: string) => void) | null,
   /** Every `scanAdd(cartId, barcode, scanId)` the page made, in order. */
   calls: [] as { cartId: string; barcode: string; scanId: string }[],
-  /** The server's answer to the NEXT `scanAdd`, by call index (the last one repeats). */
-  answers: [] as ScanAddResult[],
+  /** The server's answer to `scanAdd` call i (set per row). */
+  scan: null as unknown as (i: number) => Promise<unknown>,
+  /** Every `getGroceryLines(cartId)` the page made, in order. */
+  reads: [] as string[],
+  /** The server's answer to read i (set per row; the default returns `server`). */
+  read: null as unknown as (i: number, cartId: string) => Promise<unknown>,
+  /** The model server's lines — what `setQty` writes and the default read returns. */
+  server: [] as { lineId: string; qty: number }[],
+  /** The session: `revalidate()` (the fresh-basket recovery) moves it to `nextCart`. */
+  cart: "",
+  nextCart: "",
 }));
 
 vi.mock("@/lib/grocery", () => ({
   scanAdd: (cartId: string, barcode: string, scanId: string) => {
     const i = h.calls.push({ cartId, barcode, scanId }) - 1;
-    return Promise.resolve(h.answers[Math.min(i, h.answers.length - 1)]);
+    return h.scan(i);
   },
-  // The basket the server shows has not caught up with the write — the window G25 lives in.
-  getGroceryLines: () => Promise.resolve({ ok: true, lines: [] }),
+  getGroceryLines: (cartId: string) => {
+    const i = h.reads.push(cartId) - 1;
+    return h.read(i, cartId);
+  },
   searchGroceryItems: () => Promise.resolve([]),
 }));
-vi.mock("@/lib/cart", () => ({ setQty: () => Promise.resolve() }));
+vi.mock("@/lib/cart", () => ({
+  setQty: (lineId: string, qty: number) => {
+    h.server = h.server.flatMap((l) =>
+      l.lineId !== lineId ? [l] : qty > 0 ? [{ lineId, qty }] : [],
+    );
+    return Promise.resolve();
+  },
+}));
 vi.mock("@/lib/useTableSession", () => {
-  const session = { cartId: "c-0000-g25", sessionId: "s-g25" };
-  const revalidate = () => {};
-  return { useTableSession: () => ({ session, error: null, revalidate }) };
+  const sessions = new Map<string, { cartId: string; sessionId: string }>();
+  const revalidate = () => {
+    h.cart = h.nextCart;
+  };
+  return {
+    useTableSession: () => {
+      let session = sessions.get(h.cart);
+      if (!session) sessions.set(h.cart, (session = { cartId: h.cart, sessionId: `s-${h.cart}` }));
+      return { session, error: null, revalidate };
+    },
+  };
 });
 vi.mock("next/navigation", () => {
   const router = { prefetch: () => {}, push: () => {}, replace: () => {}, back: () => {} };
@@ -85,13 +115,37 @@ vi.mock("@/components/grocery/ScanStage", () => ({
 const { default: GroceryPage } = await import("./page");
 const { enqueueScan, pendingFor } = await import("@/lib/grocery-queue");
 
-const ok = (lines: null = null): ScanAddResult => ({
+/** The jar's line as the server shows it. */
+const jarLine = (qty: number): GroceryLine => ({
+  lineId: "l-jar",
+  barcode: JAR,
+  name: "Jasmine rice",
+  nameMy: null,
+  qty,
+  unitPriceCents: 899,
+  compareAtCents: null,
+  ebt: true,
+  imageUrl: null,
+});
+/** The model server's lines, as a read returns them. */
+const serverView = (): GroceryLine[] => h.server.map((l) => jarLine(l.qty));
+
+const ok = (lines: GroceryLine[] | null = null): ScanAddResult => ({
   ok: true,
   name: "Jasmine rice",
   unitPriceCents: 899,
   ebt: true,
   lines, // null: the post-write read failed — nothing on screen proves the charge
 });
+const linesOk = (lines: GroceryLine[]): GroceryLinesResult => ({ ok: true, lines });
+/** A read that fails in transport — the radio is still flaky after the write. */
+const readFails = () => Promise.reject(new Error("radio"));
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
 
 /** Let every pending promise (the mount read, a write's continuation) settle. */
 const settle = () =>
@@ -99,11 +153,12 @@ const settle = () =>
     for (let i = 0; i < 10; i++) await Promise.resolve();
   });
 
-/** Wait for an EVENT the page announces through its one live region — never for a moment: a row
- *  that read the page at a fixed tick could pass or fail by scheduling (LEARNINGS #248). Generous
- *  bounds: a loaded CI shard renders this page slowly, and a pass returns at the first match. */
-const announced = (text: RegExp) =>
+/** Wait for an EVENT the page shows — never for a moment: a row that read the page at a fixed tick
+ *  could pass or fail by scheduling (LEARNINGS #248). Generous bounds: a loaded CI shard renders this
+ *  page slowly, and a pass returns at the first match. */
+const shown = (text: RegExp) =>
   waitFor(() => expect(screen.getByText(text)).toBeTruthy(), { timeout: 20_000 });
+const until = (check: () => void) => waitFor(check, { timeout: 20_000 });
 const ROW_MS = 30_000;
 
 /** A camera sighting of `code`, through the page's own handler. A charge's `scanAdd` is called
@@ -115,7 +170,8 @@ async function sight(code: string) {
   });
 }
 
-const chargesOf = (code: string) => h.calls.filter((c) => c.barcode === code).length;
+const chargesOf = (code: string, cart = CART) =>
+  h.calls.filter((c) => c.barcode === code && c.cartId === cart).length;
 
 beforeEach(() => {
   // jsdom has no `matchMedia`; the page's scroll and motion hooks ask it. No preference, no match.
@@ -133,7 +189,12 @@ beforeEach(() => {
   window.sessionStorage.clear();
   h.onScan = null;
   h.calls = [];
-  h.answers = [ok()];
+  h.reads = [];
+  h.server = [];
+  h.cart = CART;
+  h.nextCart = FRESH;
+  h.scan = () => Promise.resolve(ok());
+  h.read = () => Promise.resolve(linesOk(serverView()));
 });
 afterEach(() => {
   cleanup();
@@ -141,42 +202,65 @@ afterEach(() => {
 
 describe("the grocery page — an ok charge is recorded, so a re-read never bills it twice (G25 · M186)", () => {
   it(
-    "a LIVE add whose post-write read failed: the jar re-read is refused, not charged again",
+    "a LIVE add whose post-write read failed: the jar re-read is refused, not charged again — and the basket is re-read",
     async () => {
+      h.read = (i) => (i === 0 ? Promise.resolve(linesOk([])) : readFails());
       render(<GroceryPage />);
       await settle();
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(1);
-      await announced(/Added Jasmine rice/); // the charge's continuation has run
-      // MUTANT grocery-page/a-live-add-forgets-its-charge — the list shows nothing (the read failed),
-      // nothing waits in the queue, and an unrecorded charge reads as a new item: a second unit.
+      await shown(/Added Jasmine rice/); // the charge's continuation has run
+      // MUTANT grocery-page/a-live-add-unseen-is-never-reread — nothing on screen shows the charge,
+      // and nothing asks the server again: the total leaves it out until the shopper leaves the tab.
+      expect(h.reads).toHaveLength(2);
+      // MUTANT grocery-page/a-live-add-forgets-its-charge — the list shows nothing (both reads
+      // failed), nothing waits in the queue, and an unrecorded charge reads as a new item.
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(1);
       // …and the refusal is SAID, in the classifier's own words for a charge the view cannot prove.
-      await announced(/Already added — your list is out of date/);
+      await shown(/Already added — your list is out of date/);
     },
     ROW_MS,
   );
 
   it(
-    "a REPLAYED scan delivered with no view: the jar re-read is refused, not charged again",
+    "a REPLAYED scan delivered with no view: the jar re-read is refused, not charged again — and the basket is re-read",
     async () => {
+      h.read = (i) => (i === 0 ? Promise.resolve(linesOk([])) : readFails());
       // A scan saved in a dead spot, replayed on mount (the drain's kick) with the radio back.
       enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000a1");
       render(<GroceryPage />);
       // The drain has answered: the summary is spoken in the same continuation that re-reads the
       // queue (`syncPending()`), so the entry has left it and the classifier no longer counts it.
-      await announced(/added 1 saved scan/);
+      await shown(/added 1 saved scan/);
       await settle();
       expect(pendingFor(CART)).toEqual([]);
       expect(h.calls).toEqual([
         { cartId: CART, barcode: JAR, scanId: "00000000-0000-4000-8000-0000000000a1" },
       ]);
+      // MUTANT grocery-page/a-replay-unseen-is-never-reread.
+      expect(h.reads).toHaveLength(2);
       // MUTANT grocery-page/a-replay-forgets-its-charge — G25: the queue no longer holds it, the list
       // does not show it yet, and the replay never said it charged — the camera bills a second unit.
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(1);
-      await announced(/Already added — your list is out of date/);
+      await shown(/Already added — your list is out of date/);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "a replay delivered with no view: the re-read brings its line onto the list (the total includes it)",
+    async () => {
+      // The server holds the replayed line; only the replay's OWN read failed.
+      h.read = (i) => Promise.resolve(linesOk(i === 0 ? [] : [jarLine(1)]));
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000a3");
+      render(<GroceryPage />);
+      await shown(/added 1 saved scan/);
+      // MUTANT grocery-page/a-replay-unseen-is-never-reread — the line never appears.
+      await until(() =>
+        expect(screen.getByRole("button", { name: "Remove Jasmine rice" })).toBeTruthy(),
+      );
     },
     ROW_MS,
   );
@@ -187,16 +271,153 @@ describe("the grocery page — an ok charge is recorded, so a re-read never bill
       // The other direction: a replay the server refused (an unknown code) billed nothing, so it must
       // NOT be recorded — or the shopper's next read of that code is refused as a repeat of a charge
       // that never happened, and an item that later joins the catalog can never be scanned in.
-      h.answers = [{ ok: false, reason: "unknown_barcode" }, ok()];
+      h.scan = (i) => Promise.resolve(i === 0 ? { ok: false, reason: "unknown_barcode" } : ok());
       enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000b2");
       render(<GroceryPage />);
-      await announced(/couldn’t be added/);
+      await shown(/couldn’t be added/);
       await settle();
       expect(pendingFor(CART)).toEqual([]);
       expect(chargesOf(JAR)).toBe(1);
       // MUTANT grocery-page/a-refused-replay-recorded-as-charged — refused as "Already added".
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
+});
+
+describe("…and a record never outlives the line it stands for (the reviews of #344)", () => {
+  it(
+    "BLIND CRITICAL — the shopper removes the item while its replay is in flight: the replay lands last, and the jar scans in again",
+    async () => {
+      // The basket holds the jar ×1; a second unit was saved offline and replays on mount.
+      h.server = [{ lineId: "l-jar", qty: 1 }];
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000c4");
+      const replay = deferred<ScanAddResult>();
+      h.scan = (i) => (i === 0 ? replay.promise : Promise.resolve(ok()));
+      render(<GroceryPage />);
+      const remove = await screen.findByRole(
+        "button",
+        { name: "Remove Jasmine rice" },
+        { timeout: 20_000 },
+      );
+      await until(() => expect(h.calls).toHaveLength(1)); // the replay is in flight
+      // The shopper removes the jar; its write and its reconcile read land (the server has applied
+      // the replay's +1 before the removal took the whole line).
+      await act(async () => {
+        fireEvent.click(remove);
+      });
+      await until(() =>
+        expect(screen.queryByRole("button", { name: /Remove Jasmine rice|One less/ })).toBeNull(),
+      );
+      // …and only now the replay's answer arrives, its view read BEFORE the removal: ×2.
+      await act(async () => {
+        replay.resolve(ok([jarLine(2)]));
+      });
+      await shown(/added 1 saved scan/);
+      await settle();
+      // MUTANT grocery-page/a-replay-mark-taken-at-landing · grocery-page/a-removal-is-not-a-crossing:
+      // the replay's record outlives the removal, and the camera refuses forever ("Already added — your
+      // list is out of date") a jar the basket no longer holds.
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
+
+  it(
+    'the same race on a LIVE add ("Add another"): the removal crosses it, the add lands last, and the jar scans in again',
+    async () => {
+      h.server = [{ lineId: "l-jar", qty: 1 }];
+      const add = deferred<ScanAddResult>();
+      h.scan = (i) => (i === 0 ? add.promise : Promise.resolve(ok()));
+      render(<GroceryPage />);
+      const remove = await screen.findByRole(
+        "button",
+        { name: "Remove Jasmine rice" },
+        { timeout: 20_000 },
+      );
+      // The jar in frame is refused as a repeat; the chip offers the deliberate second unit.
+      await sight(JAR);
+      expect(h.calls).toHaveLength(0);
+      const another = await screen.findByRole(
+        "button",
+        { name: "Add another Jasmine rice" },
+        { timeout: 20_000 },
+      );
+      await act(async () => {
+        fireEvent.click(another);
+      });
+      expect(h.calls).toHaveLength(1); // the add is in flight
+      await act(async () => {
+        fireEvent.click(remove);
+      });
+      await until(() =>
+        expect(screen.queryByRole("button", { name: /Remove Jasmine rice|One less/ })).toBeNull(),
+      );
+      await act(async () => {
+        add.resolve(ok([jarLine(2)])); // its view, read before the removal
+      });
+      await shown(/Added Jasmine rice/);
+      await settle();
+      // MUTANT grocery-page/a-live-add-mark-taken-at-landing — refused forever as "Already added".
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "CODEX P2 — a replay whose view no longer holds the code (an idempotent replay of a removed line) records nothing",
+    async () => {
+      // The scan's first, lost-response attempt committed; the shopper since removed the line; the
+      // replay is an idempotent ok that writes nothing, and its view (after the write) is empty.
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000d5");
+      h.scan = (i) => Promise.resolve(i === 0 ? ok([]) : ok());
+      render(<GroceryPage />);
+      await shown(/added 1 saved scan/);
+      await settle();
+      expect(chargesOf(JAR)).toBe(1);
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "CODEX P2 — an old basket's replay that lands as the shopper starts a fresh one never marks the fresh basket",
+    async () => {
+      // The basket was closed while a saved scan's replay was still in flight to it.
+      h.read = (_i, cart) =>
+        Promise.resolve(cart === CART ? { ok: false, reason: "cancelled" } : linesOk([]));
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000e6");
+      const replay = deferred<ScanAddResult>();
+      h.scan = (i) => (i === 0 ? replay.promise : Promise.resolve(ok()));
+      render(<GroceryPage />);
+      const fresh = await screen.findByRole(
+        "button",
+        { name: "Start a fresh basket" },
+        { timeout: 20_000 },
+      );
+      await until(() => expect(h.calls).toHaveLength(1));
+      // The shopper starts a fresh basket, and the old basket's replay lands in the same moment.
+      // ⚠️ React flushes a click's passive effects synchronously (React 18+: discrete input), so
+      // `cartId`'s effect has already moved `cartIdRef` before this continuation runs: the window
+      // Codex named is closed here by React's scheduling, not by the page — which is why the page
+      // ends the era itself, synchronously, in the handler (pinned by check:scan-repeat
+      // proposition 8; no row can open the window to watch it). This row pins the record's
+      // PLACEMENT behind the era check.
+      await act(async () => {
+        fireEvent.click(fresh);
+        replay.resolve(ok());
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      });
+      await until(() => expect(h.reads).toContain(FRESH));
+      await settle();
+      // MUTANT grocery-page/a-replay-recorded-before-the-era-check — the abandoned basket's charge
+      // marks the fresh one, and its first scan of the jar is refused as "Already added".
+      await sight(JAR);
+      expect(chargesOf(JAR, FRESH)).toBe(1);
     },
     ROW_MS,
   );
