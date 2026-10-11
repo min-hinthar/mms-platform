@@ -25811,6 +25811,22 @@ const MUTANTS = [
     replace: "  return soonest;",
   },
   {
+    id: "show-server/joined-dish-forgotten",
+    file: "apps/qr/lib/show-server.ts",
+    suite: "lib/show-server.test.ts",
+    why: "PD1 (Codex's post-merge review of #335) — a tablemate's draft that joins the open pass is kept; forgotten, it leaves the ticket the moment it is sent, and with the dishes the pass opened on removed the empty rows close the pass instead of showing 'Sending…' / 'Sent to kitchen'",
+    find: "  return next ?? listed;",
+    replace: "  return listed;",
+  },
+  {
+    id: "show-server/join-never-settles",
+    file: "apps/qr/lib/show-server.ts",
+    suite: "lib/show-server.test.ts",
+    why: "PD1 (Codex's post-merge review of #335) — the host keeps the join from a render-time state update, which settles only on an unchanged reference; a fresh set every call never reaches a fixed point ('Too many re-renders')",
+    find: "  return next ?? listed;",
+    replace: "  return new Set(next ?? listed);",
+  },
+  {
     id: "cart-bar/count-shown-on-a-shared-cart",
     file: "apps/qr/lib/cart-bar-state.ts",
     suite: "lib/cart-bar-state.test.ts",
@@ -25956,6 +25972,14 @@ const MUTANTS = [
     why: "PD1 (m1 B3) — the pass reads the VIEW's server clock against the lines' fire_at; read against this phone's clock it says 'Sent to kitchen' inside the grace on any device whose clock runs ahead",
     find: "showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY)",
     replace: "showServerStatus(passRows, Date.now())",
+  },
+  {
+    id: "checkout/pass-forgets-a-joined-dish",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "PD1 (Codex's post-merge review of #335) — the rule is lib's (`passListedNow`), the WIRING is here: a join never kept means a tablemate's dish added while the pass is up leaves it once sent, and with the dishes it opened on removed the pass closes instead of showing the send",
+    find: "  if (passPrinted !== passListed) setPassListed(passPrinted);\n",
+    replace: "",
   },
   {
     id: "send-button/send-label-counts-a-shared-cart",

@@ -15,7 +15,9 @@ import type { CartItem } from "@mms/db";
  *
  * The rows the pass PRINTED stay on it after they go (the ticket then shows what was sent), so the
  * host keeps the ids it listed (`passDishes`) and reads the status over THOSE rows — a second round's
- * old served dishes never make a removal read as a send.
+ * old served dishes never make a removal read as a send. A dish that JOINS the open pass (a
+ * tablemate's draft) is printed too, so its id is kept from the view it joins in (`passListedNow`) —
+ * otherwise it leaves the ticket the moment it is sent (Codex's post-merge review of #335).
  */
 
 /** The lines the pass lists when it opens: dine-in drafts, in the view's order. */
@@ -24,9 +26,33 @@ export function waitingDishes(items: ReadonlyArray<CartItem>): CartItem[] {
 }
 
 /**
+ * The ids the open pass has PRINTED: `listed` plus every dine-in draft waiting in this view (a
+ * tablemate's dish added while the pass is up joins it). The host keeps the result, so a dish that
+ * joined stays listed through "Sending…" and "Sent to kitchen" — without it the sent dish left the
+ * ticket, and when the dishes the pass opened on had been removed the empty rows read `none` and
+ * closed the pass instead of showing the send (Codex's post-merge review of #335).
+ *
+ * Returns `listed` ITSELF when no new draft joins: the host adjusts its state during render (React's
+ * derived-state pattern), and only an unchanged reference lets that settle.
+ */
+export function passListedNow(
+  items: ReadonlyArray<CartItem>,
+  listed: ReadonlySet<string>,
+): ReadonlySet<string> {
+  let next: Set<string> | null = null;
+  for (const i of waitingDishes(items)) {
+    if (listed.has(i.id)) continue;
+    next ??= new Set(listed);
+    next.add(i.id);
+  }
+  return next ?? listed;
+}
+
+/**
  * The pass's rows in the current view: every dine-in line it LISTED (whatever state it reached since
  * — the ticket keeps showing what was sent), plus any dine-in draft waiting now (a tablemate's dish
- * added while the pass is up joins it: "the list follows the confirmed view"), in the view's order.
+ * added while the pass is up joins it: "the list follows the confirmed view"; `passListedNow` keeps
+ * it listed once it is sent), in the view's order.
  * A voided ("Removed") line leaves the ticket, and so does a line the view no longer carries. A SENT
  * line the pass never listed (an earlier round) never joins: it would make a removal read as a send.
  */

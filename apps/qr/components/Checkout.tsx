@@ -140,7 +140,13 @@ import {
   type SendNudge,
 } from "@/lib/send-nudge-state";
 import { nudgeHost } from "@/lib/send-nudge";
-import { graceRereadDelayMs, passDishes, showServerStatus, waitingDishes } from "@/lib/show-server";
+import {
+  graceRereadDelayMs,
+  passDishes,
+  passListedNow,
+  showServerStatus,
+  waitingDishes,
+} from "@/lib/show-server";
 import { t, type DictKey } from "@/lib/i18n";
 
 // W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
@@ -2772,7 +2778,13 @@ export function Checkout({
   const staffNote = staffCanSendCopy(hostName);
   // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and the SERVER's clock
   // (lib/show-server). Unknown clock = never "sent" (a line in its grace reads "Sending…").
-  const passRows = passDishes(viewItems, passListed);
+  // A dish that JOINS the open pass (a tablemate's draft) is kept from the view it joins in, so it
+  // stays on the ticket once sent instead of leaving it — and, the dishes the pass opened on
+  // removed, closing it (Codex's post-merge review of #335). Adjusted during render, like the close
+  // below; `passListedNow` hands back the same set when nothing joins, so this settles.
+  const passPrinted = passOpen ? passListedNow(viewItems, passListed) : passListed;
+  if (passPrinted !== passListed) setPassListed(passPrinted);
+  const passRows = passDishes(viewItems, passPrinted);
   const passStatus = showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY);
   const passShown = passOpen && passStatus !== "none";
   // Every listed dish REMOVED (never sent): the pass closes itself — a removal never reads as a
