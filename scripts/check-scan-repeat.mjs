@@ -1467,6 +1467,177 @@ const COVER = "useStageCover";
   });
 }
 
+// ── (7) A Name-sheet tap whose code waits in the queue writes NOTHING, whatever the radio says; a
+//        replayed sheet add answers the sheet that asked (PD4, Codex round 4 on #329, 4240341719) ──
+// The P1: the refusal of a second tap sat INSIDE `add`'s offline branch, so once the radio returned
+// — before the replay answered — the same row charged live under a fresh scan id and the replay
+// landed a second unit behind it; and the replay never closed the asking sheet, so the moment the
+// entry left the queue the row was live again under a "Saved…" line that was no longer true. The
+// rules are pure (`lib/sheet-replay.ts`, mutant-pinned); this pins the page's WIRING:
+//   a. in the function bound to `add`, exactly ONE live `sheetTapWaits(pendingRef.current, B)` — B
+//      `add`'s own barcode parameter — as the test of a TOP-LEVEL `if` of `add`'s body (never nested
+//      under the radio or any other branch), the test being exactly `S && <that call>`, S a
+//      top-level `const` of `add` read off `nameSheetRef.current` (the asking sheet): a further
+//      conjunct could make it the radio's again. Its then-branch returns at its own top level, and
+//      the `if` comes BEFORE every top-level statement of `add` holding a live `queueOffline(…)` or
+//      the charge;
+//   b. in the function bound to `drainNow`, exactly ONE live `const D = replayForSheet(
+//      classifyReplay(R), …)`, R a binding the drain's own `scanAdd(…)` result is assigned to (the
+//      replay's REAL verdict), and a live `closeSheetOnOk(…)` — the live ok's own close, arm and
+//      close-restore — in the then-branch of the nearest `if` around it, whose test is exactly
+//      `D.close`.
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
+{
+  const liveCallsIn = (fn, name) => {
+    const out = [];
+    walk(fn, (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === name &&
+        !isLiterallyDead(n)
+      )
+        out.push(n);
+    });
+    return out;
+  };
+  const parentPastParens = (n) => {
+    let p = n.parent;
+    while (p && ts.isParenthesizedExpression(p)) p = p.parent;
+    return p;
+  };
+  const fnAdd = callbackBoundTo("add");
+  if (!fnAdd) fail("proposition 7: `add` must be ONE `const add = useCallback(fn, …)`.");
+  else {
+    const p0 = fnAdd.parameters[0];
+    const code = p0 && ts.isIdentifier(p0.name) ? p0.name.text : null;
+    const top = ts.isBlock(fnAdd.body) ? fnAdd.body.statements : [];
+    /** Top-level consts of `add` read off `nameSheetRef.current` — the asking sheet, captured. */
+    const askers = new Set();
+    for (const st of top)
+      if (ts.isVariableStatement(st))
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name) || !d.initializer) continue;
+          let reads = false;
+          walk(d.initializer, (m) => {
+            if (ts.isPropertyAccessExpression(m) && printed(m) === "nameSheetRef.current")
+              reads = true;
+          });
+          if (reads) askers.add(d.name.text);
+        }
+    const waits = liveCallsIn(fnAdd, "sheetTapWaits");
+    if (waits.length !== 1)
+      fail(
+        `proposition 7: \`add\` must ask \`sheetTapWaits(pendingRef.current, ${code ?? "<code>"})\` exactly ONCE, live; found ${waits.length}.\n` +
+          "  A sheet tap whose code already waits in the queue must write nothing — each tap mints a fresh\n" +
+          "  scan id, and the queued add replays behind a second one.",
+      );
+    else {
+      const call = waits[0];
+      const argsOk =
+        call.arguments.length === 2 &&
+        printed(call.arguments[0]) === "pendingRef.current" &&
+        ts.isIdentifier(unwrap(call.arguments[1])) &&
+        unwrap(call.arguments[1]).text === code;
+      const test = parentPastParens(call);
+      const ifSt = test ? parentPastParens(test) : null;
+      const shapeOk =
+        !!test &&
+        ts.isBinaryExpression(test) &&
+        test.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        unwrap(test.right) === call &&
+        ts.isIdentifier(unwrap(test.left)) &&
+        askers.has(unwrap(test.left).text) &&
+        !!ifSt &&
+        ts.isIfStatement(ifSt) &&
+        unwrap(ifSt.expression) === test;
+      const at = shapeOk ? top.indexOf(ifSt) : -1;
+      const then = shapeOk ? ifSt.thenStatement : null;
+      const returns =
+        !!then &&
+        (ts.isReturnStatement(then) ||
+          (ts.isBlock(then) && then.statements.some((st) => ts.isReturnStatement(st))));
+      const writesAt = top.findIndex((st) => {
+        let hit = false;
+        walk(st, (n) => {
+          if (
+            ts.isCallExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            (n.expression.text === "queueOffline" || n.expression.text === CHARGE) &&
+            !isLiterallyDead(n)
+          )
+            hit = true;
+        });
+        return hit;
+      });
+      if (!argsOk || !shapeOk || at < 0 || !returns || (writesAt >= 0 && at > writesAt))
+        fail(
+          "proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL\n" +
+            `  \`if (<the asking sheet> && sheetTapWaits(pendingRef.current, ${code ?? "<code>"})) { …; return; }\`,\n` +
+            "  ahead of every `queueOffline(…)` and the charge — never under the radio (Codex r4 on #329:\n" +
+            "  a tap after reconnect charged live, and the queued add replayed a second unit behind it).",
+        );
+    }
+  }
+  const fnDrain = callbackBoundTo("drainNow");
+  if (!fnDrain)
+    fail("proposition 7: `drainNow` must be ONE `const drainNow = useCallback(fn, …)`.");
+  else {
+    const charges = liveCallsIn(fnDrain, CHARGE);
+    /** Identifiers assigned (or initialised) from an expression holding the drain's charge. */
+    const results = new Set();
+    walk(fnDrain, (n) => {
+      const pair =
+        ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          ? [n.left, n.right]
+          : ts.isVariableDeclaration(n) && n.initializer
+            ? [n.name, n.initializer]
+            : null;
+      if (!pair || !ts.isIdentifier(pair[0])) return;
+      if (charges.some((c) => c.pos >= pair[1].pos && c.end <= pair[1].end))
+        results.add(pair[0].text);
+    });
+    const answers = liveCallsIn(fnDrain, "replayForSheet");
+    const answer = answers.length === 1 ? answers[0] : null;
+    const verdict = answer?.arguments[0] ? unwrap(answer.arguments[0]) : null;
+    const realVerdict =
+      !!verdict &&
+      ts.isCallExpression(verdict) &&
+      ts.isIdentifier(verdict.expression) &&
+      verdict.expression.text === "classifyReplay" &&
+      verdict.arguments.length === 1 &&
+      ts.isIdentifier(unwrap(verdict.arguments[0])) &&
+      results.has(unwrap(verdict.arguments[0]).text);
+    const decl = answer ? parentPastParens(answer) : null;
+    const D =
+      decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : null;
+    if (!answer || !realVerdict || !D)
+      fail(
+        "proposition 7: `drainNow` must answer a queued sheet add with exactly ONE live\n" +
+          "  `const <D> = replayForSheet(classifyReplay(<the replay's scanAdd result>), …)` — the replay's\n" +
+          "  REAL verdict is the asking sheet's answer.",
+      );
+    else {
+      const closes = liveCallsIn(fnDrain, "closeSheetOnOk").filter((c) => {
+        for (let n = c.parent; n && n !== fnDrain; n = n.parent)
+          if (ts.isIfStatement(n))
+            return (
+              c.pos >= n.thenStatement.pos &&
+              c.end <= n.thenStatement.end &&
+              printed(n.expression) === `${D}.close`
+            );
+        return false;
+      });
+      if (!closes.length)
+        fail(
+          `proposition 7: a delivered replay never closes its sheet — \`drainNow\` needs a live\n` +
+            `  \`closeSheetOnOk(…)\` under \`if (${D}.close)\`. Left open, the queue entry leaves and the same row\n` +
+            "  charges a second unit (Codex r4 on #329).",
+        );
+    }
+  }
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");

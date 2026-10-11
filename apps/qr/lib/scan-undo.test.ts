@@ -30,6 +30,7 @@ const u: AddUndo = {
   name: "Tea Leaves -400g",
   confirmedQty: 1,
   openedAt: 1000,
+  miss: null,
 };
 
 describe("undoOpen — six seconds, slid by a keyboard hold", () => {
@@ -79,18 +80,35 @@ const view = (qty: number) => [
 describe("undoFromAdd — the record comes from the add's OWN confirmed view", () => {
   it("keeps the qty the add's own response reported", () => {
     // MUTATION: a fixed confirmedQty of 1 → an Undo on a ×2 line writes 0 and takes both units; red.
-    expect(undoFromAdd({ barcode: "2990000000017", lines: view(2), openedAt: 5 })).toEqual({
+    expect(
+      undoFromAdd({ barcode: "2990000000017", lines: view(2), openedAt: 5, miss: null }),
+    ).toEqual({
       lineId: "l1",
       barcode: "2990000000017",
       name: "Tea Leaves -400g",
       confirmedQty: 2,
       openedAt: 5,
+      miss: null,
     });
   });
 
+  it("keeps the shelf code whose miss opened the asking sheet — the pairing the add made, for its Undo to take back", () => {
+    // Codex r4 on #329 (4240341730): an Undo that wrote a nonzero qty left the add's pairing
+    // standing. `pairingAfterUndo` (lib/scan-pairing.ts) reads this field. MUTATION: forget it → no
+    // Undo can ever tell the pairing its own add made; red.
+    expect(
+      undoFromAdd({ barcode: "2990000000017", lines: view(2), openedAt: 5, miss: "0123456789012" })
+        ?.miss,
+    ).toBe("0123456789012");
+  });
+
   it("no confirmed view, or a view without the line → no Undo is offered (its target would be a guess)", () => {
-    expect(undoFromAdd({ barcode: "2990000000017", lines: null, openedAt: 5 })).toBeNull();
-    expect(undoFromAdd({ barcode: "2990000000024", lines: view(1), openedAt: 5 })).toBeNull();
+    expect(
+      undoFromAdd({ barcode: "2990000000017", lines: null, openedAt: 5, miss: null }),
+    ).toBeNull();
+    expect(
+      undoFromAdd({ barcode: "2990000000024", lines: view(1), openedAt: 5, miss: null }),
+    ).toBeNull();
   });
 });
 
@@ -112,7 +130,12 @@ describe("undoTargetQty — exactly one fewer than the add's confirmed qty", () 
   it("THE INTERLEAVING: a read issued after the add applied first and left the client view at ×1; the add's own view says ×2 → the Undo writes 1, never 0", () => {
     // The page's client view is not an input to this rule at all — check:scan-repeat
     // proposition 6 pins that the page's write takes `undoTargetQty(<the record>)`.
-    const fromTheAdd = undoFromAdd({ barcode: "2990000000017", lines: view(2), openedAt: 0 })!;
+    const fromTheAdd = undoFromAdd({
+      barcode: "2990000000017",
+      lines: view(2),
+      openedAt: 0,
+      miss: null,
+    })!;
     expect(undoTargetQty(fromTheAdd)).toBe(1);
   });
 

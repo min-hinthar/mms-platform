@@ -41,6 +41,10 @@ export type AddUndo = {
   confirmedQty: number;
   /** When the add's ok landed (`performance.now()`). */
   openedAt: number;
+  /** The shelf code whose miss opened the asking sheet — the code the add PAIRED to this item — or
+   *  null when a camera panel or the chip opened it. A landed Undo takes back that pairing whatever
+   *  qty it wrote (`pairingAfterUndo`, lib/scan-pairing.ts; Codex round 4 on #329, 4240341730). */
+  miss: string | null;
 };
 
 /** A line as a confirmed server view carries it (the fields these rules read). */
@@ -53,6 +57,7 @@ export function undoFromAdd(a: {
   barcode: string;
   lines: readonly ViewLine[] | null;
   openedAt: number;
+  miss: string | null;
 }): AddUndo | null {
   const line = a.lines?.find((l) => l.barcode === a.barcode);
   if (!line) return null;
@@ -62,6 +67,7 @@ export function undoFromAdd(a: {
     name: line.name,
     confirmedQty: line.qty,
     openedAt: a.openedAt,
+    miss: a.miss,
   };
 }
 

@@ -13,9 +13,10 @@ import { describe, expect, it } from "vitest";
  * wrong behaviour under text a scanning guard would accept — and the gate must refuse it, naming
  * the proposition. The baseline row proves the copy itself is clean, so a red row is the mutation's.
  *
- * Each row copies the tree the gate reads into a temp root, applies ONE exact find → replace (the
- * find must match exactly once, or the row fails as stale — a fixture that no longer applies proves
- * nothing), and runs `scripts/check-scan-repeat.mjs` there through `SCAN_REPEAT_ROOT`.
+ * Each row copies the tree the gate reads into a temp root, applies its exact find → replace edits in
+ * order (each find must match exactly once, or the row fails as stale — a fixture that no longer
+ * applies proves nothing), and runs `scripts/check-scan-repeat.mjs` there through `SCAN_REPEAT_ROOT`.
+ * A row is ONE edit, or — when the evasion MOVES code — the `edits` that move it.
  */
 
 const execFileP = promisify(execFile);
@@ -27,16 +28,15 @@ const PAGE = "apps/qr/app/grocery/page.tsx";
  *  the BASELINE row fail on a missing file — widen this list then, never silently. */
 const TREE = ["apps/qr/app/grocery", "apps/qr/components/grocery"];
 
+type Edit = { find: string; replace: string };
 type Fixture = {
   name: string;
   file?: string;
-  find: string;
-  replace: string;
   /** The proposition the gate must name. */
   expect: RegExp;
-};
+} & (Edit | { edits: Edit[] });
 
-async function runGate(mutate?: { file: string; find: string; replace: string }) {
+async function runGate(mutate?: { file: string; edits: Edit[] }) {
   const root = mkdtempSync(path.join(os.tmpdir(), "scan-repeat-"));
   try {
     return await gateIn(root, mutate);
@@ -47,7 +47,7 @@ async function runGate(mutate?: { file: string; find: string; replace: string })
   }
 }
 
-async function gateIn(root: string, mutate?: { file: string; find: string; replace: string }) {
+async function gateIn(root: string, mutate?: { file: string; edits: Edit[] }) {
   for (const rel of TREE)
     cpSync(path.join(REPO, rel), path.join(root, rel), {
       recursive: true,
@@ -55,14 +55,14 @@ async function gateIn(root: string, mutate?: { file: string; find: string; repla
     });
   if (mutate) {
     const target = path.join(root, mutate.file);
-    const text = readFileSync(target, "utf8");
-    const hits = text.split(mutate.find).length - 1;
-    if (hits !== 1)
-      throw new Error(`stale fixture: the find matches ${hits} times in ${mutate.file}`);
-    writeFileSync(
-      target,
-      text.replace(mutate.find, () => mutate.replace),
-    );
+    let text = readFileSync(target, "utf8");
+    for (const edit of mutate.edits) {
+      const hits = text.split(edit.find).length - 1;
+      if (hits !== 1)
+        throw new Error(`stale fixture: the find matches ${hits} times in ${mutate.file}`);
+      text = text.replace(edit.find, () => edit.replace);
+    }
+    writeFileSync(target, text);
   }
   try {
     const { stdout } = await execFileP(process.execPath, [GATE], {
@@ -120,8 +120,9 @@ const UNDO: Fixture[] = [
   },
   {
     name: "the record built by `undoFromAdd` over the client view",
-    find: "            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })",
-    replace: "            ? undoFromAdd({ barcode, lines: linesRef.current, openedAt: now })",
+    find: "            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now, miss: sheet.miss })",
+    replace:
+      "            ? undoFromAdd({ barcode, lines: linesRef.current, openedAt: now, miss: sheet.miss })",
     expect: /proposition 6: .*undoFromAdd must take the add's OWN response/,
   },
   {
@@ -155,10 +156,11 @@ const UNDO: Fixture[] = [
   // f. the write ledger (Codex on #329's head ff29547): the mint is gated, every write tallied
   {
     name: "the Undo minted UNGATED — a replay that crossed the add goes unseen",
-    find: "          const u = undoMayMint(writesRef.current, barcode, mark)\n            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })\n            : null;",
-    replace: "          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now });",
+    find: "          const u = undoMayMint(writesRef.current, barcode, mark)\n            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now, miss: sheet.miss })\n            : null;",
+    replace:
+      "          const u = undoFromAdd({ barcode, lines: r.lines, openedAt: now, miss: sheet.miss });",
     expect:
-      /proposition 6: `undoFromAdd\(\{ barcode, lines: r\.lines, openedAt: now \}\)` mints an Undo UNGATED/,
+      /proposition 6: `undoFromAdd\(\{ barcode, lines: r\.lines, openedAt: now, miss: [^`]*` mints an Undo UNGATED/,
   },
   {
     name: "the mint's mark taken BEFORE its own start (it would count itself as another writer)",
@@ -377,7 +379,79 @@ const COVERED: Fixture[] = [
   },
 ];
 
-const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO];
+// ── (7) a queued sheet tap writes nothing, whatever the radio; a replayed sheet add closes its sheet ──
+/** `add`'s queued-sheet-tap refusal, verbatim — the rows below move or bend it. */
+const REFUSAL =
+  '      if (sheet && sheetTapWaits(pendingRef.current, barcode)) {\n        say("Already saved — we’ll check it when you’re back online.");\n        return;\n      }\n';
+const WAITS: Fixture[] = [
+  {
+    name: "CODEX R4 — the refusal back inside the offline branch (a tap after reconnect charges live)",
+    edits: [
+      { find: REFUSAL, replace: "" },
+      {
+        find: "        queueOffline(barcode, scanId, via, say, sheet);\n        return;",
+        replace: `  ${REFUSAL.replace(/\n(?=.)/g, "\n  ")}        queueOffline(barcode, scanId, via, say, sheet);\n        return;`,
+      },
+    ],
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "the refusal made the radio's again by a conjunct",
+    find: "      if (sheet && sheetTapWaits(pendingRef.current, barcode)) {",
+    replace:
+      "      if (sheet && !navigator.onLine && sheetTapWaits(pendingRef.current, barcode)) {",
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "the refusal parked behind `false &&`",
+    find: "      if (sheet && sheetTapWaits(pendingRef.current, barcode)) {",
+    replace: "      if (false && sheet && sheetTapWaits(pendingRef.current, barcode)) {",
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "the refusal announces and falls through to the write",
+    find: '        say("Already saved — we’ll check it when you’re back online.");\n        return;\n',
+    replace: '        say("Already saved — we’ll check it when you’re back online.");\n',
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "the refusal moved below the queue and the charge",
+    edits: [
+      { find: REFUSAL, replace: "" },
+      {
+        find: "      if (cartIdRef.current !== cartId) return;\n",
+        replace: `      if (cartIdRef.current !== cartId) return;\n${REFUSAL}`,
+      },
+    ],
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "the refusal asks about a code other than the one written",
+    find: "sheetTapWaits(pendingRef.current, barcode)",
+    replace: 'sheetTapWaits(pendingRef.current, lastScanned?.code ?? "")',
+    expect: /proposition 7: `add`'s queued-sheet-tap refusal must be a TOP-LEVEL/,
+  },
+  {
+    name: "CODEX R4 — a delivered replay that never closes its sheet (the row re-arms)",
+    find: "          if (answer.close) {\n            closeSheetOnOk(performance.now());\n            closed.add(ask);\n          }\n",
+    replace: "          if (answer.close) closed.add(ask);\n",
+    expect: /proposition 7: a delivered replay never closes its sheet/,
+  },
+  {
+    name: "the close gated on something other than the replay's answer to close",
+    find: "          if (answer.close) {",
+    replace: "          if (answer.speak) {",
+    expect: /proposition 7: a delivered replay never closes its sheet/,
+  },
+  {
+    name: "the replay's verdict hard-coded instead of read off its result",
+    find: "            classifyReplay(r),",
+    replace: "            classifyReplay({ ok: true }),",
+    expect: /proposition 7: `drainNow` must answer a queued sheet add/,
+  },
+];
+
+const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO, ...WAITS];
 
 // Each row spawns node, which loads TypeScript and parses the page: measured 1.5–5 s per row at load
 // ~9 and up to 25 s at load 35 on the shared agent machine (2026-10-09). The rows run concurrently and
@@ -401,7 +475,8 @@ describe.concurrent("check:scan-repeat refuses each committed evasion", () => {
     it(
       f.name,
       async () => {
-        const r = await runGate({ file: f.file ?? PAGE, find: f.find, replace: f.replace });
+        const edits = "edits" in f ? f.edits : [{ find: f.find, replace: f.replace }];
+        const r = await runGate({ file: f.file ?? PAGE, edits });
         expect(r.code).toBe(1);
         expect(r.out).toMatch(f.expect);
       },

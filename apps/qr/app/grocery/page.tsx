@@ -37,10 +37,11 @@ import {
   judgedBarcode,
   pairMiss,
   pairingAfterRemoval,
+  pairingAfterUndo,
   pairingAfterVerdict,
-  pairingWithout,
   type ScanPairing,
 } from "@/lib/scan-pairing";
+import { replayForSheet, sheetTapWaits } from "@/lib/sheet-replay";
 import { useStageCover } from "@/lib/hooks/useStageCover";
 import { freshBasketLanding, nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
 import { usePendingFocus } from "@/lib/hooks/usePendingFocus";
@@ -73,6 +74,7 @@ import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { menuHref } from "@/lib/menu-href";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
+  classifyReplay,
   drainCart,
   drainSummary,
   enqueueScan,
@@ -102,6 +104,11 @@ import { scanBasketReady } from "@/lib/camera-state";
 // from the server on mount and on tab re-focus, reconciled from every add's own returned view — so a
 // refresh can never hide items the cart will charge. Every path (scan / search / browse card) adds
 // through the same server-priced scanAdd; steppers ride the existing setQty. No new money surface.
+
+/** PD4 — one opening of the Name sheet: `miss` is the shelf code whose tag opened it (null when a
+ *  camera panel or the chip did), `openedAt` feeds `since_miss_ms`. Each open mints a new object, so
+ *  identity tells the sheet that asked from a later one. */
+type NameSheetOpen = { miss: string | null; openedAt: number };
 
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
@@ -182,9 +189,7 @@ export default function Grocery() {
   // PD4 (m4 screen 2) — the Name sheet over the live lens: `miss` is the barcode whose tag opened it
   // (null when a camera panel did), `openedAt` feeds `since_miss_ms`. Mirrored in a ref so the
   // memoized `add()` can read which sheet an add came from without a dependency on the state.
-  const [nameSheet, setNameSheet] = useState<{ miss: string | null; openedAt: number } | null>(
-    null,
-  );
+  const [nameSheet, setNameSheet] = useState<NameSheetOpen | null>(null);
   const nameSheetRef = useRef(nameSheet);
   useEffect(() => {
     nameSheetRef.current = nameSheet;
@@ -234,6 +239,21 @@ export default function Grocery() {
   // decides in the handler at the close; a timer of that same constant arms it — never in render.
   const [sheetClosedAt, setSheetClosedAt] = useState<number | null>(null);
   const [chipLive, setChipLive] = useState(true);
+  // PD4 — the asking sheet closes on the server's ok ONLY (decision 20), and the arm (correction 15)
+  // and the close-restore onto the chip ride that close. ONE routine for a live ok and a replayed
+  // one (Codex r4 on #329, 4240341719): the replay's close comes under a finger as surely as the
+  // live one's, and the row it takes away is the one a second tap would charge again.
+  const closeSheetOnOk = useCallback((now: number) => {
+    setSheetClosedAt(now);
+    setChipLive(chipArmed(now, now));
+    closedByAddRef.current = true;
+    setSheetRefusal(null);
+    setNameSheet(null);
+  }, []);
+  // PD4 (Codex r4 on #329, 4240341719) — a Name-sheet add the radio QUEUED, keyed by its scan id:
+  // the sheet that asked, owed the replay's answer (lib/sheet-replay.ts). A page ref for the page's
+  // life, never stored or sent — the queue entry itself carries nothing but the scan.
+  const queuedAsksRef = useRef<Map<string, NameSheetOpen>>(new Map());
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
   // radio can resolve AFTER a scan that was issued later — the stale snapshot would make the just-
@@ -589,6 +609,10 @@ export default function Grocery() {
       if (nextQty <= 0) billedRef.current.delete(line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
+      // PD4 (Codex r4 on #329, 4240341727) — the pairing as the removal found it: a re-read of the
+      // rescued jar while the line is flipped away is judged against a basket without it and SPENDS
+      // the pairing; a refused write must bring it back with the line (`pairingAfterRemoval`).
+      const pairedAtFlip = pairingRef.current;
       setLines((cur) =>
         nextQty <= 0
           ? cur.filter((l) => l.lineId !== line.lineId)
@@ -620,11 +644,6 @@ export default function Grocery() {
         setBusyLine(null);
         return;
       }
-      // PD4 — a removed item un-pairs the jar it rescued, but only once the removal LANDED: a
-      // refused write rolls the line back, and the jar must still repeat (Codex r2 on #329,
-      // 4226434713; lib/scan-pairing.ts `pairingAfterRemoval`).
-      if (nextQty <= 0)
-        pairingRef.current = pairingAfterRemoval(pairingRef.current, line.barcode, wrote);
       const seq = ++reqSeq.current; // reconcile ticket — see applyLines
       try {
         const r = await getGroceryLines(cartId);
@@ -643,6 +662,18 @@ export default function Grocery() {
         // optimistic view; the next scan/focus re-syncs. Deliberate read-only swallow.
         if (!wrote && appliedSeq.current === appliedAtFlip) setLines(snapshot);
       }
+      // PD4 — a removed item un-pairs the jar it rescued, but only once the removal LANDED: a
+      // refused write rolls the line back, and the jar must still repeat (Codex r2 on #329,
+      // 4226434713) — RESTORED if a re-read spent it while the line was flipped away (Codex r4,
+      // 4240341727). Settled here, after the reconcile, so a re-read during that read is covered
+      // too; and only for this cart (a fresh basket mid-read reset the pairing on purpose).
+      if (nextQty <= 0 && cartIdRef.current === cartId)
+        pairingRef.current = pairingAfterRemoval(
+          pairingRef.current,
+          line.barcode,
+          wrote,
+          pairedAtFlip,
+        );
       setBusyLine(null);
     },
     [cartId, busyLine, lines, flash, markCartAlive, markCartGone, ledger, parkFocus],
@@ -675,6 +706,9 @@ export default function Grocery() {
       // PD4 — where the words go: the page toast, or the Name sheet's own state line (`add()`'s
       // `say`, which knows which sheet the tap came from).
       say: (text: string, opts?: { my?: string }) => void = flash,
+      // PD4 (Codex r4 on #329) — the Name sheet the tap came from, or null: once the scan is truly
+      // queued, its replay owes that sheet the answer (`drainNow`, lib/sheet-replay.ts).
+      asker: NameSheetOpen | null = null,
     ) => {
       if (!cartId) return false;
       if (!storageWorks()) {
@@ -686,6 +720,7 @@ export default function Grocery() {
         say("Too many scans waiting — get back online before adding more.");
         return true;
       }
+      if (asker) queuedAsksRef.current.set(scanId, asker);
       // PD4 (B4/B5) — "we’ll CHECK it", never "adds": the cache cannot promise the server's verdict,
       // and a code it does not know is UNKNOWN, never "not in the app" (lib/scan-notice.ts).
       const saved = offlineSavedToast(lookupCachedItem(barcode));
@@ -759,6 +794,16 @@ export default function Grocery() {
         }
         pairingRef.current = pairingAfterVerdict(pairingRef.current, judged, verdict);
       }
+      // PD4 (blind pass on #329; Codex r4 on #329, 4240341719) — a sheet row whose code already waits
+      // in the offline queue is refused, and nothing is written, WHATEVER the radio says: each tap
+      // mints a fresh scanId, so a second queued tap would land twice at replay, and a tap after the
+      // radio returns — before the replay answers — would charge live with the replay landing a
+      // second unit behind it (lib/sheet-replay.ts; check:scan-repeat proposition 7). The camera's
+      // `classifyScan` refuses a queued code the same way; a second unit is "Add another".
+      if (sheet && sheetTapWaits(pendingRef.current, barcode)) {
+        say("Already saved — we’ll check it when you’re back online.");
+        return;
+      }
       // PD4 — from here this barcode is WRITTEN (live, or queued for a replay): an open Undo for it
       // would write the add's confirmed qty minus one ABSOLUTELY and take this unit too, so it is
       // retired (`undoAfterWrite`, check:scan-repeat proposition 6). A sheet add that lands mints
@@ -776,14 +821,7 @@ export default function Grocery() {
       // honest refusal — scan verdicts (unknown/weighed/terminal) can only come from the server,
       // and a queued scan later refused is a lie about money.
       if (typeof navigator !== "undefined" && !navigator.onLine && cartId) {
-        // PD4 (blind pass on #329) — a sheet row tapped twice offline must not queue twice: each
-        // tap mints a fresh scanId, so BOTH would land at replay. The second tap is refused while
-        // one waits (a camera re-read is already refused by `classifyScan`'s queued verdict).
-        if (sheet && pendingRef.current.some((q) => q.barcode === barcode)) {
-          say("Already saved — we’ll check it when you’re back online.");
-          return;
-        }
-        queueOffline(barcode, scanId, via, say);
+        queueOffline(barcode, scanId, via, say, sheet);
         return;
       }
       if (!cartId) {
@@ -813,7 +851,7 @@ export default function Grocery() {
           if (
             typeof navigator !== "undefined" &&
             !navigator.onLine &&
-            queueOffline(barcode, scanId, via, say)
+            queueOffline(barcode, scanId, via, say, sheet)
           )
             return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
@@ -876,7 +914,7 @@ export default function Grocery() {
           // first and landed after this add's read would leave that view a unit short, and "one
           // fewer" of it removes both (Codex on #329's head ff29547). No Undo then; the stepper is.
           const u = undoMayMint(writesRef.current, barcode, mark)
-            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now })
+            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now, miss: sheet.miss })
             : null;
           setUndo(u);
           setUndoLeft(u ? undoSecondsLeft(u, now) : 0);
@@ -885,13 +923,7 @@ export default function Grocery() {
           // The pairing and the Undo belong to the asking sheet even if it was dismissed mid-write;
           // the CLOSE (and the arm and the close-restore that ride it) only to that sheet while it
           // is still the open one — never to a later miss's sheet the shopper is now using.
-          if (askerOpen()) {
-            setSheetClosedAt(now);
-            setChipLive(chipArmed(now, now));
-            closedByAddRef.current = true;
-            setSheetRefusal(null);
-            setNameSheet(null);
-          }
+          if (askerOpen()) closeSheetOnOk(now);
         }
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -982,6 +1014,7 @@ export default function Grocery() {
       queueOffline,
       noteOutcome,
       ledger,
+      closeSheetOnOk,
     ],
   );
 
@@ -999,6 +1032,11 @@ export default function Grocery() {
     drainingRef.current = true;
     try {
       let delivered = 0;
+      // PD4 (Codex r4 on #329) — the sheet a rejected replay owes its words, and the sheets a
+      // delivered replay closed (the ref that mirrors `nameSheet` catches up only after a render).
+      // (An assertion, not an annotation: TS would narrow an annotated `null` past the callback.)
+      let speakIn = null as NameSheetOpen | null;
+      const closed = new Set<NameSheetOpen>();
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
         setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too
@@ -1013,6 +1051,26 @@ export default function Grocery() {
         // …and again once it LANDS: an Undo minted while it was in flight would take its unit too.
         if (r.ok) setUndo((prev) => undoAfterWrite(prev, entry.barcode));
         if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;
+        // PD4 (Codex r4 on #329, 4240341719) — a Name-sheet add the radio queued: its replay is that
+        // sheet's answer (lib/sheet-replay.ts). Delivered = the server's ok: pair the miss, and close
+        // the sheet if it is still the open one, with the live ok's own routine — the row a second
+        // tap would charge again leaves with it. A rejection speaks in its line; a retry still owes.
+        const ask = queuedAsksRef.current.get(entry.scanId);
+        if (ask) {
+          const answer = replayForSheet(
+            classifyReplay(r),
+            { miss: ask.miss, open: nameSheetRef.current === ask && !closed.has(ask) },
+            entry.barcode,
+            pairingRef.current,
+          );
+          pairingRef.current = answer.pairing;
+          if (answer.close) {
+            closeSheetOnOk(performance.now());
+            closed.add(ask);
+          }
+          if (answer.speak) speakIn = ask;
+          if (answer.settled) queuedAsksRef.current.delete(entry.scanId);
+        }
         if (r.ok) {
           delivered += 1;
           if (r.lines) markCartAlive(seq, r.lines);
@@ -1036,12 +1094,19 @@ export default function Grocery() {
         delivered,
         outcomes.filter((o) => o.verdict === "rejected").map((o) => o.reason ?? "unknown_barcode"),
       );
-      if (summary) flash(summary);
+      if (summary) {
+        // A rejected sheet add's words go to that sheet's own line while it is still the open one —
+        // the "Saved…" there is no longer true, and the toast sits behind the keyboard.
+        const sheet = speakIn;
+        if (sheet !== null && !closed.has(sheet) && nameSheetRef.current === sheet)
+          setSheetRefusal((prev) => nextRefusal(prev, summary));
+        else flash(summary);
+      }
     } finally {
       drainingRef.current = false;
       syncPending();
     }
-  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger]);
+  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger, closeSheetOnOk]);
 
   useEffect(() => {
     const onOnline = () => void drainNow();
@@ -1250,10 +1315,12 @@ export default function Grocery() {
       return;
     }
     if (wrote) {
-      if (target === 0) {
-        billedRef.current.delete(u.barcode);
-        pairingRef.current = pairingWithout(pairingRef.current, u.barcode);
-      }
+      // M186 — the barcode is a new item again only once its line is gone.
+      if (target === 0) billedRef.current.delete(u.barcode);
+      // PD4 (Codex r4 on #329, 4240341730) — the Undo reversed the add, so the pairing the add MADE
+      // goes with it whatever qty was written (an add that stepped ×1 → ×2, undone to ×1, must not
+      // leave "you added {item} for this code"); an emptied line spends any pairing to the item.
+      pairingRef.current = pairingAfterUndo(pairingRef.current, u, target === 0);
       // The words follow what the FOLLOW-UP read confirms, from that read's own lines
       // (`undoOutcome`): "Removed" only when the line is absent there, "{name} × {qty}" only when it
       // shows exactly the target, the checking sentence otherwise — never the intended target.
@@ -1452,6 +1519,7 @@ export default function Grocery() {
               pairingRef.current = null; // PD4 — and its pairing, its Undo and its sheet
               setUndo(null);
               setNameSheet(null);
+              queuedAsksRef.current.clear(); // …and the sheet adds its queue held (flushed below)
               // W7b — the dead basket's queued scans die with it: replaying them into the fresh
               // cart would charge it for the abandoned basket's scans (the queue's terminal rule).
               if (cartId) flushCart(cartId);

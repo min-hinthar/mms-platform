@@ -26,7 +26,8 @@ import type { ScanVerdict } from "./scan-gate";
  *     no "Add another" (`chipAction`) — `check:scan-repeat` proposition 4 pins both in page.tsx;
  *   · `pairingAfterVerdict` SPENDS the pairing when the judged item classifies `add` — the sighting
  *     falls through to the unknown tag, and the next sheet add pairs afresh;
- *   · `pairingWithout` drops it the moment the paired item's line is removed (the Undo path).
+ *   · `pairingWithout` drops it the moment the paired item's line is removed; `pairingAfterUndo`
+ *     takes back the pairing an undone add made, whatever qty its Undo wrote.
  * The pairing lives in a page ref for the page's life only. It is never stored or sent.
  */
 export type ScanPairing = { missed: string; item: string };
@@ -59,14 +60,42 @@ export function pairingWithout(pairing: ScanPairing | null, barcode: string): Sc
   return pairing !== null && pairing.item === barcode ? null : pairing;
 }
 
-/** The pairing after a REMOVAL write of `barcode`'s line (a stepper to 0): spent only when the write
- *  LANDED. A refused write (offline, a lock) rolls the line back into the basket, so the jar it
+/** The pairing after a REMOVAL write of `barcode`'s line (a stepper to 0), settled once the write
+ *  AND its reconcile are done; `atStart` is the pairing as the removal found it. Spent only when the
+ *  write LANDED. A refused write (offline, a lock) rolls the line back into the basket, so the jar it
  *  rescued is still in it and must still repeat — never re-read as unknown over an item the shopper
- *  can see in the list (Codex round 2 on #329, 4226434713). */
+ *  can see in the list (Codex round 2 on #329, 4226434713).
+ *
+ *  And a refused write RESTORES a pairing to `barcode` that was spent while it was out (Codex round 4
+ *  on #329, 4240341727): the stepper drops the line from the view at once, so a re-read of the
+ *  rescued jar in that window is judged against a basket without it, `classifyScan` answers `add`,
+ *  and `pairingAfterVerdict` spends the pairing before the rollback brings the line back. A pairing
+ *  standing now is the newer act and is kept; a spent pairing to ANOTHER item stays spent — this
+ *  rollback says nothing about it. */
 export function pairingAfterRemoval(
   pairing: ScanPairing | null,
   barcode: string,
   landed: boolean,
+  atStart: ScanPairing | null,
 ): ScanPairing | null {
-  return landed ? pairingWithout(pairing, barcode) : pairing;
+  if (landed) return pairingWithout(pairing, barcode);
+  return pairing ?? (atStart !== null && atStart.item === barcode ? atStart : null);
+}
+
+/** The pairing after a LANDED add-Undo of the sheet add whose item is `undone.barcode` and whose
+ *  sheet a miss of `undone.miss` opened (null: a camera panel or the chip opened it, nothing paired).
+ *  The Undo reverses that add, so the pairing it MADE goes with it whatever qty the Undo wrote: an add
+ *  that stepped a line the basket already held (×1 → ×2) and was undone to ×1 must not leave "you
+ *  added {item} for this code" standing (Codex round 4 on #329, 4240341730). A pairing an EARLIER add
+ *  made stays while its item does — that add was not undone. An Undo that emptied the line spends
+ *  ANY pairing to the item (`pairingWithout`): it is no longer in the basket. */
+export function pairingAfterUndo(
+  pairing: ScanPairing | null,
+  undone: { barcode: string; miss: string | null },
+  lineGone: boolean,
+): ScanPairing | null {
+  if (lineGone) return pairingWithout(pairing, undone.barcode);
+  const made =
+    pairing !== null && pairing.missed === undone.miss && pairing.item === undone.barcode;
+  return made ? null : pairing;
 }
