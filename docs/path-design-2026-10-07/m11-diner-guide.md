@@ -1049,3 +1049,190 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 ### E · Codex round 3 (2026-10-08) — these win over everything above
 
 1. **Page 1's quiet line follows the table's capacity.** It reads `GuestList`'s own `atCap` predicate (`GuestList.tsx:223-240`). At capacity the Invite control is replaced by "Table’s full", so the guide drops the line entirely and keeps only "Everyone at the table adds to one shared order." Below capacity the line stands as written. A component case pins both.
+
+### H · Build notes (2026-10-11, `claude/feat/pd11-diner-guide`)
+
+Built by the PD11 stream after PD10 (#346, the live One Pass) and PD12 (#345, the staff step guides)
+merged. The appendix (A, B, C) and Codex round 3 (E) won wherever they disagreed with the spec above;
+where the build chose under the owner's delegation, it says so and why ("decided under the owner's
+delegation (decided by: the PD11 stream)").
+
+**What was built.**
+
+- **The rules** (`apps/qr/lib/diner-guide.ts`, pure, its own suite). `dinerGuideAutoOpens` — one
+  clause per reason the screen is not quiet or the guest is not new: the mode is `dinein`; the session
+  has joined AND its first view has been applied (so the lock and the freeze it reads are the server's,
+  never the defaults); no join error; no pay lock; not settling; no reorder landing; no other dialog
+  open (C); not a known diner. `knownDiner` corrects WHEN 6 (B11): the recognition read knows a named
+  account and anyone with a card-paid order this month — before C2 that misses nearly every anonymous
+  dine-in regular, so the device mark is what keeps "once per phone" — and `welcome === null` is
+  UNKNOWN and may open. The seen mark is PD12's helper unchanged (`guideSeenKey("dinein", 1)`,
+  `claimGuideFirstRun`, `markGuideSeen`) through PD12's seam (`useGuideFirstRun`, which now takes the
+  store it reads). The pages are values (`guidePages`): titles, sentences, the quiet line, the key,
+  the picture and the stage's name; the region's line is derived from the page (`guideSpoken`).
+- **The mark that outlives Safari** (B11). A Route Handler, `POST /api/guide-seen`, sets the mark as a
+  400-day, page-readable, site-wide cookie (`mms.guide.seen.dinein.1`); the guide calls it when it
+  opens (and from Account), and the device store (`dinerGuideStore`) reads local storage first and the
+  cookie when local storage holds nothing. A Route Handler, not a Server Action: a cookie set inside a
+  Server Action re-renders the route, and the menu must not re-render behind the guide for a flag. It
+  is deliberately unauthenticated (a constant in the caller's own jar, the staff-language cookie's
+  reasoning); a store that throws is still refused (never auto-opens), cookie or no cookie.
+- **The dialog** (`components/DinerGuide.tsx`): the Sheet at full screen (`.mms-sheet-full`, "Show a
+  server"'s variant), titled "✦ How it works"; five pages; ONE live region (silent on open, each page
+  said once: the heading in both tongues, then the first sentence); `GuideDots` (the ONE pager of dots,
+  now shared with PD12's `StepGuide`); ONE dock grid (`.diner-guide-dock` shares `.staff-guide-pager`'s
+  declaration) whose Back holds its slot, hidden and inert, on page 1 and whose Next is one element
+  through the guide. Every guide control goes through PD12's `guideActAccepted`, which now takes the
+  guide's own arm: the phone guide passes the kit's `SAME_GESTURE_MS` (350 ms; the console keeps 400).
+  Two cookieless events: `guide_opened { source }` and `guide_closed { page, via }`.
+- **The pictures are the real components, inert:** page 1 the guest's own pass (`CounterPass`, holder
+  tier, the REAL table number, torn foot); pages 2, 3 and (after the flip) 4 the Bill's own `LivePass`
+  in its new `picture` mode — inert, no price, no total, no stub (no person, no clock) — over two
+  sample catalog dishes (Mohinga · မုန့်ဟင်းခါး and Coconut Rice · အုန်းထမင်း, pinned to
+  `docs/data/menu_catalog.json`) on the figureless "Your table" pass; page 4 before the flip the counter
+  pass (`CounterPass`, the counter tier PayAtCounterPass draws); page 5 the tab bar's own cells
+  (`.diner-tab`, the bar's labels from `dinerTabs`, its glyphs now named once in `lib/diner-tabs.ts`)
+  with Order lit and a mini pass rising behind it. Each sits on a sunken tray (`role="img"`, one
+  sentence for its name, `--pass-hole` the tray) at one uniform scale.
+- **The first run** (`components/menu/DinerGuideFirstRun.tsx`) is mounted by ONE line in ArrivalBeat
+  (MenuBrowser untouched). It decides once, when the session has answered (joined with its first view,
+  or refused), from the provider's facts at that moment plus the arrival URL's `?reorder=` (read at
+  mount, before MenuBrowser strips it) and the page's open dialogs. Every exit — the ✕, Esc, "Browse
+  the menu" — lands on the menu's `h1.menu-title` (a parsed test pins MenuBrowser still draws it with
+  `tabIndex={-1}`, and that ArrivalBeat still mounts the first run).
+- **The Account door** (post-pay's `AccountHelp.tsx`, the first row of Help & contact): "How it works
+  at a table", a real button (`aria-haspopup="dialog"`, 44px, the card's link style), opening the same
+  guide at page 1 with no table ("Your table", the short Invite line), its last primary "Close · ပိတ်",
+  focus back on the row. A guide opened here is SEEN on this phone (PD12's Codex round 1 rule).
+- **Page 1's Invite line follows GuestList's own `atCap`** (E1): the one rule moved to
+  `lib/guest-list.ts` (`guestListSeats`, `guestListAtCap`), which GuestList now reads too.
+- **59 `pd11/*` mutants**, each run with `--only=` and CAUGHT; PD12's two arm mutants re-anchored to
+  the arm's new local name.
+
+**Taken from the appendix.** A1 (the track's colours are `lib/kitchen-track.ts`'s, Cooking in ink —
+the guide never draws a track of its own), A2 / B7 (the real CounterPass, the one figure under "Table ·
+စားပွဲ", the `--pass-*` inks), A3 / B8 ("Close · ပိတ်"; no "Skip", no "Got it"), A4 / B9 (Next never
+moves; the arm after the open and every page change), A5 / B10 (the product's motions only; once per
+open), A6 / B2 (wallets from ONE list), A7 / B12 (PD12's helper), B1 (page 4's region and stage name
+derived from the variant, equality-pinned), B3, B4, B5 (the Account row in the same PR; PD1's ring and
+"Not sent yet" shipped in #335), B11, B13 (titles are shipped keys whole), C1 (only page 1 prints the
+real figure; "Example —" on the rest), C2 (no count in page 2's name), C3 = E1, C4 (no other dialog
+open), C6 (the picture's paper is inert and pointer-less; page 4 draws no second filled pill), C8 (no
+tender is stated, below).
+
+**Decided under the owner's delegation (decided by: the PD11 stream).**
+
+1. **Focus stays on the pressed control; the dialog's ONE region speaks the page** (m11 decision 10),
+   not PD12's "focus moves to the title". PD12's guide is an in-place card with no region of its own;
+   this one is a modal whose page behind is hidden, so its own region is the one region in view. The
+   one hand-off: Back pressed on page 2 goes inert as page 1 shows, so focus moves to Next.
+2. **The opening stop is the sheet's container** (J21: the dialog and its name are announced first),
+   not page 1's h2. The Sheet's `initialFocus` opt-in stays the grocery Name sheet's alone (its parsed
+   allowlist); page 1 follows the name in reading order. C's "initial-focus opt-in" is not taken.
+3. **The close is the sheet's ✕** (DESIGN-LANGUAGE §36: "the sheet's ✕ in the sheet"), named "Close the
+   guide ပိတ်". The ✕ and Esc are equal exits and are NOT armed (an exit is never held); Radix funnels
+   both into one channel, so the close event reports `via: "close"` for either and `"finish"` for the
+   last primary.
+4. **One guide grammar with PD12:** the eyebrow in `--t2`, the current dot a `--tx` capsule (PD12's B6
+   — shape, never accent), accent spent on the one primary only. The body's accent eyebrow and accent
+   dot are not drawn.
+5. **Page 5 is titled "Your order · သင့်အော်ဒါ"** (`yourOrder`, the heading of the page the Order tab
+   opens, whole and bilingual) rather than the tab's English-only "Order" (B13 allowed either).
+6. **Page 2's sentence:** the sender hears "You send the table’s order to the kitchen — everyone’s
+   dishes go with it."; everyone else hears B4's sentence, "Your table’s order goes to the kitchen in one
+   send — from a phone at the table, or by our staff." — true on a hostless table, which the menu
+   cannot tell apart (the provider carries no `host_seat`, and MenuBrowser is frozen). Both English-only.
+   The quiet "If they’re away, our staff can send it too." pair is dropped: its staff fallback is inside
+   the sentence now, and on the sender's own phone "they" had no one to refer to.
+7. **Page 4 before the flip states no tender.** The Bill's line ("The counter takes cash.") is
+   `counterTakesCard(readerConfigured)`, and `readerConfigured` is a server env the cart page reads —
+   the menu render cannot. A guide that "never states a tender the Bill doesn't" states none; the Bill
+   says it when the guest gets there. Its picture is the counter pass at the COUNTER tier (the tier the
+   product draws it at; B7's "holder tier" was written against hand-set sizes), with PayAtCounterPass's
+   own RISE.
+8. **Page 4 after the flip draws no Pay control** (B7: "the real Pay control or no Pay control") — the
+   real one reads "Pay · $X". Its movement is the served pass's TURN (the head's stage completing — the
+   thing that opens the door). `GUIDE_PROVEN_WALLETS = ["Apple Pay"]`: D5's proof payment is one Apple
+   Pay sale made right after the flip deploys, and a failed proof reverts the flip, so the list is never
+   read with the door open on an unproven wallet; Google Pay joins only in a commit citing a recorded
+   Android payment at a table.
+9. **No avatars in page 2's picture.** The Bill's own row carries the owner as a NAME, which the guide
+   never shows; the stage's name says "from everyone at the table" and the sentence carries the lesson.
+10. **Page 3's key is the real `KitchenTrack` at the glyph size with the guest's own stage words**
+    (`DINER_STAGE_WORD`), in a named list — the TV's `TrackKey` is a local, aria-hidden function in
+    ReadyBoard with the staff words, so it is not extracted.
+11. **The motions:** page 1's pass RISEs after the sheet's own entrance (delayed by `--dur-sheet` —
+    one thing at a time); page 2's last row RISEs onto the order; page 3's Cooking
+    segment FILLs (`KitchenTrack`'s own); page 4 RISEs (before the flip) or TURNs (after); page 5's mini
+    pass RISEs above Order (B10 retired the Tuck). Each once per open; a revisit draws the end frame.
+12. **The cookie is a Route Handler**, not the Server Action B11 named (see above).
+13. **The Account row's glyph is `info`; "Call us" moved to the `phone` glyph** (two `info` glyphs in one
+    list read as one kind of row).
+14. **A short screen, measured — not estimated** (open risk 13, C). Headless Chromium 141 (the agent
+    environment has one: `/opt/pw-browsers/chromium_headless_shell-1194`) rendered each page's DOM
+    (dumped from the jsdom suite's real render) with the PRODUCTION CSS and fonts (`.next`, served
+    locally) at 390×844, 375×667 and 320×568, at 100% and at 200% root text, reduced motion on (the
+    final frames): 36 cases, every picture inside its tray, the dock in view, nothing scrolling
+    sideways. Below 46em of height the tray steps down (13.5rem, then 11rem at 38em) with one scale,
+    and the words scroll inside the page while the dots and the dock stay pinned. The measurement
+    changed four things: the key collided three-across at 390 (now one stamp per row); the Bill's
+    pass overflowed the tray (its own scale, `--guide-live`); an auto grid row sat a tall picture low
+    (the tray is flex now); Back's Burmese wrapped at 320 (the dock's padding). The 200% case raises the
+    ROOT size only (em media queries do not follow it, so the tray's step-down is not exercised
+    there) — iOS's own text size and a real phone remain the device sitting's look (#12).
+
+**Not built, and why.**
+
+- **The body's redrawn pieces:** the page-1 stub's QR glyph and "Dine-in · ဆိုင်မှာ စား" kicker, the
+  hand-set figure sizes, the "Pay · ရှင်းမယ်" pill with no amount, the avatar discs — none is a slot of
+  the real pass (B7: rendered, never redrawn).
+- **A swipe** (decision 15) and a Burmese line for "How it works" (the spec lists it English-only).
+
+**K15.** The guide adds NO new Burmese: every Burmese line is a shipped string, referenced (never
+re-typed). The English it adds is listed English-only for the native sitting (OPEN-ITEMS `K15 ·
+diner-cart`, the PD11 segment), and the staff words it puts on a guest surface — ရှေ့ဆက် · နောက်သို့
+(`help.next` · `help.back`) and the ✕'s ပိတ် — are listed there for the guest-register check.
+
+### H2 · The blind pass on #348 (2026-10-11) — the lead verified each finding against source
+
+Fixed on the branch (each with a red row and a mutant run with `--only=`):
+
+1. **The Account door taught Invite to a full table.** The door knows no table, so it passed
+   `atCap={false}` and page 1 said "Tap Invite to add a phone" whatever the guest's row showed. The cap
+   fact is tri-state now (`atCap: boolean | null`): `guideInviteLine` returns no line for `true` AND
+   for `null` (unknown); the first run passes its live `guestListAtCap`, the door passes `null`.
+   `lib/guest-list.ts`'s docblock no longer claims the guide follows the row "once it is" drawn — it
+   says what `false` means (not full; with no seat, no row at all) and who says `null`.
+2. **The page scrolls but held nothing focusable** (WCAG 2.1.1; axe `scrollable-region-focusable`):
+   on WebKit a keyboard user could not reach the words under the picture on a short screen or at 200%
+   text. `.diner-guide-page` takes `tabIndex={0}` (it is already a `role="group"` named by its
+   heading) and its `:focus-visible` ring is `--ac`, from the token, outside the box.
+3. **The first run's Invite below the cap, the joined-with-error case and the cookie's `Secure` flag**
+   had no row that could fail; each has one now (the cap fixtures read `MAX_PARTY_SIZE`).
+4. **Page 5's pointer was half true.** Help & contact lives on Account's **You** panel, and Account
+   opens on Orders (`accountPanel`'s default). The sentence is now "Find your order under Order, and
+   this guide under Account, then You." — English-only, its "You" pinned to the panel's own label
+   (`ACCOUNT_PANELS`). The spec body above keeps the old sentence as the record of what was drawn.
+5. **The door test's title claimed "44px"**, which jsdom cannot measure; the size rests on the
+   `.diner-guide-door` rule, and the title says so.
+6. **The headless recipe** (LEARNINGS #264) binds the local server to `127.0.0.1` and says why
+   `--no-sandbox` is there (the agent container runs as root).
+7. **A focus flake in `DinerGuideFirstRun.test.tsx`** (red on `99b354e` in CI, green on `fbed8d4`, no
+   change to the file). Radix moves the dialog's close-time focus in a `setTimeout(0)` after the
+   content unmounts; the suite's `settle()` resolves through React's `setImmediate` hop, so on a fast
+   runner the read came before the timer. The COMPONENT was not racing: the Sheet hands Radix's close
+   event to the first run alone, which prevents the default restore and focuses the heading — one
+   step, one mover. Reproduced red on demand (zero-delay timers held back), and the suite now waits on
+   the outcome with the same exact assertion (`waitFor`), with the held-back-timer case kept as a row.
+   LEARNINGS #265.
+
+Not fixed, recorded: a cross-site POST to `/api/guide-seen` can only set the "seen" mark in the
+victim's own browser — it hides a first-run guide that Account still reopens; nothing is read or
+granted.
+
+Settled questions: dine-in is always a group (`isGroup = mode === "dinein"` in the provider); the ring
+glyph in page 2's heading is `aria-hidden` (a decorative `KitchenTrack`); no `.staff-guide-dot*` names
+remain after the dots became `GuideDots`. **Can `me` be null while the cart id and the view are set?**
+No: the provider derives `me` from the same `session` its `cartId` comes from (`me` is null exactly
+when `session` is; `cartId` is `session?.cartId ?? null`; a session always carries its seat), so the
+first run never decides with a cart and no seat — its live boolean stands.

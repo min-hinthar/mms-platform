@@ -17709,11 +17709,12 @@ html[data-reloading] body::after {
 .staff-split-pane .staff-guide {
   --guide-foot-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
 }
-.staff-guide-dots {
+/* The ONE pager of dots both guides draw (`GuideDots` — the staff guides here, PD11's diner guide). */
+.guide-dots {
   display: flex;
   justify-content: center;
 }
-.staff-guide-dot {
+.guide-dot {
   display: grid;
   place-items: center;
   width: 44px;
@@ -17724,11 +17725,11 @@ html[data-reloading] body::after {
   background: transparent;
   cursor: pointer;
 }
-.staff-guide-dot:focus-visible {
+.guide-dot:focus-visible {
   outline: 2.5px solid var(--ac);
   outline-offset: -4px;
 }
-.staff-guide-dot-mark {
+.guide-dot-mark {
   display: block;
   width: 8px;
   height: 8px;
@@ -17736,12 +17737,14 @@ html[data-reloading] body::after {
   background: var(--t3);
 }
 /* The current step: a CAPSULE in full ink — told apart by shape, never by colour alone. */
-.staff-guide-dot[aria-current="step"] > .staff-guide-dot-mark {
+.guide-dot[aria-current="step"] > .guide-dot-mark {
   width: 24px;
   background: var(--tx);
 }
-/* ONE grid on every step (1fr · 2fr): Back's slot is held empty on step 1, so Next never moves. */
-.staff-guide-pager {
+/* ONE grid on every step (1fr · 2fr): Back's slot is held empty on step 1, so Next never moves —
+   the staff pager and the diner guide's dock (PD11) alike. */
+.staff-guide-pager,
+.diner-guide-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: var(--s3);
@@ -17836,4 +17839,266 @@ html[data-reloading] body::after {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* ── PD11 · the diner's first-visit guide (m11 "Your Pass, Explained"; DESIGN-LANGUAGE §38) ─────────
+   ONE full-screen dialog (the Sheet at `.mms-sheet-full`, "Show a server"'s variant), five pages, the
+   staff guides' grammar: the eyebrow in --t2, the dots `GuideDots` (a --tx capsule, shape not colour),
+   ONE dock grid (`.diner-guide-dock` shares `.staff-guide-pager`'s declaration above) whose Back holds
+   its slot on page 1, accent spent on the one primary. Tokens only. The pictures are the REAL
+   components (CounterPass, the Bill's LivePass) on a sunken tray whose ground the pass notches show
+   (`--pass-hole`); a picture is scaled only by ONE uniform transform. Motion is the product's own —
+   `.mms-rise` (its own reduced-motion gate), pass.css's FILL and TURN (theirs) and page 2's row RISE
+   below (escorted at the foot of this block). Every base style is the final frame. */
+.diner-guide-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--t2);
+}
+/* The body fills the sheet under its head: the page scrolls inside it, so the dots and the dock stay
+   pinned (a short screen or 200% text never pushes Next off — m11 STATES). */
+.diner-guide-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.diner-guide-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding-top: var(--s2);
+  border-radius: var(--r-sm);
+  outline: none;
+}
+/* The scrolling page is a keyboard stop (the blind pass on #348): its ring is the house's focus ink,
+   drawn inside the sheet's gutter so the sheet's own clip never shaves it. */
+.diner-guide-page:focus-visible {
+  outline: 2.5px solid var(--ac);
+  outline-offset: 2px;
+}
+/* The stage: a sunken tray (cards carry dots — `.card-textured`), ONE height, the picture centred. It
+   shrinks first on a short screen; the picture follows by one scale. Measured headless (Chromium,
+   the production CSS and fonts) at 390×844, 375×667 and 320×568, 100% and 200% text: every picture
+   fits its tray, the dock stays in view, nothing scrolls sideways. `--guide-live` is the Bill's pass
+   (two dishes, its head and its seam — the tallest picture). */
+.diner-guide-stage {
+  --pass-hole: var(--sunken);
+  --guide-scale: 1;
+  --guide-live: 0.92;
+  flex: none;
+  height: 18.5rem;
+  overflow: hidden;
+  /* Flex, not grid: an auto grid row grows to a tall picture and starts at the top, so its scaled
+     visual sat low; a flex item overflows its box evenly and its centre stays the tray's. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background-color: var(--sunken);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+@media (max-height: 46em) {
+  .diner-guide-stage {
+    --guide-scale: 0.82;
+    --guide-live: 0.67;
+    height: 13.5rem;
+  }
+}
+@media (max-height: 38em) {
+  .diner-guide-stage {
+    --guide-scale: 0.7;
+    --guide-live: 0.53;
+    height: 11rem;
+  }
+}
+/* A RISE rides its own box around the picture: `.mms-rise` animates `transform`, and on the picture
+   itself it would drop the scale for the length of the motion. */
+.diner-guide-rise {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+/* The picture: the real component at its own width, ONE uniform scale. */
+.diner-guide-pic {
+  flex: none;
+  width: min(100%, 19rem);
+  transform: scale(var(--guide-scale));
+  transform-origin: center;
+}
+/* Page 1's pass is the hero (Wallet's "added"): the holder tier, a quarter larger. */
+.diner-guide-pic[data-scale="pass"] {
+  width: min(80%, 13.5rem); /* × 1.25 never wider than the tray */
+  transform: scale(calc(var(--guide-scale) * 1.25));
+}
+.diner-guide-pic[data-scale="live"] {
+  transform: scale(var(--guide-live));
+}
+.diner-guide-pic[data-scale="counter"] {
+  width: min(100%, 15rem);
+}
+/* Page 2's one movement: the tablemate's dish (the LAST row) rises onto the shared order. */
+.diner-guide-pic[data-motion="row"] .live-pass-dish:last-child {
+  animation: mmsRise var(--dur-slow) var(--ease-out) var(--dur-base) both;
+}
+/* Page 5: the tab bar's own cells (`.diner-tab`), Order lit, the pass rising behind the bar. */
+.diner-guide-where {
+  position: relative;
+  width: min(100%, 18.75rem);
+  height: 9rem;
+  transform: scale(var(--guide-scale));
+  transform-origin: center;
+}
+.diner-guide-where-pass {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 8.5rem;
+  margin-left: -4.25rem;
+  z-index: 1;
+}
+.diner-guide-where-bar {
+  position: absolute;
+  inset: 4.5rem 0 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 var(--s2);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper);
+}
+/* The words: the heading (a shipped key, two tongues), the sentence(s), the key, the quiet line. */
+.diner-guide-words {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.diner-guide-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+.diner-guide-title-en {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--track-display);
+  color: var(--tx);
+}
+.diner-guide-title-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+  color: var(--t2);
+  font-synthesis: none;
+}
+.diner-guide-spark {
+  font-size: var(--fs-h3);
+  color: var(--t2);
+}
+.diner-guide-line,
+.diner-guide-quiet {
+  margin: 0;
+}
+.diner-guide-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diner-guide-pair > [lang="my"] {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+  font-synthesis: none;
+}
+.diner-guide-line {
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--tx);
+}
+.diner-guide-line [lang="my"] {
+  font-size: var(--fs-lead);
+  color: var(--t2);
+}
+.diner-guide-quiet {
+  font-size: var(--fs-label);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.diner-guide-quiet [lang="my"] {
+  font-size: var(--fs-sm);
+  color: var(--t3);
+}
+/* Page 3's key: the three stamps at the glyph size, each with its two words — one stamp per row
+   (three across, the two-tongue words collided at 390). */
+.diner-guide-key {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The foot: the dots, then the dock — pinned under the page. */
+.diner-guide-foot {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: var(--s2);
+  padding-top: var(--s2);
+}
+.diner-guide-dock {
+  max-width: none;
+}
+/* Back's third of a 320px dock still holds "နောက်သို့" on one line. */
+.diner-guide-dock > .ui-btn {
+  padding-inline: var(--s3);
+}
+.diner-guide-dock .diner-guide-pair {
+  align-items: center;
+}
+.diner-guide-dock .diner-guide-pair > [lang="my"] {
+  font-size: var(--fs-sm);
+}
+/* Page 1: Back keeps its slot, hidden and inert, so Next is the same element at the same place. */
+.diner-guide-back[data-held] {
+  visibility: hidden;
+}
+/* The Account door: the card's link style on a real button (`.nav-link` carries the ink and the
+   underline), a 44px row. */
+.diner-guide-door {
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--fw-bold);
+  text-align: left;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .diner-guide-pic[data-motion="row"] .live-pass-dish:last-child {
+    animation: none;
+  }
 }

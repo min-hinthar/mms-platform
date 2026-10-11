@@ -8,9 +8,11 @@ import {
   BRAND_PHONE_DISPLAY,
   BRAND_PHONE_TEL,
 } from "@/lib/brand";
+import { DinerGuideDoor } from "./DinerGuide";
 
 /**
- * Phase 3a (D4) — the hub's Help & contact card, on the You panel. Every string is `lib/brand.ts`
+ * Phase 3a (D4) — the hub's Help & contact card, on the You panel. Its first row is PD11's door back
+ * into the diner's first-visit guide (`DinerGuideDoor`); every contact string is `lib/brand.ts`
  * (W22r: the restaurant's identity, once, verbatim from the delivery app's production constants).
  * There are NO business hours anywhere in either repo, so none are offered here — fabricating
  * hours would be the exact honesty violation the design language forbids.
@@ -22,9 +24,17 @@ export function AccountHelp() {
         Help & contact
       </h2>
       <ul role="list" style={list}>
+        {/* PD11 — the first-visit guide's door back: "How it works at a table" reopens it at page 1
+            (a client island; this card stays a Server Component). */}
         <li style={row}>
           <span style={glyph} aria-hidden>
             <Icon name="info" size={18} />
+          </span>
+          <DinerGuideDoor />
+        </li>
+        <li style={row}>
+          <span style={glyph} aria-hidden>
+            <Icon name="phone" size={18} />
           </span>
           <a href={`tel:${BRAND_PHONE_TEL}`} className="nav-link" style={rowLink}>
             Call us · {BRAND_PHONE_DISPLAY}

@@ -7,6 +7,7 @@ import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { freezeBanner } from "@/lib/cart-freeze";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
+import { guestListAtCap, guestListSeats } from "@/lib/guest-list";
 import { Avatar, Icon } from "@mms/ui";
 
 /**
@@ -172,13 +173,11 @@ export function GuestList() {
     );
 
   // Always include self first (presence may not have synced yet); dedupe peers by seat.
-  const bySeat = new Map<string, { seat: string; name: string }>();
-  bySeat.set(me.seat, me);
-  for (const m of members) if (!bySeat.has(m.seat)) bySeat.set(m.seat, m);
-  const list = [...bySeat.values()];
+  const list = guestListSeats(me, members);
   // Party-size cap (P3.4): a sticker is one table. At the cap, the server rejects further joins, so
   // hide the invite affordance and say so honestly rather than offering an invite that can't be honored.
-  const atCap = list.length >= MAX_PARTY_SIZE;
+  // ONE rule (lib/guest-list) — PD11's guide reads it too, so it never teaches an Invite this row hides.
+  const atCap = guestListAtCap(me, members);
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>

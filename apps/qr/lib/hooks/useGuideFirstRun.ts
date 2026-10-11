@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { claimGuideFirstRun } from "../guide-seen";
+import { claimGuideFirstRun, type GuideStore } from "../guide-seen";
+
+/** The default store: this device's `localStorage`, read through a getter (touching it can throw). */
+const localStore = (): GuideStore => window.localStorage;
 
 /**
  * PD12 · PD11 — the ONE React seam over `lib/guide-seen.ts`: offer a guide once, on the first quiet
@@ -20,19 +23,25 @@ import { claimGuideFirstRun } from "../guide-seen";
  *
  * `dismiss` hides it for the rest of this mount (Close, the last step, work pushing it away); it is
  * already marked, so it never comes back by itself.
+ *
+ * `store` (PD11) — where the mark is read and written; `localStorage` by default (the staff guides).
+ * The diner's guide hands a store that ALSO reads its server-set cookie (`dinerGuideStore`), so a
+ * phone whose script storage Safari cleared still reads its mark. Read once, like the quiet.
  */
 export function useGuideFirstRun(
   key: string | null,
   quietAtMount: () => boolean,
+  store: () => GuideStore = localStore,
 ): { shown: boolean; dismiss: () => void } {
   const [shown, setShown] = useState(false);
   const quiet = useRef(quietAtMount);
+  const read = useRef(store);
   useEffect(() => {
     if (key === null) return;
     let active = true;
     void Promise.resolve().then(() => {
       if (!active) return;
-      if (claimGuideFirstRun(() => window.localStorage, key, quiet.current())) setShown(true);
+      if (claimGuideFirstRun(read.current, key, quiet.current())) setShown(true);
     });
     return () => {
       active = false;
