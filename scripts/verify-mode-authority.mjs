@@ -96,6 +96,14 @@
  * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
  * in all (with M261's lock order, above).
  *
+ * PD3's follow-up adds suite `pd3s`: `mms_refuse_solo_join`, the trigger that keeps a solo (pickup,
+ * scan-and-go) session to its one member where the membership is written, and
+ * `mms_assert_solo_sessions_single`, the migration's first statement, which aborts the apply if a solo
+ * session already holds a second member (Codex P1 on #339). Nine killed mutants, one or more per
+ * body-reachable `SOLO.<n> ·` case, and NO new survivor: the trigger's UPDATE event (SOLO.6) and the
+ * grants (SOLO.7) are DDL no body mutant reaches, induced red by hand; its advisory key orders two
+ * racing first members, a two-session property STATED in the migration header, not a row here.
+ *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
  *
@@ -203,9 +211,30 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261009120100_m269_approve_cart_lock.sql"),
     test: path.join(ROOT, "supabase/tests/m269_approve_cart_lock_test.sql"),
   },
+  // PD3 follow-up — `mms_refuse_solo_join`, a NEW trigger function (no earlier definition): a solo
+  // session refuses a second member where the membership is written.
+  pd3s: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261009120200_pd3_solo_session_refuses_join.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/pd3_solo_session_refuses_join_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "m184", "m269"];
+const CHAIN = [
+  "m100",
+  "m17",
+  "m109",
+  "p2dd",
+  "p2f",
+  "p3c2",
+  "m261",
+  "m263",
+  "m184",
+  "m269",
+  "pd3s",
+];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2563,6 +2592,82 @@ const MUTANTS = [
       ],
     },
   ].map((m) => ({ fn: "mms_resolve_approval", ...m, src: "m269", suite: "m269" })),
+  // PD3 follow-up — `mms_refuse_solo_join`, a NEW trigger function: a solo (pickup, scan-and-go)
+  // session refuses a second member where the membership is written. One killed mutant per
+  // body-reachable case; SOLO.6 (the UPDATE event) and SOLO.7 (the grants) are DDL no body mutant
+  // reaches, induced red by hand. The advisory key is a two-session ordering, STATED in the
+  // migration's header, not a row here.
+  ...[
+    {
+      id: "solo/refusal-deleted",
+      expect: "SOLO.2",
+      why: "the refusal itself: a ?j= join lands a second member on someone's pickup, and that member passes stampArrival's session arm",
+      find: "    raise exception 'solo_session' using errcode = 'P0001';  -- /api/session answers the no-oracle 404\n",
+      replace: "    null;\n",
+    },
+    {
+      id: "solo/names-pickup-only",
+      expect: "SOLO.3",
+      why: "the solo test written as the mode it was found on: pickup refuses, scan-and-go still takes a second phone",
+      find: "  if v_mode is null or v_mode = 'dinein' then\n",
+      replace: "  if v_mode is null or v_mode <> 'pickup' then\n",
+    },
+    {
+      id: "solo/dinein-refused-too",
+      expect: "SOLO.5",
+      why: "the party exemption dropped: every dine-in table becomes a party of one and the group cart dies",
+      find: "  if v_mode is null or v_mode = 'dinein' then\n",
+      replace: "  if v_mode is null then\n",
+    },
+    {
+      id: "solo/own-seat-counted",
+      expect: "SOLO.4",
+      why: "the minting seat counted against itself: its own rejoin answers solo_session, not the unique key's 23505 the route reads as 'already a member'",
+      find: "       and m.seat_id <> new.seat_id   -- the same seat again is the unique key's 23505, not a second member\n",
+      replace: "\n",
+    },
+    {
+      id: "solo/first-member-refused",
+      expect: "SOLO.1",
+      why: "the guard refusing whenever the session is solo: the mint and the kiosk can never hold their own first member",
+      find: "  if exists (\n",
+      replace: "  if true or exists (\n",
+    },
+    // Codex P1 on #339 — the apply-time guard, the migration's FIRST statement: it aborts the apply
+    // when a solo session already holds a second member, instead of grandfathering it.
+    {
+      id: "solo/apply-guard-never-raises",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the apply-time guard never raises: the migration installs the trigger over a solo session that already holds a second member, and that member keeps every is_member read",
+      find: "  if v_found is not null then\n",
+      replace: "  if false then\n",
+    },
+    {
+      id: "solo/apply-guard-counts-from-three",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the guard's threshold off by one: a solo session with exactly two members — the state the trigger exists to prevent — passes",
+      find: "          having count(*) > 1) m on m.session_id = s.id\n",
+      replace: "          having count(*) > 2) m on m.session_id = s.id\n",
+    },
+    {
+      id: "solo/apply-guard-names-pickup",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8b",
+      why: "the guard written as the mode it was found on: a scan-and-go session with two members passes",
+      find: "   where s.mode <> 'dinein';   -- every mode but dine-in is solo, the trigger's own rule\n",
+      replace: "   where s.mode = 'pickup';\n",
+    },
+    {
+      id: "solo/apply-guard-counts-dinein",
+      fn: "mms_assert_solo_sessions_single",
+      expect: "SOLO.8a",
+      why: "the guard's mode filter dropped: every dine-in party with two phones aborts the apply",
+      find: "   where s.mode <> 'dinein';   -- every mode but dine-in is solo, the trigger's own rule\n",
+      replace: "   ;\n",
+    },
+  ].map((m) => ({ fn: "mms_refuse_solo_join", ...m, src: "pd3s", suite: "pd3s" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2625,6 +2730,8 @@ const TARGETS = [
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
   "mms_resolve_approval",
+  "mms_refuse_solo_join",
+  "mms_assert_solo_sessions_single",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.
@@ -2760,10 +2867,29 @@ for (const m of MUTANTS) {
   // that named a line nobody wrote. A function replacement is always literal. (Same class as
   // Python's re.sub backslash handling; both bit this file in one afternoon.)
   const mutatedText = edits.reduce((text, e) => text.replace(e.find, () => e.replace), original);
-  if (m.fnPatch) {
-    psql(["-q"], mutatedText);
-  } else {
-    for (const k of CHAIN) psql(["-q"], k === src ? mutatedText : sources[k]);
+  // A mutated chain can FAIL TO APPLY — PD3's apply-time guard runs at apply, so its
+  // `apply-guard-counts-dinein` mutant aborts the replay on any database holding a dine-in party of
+  // two (the blind pass on #339, (b)). Uncaught, that throw ended the run with the mutated body
+  // still live and nothing restored. So restore, report it by name, and count it a failure: a
+  // mutant this battery could not judge is never a pass.
+  try {
+    if (m.fnPatch) {
+      psql(["-q"], mutatedText);
+    } else {
+      for (const k of CHAIN) psql(["-q"], k === src ? mutatedText : sources[k]);
+    }
+  } catch (e) {
+    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    const line = (out.split("\n").find((l) => l.includes("ERROR:")) ?? out)
+      .replace(/^.*ERROR:\s*/, "")
+      .trim();
+    if (m.fnPatch) psql(["-q"], original);
+    else restore();
+    console.log(
+      c.red(`  APPLY  ${m.id} — the mutated chain did not apply (${line.slice(0, 140)}); restored`),
+    );
+    failures++;
+    continue;
   }
   const mutated = bodyHash(m.fn);
   if (mutated === before) {
