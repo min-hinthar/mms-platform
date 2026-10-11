@@ -3892,3 +3892,14 @@ harness script to check its syntax, because it RUNS (`node --check` does not); a
 that replays one migration file must become a CHAIN the day a later migration restates one of its
 functions, or every mutant's restore reverts the newer body (`verify-counter-fire-race.mjs` reads each
 restated function from its LAST defining file — the `LATER` map — and `statementFor` patches that file).
+
+## #255
+
+**Two guards in series, each refusing the same output, need a fixture that trips ONLY the first
+(2026-10-09, PD9).** `/api/board` refuses its tables when the kitchen line read hits its cap, and
+again when the Send-completion read hits its own. The cap fixture made 500 lines that shared one
+`fire_batch`, so the completion read re-read all 500 and refused as well, and the mutant that deleted
+the line-cap guard SURVIVED: the second guard answered for the first. The fix was the fixture, not
+an assertion: one line carries the batch, so the completion read answers one row and only the line cap
+can refuse. When a later read is DERIVED from an earlier one, saturating the first tends to saturate
+the second, so build each guard's fixture to answer short everywhere downstream.

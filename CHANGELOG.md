@@ -47,6 +47,79 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
   anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.
 
+### PD9 — the TV board shows every table's food, dish by dish, and never nags (2026-10-09, `claude/feat/pd9-tv-board`)
+
+- **The owner's reversal of the wall's privacy boundary** (2026-10-07; PATH_DESIGN decision 11;
+  `docs/path-design-2026-10-07/m9-tv-board.md`). Until now `/board` showed only pickup and scan-and-go
+  codes with a first name, and dine-in status stayed on the diner's phone (K32(b), P6a). Now every
+  dine-in table with food in the kitchen is a landscape `CounterPass` at the TV tier — the table number
+  once, under "စားပွဲ · Table" — with its dishes on the ONE KITCHEN TRACK (Sent · Cooking · Served),
+  beside the pickup codes. **The room now reads what each table ordered while it cooks.** SPEC-KDS §6
+  is amended to say so.
+- **A table number and dish names only.** `lib/board-tables.ts`'s output type is the boundary: per
+  Send its round, per dish row its name, its catalog Burmese, its stage and a to-go flag — no guest
+  name, id, quantity, modifier, note, price, time or age has a field. Same-name dishes in a Send are
+  one row (by name and fulfillment), so no count is published. A dish not yet sent, or inside its
+  Send's grace, never appears (the KDS's own `kdsLineGate`); a ghost session and an unnumbered sticker
+  never appear; a table leaves 5 minutes after its last dish is served, or at once when cleared.
+- **One source for every number and stage.** The stage, a row's least-advanced stage and the table's
+  roll-up are `lib/kitchen-track.ts`'s, so Served waits out Mom's 6-second Undo on the server's clock;
+  the round number is the KDS's own read, moved to `lib/kitchen-round-read.ts`, so the wall and Mom's
+  board give one card one number.
+- **Never a nag.** Sent and Cooking are marks, Served is calm green, and the pickup Ready pass is the
+  wall's only call. It moves only when food changes state, one thing at a time (`lib/board-motion.ts`):
+  a segment fills, a table turns once per visit when its last dish is served, a code arrives Ready with
+  a gold ring on the pass's edge and the shipped chime — never on a first read or after a frozen spell.
+  Tables are sorted by number, the first half down the left column, never re-sorted on status; past
+  the fit the step-down collapses the all-served, folds the served dishes, then cuts the highest
+  numbers behind "+N more".
+- **The pickup column loses the first name, the shelf wait and the collected bag** (m9 decision 19,
+  critic B4): the code is the one identity on the wall, and a wall shows no clock. The pulse band (its
+  count, oldest age and all-day rail) is retired with it.
+- **Honest when it cannot read.** A failed or saturated kitchen read is `tables: null`, drawn "Can't
+  read the kitchen right now." — never all-clear over a full wok; a frozen wall keeps codes and dish
+  names, drops every stage, and drops the tables too once the linger has passed.
+- **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
+- **After the blind pass on #336:**
+  - "All clear" now means the whole kitchen: the route publishes `kitchenIdle`, using the KDS's own gate across every channel, so no "All clear" over a pickup bag or a counter order on the wok.
+  - It is also never shown on a frozen snapshot.
+  - A dish row's motion key is minted once, from its round's original index.
+  - Every dish list on a pass has its own accessible name.
+  - The passes fit once per poll.
+  - 14 mutants added.
+- **After the last capped blind pass on #336** (m9 §G.2):
+  - "All clear" reads the wall's one still-cooking rule (`stillCooking`, the ONE track's Sent or
+    Cooking), so a dish bumped inside Mom's 6-second Undo on a pickup bag, a counter order or an
+    undrawn table no longer reads "All clear", and a grocery line never holds it back.
+  - A resize of the passes' box re-fits, including the first resize of a list that was 0×0 when
+    observed.
+  - The fold, its list names and its FILL keys are drawn by component cases; every case unstubs its
+    globals; the route suite's session mock answers only the selected columns.
+  - 9 mutants added, 5 re-pointed.
+- **After Codex's round 1 on #336** (m9 §G.3):
+  - The name read asks the catalog only for the dishes the wall draws (`wallDishLines`), and nothing
+    when no table is drawn, so a pickup-only or scan-and-go-only wok no longer costs every wall a menu
+    or grocery read every 5 s.
+  - A re-seated table's two round-1 Sends no longer share a motion key: a repeated round number takes
+    its occurrence on the pass, so no advance goes missing and no FILL lights two rows.
+  - A folded row names each dish as its own row would (`dishNameLines`): one untranslated dish no
+    longer turns the whole fold English.
+  - A merge committing mid-read never reads "All clear": a still-cooking line whose cart reads
+    cancelled, or whose table reads closed, is re-read for its current cart. A clear leaves the line
+    there (still "All clear"), a merge moves it (not idle), and a failed re-read is not idle.
+  - 11 mutants added, 9 re-pointed.
+- **Main's PD5b (#340), ported into the shared round read** (m9 §G.4):
+  - `lib/kitchen-round-read.ts` reads no orders. Settlement food is told apart by its batch's
+    version-8 mark (`isSettlementBatch`), the same read the KDS runs, so the wall and Mom's board
+    still give one card one number.
+  - `kitchen/settlement-on-a-staff-settled-cart` and `kitchen/round-orders-saturation-ignored` retire
+    with the orders leg.
+  - 1 mutant added (`board/settlement-food-numbered-on-the-wall`), caught by a route case that runs
+    the real round read.
+- **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
+  `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
+  read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
+
 ### M268 — the register's settle releases a dead card attempt's promo pin before it reads a total (2026-10-09, #338)
 
 - **The hole (filed by the blind pass on #331):** `mms_promo_discount` honours any non-null pin

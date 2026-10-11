@@ -1085,8 +1085,8 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     // ── Phase 3d ── the kitchen's sound circle in the bar, lit when it sounds. MUTATION
     // (p3d/css/pressed-circle-leaves-the-cap): its selector leaves the shared rule, red.
     '.staff-circ[aria-pressed="true"]',
-    // board-9 — the wall's `Food up` chip wears the cap too (an <li>, pressed by its class).
-    ".orb-table-up",
+    // (board-9's `.orb-table-up` left the list with the wall's band — PD9: the wall spends no gold on
+    // a table, and ReadyBoard.test.tsx pins that the class has no rule at all.)
     // ── Phase 2d · split ── the selected floor card's NAME (a pick from a live list, not "you are here").
     '.floor-card[aria-current="true"] .floor-card-label',
     // ── Phase 2e · lang ── the pressed language ROW (Help sheet · Profile) wears the same cap.

@@ -1065,3 +1065,244 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    served long before its round finishes. So after the line read, a second bounded read fetches every
    line of each live `fire_batch` (any line not served) regardless of `bumped_at`, and the shaper sees
    the whole round until its last dish is up.
+
+### G · Build notes (2026-10-09, `claude/feat/pd9-tv-board`, stacked on PD5)
+
+What the kitchen-ops stream built from this record, what it decided where the record left room, and
+what it leaves open. Precedence as the record says: F > E > D > C/B/A > the body.
+
+**Built.**
+
+- **The boundary, `lib/board-tables.ts`.** `shapeBoardTables` gates, filters and shapes, and decides
+  nothing about a stage (B8): the KDS's own `kdsLineGate` (a cleared table and a Send inside its grace
+  never appear), the stage allowlist (Sent · Cooking · Served — a draft, a void and a grocery line
+  never appear), dine-in only (`PULSE_TABLE_MODES`, an allowlist), no ghost past its TTL and no
+  unnumbered sticker, the linger (a Send stays while anything on it is not served, or
+  `PULSE_PASS_LINGER_MS` after its last bump), one Send one round (`ticketKey`), and one row per
+  (snapshot name, fulfillment) inside a Send (F1). Stage, group stage and roll-up are
+  `lib/kitchen-track.ts`'s, so Served waits out `KDS_UNDO_MS` on the DB clock (B6). The output type
+  carries a table number, per Send `n`/`next`, per row `name`/`nameMy`/`stage`/`togo`, and `out` —
+  no field for anything else, so nothing else can leak from a later edit at a call site.
+- **One card, one number.** The KDS's round read moved verbatim from `lib/kitchen.ts` into
+  `lib/kitchen-round-read.ts` (`readRounds` · `roundFor`, its nine mutants re-pointed with it); the
+  route and the KDS both call it, so the wall and Mom's board number a Send the same way.
+- **The route** publishes `{ orders: { code, status }[], tables, kitchenIdle, serverNow }` and nothing
+  else (`kitchenIdle`, a boolean and never a count, since the blind pass on #336 — §G.1, §G.2). The
+  pickup column loses the first name (decision 19), the shelf wait and the collected bag (B4). The
+  kitchen half is fail-DEGRADED: a failed or saturated line, cart or Send-completion read is
+  `tables: null` (drawn "Can't read the kitchen right now.", never all-clear); the round read and the
+  Burmese name read are advisory. The session-mode read stays fail-CLOSED (503). The Send-completion
+  read (F3) fetches every line of each dine-in batch on the wall, whenever bumped, at the same 500 cap.
+  No quantity, modifier, note or guest name is ever selected.
+- **Fit, columns, motion, frozen.** `lib/board-fit.ts`: the fixed step-down — collapse the all-served
+  to their roll-up, fold the served dishes to one line, then cut the highest numbers behind the KDS's
+  own "+N more" (tables, never dishes) — and the first ⌈n/2⌉ tables by number in the left column (F2;
+  a two-column multicol with a forced break at that index, so membership is the index and a status
+  change never moves a table). `lib/board-motion.ts`: FILL on an advance, one TURN per table visit
+  (a celebrated set keyed by number, pruned only when the table leaves), the Ready arrival, played one
+  at a time in a fixed order; a first read and the first read after a stale spell seed and play
+  nothing. `lib/board-poll.ts`: a frozen wall keeps its passes for `FROZEN_TABLES_MS`
+  (= `PULSE_PASS_LINGER_MS`) after the last good poll, then the kitchen half keeps only its sentence
+  (B7).
+- **The screen.** Every table is the `@mms/ui` CounterPass, landscape, TV tier, the figure pinned at
+  `--fs-pass` (D1) under "စားပွဲ · Table"; the rows carry `KitchenTrack` at the TV row size; the
+  heading key is `KitchenTrack`'s key, aria-hidden; round 2 and up wear m5's stub. Ready codes are the
+  same pass at the code row; Preparing codes are plain rows. The arrival is a gold ring on the pass's
+  edge (C: a gold wash over paper is nearly invisible); no table chimes; no ✓ anywhere.
+- **Retired.** The pulse band (count, oldest age, all-day rail) and its 21 `pulse/*` mutants with
+  `board-pulse.test.ts`; `board-pulse.ts` keeps the shared constants and the record of the rule it
+  replaced. The shelf wait (`shelfWait`, `SHELF_WAIT_CEILING_MIN`, `board.card.wait` · `.justNow` ·
+  `.waitLong`) and `board.pulse.oldest`. Five `board/*` mutants that pinned what the wall no longer
+  publishes. 43 mutants added: `board-tables/*` 14, `board/*` 8, `board-wall/*` 8, `board-fit/*` 6,
+  `board-motion/*` 6, `board-poll/*` 1.
+
+**Decided in the build.**
+
+- **The wall recomputes a Send's round every poll.** The KDS decides a card's stub once and carries it
+  (m5 §H); the wall holds no per-card memory, so a round read that fails leaves that poll's stubs
+  unnumbered ("next round" only beside an older round, decision 17) and the next good read restores
+  them. A number flickering back is a smaller wrong than a remembered number nobody re-checks.
+- **The frozen bound runs on the device clock.** `lastGoodAt` and the fold's `now` are the same
+  clock, so the bound is a duration, never a comparison across clocks.
+- **Same-name rows sort by first stamp, then name, then dine-in before to-go,** so a re-render never
+  swaps two rows.
+- **The kiosk (E1).** No kiosk code: the kiosk is parked (`SURFACES.kiosk = false`), and printing the
+  order's board code at the handoff is already C20's reopen prerequisite.
+- **`KitchenStage` stays one declaration** in `@mms/ui`; `BoardDishStage` is the wall's subset of it,
+  not a second vocabulary.
+
+**Open (owed to the device sitting or the first Friday).** Risk 3 — a station nobody bumps pins its
+table to the wall all night (no server-side ceiling was added; the linger is from the last bump).
+Risks 6–7 — OLED burn-in under the cream stubs and the TURN's frame rate on the TV's browser. Risk 8
+— the real density at 10 tables. Risk 13 — two live sessions on one number can show two "Round 2"s,
+accepted. Risk 14 — a poll now makes up to four more queries per TV than the pulse did (the
+Send-completion read and the round read's three); p95 on `pdx1` is unmeasured. Risk 2 — **old TV builds need ONE reload after the deploy**: the old client reads no
+`pulse` and no `name`, so until reloaded it shows its "can't read the kitchen" band and code-only
+cards. Risk 1 — the privacy reversal is real and has no per-table switch; the merge line names it.
+
+#### G.1 · After the blind pass on #336 (2026-10-11)
+
+REJECT on two CRITICALs. I checked each finding's mechanism against the source before fixing it and watched every fix go red on the old code first. Three of the rules it added had no mutant; §G.2 names them and adds them.
+
+- **"All clear" means the whole kitchen.** The wall's tables are dine-in only, so an empty table list is not an empty wok. Before this fix the wall said "All clear" in three cases where food was cooking:
+  - pickup or scan-and-go bags on the wok;
+  - a counter order sent before it was paid;
+  - a table the wall does not draw (an unnumbered sticker, or a session past its TTL).
+
+  The route now publishes `kitchenIdle`, a boolean that is never a count. It comes from `kitchenIdle()` in `lib/board-tables.ts`, which applies the KDS's own gate: a fired or in-progress line the kitchen board shows, and not HELD (§G.2 replaced the raw line state with the wall's own still-cooking rule). That means the wall and Mom's board agree on "nothing to cook". The flag is `null` whenever `tables` is. The wall says "All clear" only on a literal `true`. If no table is drawn and the flag is anything else, the body says nothing.
+
+- **A frozen snapshot of an empty kitchen never says "All clear".** The head already says the kitchen cannot be read, so the body says nothing.
+- **One key per dish row.** The fit now mints each dish row's motion key with the planner's own `rowKey`, using the round's ORIGINAL index. Before this, a fold that dropped an emptied round shifted the key of an unnumbered round's row, so its FILL missed.
+- **Distinct list names.** Every dish list on a pass now has its own accessible name. The folded row is named as the served row. Any name that would still repeat gets its occurrence number (`distinctNames`).
+- **One fit per poll.** The ResizeObserver's first notification is `observe()` itself. Answering it ran the whole step-down a second time on every poll, so it is now skipped (§G.2: by comparing the box, not by skipping "the first").
+- **Justified, not changed:**
+  - Old TV builds need one reload after the deploy. This is in the merge line.
+  - A `tables: null` answer drops the last good passes instead of freezing them. That is the safe direction: the wall says it cannot read the kitchen.
+  - The ghost rule (a session past its TTL leaves the wall) is kept from the shipped band, and "All clear" no longer lies about such a table.
+  - `kdsLineGate`'s counter and comp inputs are never read on the dine-in branch.
+  - TURN and FILL are reduced-motion-escorted in `pass.css`.
+  - `--t3` on `--pg` is an asserted pair.
+- **Owner questions recorded, not decided here:**
+  - "Served" (`table.line.state.served`) on a guest wall. A1 chose it; the native sitting can re-word it on every surface at once.
+  - Walk-up guests need their code. The card reader speaks it today; the cash seal shows it with PD6.
+
+#### G.2 · After the last capped blind pass on #336 (2026-10-11)
+
+REJECT on one HIGH and three guard-integrity findings, against `6e1ee8de204e..13c7cb6b0539`. I checked
+each mechanism against the source, watched each new case go red on the old code (or its mutant CAUGHT),
+and registered a mutant for every rule below.
+
+- **"All clear" waits out Mom's undo window too.** `kitchenIdle` read the raw line state, so a dish
+  bumped inside `KDS_UNDO_MS` on a pickup bag, a counter order or a table the wall does not draw read
+  "All clear" for that poll while Mom could still tap Undo — and the same payload drew the same dish
+  Cooking on a table it did draw. The rule is now named ONCE in `lib/board-tables.ts`: `stillCooking`
+  (the ONE track's Sent or Cooking, so a served dish inside the window is still cooking). A Send's
+  linger and `kitchenIdle` both read it. The fixture that tells the two rules apart is a dish bumped
+  2 s before the poll's database clock; the old 60 s fixture could not.
+  - A HELD scheduled pickup is a fired line whose fire time is still ahead, which the track reads
+    Sending, so it is excluded before the gate. `mms_line_transition` and `mms_bump_ticket` refuse
+    Start and Done before `fire_at`, so no reachable row is held and cooking at once. `gate.held` is
+    no longer read; `board-tables/idle-counts-held` now guards the Sending exclusion instead.
+  - Grocery: the track gives a grocery line no stage, so it never holds back "All clear", like every
+    other "food in the kitchen" check (`counterKitchenLine`, kitchen-track, expo). No path fires a
+    grocery line today: the fire SQL fires `dinein`/`togo` only, and the draft→fired edge of
+    `mms_line_transition` is not reachable from the app (M240).
+  - `slotted: false` and `cartOwes: false` cannot change the answer: of the gate only `show` is read,
+    `slotted` decides held-or-hidden for a paid counter line inside its grace (refused before the gate
+    either way), and `cartOwes` sets only the Unpaid flag.
+  - The route reads it on the database clock (`board/idle-on-the-app-clock`).
+- **The fold is drawn by a component case now.** jsdom measures every box as 0, so no case could reach
+  the fold. One block in `ReadyBoard.test.tsx` gives the passes' list a box and its rows a height, for
+  that block only. Its cases cover the folded list's name, each round's own name at the fold, and a
+  FILL keyed by the round's original index after the fold has moved it.
+- **A resize re-fits, and a 0×0 list's first resize is not skipped.** The observer stub delivers as many
+  notifications as a case asks for. The callback compares the list's box and no longer skips "the first
+  notification". A box that is 0×0 when observed gets no first notification (the ResizeObserver
+  explainer), so skipping the first notification skipped its first real resize and left the passes cut
+  behind "+N more" until the next poll, or for a whole frozen spell. Red on the old code.
+- **The stub no longer leaks.** Every case in `ReadyBoard.test.tsx` unstubs its globals.
+- **The `qr_code` read is observed.** The route suite's session mock returns only the columns the route
+  selects, as PostgREST does. A counter order sent before it was paid now reaches `kitchenIdle: false`
+  only if the code was read (`board/session-read-drops-the-code`).
+- **Docs.** The privacy boundary in this record, OPEN-ITEMS and DESIGN-LANGUAGE §35 names `kitchenIdle`.
+- **Mutants:** 9 added (`board-tables/idle-ignores-the-undo-window`,
+  `board-tables/idle-counts-a-dropped-cart`, `board/session-read-drops-the-code`,
+  `board/idle-on-the-app-clock`, `board-wall/fold-names-off-by-one`,
+  `board-wall/folded-row-unnamed-as-served`, `board-wall/fold-keys-by-the-drawn-position`,
+  `board-wall/resize-never-refits`, `board-wall/zero-box-skips-its-first-resize`), 5 re-pointed at the
+  new code (`board-tables/linger-drops-a-live-send`, `-idle-counts-tables-only`, `-idle-counts-held`,
+  `-idle-counts-served`, `board-wall/fit-twice-per-poll`).
+- **Justified, not changed:**
+  - A stale state keeps `kitchenIdle`: `nextBoardStateOnFailure` spreads the live state
+    (`{ ...prev, stale: true, … }`), so the cast drops nothing. The `!frozen` clause is what keeps
+    "All clear" off a frozen snapshot, and `board-wall/all-clear-over-a-frozen-snapshot` is CAUGHT.
+  - `table_sessions.qr_code` is `text not null` since `20260618000000_qr_platform_init.sql`. No later
+    migration relaxes it, and the generated types read `string`. The KDS's own session read
+    (`lib/kitchen.ts`) passes it to `isCounterOrder` the same way, so a null there would break Mom's
+    board first.
+- **Owner question recorded:** "All clear" beside "Preparing #X". Once a bag's dishes are bumped, the
+  kitchen half can say "All clear" while the code still reads Preparing until expo taps Ready. Both
+  are true (the wok is empty; the bag is not handed over), but a guest may read them as a
+  contradiction. Recorded in OPEN-ITEMS PD9 for the wording sitting.
+
+#### G.3 · After Codex's round 1 on #336 (2026-10-11)
+
+Four P2s on `049e9ca`. I checked each mechanism against the source, watched each new case go red on
+the old code, and registered a mutant for every rule below.
+
+- **The name read asks only for the dishes the wall draws.** In a pickup-only or scan-and-go-only
+  kitchen the tables are readable and the line read holds only non-table lines, so the route asked the
+  menu and grocery catalogs every 5 s for names the shaper never published. The rule that decides
+  which lines the wall draws is now one function, `wallSends` in `lib/board-tables.ts`, read by both
+  `shapeBoardTables` and `wallDishLines`. The route asks the catalog for `wallDishLines` only, and asks
+  nothing when it is empty (`board/names-for-every-line`).
+- **A row's motion key is unique across a re-seat.** Rounds are counted per session, so a table
+  re-seated inside the linger carries two parties' round 1 on one pass, and two rows of one dish shared
+  a key. The planner's stage map kept one of them (an advance went missing) and a FILL lit both. The
+  key's round part now takes its occurrence when a number repeats on the pass (`1`, then `1#1`,
+  `roundTag` in `lib/board-motion.ts`). It moves only when an older round with the SAME number leaves,
+  never when any older round does, as a bare position would (`board-motion/re-seat-shares-a-key`).
+  `rowKey` now takes the whole table, so the fit mints keys from the table, never from the fold's
+  filtered copy.
+- **A folded row names each dish as its own row would.** `dishNameLines` (`lib/board-fit.ts`) builds
+  both name lines dish by dish: the lead line carries each dish's catalog Burmese, marked on its own
+  span, or its English, unmarked; the line beneath echoes the English of the translated dishes only.
+  One dish is the ordinary row, so both kinds share one path. The lead line is one flex item
+  (`.orb-dish-head`), so a fold truncates as one line, and its " · " separators sit in inline flow,
+  not as whitespace nodes in the flex line (DESIGN-LANGUAGE §6). No new Burmese string: every name is
+  a catalog row (`board-fit/fold-translation-all-or-nothing`, `board-fit/echo-repeats-the-english`,
+  `board-wall/fold-marks-the-whole-line`).
+- **A merge committing mid-read never reads "All clear".** The wall's reads are separate statements.
+  `mms_merge_table_orders` cancels the source cart and closes its table in the same transaction that
+  re-parents (or folds) its lines onto the target. So a merge landing between the line read and the
+  cart read leaves a still-cooking line naming a cart the read no longer returns, and `if (!cart)
+continue` read it as cleared: "All clear" for one poll over the merged food. The same race lands
+  between the cart read and the session read too (an open cart under a closed table, which the KDS
+  gate hides).
+  - **Why "absent cart ⇒ not idle" alone was wrong.** A clear (`clearTable` in `lib/floor.ts`)
+    cancels the cart and closes the table but leaves every line on the cart, `fired` or
+    `in_progress`, for the rest of the service day (M182's clear RPC, which voids them, has not
+    shipped). Reading every such line as cooking would have kept "All clear" off the wall all day
+    after any mid-cook clear. The cart read cannot tell the two apart: both writes leave the cart
+    `cancelled` and the table `closed`, and `qr_carts` has no merge marker.
+  - **The separating fact is the line's CURRENT cart.** `cancelled` is terminal (no write reopens a
+    cart) and a closed table is never a merge's source again, so a re-read made after the cart and
+    session reads that still finds the line on the cart it named proves a clear. A line found
+    elsewhere (re-parented), not found (folded into a target line), or a re-read that failed is "not
+    idle". `idleRecheck` names those lines, and only when they alone stand between the reads and
+    "All clear", so a dish already on the wok answers with no re-read. The route re-reads
+    `id,cart_id` for them, and `kitchenIdle` takes the answer as `linesNow`.
+  - **Judged on the first line read.** Every cart that read names was asked of the cart read, so an
+    absent cart is a cancelled one. A line the Send completion read re-fetched can name the cart a
+    merge just moved it to, which no read asked about, and a re-read finding it there would look
+    exactly like a clear (`board/idle-reads-the-completed-sends`).
+  - Mutants: `board-tables/idle-trusts-a-dropped-cart`, `-idle-hidden-is-off`,
+    `-idle-rereads-a-busy-kitchen`, `board/cleared-table-never-all-clear`, `board/idle-rereads-every-poll`.
+    `board-tables/idle-counts-a-dropped-cart` and its case still mean what they meant: a CLEARED table
+    must say "All clear", now once the re-read finds the line in place.
+- **Mutants:** 11 added, 9 re-pointed at the new code (`board-tables/idle-counts-tables-only`,
+  `-idle-counts-served`, `-idle-misses-counter-orders`, `-idle-unknown-session-is-idle`,
+  `-idle-ignores-the-undo-window`, `-idle-counts-a-dropped-cart`, `board/idle-read-ignored`,
+  `board/idle-on-the-app-clock`, `board-wall/english-dish-under-a-burmese-mark`).
+- **Known limit, not changed:** the shaper still drops, for one poll, a line whose cart a merge has
+  just cancelled; the next poll draws it on the target. That is a missing pass for 5 s, never a claim.
+
+#### G.4 · Main's PD5b (#340) ported into the shared round read (2026-10-11)
+
+PD5b changed the KDS's round read while PD9 had moved it into `lib/kitchen-round-read.ts`, so the
+merge of main took PD9's `lib/kitchen.ts` and this commit carries PD5b's change into the module both
+screens call (m5 §H.4, "Stacking").
+
+- **The read reads no orders.** Settlement food is told apart by its batch's version-8 mark
+  (`isSettlementBatch`, `lib/kitchen-rounds.ts`), never by the paid moment: the orders leg,
+  `paidAtByCart` and the staff-settled carve-out are gone, and `roundOrdinals` takes the lines and the
+  clock only. `readRoundLegs` is now line for line the body PD5b shipped in `lib/kitchen.ts`.
+- **Mutants.** `kitchen/settlement-on-a-staff-settled-cart` and `kitchen/round-orders-saturation-ignored`
+  retire with the code they mutated (PD5b retired both on main; PD9 had re-pointed them here). The
+  other seven re-pointed with the read still anchor. One added: `board/settlement-food-numbered-on-the-wall`
+  drops the mark check in `roundOrdinals` and must turn the route suite red.
+- **The wall numbers rounds the way the KDS does.** A route case runs the REAL round read against the
+  route's fake database, on the KDS case's own shape: round 1 served and gone from the wall, settlement
+  food under a version-8 batch, then a new Send. The wall draws the settlement food unnumbered and the
+  Send as round 2, the numbers the KDS case pins. The case went red on the unported read (its orders
+  leg meets a `qr_orders` read the fake refuses, so every round read unknown).
