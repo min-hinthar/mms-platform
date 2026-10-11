@@ -1,3 +1,4 @@
+import type { ServedHold } from "./checkout-stage";
 import { TABLE_STARTER } from "./confirm-copy";
 import { t } from "./i18n";
 
@@ -20,7 +21,9 @@ import { t } from "./i18n";
  *    "Pay opens when the undo window closes" would be a lie under drafts; the grace (an open window,
  *    or an undo still in flight) is this device's courtesy — the undo may put lines back.
  *    `unsentBlocks` is `payBlockedByUnsent(...)` PASSED IN by the caller, never restated here: its
- *    rule and its mutants live in `checkout-stage.ts`.
+ *    rule and its mutants live in `checkout-stage.ts`. PD10 (D5) adds the SERVED GATE between
+ *    unsent and grace — `servedHold`, `servedGateVerdict(...)` passed in the same way: peer >
+ *    unsent > the gate's reason (`hostless` · `togo` · `kitchen`) > grace.
  *  - `billDoorLabel` — the Order stage's Total door promises "& pay" only when nothing blocks Pay and
  *    no counter ask stands; otherwise it is a door to a bill you can READ ("View bill"). The door
  *    never promises a verb the next screen refuses or does not offer.
@@ -56,13 +59,24 @@ export function orderStageHero(s: {
   return "bill";
 }
 
-export type PayBlock = "peer" | "unsent" | "grace";
+/**
+ * PD10 (D5) — `hostless` · `togo` · `kitchen` are the SERVED GATE's reasons (`ServedHold`,
+ * lib/checkout-stage), and `unsent` is also its first arm (a dine-in draft at a host's table — the
+ * same fact "Everything sent" names). They exist only while the phone-pay door is open: the caller
+ * passes `servedHold: null` while it is parked, and for the COUNTER door always (D5: the kitchen
+ * never holds the counter — Dad's register, the reader and the secure-tab close are never gated by
+ * served).
+ */
+export type PayBlock = "peer" | "unsent" | "hostless" | "togo" | "kitchen" | "grace";
 
 export function payBlock(s: {
   /** `freezeBlocksPayment(rawFreeze)` — a PEER's fresh lock (409 held_by_other at create-intent). */
   frozenByPeer: boolean;
   /** `payBlockedByUnsent(mode, kitchenDraftQty, hostPresent)` — read, never restated. */
   unsentBlocks: boolean;
+  /** PD10 — `servedGateVerdict(...)` (lib/checkout-stage), read, never restated; null while the
+   *  phone-pay door is parked, and always null for the counter door. */
+  servedHold: ServedHold | null;
   /** The undo window is open on this device. */
   graceOpen: boolean;
   /** An undo write has not answered yet — the lines may come back as drafts. */
@@ -70,8 +84,49 @@ export function payBlock(s: {
 }): PayBlock | null {
   if (s.frozenByPeer) return "peer";
   if (s.unsentBlocks) return "unsent";
+  // PD10 · D5 — the kitchen OUTRANKS the grace: a line inside its undo window is "sending", which
+  // the gate holds anyway, and "Pay opens when the undo window closes" would be a promise the next
+  // instant breaks (the window closes onto a line that is only sent, not served).
+  if (s.servedHold !== null) return s.servedHold;
   if (s.graceOpen || s.undoInFlight) return "grace";
   return null;
+}
+
+/** D5's own sentence — the slot's held line under the gate, and the tail of every unsent reason. */
+export const PAY_OPENS_SERVED = "Pay opens once everything’s served.";
+
+/**
+ * PD10 · D5 — the ONE sentence each served-gate reason earns, said by the Bill's dock slot (and every
+ * blocked tap) AND by `create-intent`'s refusal: one function, both sides, so the server can never
+ * refuse in words the screen does not use. English only — none of these has a shipped Burmese (m10
+ * COPY lists them for K15); a Burmese line is never invented here.
+ *
+ * `unsent` tells the HOST to send and tells a GUEST who sends; with no name to give (the server
+ * knows the host's seat, not the name the table chose) it says D5's own sentence, which stays true.
+ * The shipped "— then the bill is ready to pay" is retired: under D5 a sent bill is NOT ready to pay
+ * until it is served, so that clause would be false (m10 STATES, "Unsent dishes").
+ */
+export function servedHoldCopy(
+  hold: ServedHold,
+  ctx: { canSend: boolean; hostName: string | null },
+): string {
+  switch (hold) {
+    case "unsent":
+      return ctx.canSend
+        ? `Send everything to the kitchen first — ${PAY_OPENS_SERVED}`
+        : ctx.hostName
+          ? `${ctx.hostName} sends them — ${PAY_OPENS_SERVED}`
+          : PAY_OPENS_SERVED;
+    case "hostless":
+      // D5 — a table with no host: its drafts fire only when staff send them from the console, so
+      // the reason names the two doors that serve it (the server, and the counter).
+      return "A server will send these to the kitchen — or pay at the counter.";
+    case "togo":
+      // Codex round 3 — the shipped "Send to kitchen now" lives behind the dish's ⋯ ("More").
+      return `Send your to-go dish to the kitchen first (More ⋯) — ${PAY_OPENS_SERVED}`;
+    case "kitchen":
+      return PAY_OPENS_SERVED;
+  }
 }
 
 /**
@@ -84,7 +139,8 @@ export function payBlock(s: {
  * (`phonePayOpen` false: `!phonePayParked(mode, surfaceOpen("dineInPhonePay"))`, lib/checkout-stage)
  * the Bill has no Pay at all, in EVERY arm — hostless and post-send included — so the door is a
  * door to a bill you can READ and never "& pay". The flag is an input, never read here, so the
- * test flips it. After C2's flip (PD10, D5) the kitchen hold becomes a `payBlock` arm of its own.
+ * test flips it. After C2's flip the served gate's holds (PD10, D5 — `kitchen`, `hostless`, `togo`)
+ * are `payBlock` arms of their own, so the door reads "View bill" until everything is served.
  */
 export function billDoorLabel(
   block: PayBlock | null,
@@ -100,9 +156,9 @@ export function billDoorLabel(
 
 /**
  * The ONE sentence each block earns — the Pay button's `aria-describedby` text and what every blocked
- * tap re-says. Every string is shipped copy: the peer line was the old Pay LABEL (`Checkout.tsx`),
- * the host's unsent line is create-intent's own refusal, the guest's is the Bill's unsent note, and
- * the grace line is `payOpensAfterUndo` (lib/i18n/cart.ts).
+ * tap re-says. The peer line was the old Pay LABEL (`Checkout.tsx`) and the grace line is
+ * `payOpensAfterUndo` (lib/i18n/cart.ts); the unsent line and the three served-gate lines are D5's
+ * (`servedHoldCopy` — the same words `create-intent` refuses with).
  */
 export function payBlockCopy(
   block: PayBlock,
@@ -118,9 +174,17 @@ export function payBlockCopy(
     case "peer":
       return `Waiting for ${ctx.lockedByName ?? "Someone"} to finish`;
     case "unsent":
-      return ctx.canSend
-        ? "Send everything to the kitchen first — then the bill is ready to pay."
-        : `${ctx.hostName ?? TABLE_STARTER} sends them — then the bill is ready to pay.`;
+      // PD10 — Pay is drawn only while the phone-pay door is open, and the open door is the SERVED
+      // door (D5), so the unsent reason is D5's: a guest whose table cannot name its host is told
+      // the role ("The person who started the table sends them — …"), never a name invented.
+      return servedHoldCopy("unsent", {
+        canSend: ctx.canSend,
+        hostName: ctx.hostName ?? TABLE_STARTER,
+      });
+    case "hostless":
+    case "togo":
+    case "kitchen":
+      return servedHoldCopy(block, ctx);
     case "grace":
       return t("en", "payOpensAfterUndo");
   }

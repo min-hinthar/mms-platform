@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
+import { KDS_UNDO_MS } from "@/lib/kds-undo";
 import { t } from "@/lib/i18n";
 
 /**
@@ -95,10 +96,24 @@ vi.mock("./nav/TransitionNav", () => ({
 // ⚠️ `./PayAtCounter` IS LEFT REAL, unlike the other children. `askCounter`/`withdrawCounter` are
 // the two `confirmedWrite` call sites M227 named, and a stub would guard a button this screen might
 // no longer be wiring. The module is pure presentation (two buttons and a card).
-vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
+// PD10 — a stub that exposes the ONE prop this suite asks about: the pay step's counter (the parent's
+// leave-then-ask composite, `payToCounter`). It renders nothing else of the pay step.
+vi.mock("./PaymentSection", () => ({
+  PaymentSection: ({ onCounter, fold }: { onCounter?: () => void; fold?: boolean }) =>
+    onCounter ? (
+      <button type="button" data-fold={String(fold)} onClick={onCounter}>
+        pay-step counter
+      </button>
+    ) : null,
+}));
 // PD2 (Codex round 1 on #331) — a MARKER, not null: the pass replaces the Bill, so whether the split
 // chooser still renders beneath it is a question this suite asks; the marker carries no text.
-vi.mock("./SplitSection", () => ({ SplitSection: () => <div data-testid="split-section" /> }));
+// PD10 — and it carries `payHere` (the served door's wording switch) as a data attribute.
+vi.mock("./SplitSection", () => ({
+  SplitSection: ({ payHere }: { payHere?: boolean }) => (
+    <div data-testid="split-section" data-pay-here={String(payHere)} />
+  ),
+}));
 // The blind pass on #331 (guard 6) — a MARKER carrying the board's subject, not null: whether a group
 // table under the register's freeze flips to the split board is a question this suite asks.
 vi.mock("./SettlementBoard", () => ({
@@ -172,6 +187,16 @@ const ITEM_C: CartItem = {
   name: "Shan Noodles",
 };
 
+/** PD10 — the views' DB clock, and a dish SERVED past Mom's undo window on it (the served door's
+ *  open state, D5): bumped ten minutes before the clock, far beyond `KDS_UNDO_MS`. */
+const DB_NOW = "2026-10-08T10:00:00.000Z";
+const SERVED: CartItem = {
+  ...ITEM,
+  lineState: "served",
+  fireAt: "2026-10-08T09:40:00.000Z",
+  bumpedAt: "2026-10-08T09:50:00.000Z",
+};
+
 const TOTALS: CartTotals = {
   subtotalCents: 1200,
   discountCents: 0,
@@ -204,6 +229,7 @@ function view(over: Partial<View> = {}): View {
     sendNudge: null,
     nudgeReady: true,
     serverNow: "2026-10-08T10:00:00.000Z",
+    dbNow: "2026-10-08T10:00:00.000Z",
     mode: "dinein",
     ...over,
   } satisfies View;
@@ -236,6 +262,9 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
       initialItems={[ITEM]}
       initialTotals={TOTALS}
       initialMySeat={MY_SEAT}
+      // PD10 — the DB clock the first view was made at (`view().dbNow`): every stage on the live pass
+      // and the served door is read against it.
+      initialDbNow={DB_NOW}
       {...props}
     />,
   );
@@ -727,7 +756,9 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     h.getCartView.mockReturnValueOnce(stale.promise).mockReturnValueOnce(afterWithdraw.promise);
     await syncFromServer();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Pay on your phone/i }));
+      // PD10 — the counter pass's withdraw (its words follow the served door: here a fired dish
+      // holds it, so "We’re not done yet"); named by its act either way.
+      fireEvent.click(screen.getByRole("button", { name: /cancel paying at the counter/i }));
     });
     await waitFor(() => expect(counterCards()).toBe(0));
     await act(async () => {
@@ -1474,16 +1505,18 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     expect(pay.hasAttribute("disabled")).toBe(false);
+    // PD10 · D5 — in D5's words: a sent bill is not ready until it is served.
     expect(payReason()).toBe(
-      "Send everything to the kitchen first — then the bill is ready to pay.",
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
     fireEvent.click(pay);
     expect(fetchSpy).not.toHaveBeenCalled();
     // The click's own answer in the region, not just the line that was there before it.
     expect(regionText()).toContain(
-      "Send everything to the kitchen first — then the bill is ready to pay.",
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
-    expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
+    // The host's quiet way back to the Send (the slot says the rest — never a second note).
+    expect(screen.getByRole("button", { name: /Back to send them/ })).toBeTruthy();
     fetchSpy.mockRestore();
   });
 });
@@ -1507,13 +1540,17 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     // is sent to the register over dishes nobody is cooking, a door the Pay button keeps shut; red.
     expect(counter.getAttribute("aria-disabled")).toBe("true");
     expect(counter.hasAttribute("disabled")).toBe(false);
-    // The diner sees why while this button is the visible action (the note renders on the same
-    // Bill stage the button does).
-    expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
+    // The diner sees why while this button is the visible action: the dock's one line slot
+    // (PD10 — the served-gated Bill's dock; the unsent reason is D5's).
+    expect(document.getElementById("pay-line")?.textContent).toBe(
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
+    );
     await act(async () => {
       fireEvent.click(counter);
     });
     expect(h.requestCounterPay).not.toHaveBeenCalled();
+    // MUTATION (checkout/unsent-counter-tap-silent): the dimmed counter's tap says nothing — the
+    // diner taps a button that does nothing and reads nothing new; red.
     expect(document.body.textContent).toContain(
       "Send everything to the kitchen first — then pay at the counter.",
     );
@@ -1536,13 +1573,16 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
     const counter = screen.getByRole("button", { name: /Pay at the counter/i });
     expect(counter.getAttribute("aria-disabled")).toBe("true");
-    expect(document.body.textContent).toContain("Aye sends them — then the bill is ready to pay.");
+    expect(document.getElementById("pay-line")?.textContent).toBe(
+      "Aye sends them — Pay opens once everything’s served.",
+    );
     await act(async () => {
       fireEvent.click(counter);
     });
     expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
-    // a guest is told to send what only Aye can; red.
+    // MUTATION (checkout/dock-counter-guest-told-to-send): the host's sentence for every role on
+    // the PD10 dock — a guest is told to send what only Aye can; red. (The parked dock's twin is
+    // `checkout/unsent-counter-guest-told-to-send`, pinned in the PD2 describe.)
     expect(document.body.textContent).toContain(
       "Aye sends everything to the kitchen first — then pay at the counter.",
     );
@@ -1622,10 +1662,12 @@ describe("Phase 1b — a stale history entry is replaced, never stacked (blind p
   });
 });
 
-describe("Phase 1b — the pay gate needs someone who can send", () => {
-  it("a table with NO host is never locked — nobody there could send", () => {
-    // MUTATION: ignore host presence — a staff-started table whose diners all came by invite link
-    // could never pay; red.
+describe("Phase 1b → PD10 · D5 — a table with no host: nobody there can send", () => {
+  it("its drafts HOLD Pay with the reason that names the server and the counter — and the counter stays live", () => {
+    // PD10 · D5 reverses Phase 1b's exemption for PAY (never for the counter): a hostless table's
+    // drafts fire only from the console, so paying by phone first would charge before the food
+    // exists. The reason names the two doors that serve it. (Phase 2c's twin below pins the
+    // counter: still never gated at a hostless table.)
     mount({
       splitContext: {
         mode: "dinein",
@@ -1639,9 +1681,11 @@ describe("Phase 1b — the pay gate needs someone who can send", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
     const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
-    expect(pay.getAttribute("aria-disabled")).toBeNull();
-    expect(pay.getAttribute("aria-describedby")).toBeNull();
-    expect(payReason()).toBeNull();
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
+    expect(payReason()).toBe("A server will send these to the kitchen — or pay at the counter.");
+    expect(
+      screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
     expect(document.body.textContent).not.toContain("sends the table’s order");
   });
 });
@@ -2156,7 +2200,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
     const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
-    const said = "Send everything to the kitchen first — then the bill is ready to pay.";
+    const said = "Send everything to the kitchen first — Pay opens once everything’s served.";
     await act(async () => {
       fireEvent.click(pay);
     });
@@ -2194,9 +2238,9 @@ describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", ()
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     // MUTATION (checkout-verb/guest-unsent-copy-orders-the-guest-to-send): the host's sentence for
     // every role — a guest is told to send what only Aung can; red.
-    expect(payReason()).toBe("Aung sends them — then the bill is ready to pay.");
+    expect(payReason()).toBe("Aung sends them — Pay opens once everything’s served.");
     fireEvent.click(pay);
-    expect(regionText()).toContain("Aung sends them — then the bill is ready to pay.");
+    expect(regionText()).toContain("Aung sends them — Pay opens once everything’s served.");
   });
 
   it("a tablemate's lock is the reason 'Waiting for {name} to finish' — the label is still 'Pay ·', and every tap re-says it", async () => {
@@ -2241,9 +2285,10 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
 
   it("with a tip previewed, the door's figure, its name and the Bill's hero total agree — a tip-less second sum separates", async () => {
     window.history.replaceState(null, "", "/cart?cart=cart-1");
-    // One dish still a draft (the quiet door, the Send hero), one with the kitchen.
-    mount({ splitContext: HOST, initialItems: [ITEM, { ...ITEM_B, lineState: "fired" }] });
-    fireEvent.click(screen.getByRole("button", { name: "Total · $12.00 — View bill" }));
+    // PD10 · D5 — a tip is previewed only once the SERVED door is open (no tip is asked before the
+    // food), so the door that carries it back to the Order stage is the HERO door: everything is
+    // served, nothing holds Pay, and it reads "View bill & pay · $X".
+    mount({ splitContext: HOST, initialItems: [SERVED] });
     await press(/20%/);
     const heroFigure = document.querySelector(".vt-cart-total")!.textContent;
     expect(heroFigure).toBe("14.4"); // $12.00 + 20% = $14.40 (NumberFlow is mocked to the raw value)
@@ -2252,19 +2297,24 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    // The Order stage: the quiet door (Send is the hero), named with the SAME figure and labelled
-    // as the preview it is.
-    // …its NAME opens with that visible label (WCAG 2.5.3) and ends with the verb.
-    const door = await screen.findByRole("button", {
-      name: "Estimated total · $14.40 — View bill",
-    });
+    // The Order stage: the door is the filled hero, named with the SAME figure.
+    const door = await screen.findByRole("button", { name: "View bill & pay · $14.40" });
     // MUTATION (checkout/total-door-drops-the-previewed-tip): the door reads `totals.totalCents` —
     // $12.00 beside a Bill that says $14.40, the price jumping between two adjacent taps; red.
-    expect(door.textContent).toContain("Estimated total");
     expect(door.textContent).toContain("14.4");
-    expect(door.classList.contains("checkout-cta")).toBe(false);
+    expect(door.classList.contains("checkout-cta")).toBe(true);
     expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
-    expect(door.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("PD10 · D5 — while any dish holds the served door, no tip is previewed anywhere: the quiet door reads the server's total", async () => {
+    // One draft (the host's Send is the hero) and one dish with the kitchen: the door is held, so
+    // the tip ask is not even drawn and no figure carries a tip.
+    mount({ splitContext: HOST, initialItems: [ITEM, { ...ITEM_B, lineState: "fired" }] });
+    const door = screen.getByRole("button", { name: "Total · $12.00 — View bill" });
+    expect(door.textContent).not.toContain("Estimated");
+    await press("Total · $12.00 — View bill");
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    expect(screen.queryByText(/Estimated total/)).toBeNull();
   });
 
   it("the door reads 'Total' while no tip is previewed, and 'View bill' (not '& pay') while Pay is held", () => {
@@ -2417,8 +2467,12 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(door.hasAttribute("disabled")).toBe(false);
     expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
     expect(dockLine()).toContain("Send everything to the kitchen first — then pay at the counter.");
-    // The mark above the slip: the console's two words, no number (DESIGN-LANGUAGE §21).
-    expect(screen.getByText("Not sent yet")).toBeTruthy();
+    // PD10 — the mark is the PASS's head now (the roll-up's hollow ring and the console's two
+    // words), said once for the table; the waiting dish wears its own ring. No number
+    // (DESIGN-LANGUAGE §21).
+    const head = document.querySelector(".ui-pass-status .ui-track")!;
+    expect(head.getAttribute("data-stage")).toBe("unsent");
+    expect(head.textContent).toContain("Not sent yet");
     expect(document.body.textContent).not.toMatch(/\d+ items? (haven’t|not sent)/);
     expect(screen.getByRole("button", { name: /Back to send them/ })).toBeTruthy();
     await press(/^Pay at the counter/);
@@ -2690,9 +2744,9 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     // Total ≠ subtotal (tax), so a binding that reads the wrong figure separates.
     const TAXED: CartTotals = { ...TOTALS, taxCents: 126, totalCents: 1326 };
     mount({ splitContext: HOST, initialItems: [FIRED], initialTotals: TAXED });
-    // MUTATION (checkout/parked-foot-reads-the-subtotal): the slip's foot reads `subtotalCents`; red.
-    const slip = document.querySelector(".checkout-receipt")!;
-    expect(slip.textContent).toContain("13.26");
+    // MUTATION (checkout/parked-foot-reads-the-subtotal): the pass's foot reads `subtotalCents`;
+    // red. (PD10 — the slip is the live One Pass; its foot is the one total binding.)
+    expect(document.querySelector(".live-pass-foot-amount")!.textContent).toBe("13.26");
     cleanup();
     mount({
       splitContext: HOST,
@@ -3149,5 +3203,391 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     // The rest of the wait block still stands: the staff fallback and "Show a server".
     expect(wait()).not.toBeNull();
     expect(showServer()).not.toBeNull();
+  });
+});
+
+// ── PD10 (PATH_DESIGN_2026-10-07 decision 10; m10) — the guest's live One Pass, and the served door ──
+describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bill, live)", () => {
+  /** Thiri's phone at Aye's table: a guest, the host named, a group (owners on the rows). */
+  const TABLE = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "guest" as const,
+    members: [
+      { seat: PEER_SEAT, name: "Aye", role: "host" as const },
+      { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+    ],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
+  const COOKING: CartItem = { ...ITEM, id: "l-cook", bySeat: MY_SEAT, lineState: "in_progress" };
+  const TEA: CartItem = {
+    ...SERVED,
+    id: "l-tea",
+    name: "Burmese Milk Tea",
+    nameMy: "လက်ဖက်ရည်",
+    bySeat: PEER_SEAT,
+  };
+  const pass = () => document.querySelector(".live-pass .ui-pass")!;
+  const rowOf = (name: string) =>
+    within(screen.getByRole("list", { name: "Your bill" }))
+      .getByText(name, { exact: false })
+      .closest("li")!;
+  beforeEach(() => {
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+  });
+  afterEach(() => {
+    flags.phonePayOpen = true;
+    flags.splitOpen = true;
+  });
+
+  it("the rows are the pass's body: the head is the roll-up, the stub Host · Sent, each dish its track and word — the table named once", () => {
+    mount({ splitContext: TABLE, initialItems: [COOKING, TEA], initialTableNumber: 7 });
+    const p = pass();
+    // The head: the least-advanced dish — Cooking, in the family's console words.
+    const head = p.querySelector(".ui-pass-status .ui-track")!;
+    expect(head.getAttribute("data-stage")).toBe("cooking");
+    expect(head.textContent).toContain("Cooking");
+    expect(head.textContent).toContain("ချက်နေဆဲ");
+    // ONE identity figure (the table), under "Table · စားပွဲ"; no "Table 7" eyebrow above it.
+    expect(p.querySelector(".ui-pass-figure")!.textContent).toBe("7");
+    expect(document.querySelector(".eyebrow")).toBeNull();
+    // The stub: the host by the name the table chose, and the Sent time on the restaurant's clock.
+    const stub = p.querySelector(".live-pass-stub")!;
+    expect(stub.textContent).toContain("Host");
+    expect(stub.textContent).toContain("Aye");
+    expect(stub.textContent).toMatch(/Sent\d{1,2}:\d{2} (AM|PM)/);
+    // Each dish: its track and word, and its owner on a group table — in CART order.
+    expect(rowOf("Mohinga").querySelector(".ui-track")!.getAttribute("data-stage")).toBe("cooking");
+    expect(rowOf("Mohinga").textContent).toContain("You");
+    expect(rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-stage")).toBe(
+      "served",
+    );
+    expect(rowOf("Burmese Milk Tea").textContent).toContain("ထုတ်ပြီး");
+    expect(rowOf("Burmese Milk Tea").textContent).toContain("Aye");
+    // Nothing is a live region: the view keeps its one.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    // A pass shows ✓ only at Paid (post-pay's screen 3): none here.
+    expect(p.querySelector(".ui-pass-stamp")).toBeNull();
+  });
+
+  it("a bump inside Mom's undo window reads COOKING on the DB clock — never this phone's", () => {
+    // MUTATION (checkout/pass-reads-the-device-clock): the stages read against `Date.now()` — a
+    // dish Mom bumped (and can still take back) reads Served on a phone whose clock runs ahead; red.
+    const justBumped: CartItem = { ...TEA, bumpedAt: at(-1_000) };
+    mount({ splitContext: TABLE, initialItems: [justBumped], initialDbNow: DB_NOW });
+    expect(rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-stage")).toBe(
+      "cooking",
+    );
+  });
+
+  it("when the undo window passes, ONE re-read moves it on an OBSERVED view: the row FILLs, then the head TURNs", async () => {
+    // MUTATION (checkout/settle-reread-not-scheduled): no re-read at the window's end — the dish
+    // reads "Cooking" until some unrelated event, possibly never; red.
+    const bumped = at(-KDS_UNDO_MS + 300); // 300 ms of Mom's window left on the view's clock
+    const tea: CartItem = { ...TEA, bumpedAt: bumped };
+    h.getCartView.mockResolvedValue(view({ items: [tea], dbNow: at(2_000) }));
+    mount({ splitContext: TABLE, initialItems: [tea] });
+    expect(rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-stage")).toBe(
+      "cooking",
+    );
+    await waitFor(
+      () =>
+        expect(
+          rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-filling"),
+        ).not.toBeNull(),
+      { timeout: 3000 },
+    );
+    expect(rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-stage")).toBe(
+      "served",
+    );
+    await waitFor(() => expect(pass().getAttribute("data-turning")).toBe("head"), {
+      timeout: 3000,
+    });
+    // One thing at a time: the fill has finished before the head turns.
+    expect(
+      rowOf("Burmese Milk Tea").querySelector(".ui-track")!.getAttribute("data-filling"),
+    ).toBeNull();
+    // Ambient: nothing announced.
+    expect(regionText()).not.toContain("Served");
+  });
+
+  it("a FOREGROUND re-read draws what moved while the phone was away at its final frame — no fill, no turn", async () => {
+    // MUTATION (checkout/door-moment-on-a-foreground-read): the foreground read not marked quiet —
+    // a phone back from the lock screen replays a storm of fills and a turn; red.
+    mount({ splitContext: TABLE, initialItems: [COOKING, TEA] });
+    h.getCartView.mockResolvedValue(
+      view({ items: [{ ...COOKING, lineState: "served", bumpedAt: at(-60_000) }, TEA] }),
+    );
+    await syncFromServer();
+    await waitFor(() =>
+      expect(rowOf("Mohinga").querySelector(".ui-track")!.getAttribute("data-stage")).toBe(
+        "served",
+      ),
+    );
+    expect(document.querySelector("[data-filling]")).toBeNull();
+    expect(pass().getAttribute("data-turning")).toBeNull();
+  });
+
+  it("row kinds: a comped dish keeps its track; a voided one is struck and 'Removed'; a to-go draft keeps its shipped line; grocery is 'In your basket'", () => {
+    mount({
+      splitContext: TABLE,
+      initialItems: [
+        { ...COOKING, comped: true },
+        { ...ITEM, id: "l-void", name: "Shan Noodles", lineState: "voided" },
+        { ...ITEM, id: "l-togo", name: "Coconut Rice", fulfillment: "togo" },
+        { ...ITEM, id: "l-groc", name: "Fish Sauce", fulfillment: "grocery" },
+      ],
+    });
+    // A to-go (and a grocery) draft lands the cart on the Order stage: walk to the Bill.
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    // Three destinations: the pass brings back the group headings, one list each.
+    const comped = within(screen.getByRole("list", { name: "At your table" }))
+      .getByText("Mohinga", { exact: false })
+      .closest("li")!;
+    expect(comped.querySelector(".ui-track")!.getAttribute("data-stage")).toBe("cooking");
+    expect(comped.textContent).toContain("On the house");
+    const voided = within(document.querySelector(".live-pass")! as HTMLElement)
+      .getByText("Shan Noodles", { exact: false })
+      .closest("li")!;
+    expect(voided.getAttribute("data-voided")).not.toBeNull();
+    expect(voided.textContent).toContain("Removed");
+    expect(voided.querySelector(".ui-track")).toBeNull();
+    const togo = within(document.querySelector(".live-pass")! as HTMLElement)
+      .getByText("Coconut Rice", { exact: false })
+      .closest("li")!;
+    expect(togo.textContent).toContain("Not sent yet — goes to the kitchen when you pay");
+    const groc = within(document.querySelector(".live-pass")! as HTMLElement)
+      .getByText("Fish Sauce", { exact: false })
+      .closest("li")!;
+    expect(groc.textContent).toContain("In your basket");
+  });
+});
+
+describe("PD10 · D5 — after the flip: Pay opens only once everything is served", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
+  const COOKING: CartItem = { ...ITEM, lineState: "in_progress" };
+  const payLine = () => document.getElementById("pay-line")?.textContent ?? "";
+  const pay = () => screen.getByRole("button", { name: /^Pay · \$/ });
+  const tipChip = (name: RegExp) =>
+    within(screen.getByRole("group", { name: /Add a little extra/ })).getByRole("button", { name });
+
+  it("held: Pay keeps its name, dimmed, with D5's sentence in the slot — no tip ask — and the counter is LIVE", async () => {
+    // MUTATION (checkout/served-gate-not-drawn): the gate never drawn — Pay reads live over food
+    // still cooking, and the tap meets create-intent's refusal instead of the button's reason; red.
+    // MUTATION (checkout/tip-asked-before-the-food): the tip ask drawn while held — a guest is asked
+    // to tip for dishes still on the wok (D5: no tip is asked before the food); red.
+    // MUTATION (checkout/counter-held-by-the-kitchen): the counter door handed the served gate —
+    // the family cannot even ask for the register while the food cooks (D5: never gated); red.
+    mount({ splitContext: HOST, initialItems: [COOKING] });
+    expect(pay().getAttribute("aria-disabled")).toBe("true");
+    expect(pay().getAttribute("aria-describedby")).toBe("pay-line");
+    expect(payLine()).toBe("Pay opens once everything’s served.");
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    // Every blocked tap re-says the reason through the one region.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await press(/^Pay · \$/);
+    await settle();
+    expect(regionText()).toContain("Pay opens once everything’s served.");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("a to-go draft holds with its ⋯ reason, and the head never reads Served beside it", () => {
+    mount({
+      splitContext: HOST,
+      initialItems: [SERVED, { ...ITEM, id: "l-togo", fulfillment: "togo" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(payLine()).toBe(
+      "Send your to-go dish to the kitchen first (More ⋯) — Pay opens once everything’s served.",
+    );
+    expect(
+      document.querySelector(".ui-pass-status .ui-track")!.getAttribute("data-stage"),
+    ).not.toBe("served");
+  });
+
+  it("THE DOOR OPENS on an observed view once Mom's undo has passed: 'Ready to pay.' once, the POP, the tip ask — none pre-selected", async () => {
+    const tea: CartItem = { ...SERVED, bumpedAt: at(-KDS_UNDO_MS + 300) };
+    h.getCartView.mockResolvedValue(view({ items: [tea], dbNow: at(2_000) }));
+    mount({ splitContext: HOST, initialItems: [tea] });
+    // Inside Mom's window the door is held: a bump she takes back never opened anything.
+    expect(pay().getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() => expect(pay().getAttribute("aria-disabled")).toBeNull(), { timeout: 3000 });
+    // The moment, in sequence (fill → turn → door): the POP on the whole Pay control, then the
+    // one sentence. Never a focus move.
+    await waitFor(() => expect(pay().classList.contains("checkout-door-pop")).toBe(true), {
+      timeout: 3000,
+    });
+    await waitFor(() => expect(regionText()).toContain("Ready to pay."), { timeout: 3000 });
+    expect(payLine()).toBe("Ready to pay.");
+    expect(document.activeElement).toBe(document.body);
+    // The shipped tip ask, mounted under the pass — nothing lit but the quiet None.
+    expect(screen.getByRole("group", { name: /Add a little extra/ })).toBeTruthy();
+    expect(tipChip(/20%/).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("a door already open on mount is drawn open — no POP, no announcement", async () => {
+    mount({ splitContext: HOST, initialItems: [SERVED] });
+    expect(pay().getAttribute("aria-disabled")).toBeNull();
+    expect(payLine()).toBe("Ready to pay.");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1_300));
+    });
+    expect(pay().classList.contains("checkout-door-pop")).toBe(false);
+    expect(regionText()).not.toContain("Ready to pay.");
+  });
+
+  it("a recall closing the door CLEARS the chosen tip — preset and custom — so a reopened door starts with none (Codex round 5)", async () => {
+    // MUTATION (checkout/tip-survives-the-gate-closing): the close edge keeps the rate — the door
+    // reopens with 20% lit, a choice the guest made about food that then went back to the wok; red.
+    mount({ splitContext: HOST, initialItems: [SERVED] });
+    await act(async () => {
+      fireEvent.click(tipChip(/20%/));
+    });
+    expect(tipChip(/20%/).getAttribute("aria-pressed")).toBe("true");
+    expect(pay().textContent).toContain("14.40");
+    // Mom recalls it (served → in_progress): the door closes, the ask unmounts, the total drops the tip.
+    h.getCartView.mockResolvedValue(view({ items: [COOKING] }));
+    await syncFromServer();
+    await waitFor(() =>
+      expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull(),
+    );
+    expect(pay().textContent).toContain("12.00");
+    // Served again: the door reopens with nothing lit.
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    await syncFromServer();
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: /Add a little extra/ })).toBeTruthy(),
+    );
+    expect(tipChip(/20%/).getAttribute("aria-pressed")).toBe("false");
+    expect(pay().textContent).toContain("12.00");
+    // …and a CUSTOM amount clears the same way.
+    await act(async () => {
+      fireEvent.click(tipChip(/Custom/));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: /Custom tip amount/ }), {
+        target: { value: "3" },
+      });
+    });
+    expect(pay().textContent).toContain("15.00");
+    h.getCartView.mockResolvedValue(view({ items: [COOKING] }));
+    await syncFromServer();
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    await syncFromServer();
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: /Add a little extra/ })).toBeTruthy(),
+    );
+    expect(tipChip(/Custom/).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByRole("textbox", { name: /Custom tip amount/ })).toBeNull();
+    expect(pay().textContent).toContain("12.00");
+  });
+
+  it("the counter pass's withdraw promises the phone ONLY while the served door is open", async () => {
+    // MUTATION (checkout/withdraw-promises-phone-pay-while-held): "Changed your mind? Pay on your
+    // phone" over a held door — the guest withdraws into a Pay that refuses them; red.
+    const asked = "2026-10-08T09:59:00.000Z";
+    mount({ splitContext: HOST, initialItems: [COOKING], initialCounterRequestedAt: asked });
+    expect(screen.getByRole("button", { name: /We’re not done yet/ })).toBeTruthy();
+    cleanup();
+    mount({ splitContext: HOST, initialItems: [SERVED], initialCounterRequestedAt: asked });
+    expect(
+      screen.getByRole("button", { name: /Changed your mind\? Pay on your phone/ }),
+    ).toBeTruthy();
+  });
+
+  it("the group's split section says 'Pay as one bill here' only over an open door", () => {
+    // MUTATION (checkout/split-says-pay-here-while-held): the section told the phone door is open
+    // whenever the flag is — "Pay as one bill here" over a Pay the kitchen holds; red.
+    const GROUP = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    flags.splitOpen = false;
+    mount({ splitContext: GROUP, initialItems: [COOKING] });
+    expect(screen.getByTestId("split-section").getAttribute("data-pay-here")).toBe("false");
+    cleanup();
+    mount({ splitContext: GROUP, initialItems: [SERVED] });
+    expect(screen.getByTestId("split-section").getAttribute("data-pay-here")).toBe("true");
+    flags.splitOpen = true;
+  });
+
+  describe("the pay step's 'Pay at the counter' — leave Pay, then ask (m10 decision 7)", () => {
+    const okIntent = () =>
+      new Response(JSON.stringify({ clientSecret: "pi_x_secret", totals: TOTALS, attempt: "a1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    async function toPayStep() {
+      window.history.replaceState(null, "", "/cart?cart=cart-1");
+      h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+      h.releasePayLock.mockResolvedValue({ released: true });
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(okIntent());
+      mount({ splitContext: HOST, initialItems: [SERVED] });
+      await press(/^Pay · \$/);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "pay-step counter" })).toBeTruthy(),
+      );
+      // The table's pay step folds the card behind the wallet (decided in PaymentSection).
+      expect(
+        screen.getByRole("button", { name: "pay-step counter" }).getAttribute("data-fold"),
+      ).toBe("true");
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it("releases the pay-window lock, lands on the Bill, then asks — the phone becomes the counter pass", async () => {
+      await toPayStep();
+      // The leave's re-read shows no ask yet; every read after the ask carries the confirmed stamp.
+      h.getCartView
+        .mockResolvedValueOnce(view({ items: [SERVED] }))
+        .mockResolvedValue(
+          view({ items: [SERVED], counterRequestedAt: "2026-09-18T06:00:00.000Z" }),
+        );
+      await press("pay-step counter");
+      await waitFor(() => expect(h.requestCounterPay).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(h.releasePayLock).toHaveBeenCalledTimes(1);
+      expect(h.releasePayLock.mock.invocationCallOrder[0]!).toBeLessThan(
+        h.requestCounterPay.mock.invocationCallOrder[0]!,
+      );
+      await waitFor(() => expect(counterCards()).toBe(1));
+    });
+
+    it("a refused ask lands on the Bill with its sentence — the Bill's own counter door right there", async () => {
+      await toPayStep();
+      h.requestCounterPay.mockRejectedValueOnce(new Error("fetch failed"));
+      await press("pay-step counter");
+      await waitFor(() =>
+        expect(regionText()).toContain("Couldn’t reach the counter just now — please try again."),
+      );
+      expect(counterCards()).toBe(0);
+      expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+    });
+
+    it("a tablemate's lock landing between the two writes is SAID — never a silent refusal (open risk 7)", async () => {
+      // MUTATION (checkout/pay-step-counter-skips-the-peer-lock): the composite hands the ask to
+      // `askCounter`, which refuses a peer's freeze in silence — the guest tapped the counter and
+      // nothing happened; red.
+      await toPayStep();
+      h.getCartView.mockResolvedValue(view({ items: [SERVED], locked: true, lockedBy: PEER_SEAT }));
+      await press("pay-step counter");
+      await waitFor(() => expect(regionText()).toContain("to finish"), { timeout: 3000 });
+      expect(h.requestCounterPay).not.toHaveBeenCalled();
+    });
   });
 });

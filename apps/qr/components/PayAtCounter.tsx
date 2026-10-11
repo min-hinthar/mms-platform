@@ -9,129 +9,18 @@ import { passIdentity } from "@/lib/pass-identity";
 /**
  * A1 — the diner's "Pay at the counter" moment, on the Bill.
  *
- * Two surfaces share this file because they are one decision seen from two sides:
- *  - `PayAtCounterButton` — the quiet second door under "Pay · $X". Ghost, never a second filled
- *    CTA (the Bill owns ONE hero action — W12/W19), and it carries the same freeze gate as the pay
- *    CTA: a table mid-card-payment is not offered a walk to the register.
- *  - `PayAtCounterCard` — the state after the tap. It REPLACES the pay furniture (tip, promo, the
- *    card CTA) but never the receipt rows above it: the register re-derives the live total, so the
- *    amount here is the same server figure the Bill already shows, and the table may keep ordering.
- *    The way back is a quiet link, last (the DESIGN-LANGUAGE "escape is a quiet link" rule).
+ * The surfaces share this file because they are one decision seen from several sides: the parked
+ * Bill's docked door (`PayAtCounterDock`, PD2), the counter pass every phone at the table becomes
+ * after the ask (`PayAtCounterPass`, PD2), and the close after the register settled
+ * (`CounterSettledCard`). PD10 retired the flag-on pair this file was born with — the ghost
+ * `PayAtCounterButton` under "Pay · $X" and the after-the-ask `PayAtCounterCard`: after the flip the
+ * staged Bill docks its Pay with the quiet counter beside it (`PayDock`), and the ask is the counter
+ * pass whether or not the phone-pay door is open (m10 STATES).
  *
  * Amounts are never computed here — `totalCents` is `getCartTotals`' figure, passed through.
  */
 
 const TX = (k: DictKey) => t("en", k);
-
-export function PayAtCounterButton({
-  disabled,
-  busy,
-  onClick,
-  onRefusedTap,
-}: {
-  /** The pay freeze (`payFrozen`) — the same predicate the card CTA reads — or, since Phase 2c ·
-   *  gate, dishes still to send (`sendBlocksPay`, the card CTA's own gate). */
-  disabled: boolean;
-  busy: boolean;
-  onClick: () => void;
-  /** Phase 2c · gate — a tap on the refused button says why (the Bill's status line), never nothing:
-   *  the note above already names the dishes; this repeats it for a tap that missed it. */
-  onRefusedTap?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="checkout-cta-ghost"
-      aria-disabled={disabled || undefined}
-      aria-busy={busy || undefined}
-      onClick={() => {
-        if (busy) return;
-        if (disabled) {
-          onRefusedTap?.();
-          return;
-        }
-        onClick();
-      }}
-      style={{
-        ...ghost,
-        cursor: disabled || busy ? "default" : "pointer",
-        opacity: disabled ? 0.55 : busy ? 0.7 : 1,
-      }}
-    >
-      <Icon name="receipt" size={16} />
-      <span>
-        {busy ? "One moment…" : TX("payAtCounter")}
-        <span
-          lang="my"
-          style={{ display: "block", fontSize: "var(--fs-xs)", fontWeight: "var(--fw-semibold)" }}
-        >
-          {t("my", "payAtCounter")}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-export function PayAtCounterCard({
-  tableNumber,
-  totalCents,
-  busy,
-  onWithdraw,
-}: {
-  tableNumber: number | null;
-  totalCents: number;
-  busy: boolean;
-  onWithdraw: () => void;
-}) {
-  return (
-    <section className="card card-textured mms-rise" style={card} aria-labelledby="counter-h">
-      <p style={eyebrow}>
-        <Icon name="receipt" size={14} />{" "}
-        {tableNumber != null ? `Table ${tableNumber}` : "Your table"}
-      </p>
-      <h3 id="counter-h" style={title}>
-        {TX("counterTitle")}
-        <span lang="my" style={titleMy}>
-          {t("my", "counterTitle")}
-        </span>
-      </h3>
-      <p style={body}>
-        {TX("counterBody")}
-        <span lang="my" style={bodyMy}>
-          {t("my", "counterBody")}
-        </span>
-      </p>
-      <p style={amountRow}>
-        <span style={amountLabel}>{TX("rowTotal")}</span>
-        <span className="vt-cart-total" style={amount}>
-          <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
-        </span>
-      </p>
-      <p style={note}>
-        {TX("counterKeepOrdering")}
-        <span lang="my" style={bodyMy}>
-          {t("my", "counterKeepOrdering")}
-        </span>
-      </p>
-      <button
-        type="button"
-        className="nav-link"
-        aria-busy={busy || undefined}
-        onClick={() => {
-          if (busy) return;
-          onWithdraw();
-        }}
-        style={{ ...back, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}
-      >
-        {busy ? "One moment…" : TX("payOnPhoneInstead")}
-        <span aria-hidden className="nav-arrow nav-arrow-fwd">
-          {" "}
-          →
-        </span>
-      </button>
-    </section>
-  );
-}
 
 /**
  * PD2 (m2 screen 1, appendix A1 · B1 — "The Counter Path") — THE ONE DOOR, docked.
@@ -241,6 +130,7 @@ export function PayAtCounterPass({
   unsent,
   busy,
   rise,
+  withdrawKey,
   onWithdraw,
   children,
 }: {
@@ -263,6 +153,9 @@ export function PayAtCounterPass({
   /** The ask was THIS phone's: one RISE on the pass's first mount (RM: none). A tablemate's
    *  phone flips without the entrance. */
   rise: boolean;
+  /** PD10 (D5) — the withdraw's words: "Changed your mind? Pay on your phone" ONLY while the served
+   *  door is open (the flip done, every dish served); otherwise the quiet "We’re not done yet". */
+  withdrawKey: "notDoneYet" | "payOnPhoneInstead";
   onWithdraw: () => void;
   /** The receipt (BillLines + the breakdown rows), shown by the "View bill" disclosure. */
   children: ReactNode;
@@ -346,7 +239,7 @@ export function PayAtCounterPass({
       <button
         type="button"
         className="nav-link"
-        aria-label="We’re not done yet — cancel paying at the counter"
+        aria-label={`${TX(withdrawKey)} — cancel paying at the counter`}
         aria-busy={busy || undefined}
         onClick={() => {
           if (busy) return;
@@ -354,9 +247,9 @@ export function PayAtCounterPass({
         }}
         style={{ ...back, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}
       >
-        {busy ? "One moment…" : TX("notDoneYet")}
+        {busy ? "One moment…" : TX(withdrawKey)}
         <span lang="my" className="counter-withdraw-my">
-          {t("my", "notDoneYet")}
+          {t("my", withdrawKey)}
         </span>
       </button>
     </>
@@ -407,21 +300,6 @@ export function CounterSettledCard({
   );
 }
 
-const ghost: CSSProperties = {
-  width: "100%",
-  marginTop: 10,
-  minHeight: 48,
-  borderRadius: 12,
-  border: "1px solid var(--bd)",
-  background: "transparent",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  fontWeight: "var(--fw-bold)",
-  fontSize: "var(--fs-body)",
-  textAlign: "left",
-};
 const card: CSSProperties = { marginTop: 14, padding: "18px 18px 16px", display: "grid", gap: 8 };
 const eyebrow: CSSProperties = {
   margin: 0,
@@ -461,28 +339,6 @@ const bodyMy: CSSProperties = {
   fontSize: "var(--fs-xs)",
   color: "var(--t3)",
   marginTop: 2,
-};
-const amountRow: CSSProperties = {
-  margin: "6px 0 0",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "baseline",
-  gap: 12,
-  paddingTop: 10,
-  borderTop: "1px solid var(--bd)",
-};
-const amountLabel: CSSProperties = { fontWeight: "var(--fw-heavy)", fontSize: "var(--fs-body)" };
-const amount: CSSProperties = {
-  fontVariantNumeric: "tabular-nums",
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h2)",
-  fontWeight: "var(--fw-heavy)",
-};
-const note: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--fs-sm)",
-  color: "var(--t3)",
-  lineHeight: 1.5,
 };
 const back: CSSProperties = {
   background: "none",

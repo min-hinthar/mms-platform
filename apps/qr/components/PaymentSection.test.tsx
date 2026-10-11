@@ -527,3 +527,124 @@ describe("Phase 1c — a failure is an inline card whose one button can work", (
     expect(options.appearance?.disableAnimations).toBe(false);
   });
 });
+
+// ── PD10 (m10 screen 2; decisions 6 · 7) — at a table: the wallet leads, the counter stays near ──
+describe("PD10 — at a table the wallet leads and the card waits behind 'Pay with card'", () => {
+  const onCounter = vi.fn();
+  const mountTable = (extra: { counterBusy?: boolean } = {}) =>
+    render(
+      <PaymentSection
+        cartId="cart-1"
+        clientSecret="pi_1_secret_x"
+        totals={TOTALS}
+        unsentCount={0}
+        counterDoor
+        fold
+        onCounter={onCounter}
+        counterBusy={extra.counterBusy}
+        onEdit={onEdit}
+        onPayingChange={onPayingChange}
+      />,
+    );
+  const toggle = () => screen.queryByRole("button", { name: "Pay with card" });
+  afterEach(() => onCounter.mockReset());
+
+  it("a wallet AT the reveal folds the card: a collapsed disclosure, the form and its Pay hidden — the group named 'Payment'", async () => {
+    // MUTATION (payment-section/folded-pay-still-drawn): the card's submit drawn while folded — a
+    // second filled hero under the wallet, paying with a form nobody can see; red.
+    mountTable();
+    await flush();
+    await cardReady();
+    await walletReady(true);
+    const t = toggle()!;
+    expect(t.getAttribute("aria-expanded")).toBe("false");
+    const formId = t.getAttribute("aria-controls")!;
+    expect(document.getElementById(formId)!.hidden).toBe(true);
+    expect(screen.queryByRole("button", { name: "Pay $42.10" })).toBeNull();
+    // m10 B11 — a name true while the card is folded (the group leads with the wallet).
+    expect(screen.getByRole("group", { name: "Payment" })).toBeTruthy();
+    // The WAI disclosure: the tap unfolds it, and focus stays on the toggle.
+    t.focus();
+    await act(async () => {
+      fireEvent.click(t);
+    });
+    expect(t.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(formId)!.hidden).toBe(false);
+    expect(document.activeElement).toBe(t);
+    await advance(PAY_ELEMENT_TIMING.settleMs);
+    expect(pay().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("no wallet at the reveal: today's open form, with no disclosure", async () => {
+    mountTable();
+    await flush();
+    await cardReady();
+    await walletReady(false);
+    expect(toggle()).toBeNull();
+    expect(pay()).toBeTruthy();
+  });
+
+  it("a LATE wallet folds nothing — the fold is decided once, at the reveal, so no control moves under a thumb", async () => {
+    // MUTATION (payment-section/fold-re-decided-after-the-reveal): the fold asked on every render —
+    // the wallet arriving after the reveal folds the open form out from under the diner's thumb; red.
+    mountTable();
+    await flush();
+    await cardReady();
+    await advance(PAY_ELEMENT_TIMING.walletGraceMs); // revealed on the grace, the wallet still out
+    expect(pay()).toBeTruthy();
+    await walletReady(true);
+    expect(toggle()).toBeNull();
+    expect(pay()).toBeTruthy();
+  });
+
+  it("pickup and scan-and-go never fold — wallet or not (no `fold`)", async () => {
+    // MUTATION (payment-section/fold-ignores-the-table): the fold applied to every pay step — a
+    // pickup diner's open card form (and its hero) changes under a design meant for tables; red.
+    mount();
+    await flush();
+    await cardReady();
+    await walletReady(true);
+    expect(toggle()).toBeNull();
+    expect(pay()).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Card details" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pay at the counter/ })).toBeNull();
+  });
+
+  it("'Pay at the counter' is one quiet tap — busy it reads 'One moment…'; refused while a confirm is in flight", async () => {
+    mountTable();
+    await flush();
+    await cardReady();
+    await walletReady(false);
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.classList.contains("checkout-cta")).toBe(false);
+    fireEvent.click(counter);
+    expect(onCounter).toHaveBeenCalledTimes(1);
+    cleanup();
+    mountTable({ counterBusy: true });
+    const busy = screen.getByRole("button", { name: /^One moment…/ });
+    expect(busy.getAttribute("aria-busy")).toBe("true");
+    fireEvent.click(busy);
+    expect(onCounter).toHaveBeenCalledTimes(1);
+    // A confirm in flight holds it: leaving Pay then would release the lock under a live charge.
+    cleanup();
+    let settleConfirm!: (v: unknown) => void;
+    h.confirmPayment.mockReturnValue(new Promise((r) => (settleConfirm = r)));
+    mountTable();
+    await flush();
+    await cardReady();
+    await walletReady(false);
+    await advance(PAY_ELEMENT_TIMING.settleMs);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    const held = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(held.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (payment-section/counter-leaves-under-a-live-charge): the tap honoured mid-confirm —
+    // the parent leaves Pay and releases the pay-window lock under a live charge; red.
+    fireEvent.click(held);
+    expect(onCounter).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      settleConfirm({ error: { message: "declined" } });
+    });
+  });
+});

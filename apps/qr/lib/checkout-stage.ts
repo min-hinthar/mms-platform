@@ -1,4 +1,5 @@
 import type { CartItem } from "@mms/db";
+import { trackStage, type TrackLine } from "./kitchen-track";
 
 /**
  * W12 — the two-moment checkout's ONE behavioral rule, kept pure so it can be pinned by a unit
@@ -168,4 +169,109 @@ export function staffSettleUnsentVerdict(
 ): "unreadable" | "unsent" | null {
   if (sendableUnits === null) return staffSettleBlockedByUnsent(mode, 1) ? "unreadable" : null;
   return staffSettleBlockedByUnsent(mode, sendableUnits) ? "unsent" : null;
+}
+
+// ── PD10 · D5 — card / Apple Pay after served ──
+/**
+ * PD10 (PATH_DESIGN_2026-10-07 decision 10, D5) — does the SERVED GATE apply to this session at all?
+ * Only a dine-in table eats before it pays: pickup and scan-and-go pay before the kitchen ever sees
+ * the order (paying IS ordering), so a gate there would refuse every counter-less sale behind a rule
+ * meant for tables. Named once, because two callers ask it: `servedGateDecision` below, and
+ * `create-intent`, which spends the gate's read ONLY where the gate could refuse (an unreadable read
+ * on a pickup cart must never become a 503 — the answer could not matter).
+ *
+ * `mode` is read the way `phonePayParked` reads it: the session row's string, null or undefined on a
+ * missed read — and a missed read is not a table (callers that must fail closed on it already did).
+ */
+export function servedGateApplies(mode: string | null | undefined): boolean {
+  return mode === "dinein";
+}
+
+/**
+ * D5's HOLD SET, for one line: does this line keep the phone-pay door shut?
+ *
+ * Held: any FOOD line — dine-in or to-go, comped included (it still cooks) — in draft, fired or in
+ * progress, and a SERVED line until its bump is `KDS_UNDO_MS` old on the DB clock (Codex round 4:
+ * Mom can still take it back inside those six seconds, and a door opened on a bump she undoes is a
+ * charge over food that is not done). Never held: a served line past its undo window, a voided line
+ * (nothing is cooking) and a grocery line (it never fires).
+ *
+ * The stage is `trackStage`'s — the ONE derivation every surface reads (m10 B3: never a second one
+ * here) — and the rule is stated as "not served", never as a list of holding stages, so it FAILS
+ * CLOSED: a state this module was not written for (`trackStage` answers null for it) holds the door,
+ * because a door opened over a line nobody can name is the one outcome the gate exists to prevent.
+ */
+export function holdsServedGate(line: TrackLine, nowIso: string): boolean {
+  if (line.fulfillment === "grocery" || line.state === "voided") return false;
+  return trackStage(line, nowIso) !== "served";
+}
+
+/**
+ * Why the door is held — the reason the Bill's one line slot says and create-intent refuses with:
+ *  - `unsent`   a dine-in draft at a table with a HOST (the host sends it; a guest is told who does);
+ *  - `hostless` a dine-in draft at a table with NO host (`host_seat` null): nobody at the table can
+ *               send, so a server sends it from the console or the table pays at the counter;
+ *  - `togo`     a to-go draft (Codex round 3): it otherwise fires only when the bill is PAID, so a
+ *               phone payment would charge before that dish was cooked — it can go early from its
+ *               ⋯ ("Send to kitchen now");
+ *  - `kitchen`  everything is sent, and something is not served yet (or served inside Mom's undo).
+ */
+export type ServedHold = "unsent" | "hostless" | "togo" | "kitchen";
+
+/**
+ * PD10 · D5 — THE SERVED GATE. Phone pay (card, Apple Pay, Google Pay) opens only when nothing on
+ * the table's bill is still with the kitchen. Pure: the client feeds it the cart view's lines
+ * (`trackLineOf`, lib/live-pass) and the view's DB clock; `create-intent` feeds it raw
+ * `qr_cart_items` rows and `mms_now()` (lib/unsent-read `readServedGateInput`). ONE rule, both sides.
+ *
+ * ⚠️ DELIBERATELY NOT `payBlockedByUnsent` (the mutants separate the two). That rule is "Everything
+ * SENT" and it has two exemptions this one must not inherit: a HOSTLESS table is never gated there
+ * (nobody can send, so it pays and the drafts fire on landing) and a TO-GO draft never counts (it
+ * fires at checkout). Under D5 both would charge a card before the food exists — so here a hostless
+ * draft holds with its own reason, a to-go draft holds with its own, and a fired or cooking line
+ * holds where "Everything sent" would have opened the door.
+ *
+ * Precedence, so the ONE reason names the step that moves things: a dine-in draft first (sending it
+ * is the next act, and it outranks the kitchen — D5: unsent outranks kitchen), then a to-go draft,
+ * then the kitchen. Null when nothing holds — or when the gate does not apply to this mode.
+ */
+export function servedGateVerdict(
+  mode: string | null | undefined,
+  lines: ReadonlyArray<TrackLine>,
+  nowIso: string,
+  hostPresent: boolean,
+): ServedHold | null {
+  if (!servedGateApplies(mode)) return null;
+  let dineInDraft = false;
+  let togoDraft = false;
+  let kitchen = false;
+  for (const l of lines) {
+    if (!holdsServedGate(l, nowIso)) continue;
+    if (l.state !== "draft") kitchen = true;
+    else if (l.fulfillment === "togo") togoDraft = true;
+    else dineInDraft = true;
+  }
+  if (dineInDraft) return hostPresent ? "unsent" : "hostless";
+  if (togoDraft) return "togo";
+  return kitchen ? "kitchen" : null;
+}
+
+/**
+ * The SERVER's decision: the verdict from ONE error-aware read, failing CLOSED. `read` is null when
+ * the read did not answer (`readServedGateInput`) — and for a table that is `unreadable`, never a
+ * guessed "nothing holds": unlike the diner doors' unsent read (fail-open, P2dc — a payment that
+ * slips past it is today's behaviour), a payment slipping past THIS gate charges a card for food that
+ * is not cooked, so `create-intent` refuses it with the shipped 503 sentence and the diner retries.
+ *
+ * Closed only where the gate could ever refuse (the `staffSettleUnsentVerdict` shape): a mode the
+ * gate never applies to answers null whatever the read did — the route does not even spend it there.
+ */
+export function servedGateDecision(
+  mode: string | null | undefined,
+  read: { lines: ReadonlyArray<TrackLine>; nowIso: string } | null,
+  hostPresent: boolean,
+): ServedHold | "unreadable" | null {
+  if (!servedGateApplies(mode)) return null;
+  if (read === null) return "unreadable";
+  return servedGateVerdict(mode, read.lines, read.nowIso, hostPresent);
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PAY_ELEMENT_TIMING,
   canConfirm,
+  cardFoldedAtReveal,
   classifyCardLoadError,
   hasWallet,
   initialPayElementState,
@@ -333,5 +334,26 @@ describe("Phase 1c — the pay element's timings and gates", () => {
     expect(payElementView(run([fail()])).note).toBeNull();
     for (const n of ["loading", "slow", "offline", "secure"] as const)
       expect(payNoteCopy(n).my).toMatch(/\p{Script=Myanmar}/u);
+  });
+});
+
+describe("PD10 — cardFoldedAtReveal: the wallet leads only when it is THERE at the reveal (m10 decision 6)", () => {
+  it("a wallet available at the reveal folds the card behind 'Pay with card'", () => {
+    expect(cardFoldedAtReveal(run([cardReady(), walletReady(true)]))).toBe(true);
+  });
+
+  it("no wallet at the reveal — absent, or its grace ran out — keeps today's open form", () => {
+    // MUTATION (pay-element/fold-ignores-the-wallet): folded whenever revealed — a phone with no
+    // wallet shows a toggle hiding the ONLY way to pay, with nothing above it; red.
+    expect(cardFoldedAtReveal(run([cardReady(), walletReady(false)]))).toBe(false);
+    expect(cardFoldedAtReveal(run([cardReady(), { type: "grace-elapsed", attempt: A0 }]))).toBe(
+      false,
+    );
+  });
+
+  it("before the reveal it is never a fold — the decision belongs to the reveal, and is made there", () => {
+    // MUTATION (pay-element/fold-before-the-reveal): the reveal check dropped — a wallet answering
+    // before the card form is ready folds a form that has not appeared; red.
+    expect(cardFoldedAtReveal(run([walletReady(true)]))).toBe(false);
   });
 });

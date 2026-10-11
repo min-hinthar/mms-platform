@@ -2419,6 +2419,64 @@ html[data-fx="off"] .pa-mid {
   line-height: var(--lh-my);
 }
 
+/* PD10 (m10 screen 1, "THE DOCK") — the served-gated Bill's dock reuses `.counter-dock`'s geometry,
+   its line slot and its 64px door (now Pay); under it, the quiet counter — 44px, transparent, never a
+   second filled hero; the kitchen never holds it (D5). The pay step's counter (PaymentSection) is the
+   same quiet control. No motion here (`.pay-*` declares none — responsive-contract.test.ts). */
+.pay-dock-counter,
+.pay-counter {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s1);
+  padding: 0;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  color: var(--t2);
+  cursor: pointer;
+}
+.pay-dock-counter[aria-disabled="true"],
+.pay-counter[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+.pay-dock-counter[aria-busy="true"],
+.pay-counter[aria-busy="true"] {
+  cursor: default;
+}
+.pay-dock-counter-my,
+.pay-counter-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  color: var(--t3);
+}
+/* THE DOOR MOMENT's POP (m10 B8; the motion language's "a control comes alive"): 0.96 → 1 on the
+   whole Pay button, once, when the served door opens on an observed view — never the 1.18 numeral
+   `mmsPop`. Reduced motion: the button is simply there. */
+.checkout-door-pop {
+  animation: checkoutDoorPop calc(var(--dur-fast) * 1.5) var(--ease-out) both;
+}
+@keyframes checkoutDoorPop {
+  from {
+    transform: scale(0.96);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-door-pop {
+    animation: none;
+  }
+}
+
 /* PD2 (m2 appendix A2; PATH_DESIGN's shared marks) — the HOLLOW RING + "Not sent yet · မပို့ရသေး":
    dishes the kitchen hasn't got. `--t2` on a phone, on `--sf` — never warn (a guest is not alarmed
    by a dish the host has not sent) and never dashed (dashed means provisional). The ring is
@@ -2566,6 +2624,166 @@ html[data-fx="off"] .pa-mid {
   font-size: var(--fs-sm);
   font-weight: var(--fw-regular);
   color: var(--t3);
+}
+
+/* PD10 (m10 screens 1–2) — THE GUEST'S LIVE ONE PASS: the Bill's rows as the body of post-pay's
+   CounterPass (`LivePass`). Everything here is ON the constant paper, so it reads the pass's inks —
+   never a theme token (`check-pass-inks.mjs` parses `.live-pass*`); the hosted money rows (`Row`, the
+   shared receipt rows) read theme tokens, so this subtree REMAPS them onto the inks, the
+   `.counter-pass-bill` shape. The tracks are `KitchenTrack` on its default `pass` surface. No motion
+   of its own: FILL and TURN are the primitive's hooks (pass.css), escorted there. */
+.live-pass {
+  margin: var(--s2) 0 var(--s3);
+}
+.live-pass-body {
+  --tx: var(--pass-ink);
+  --t2: var(--pass-ink-2);
+  --t3: var(--pass-ink-3);
+  --bd: var(--pass-edge);
+  text-align: left;
+  color: var(--pass-ink);
+}
+/* The stub: Host · Sent — the person and the time (m10 decision 15). One line each, ellipsed. */
+.live-pass-stub {
+  margin: 0;
+  display: grid;
+  gap: var(--s2);
+  justify-items: center;
+  max-width: 100%;
+  text-align: center;
+}
+.live-pass-stub > div {
+  max-width: 100%;
+}
+.live-pass-stub dt {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--pass-ink-3);
+}
+.live-pass-stub dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--pass-ink);
+}
+.live-pass-group-h {
+  margin: var(--s2) 0 var(--s1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--pass-ink-2);
+}
+.live-pass-dishes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Each dish: line 1 the name and the price, line 2 the track and its word (then the owner). Rows keep
+   CART order and never re-sort when a state changes — nothing jumps under a thumb. */
+.live-pass-dish {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+}
+.live-pass-dish + .live-pass-dish {
+  border-top: 1px solid color-mix(in srgb, var(--pass-ink) 6%, transparent);
+}
+.live-pass-dish-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--pass-ink);
+}
+.live-pass-dish-name {
+  min-width: 0;
+}
+.live-pass-dish-my {
+  margin-inline-start: 0.4em;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  color: var(--pass-ink-2);
+}
+.live-pass-dish-price {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+/* A comped dish keeps its track (it still cooks) but its price is struck; a voided one is struck
+   whole and reads "Removed". Ink-3, never a colour of its own. */
+.live-pass-dish-price[data-struck],
+.live-pass-dish[data-voided] .live-pass-dish-name {
+  text-decoration: line-through;
+  color: var(--pass-ink-3);
+}
+.live-pass-dish-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+}
+.live-pass-dish-state .ui-track-word {
+  font-size: var(--fs-sm);
+}
+.live-pass-dish-note,
+.live-pass-owner,
+.live-pass-dot {
+  color: var(--pass-ink-3);
+}
+/* Boarded (the pay step, m10 screen 2): the rows the charge was minted from, compact. */
+.live-pass-dishes[data-boarded] .live-pass-dish {
+  padding: 3px 0;
+}
+.live-pass-dishes[data-boarded] .live-pass-dish-line {
+  font-size: var(--fs-lead);
+}
+/* The foot: the ONE total binding the page shares — "Total", or "Estimated total · includes $X tip"
+   once the served door is open and a chip is lit. */
+.live-pass-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--pass-edge);
+}
+.live-pass-foot-label {
+  display: grid;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-heavy);
+  color: var(--pass-ink);
+}
+.live-pass-foot-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  color: var(--pass-ink-3);
+}
+.live-pass-foot-tip {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--pass-ink-3);
+}
+.live-pass-foot-amount {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  color: var(--pass-ink);
 }
 
 .checkout-cta-ghost {
@@ -6505,33 +6723,10 @@ html[data-seen-surface] .mms-stagger {
   font-weight: var(--fw-heavy);
   color: var(--tx);
 }
-.table-timeline-dot {
+/* PD10 (m10 A6) — the head's mark is the ONE KITCHEN TRACK's static glyph now (KitchenTrack,
+   `surface="theme"`); the breathing dot retired with it (PULSE is KDS Late's alone). */
+.table-timeline-head > .ui-track {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--r-full);
-  background: var(--ac);
-}
-/* W18 — the dot breathes ONLY while the kitchen is genuinely cooking (a live KDS "Start" tap is the
-   one state that is truly in motion). Honest liveness, not decoration; still, RM turns it off. */
-.table-timeline-dot-live {
-  animation: timelinePulse 2.2s var(--ease-out) infinite;
-}
-@keyframes timelinePulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.55;
-    transform: scale(0.82);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .table-timeline-dot-live {
-    animation: none;
-  }
 }
 .table-timeline-counts {
   margin: 3px 0 0 16px;
@@ -6598,9 +6793,7 @@ html[data-seen-surface] .mms-stagger {
   font-size: var(--fs-sm);
   font-weight: var(--fw-heavy);
 }
-.table-timeline-detail-state .table-timeline-my {
-  display: inline;
-  margin-left: 6px;
+.table-timeline-detail-state .ui-track-word-my {
   font-weight: var(--fw-semibold);
 }
 .table-timeline-detail-lines {
@@ -13492,6 +13685,36 @@ a.door-sheet-row {
 .pay-action-my {
   margin-inline-start: var(--s2);
   font-family: var(--font-my);
+}
+
+/* PD10 (m10 screen 2) — the card one tap behind the wallet: "Pay with card", a paper disclosure in
+   the wallet's column (44px pill, the paper fill and hairline, the inset sheen); its chevron is the
+   quiet ink. Folded, the skeleton is the wallet row and this pill — never card fields it will not
+   show. No motion of its own: the unfolded form RISES on `.mms-rise`. */
+.pay-card-toggle {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--cd);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  font: inherit;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+  cursor: pointer;
+}
+.pay-card-toggle > svg:last-child {
+  color: var(--t3);
+}
+.pay-skel-folded {
+  display: grid;
+  gap: var(--s2);
 }
 
 /* ── Phase 1c · account-star ─────────────────────────────────────────────────────────────────────────

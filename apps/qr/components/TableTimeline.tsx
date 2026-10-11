@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { CartItem } from "@mms/db";
+import { KitchenTrack, type KitchenStage } from "@mms/ui";
+import { DINER_STAGE_WORD } from "@/lib/line-state-copy";
+import { passRowStage, trackLineOf } from "@/lib/live-pass";
+import { rollUp } from "@/lib/kitchen-track";
 import { useCart } from "./TableCartProvider";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
@@ -25,6 +29,15 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
  * dine-in on /cart); EVERY mount also re-fetches on tab re-focus (the provider's and Checkout's
  * visibility refetch), so a backgrounded phone in a thick-walled teahouse never narrates a stale
  * state as current.
+ *
+ * PD10 (m10 appendix A6; PATH_DESIGN round 3, ONE KITCHEN TRACK) — the strip speaks the track's own
+ * vocabulary: each dish's stage is `lib/kitchen-track.ts`'s (`passRowStage`, against the view's DB
+ * clock — a bump counts as Served only once Mom's undo window has passed, as on the Bill's pass and
+ * the TV), its words the family's console words (`DINER_STAGE_WORD`: "Served · ထုတ်ပြီး" — the
+ * retired "ရောက်ပါပြီ" claimed a plate arrived, which nothing records — "Cooking", "Sent to
+ * kitchen", never "Being made" / "With the kitchen"), and its mark the track's static glyph: the
+ * breathing dot is gone (the motion language keeps PULSE for KDS Late alone). It is never drawn in
+ * the same view as the One Pass (the Order stage and the menu only).
  */
 export function TimelineStrip({
   items,
@@ -39,6 +52,9 @@ export function TimelineStrip({
    *  a lie. `null` (the default, and the state `cart/page.tsx` produces on ANY split-context read
    *  failure) → door picker + honest label. */
   menuMode = null,
+  /** PD10 — the applied view's DB clock (ISO) every stage is read against; "" (unknown) reads
+   *  conservatively — a bump stays Cooking until a view brings a clock. */
+  nowIso = "",
   /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — a peer's
    *  pay-window lock. The kitchen counts stay: they're true regardless. */
   quiet = false,
@@ -53,15 +69,26 @@ export function TimelineStrip({
   onMenu?: boolean;
   cartHref?: string | null;
   menuMode?: string | null;
+  nowIso?: string;
   quiet?: boolean;
   settling?: boolean;
 }) {
-  // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone).
-  const active = items.filter((l) => l.lineState !== "draft" && l.lineState !== "voided");
-  const cooking = active.filter((l) => l.lineState === "in_progress");
-  const sent = active.filter((l) => l.lineState === "fired");
-  const served = active.filter((l) => l.lineState === "served");
+  // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone),
+  // each at its STAGE on the ONE KITCHEN TRACK (PD10): a draft has no stage here (the Send has not
+  // happened), and a grocery line is off the track.
+  const tracked = items
+    .filter((l) => l.lineState !== "draft" && l.lineState !== "voided")
+    .map((l) => ({ l, stage: passRowStage(l, nowIso) }))
+    .filter((x): x is { l: CartItem; stage: KitchenStage } => x.stage !== null);
+  const active = tracked.map((x) => x.l);
+  const at = (...stages: KitchenStage[]) =>
+    tracked.filter((x) => stages.includes(x.stage)).map((x) => x.l);
+  const cooking = at("cooking");
+  const sent = at("sent", "sending");
+  const served = at("served");
   const allServed = active.length > 0 && sent.length === 0 && cooking.length === 0;
+  // The head's mark: the roll-up — the least-advanced stage on the strip (the pass's own rule).
+  const roll = rollUp(active.map(trackLineOf), nowIso).stage;
   // Counts are PLATES (qty-weighted), not lines — "3 cooking" for one qty-3 line is what the diner
   // ordered and what the kitchen is actually making.
   const plates = (ls: CartItem[]) => ls.reduce((n, l) => n + l.qty, 0);
@@ -122,7 +149,7 @@ export function TimelineStrip({
           : "All served — enjoy!";
 
   const counts = [
-    sent.length > 0 ? `${plates(sent)} with the kitchen` : null,
+    sent.length > 0 ? `${plates(sent)} sent to kitchen` : null,
     cooking.length > 0 ? `${plates(cooking)} cooking` : null,
     served.length > 0 ? `${plates(served)} served` : null,
   ].filter(Boolean);
@@ -138,12 +165,15 @@ export function TimelineStrip({
           : "မီးဖိုချောင်ထဲ ရောက်နေပါပြီနော်"
         : "အားလုံး ရောက်ပါပြီ — သုံးဆောင်ပါနော်";
 
-  // W18 — the per-dish rows behind the tap. State word per line, in kitchen order (cooking first —
-  // it's the live tap — then queued, then done), qty on the name the way the kitchen reads it.
-  const STATE_ROWS: [label: string, my: string, dotVar: string, lines: CartItem[]][] = [
-    ["Being made", "ချက်နေပါတယ်", "var(--ac)", cooking],
-    ["With the kitchen", "မီးဖိုချောင်ထဲမှာပါ", "var(--t3)", sent],
-    ["Served", "ရောက်ပါပြီ", "var(--ok)", served],
+  // W18 → PD10 — the per-dish rows behind the tap. The STAGE per group, in kitchen order (cooking
+  // first — it's the live tap — then sent, then still sending, then done), each drawn as the track's
+  // glyph with its word (both tongues, `DINER_STAGE_WORD`), qty on the name the way the kitchen
+  // reads it.
+  const STAGE_ROWS: [stage: KitchenStage, lines: CartItem[]][] = [
+    ["cooking", cooking],
+    ["sent", at("sent")],
+    ["sending", at("sending")],
+    ["served", served],
   ];
 
   return (
@@ -158,11 +188,8 @@ export function TimelineStrip({
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="table-timeline-head">
-          {/* The dot breathes only while something is genuinely cooking — honest liveness. */}
-          <span
-            className={`table-timeline-dot${cooking.length > 0 ? " table-timeline-dot-live" : ""}`}
-            aria-hidden
-          />
+          {/* PD10 (A6) — the roll-up's STATIC track glyph (decorative: the headline says it). */}
+          {roll && <KitchenTrack stage={roll} size="glyph" surface="theme" />}
           <span>
             {headline}
             <span lang="my" className="table-timeline-my">
@@ -181,31 +208,26 @@ export function TimelineStrip({
           aria-label="Each dish’s kitchen status"
           className="table-timeline-detail mms-rise"
         >
-          {STATE_ROWS.filter(([, , , lines]) => lines.length > 0).map(
-            ([label, my, dotVar, lines]) => (
-              <li key={label}>
-                <p className="table-timeline-detail-state">
-                  <span
-                    className={`table-timeline-dot${label === "Being made" ? " table-timeline-dot-live" : ""}`}
-                    style={{ background: dotVar }}
-                    aria-hidden
-                  />
-                  {label}
-                  <span lang="my" className="table-timeline-my">
-                    {my}
-                  </span>
-                </p>
-                <ul role="list" className="table-timeline-detail-lines">
-                  {lines.map((l) => (
-                    <li key={l.id}>
-                      {l.qty > 1 ? `${l.qty} × ` : ""}
-                      {l.name}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ),
-          )}
+          {STAGE_ROWS.filter(([, lines]) => lines.length > 0).map(([stage, lines]) => (
+            <li key={stage}>
+              <p className="table-timeline-detail-state">
+                <KitchenTrack
+                  stage={stage}
+                  size="glyph"
+                  surface="theme"
+                  word={DINER_STAGE_WORD[stage]}
+                />
+              </p>
+              <ul role="list" className="table-timeline-detail-lines">
+                {lines.map((l) => (
+                  <li key={l.id}>
+                    {l.qty > 1 ? `${l.qty} × ` : ""}
+                    {l.name}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
         </ul>
       )}
       {settling && (
@@ -265,10 +287,12 @@ export function TimelineStrip({
  *  invitations — the menu can't accept an add and the moment passes on its own. Settling is passed
  *  through separately (W9b): it isn't a quiet moment, it's a call to go pay. */
 export function MenuTimeline() {
-  const { items, cartId, locked, settling } = useCart();
+  const { items, cartId, locked, settling, dbNow } = useCart();
   return (
     <TimelineStrip
       items={items}
+      // PD10 — the provider's applied view's DB clock (the stages are read against it).
+      nowIso={dbNow ?? ""}
       onMenu
       cartHref={cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null}
       // ⚠️ `quiet` MUST keep including `settling`. Narrowing it to `locked` alone (an earlier attempt
