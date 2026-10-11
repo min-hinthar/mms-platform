@@ -1,57 +1,60 @@
 "use client";
+import { useId } from "react";
 import { Icon } from "@mms/ui";
 import { Chrome } from "./Chrome";
 import { TicketLineText } from "./TicketText";
 import { useStaffLang } from "./StaffLangProvider";
 import { ts } from "@/lib/i18n/staff";
-import { tf } from "@/lib/i18n/fill";
+import { localizeCount, tf } from "@/lib/i18n/fill";
+import type { KitchenStopLine } from "@/lib/kitchen-types";
 
 /**
- * PD5 / m7 — "Table N left — stop cooking": the kitchen's half of a table clear, its SHAPE reserved
- * here (PATH_DESIGN reconciliation 1; m5 appendix A1/B1; m7 decision 20).
+ * PD5 / m7 — "Table N left — stop cooking": the kitchen's half of a table clear (PATH_DESIGN
+ * reconciliation 1; m5 appendix A1/B1; m7 decision 20).
  *
- * TODAY nothing draws it: a cleared table's cards simply leave the board on the next poll. Once PD7
- * mounts it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
+ * A per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
  * tier WITHOUT motion — the strip takes the Late tint and never the pulse — struck dish rows, the
  * one warn word, and "Got it" (`help.done`, the shipped word) in the bump's slot, until the cook
  * taps it. It is never dashed (that means held), never cream (that is the undo pill), and it never
  * wears a round stub, so the board's four marks never overlap. Reduced motion changes nothing: it
  * has no motion to begin with.
  *
- * ⚠️ NOT WIRED. The kitchen read selects only `fired` / `in_progress` lines on `open` / `paid`
- * carts, so a cleared cart's lines vanish on the next poll before Mom sees anything; the durable
- * stop record the table-clear migration writes (PATH_DESIGN correction 12, PD7 · M182) is what
- * this card will read, and "Got it" will write its acknowledgement there. Until that migration
- * lands on the owner's go, this component renders from props and nothing mounts it — the slip's
- * "tells the kitchen to stop" stays unclaimed (m7 risk 4).
+ * M270 (1) — WIRED. `KdsBoard` draws one per Send of every open stop record (`qr_table_clears`, the
+ * durable record `mms_clear_table` writes — PATH_DESIGN correction 12; read by
+ * `lib/kitchen-stop-read.ts`), in the slot its ticket stood in, and "Got it" writes the
+ * acknowledgement through `mms_ack_table_clear_stop`. The step guide's fifth picture renders it too,
+ * inert.
  */
-export type KdsStopLine = {
-  id: string;
-  name: string;
-  nameMy: string | null;
-  qty: number;
-  modifiers: string[];
-  modifiersMy: (string | null)[];
-};
+/** What the card draws of a dish: its text only (the board filters by station before it draws). */
+export type KdsStopLine = Omit<KitchenStopLine, "station">;
 
 export function KdsStopCard({
   table,
   lines,
   onAck,
   busy = false,
+  held = false,
 }: {
-  /** The table number off the physical tent (Latin in both tongues). */
-  table: number;
+  /** The table number off the physical tent (Latin in both tongues), or the sticker id when the
+   *  table has no number — the live ticket's own fallback identity. */
+  table: number | string;
   /** The dishes that were still cooking when the table was cleared, each struck through. */
   lines: readonly KdsStopLine[];
-  /** "Got it" — the acknowledgement that retires the card (PD7 writes it durably). */
+  /** "Got it" — the acknowledgement that retires the card (`mms_ack_table_clear_stop`). */
   onAck: () => void;
   /** §17 — busy is the attribute and the handler's refusal, never native `disabled`. */
   busy?: boolean;
+  /** Phase 2h (critic B1) — this card's last "Got it" is still out past the bound: the attribute
+   *  says so, and the tap still reaches `onAck`, whose refusal says the waiting line again. */
+  held?: boolean;
 }) {
   const lang = useStaffLang();
   const vars = { id: table };
   const word = tf(lang, "kds.stop", vars);
+  // The warn line describes "Got it" (QA §A): two stop cards on one board are two "Got it" buttons,
+  // and the description says which table each one acknowledges, while the name stays the visible
+  // label (WCAG 2.5.3).
+  const wordId = useId();
   return (
     <li className="kds-ticket kds-ticket-stop card-textured" aria-label={word}>
       {/* Row A as every card draws it, on the warn tint with NO pulse class: the colour says alarm,
@@ -66,7 +69,7 @@ export function KdsStopCard({
           </span>
         </span>
       </header>
-      <p className="kds-stop-word">
+      <p className="kds-stop-word" id={wordId}>
         <Icon name="alert" size={20} aria-hidden />
         <Chrome lang={lang} k="kds.stop" vars={vars} echo="stack" />
       </p>
@@ -80,6 +83,10 @@ export function KdsStopCard({
                   {l.qty}
                 </span>
                 <span className="kds-line-main">
+                  {/* The numeral is drawn for the eye (aria-hidden); the count is said here, in the
+                      device's prose numerals as the live row's name says it (Codex r5 on #347) —
+                      "stop 2 mohinga" is not "stop mohinga". */}
+                  <span className="sr-only">{`${localizeCount(l.qty, lang)} `}</span>
                   <TicketLineText line={l} />
                 </span>
               </span>
@@ -93,8 +100,9 @@ export function KdsStopCard({
         onClick={() => {
           if (!busy) onAck();
         }}
-        aria-disabled={busy || undefined}
+        aria-disabled={busy || held || undefined}
         aria-busy={busy || undefined}
+        aria-describedby={wordId}
       >
         <Chrome lang={lang} k="help.done" echo="stack" />
       </button>

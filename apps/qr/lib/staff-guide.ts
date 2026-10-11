@@ -23,11 +23,13 @@ import type { FloorStatus } from "./floor-types";
  *
  *   counter — SHIPS: the strip (Phase 2d), the hollow ring (PD1 · P2do), the ask tile and the pane's
  *             ask pass (PD2), the till tray (PD6), the clear window (PD7) are all on the screen.
- *   kitchen — HELD: its fifth step teaches the "Table N left — stop cooking" card, and the board does
- *             not draw it yet — `KdsStopCard` is built but unmounted until kitchen-ops reads PD7's
- *             durable stop record (OPEN-ITEMS M270 (1)). The guide, its pictures and its host are
- *             built; the flip is this one value, in the PR that mounts the card —
- *             `staff-guide.test.ts` refuses the flip while `KdsBoard.tsx` renders no `<KdsStopCard>`.
+ *   kitchen — SHIPS (M270 (1)): its fifth step teaches the "Table N left — stop cooking" card, and the
+ *             board draws it — one per Send of every open stop record PD7's clear writes, in its
+ *             ticket's slot, until "Got it" (`lib/kitchen-stop-read.ts`, `lib/kds-stop.ts`).
+ *             `staff-guide.test.ts` still refuses the kitchen's ship while `KdsBoard.tsx` renders no
+ *             LIVE `<KdsStopCard>`, so the guide can never again teach a card the board stopped
+ *             drawing. The flip's other condition, a tap aimed at Next meeting the work that replaced
+ *             the guide, is `guideReplacedHeld` below.
  */
 
 export type GuidePicture =
@@ -189,7 +191,7 @@ export const STAFF_GUIDE_REVISION: Readonly<Record<HelpDoorScreen, number>> = {
 /** The gate (see the docblock): a station's guide offers itself, and Help opens it, only once true. */
 export const STAFF_GUIDE_SHIPS: Readonly<Record<HelpDoorScreen, boolean>> = {
   counter: true,
-  kitchen: false,
+  kitchen: true,
 };
 
 export function staffGuideShips(screen: HelpDoorScreen): boolean {
@@ -248,6 +250,19 @@ export function guideActAccepted(t: {
 }
 
 /**
+ * M270 (1) — the kitchen flip's condition (b) (m12 §H, Taken 1): WORK replaces the guide in place —
+ * the first ticket, or a stop card — and a tap already on its way to the guide's Next meets the
+ * control that took its place: an All done with no arm of its own (its only way back is the Undo
+ * bar), or a stop card's "Got it", which has no undo at all. So from the moment work replaced the
+ * guide, the board's own controls hold for the guide's own arm (`GUIDE_ARM_MS`): the finger aimed at
+ * Next never acts on the card under it. `replacedAt` null — the guide never stood on this board, or
+ * the person closed it themselves (their next tap is meant for the board) — holds nothing.
+ */
+export function guideReplacedHeld(replacedAt: number | null, now: number): boolean {
+  return replacedAt !== null && now - replacedAt < GUIDE_ARM_MS;
+}
+
+/**
  * The counter's quiet, decided at MOUNT only (m12 WHEN rule 2): the split shows the pane beside the
  * floor (`PANE_IDLE_QUERY` — below it there is no in-place host, and nothing auto-opens: the
  * critic's B5), no table is selected (the pane is idle), and no table is asking to pay. The floor is
@@ -270,9 +285,10 @@ export function counterAskingAtMount(tables: readonly { status: FloorStatus }[])
 }
 
 /**
- * The kitchen's quiet: the board holds no ticket at all (any station, held cards included), it is
- * updating, and no error shows. Read at mount to OFFER the guide, and on every render after to KEEP
- * it — the first ticket that lands, a freeze or an error pushes it away for good (work wins).
+ * The kitchen's quiet: the board holds no ticket at all (any station, held cards included) and no
+ * stop card (M270 (1) — a table that left is work: its "Got it" is waiting), it is updating, and no
+ * error shows. `tickets` counts both. Read at mount to OFFER the guide, and on every render after to
+ * KEEP it — the first card that lands, a freeze or an error pushes it away for good (work wins).
  */
 export function kitchenGuideQuiet(q: {
   tickets: number;

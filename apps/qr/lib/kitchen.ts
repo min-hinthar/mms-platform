@@ -4,6 +4,7 @@ import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import {
+  ackTableClearStopInput,
   bumpLineInput,
   bumpTicketInput,
   fireTicketNowInput,
@@ -33,6 +34,9 @@ import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
+import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
+import { stationForCategory } from "./kitchen-station";
+import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -81,12 +85,8 @@ const OWING_LINE_CAP = 500;
  * hygiene fix and is filed as M198.
  */
 
-/** W3d station tags: menu category slug → coarse station chip. A missing/unknown category cooks on the
- *  wok (the default line). Client-side filter only — a second physical screen is config, not schema. */
-const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
-  drinks: "drinks",
-  "appetizers-salads": "cold",
-};
+// W3d station tags live in `lib/kitchen-station.ts` (`stationForCategory`), the ONE rule the tickets
+// and the stop cards share (M270 (1)).
 
 /**
  * The live fire queue, grouped into per-SEND cards (PD5: one Send, one card — keyed by `cart_id` +
@@ -102,6 +102,11 @@ const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
  *   6) PD5 — ONLY when step 4 found a dine-in session: its non-cancelled carts, then their batched
  *      lines (any state, voided included), so each card's round is the session's ordinal
  *      (`roundOrdinals`). A failed or saturated read makes every round `unknown`, never `outage`.
+ *   7) M270 (1) — beside the served rail, SOFT like it: the open stop records and, when any, their
+ *      tables + struck dishes (+ names) — `lib/kitchen-stop-read.ts`, bounded by its own budget. A
+ *      failed or late read answers `stops: null`, never `outage`: the board keeps its last cards,
+ *      and stop reads that keep failing are said by the board's OWN stop line — never its
+ *      not-updating state, because the tickets this read answers are still live (#347).
  *
  * Channel rules (W3a): dine-in tickets require an ACTIVE session (a cleared table drops off) and hide
  * lines still inside the 10s undo grace (fire_at > now — the diner may still pull the send back).
@@ -168,10 +173,18 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // (`settleServedRail` — past that it reads `null` and the queue is answered on time). Its own
   // failures answer `null` and never touch the live queue.
   const servedPromise = readServedToday(db, dayStartIso(nowIso, serviceTz), serviceTz);
-  const withServed = async (queue: Omit<KitchenQueue, "served">): Promise<KitchenPoll> => ({
-    ok: true,
-    queue: { ...queue, served: await settleServedRail(servedPromise) },
-  });
+  // M270 (1) — the stop cards ("Table N left — stop cooking"), read from the durable stop record and
+  // started here beside the rail: they must NOT wait for the line read, because a cleared table's
+  // tickets are exactly what that read no longer returns (an empty board may still owe a stop card).
+  // Soft, like the rail: bounded by `settleKitchenStops` and never rejecting, so an `outage` below
+  // abandons nothing unhandled; `null` (failed, or past its budget) keeps the board's last cards.
+  const stopsPromise = settleKitchenStops(readKitchenStops(db));
+  const withServed = async (
+    queue: Omit<KitchenQueue, "served" | "stops">,
+  ): Promise<KitchenPoll> => {
+    const [served, stops] = await Promise.all([settleServedRail(servedPromise), stopsPromise]);
+    return { ok: true, queue: { ...queue, served, stops } };
+  };
   const empty = { tickets: [] as KitchenTicket[], serverNow: nowIso, thresholds, stats };
 
   // Live kitchen lines — HELD (future fire_at) included; the grace/held split happens per channel below.
@@ -272,7 +285,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const nameMyByItem = new Map<string, string | null>();
   for (const m of menuRes.data ?? []) {
     const slug = m.menu_categories?.slug;
-    stationByItem.set(m.id, (slug && STATION_BY_CATEGORY[slug]) || "wok");
+    stationByItem.set(m.id, stationForCategory(slug));
     if (m.is_sold_out) soldOutItems.add(m.id);
     nameMyByItem.set(m.id, m.name_my);
   }
@@ -433,9 +446,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };
+type KitchenRefusal = Extract<KitchenActionResult, { ok: false }>;
 
 /** The gate's refusal, coded: the sign-in ask is a redirect on the board, everything else a sentence. */
-function gateRefusal(error: string): KitchenActionResult {
+function gateRefusal(error: string): KitchenRefusal {
   return { ok: false, error, code: error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence" };
 }
 
@@ -556,6 +570,45 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
   return { ok: true };
+}
+
+/** M270 (1) — "Got it" answered: the RPC's own word, read (`stopAckStatusOf`), never cast. */
+export type KitchenStopAckResult = { ok: true; status: KitchenStopAck } | KitchenRefusal;
+
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — "Got it" on a "Table N left — stop cooking" card: the kitchen
+ * has seen that the table left. `mms_ack_table_clear_stop(p_clear, p_by)` writes the acknowledgement
+ * ONCE in one guarded UPDATE, and `p_by` is the gate's CALLER — never a value the request carries (a
+ * Server Action is a public POST). Its four answers come back as they are, read through
+ * `stopAckStatusOf`: `ok`, `already` (another tablet or tap was first — the kitchen has it, not a
+ * failure), `nothing_to_stop` (not a failure either) and `not_found` (the board re-reads). A word
+ * outside the four is a failure, never a guessed hide.
+ */
+export async function ackTableClearStop(raw: unknown): Promise<KitchenStopAckResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return gateRefusal(gate.error);
+  const caller = gate.caller;
+  const parsed = ackTableClearStopInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
+  const { clearId } = parsed.data;
+
+  const { data, error } = await serviceClient().rpc("mms_ack_table_clear_stop", {
+    p_clear: clearId,
+    p_by: caller.staffId,
+  });
+  if (error) {
+    console.error("[kitchen] mms_ack_table_clear_stop failed", { clearId, message: error.message });
+    return { ok: false, error: "Couldn’t update that ticket. Try again.", code: "failed" };
+  }
+  const status = stopAckStatusOf(data);
+  if (status === null) {
+    console.error("[kitchen] mms_ack_table_clear_stop answered an unknown status", { clearId });
+    return { ok: false, error: "Couldn’t update that ticket. Try again.", code: "failed" };
+  }
+
+  captureKitchenEvent(caller.staffId, "kds_ack_stop", { role: caller.role, status });
+  revalidatePath("/staff/kitchen");
+  return { ok: true, status };
 }
 
 /** Best-effort, non-PII analytics drain (never fails a bump on a capture error). */

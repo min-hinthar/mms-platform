@@ -578,6 +578,12 @@ export const recallTicketInput = z.object({
   lineIds: z.array(uuid).min(1).max(60),
 });
 
+/** ackTableClearStop (M270 (1) · PD7 correction 12) — the kitchen's "Got it" on a "Table N left — stop
+ *  cooking" card: the clear record it acknowledges, and nothing else. WHO acknowledged is the staff
+ *  gate's caller, never the request; `mms_ack_table_clear_stop` writes it once in one guarded UPDATE
+ *  (a second "Got it" answers `already`). */
+export const ackTableClearStopInput = z.object({ clearId: uuid });
+
 /** fireTicketNow (W3a) — pull a HELD (scheduled pickup) ticket onto the live board early. Shape only;
  *  mms_fire_ticket_now moves only future-fire_at fired lines on a PAID cart (a dine-in send's undo
  *  grace lives on an OPEN cart and is untouchable from the KDS). */
@@ -921,6 +927,7 @@ export type BumpLineInput = z.infer<typeof bumpLineInput>;
 export type BumpTicketInput = z.infer<typeof bumpTicketInput>;
 export type RecallTicketInput = z.infer<typeof recallTicketInput>;
 export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
+export type AckTableClearStopInput = z.infer<typeof ackTableClearStopInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
 export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;

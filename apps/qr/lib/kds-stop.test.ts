@@ -1,0 +1,371 @@
+import { describe, expect, it } from "vitest";
+import type { KitchenStation, KitchenStop, KitchenTicket } from "./kitchen-types";
+import {
+  boardOrder,
+  foldStopRead,
+  STOP_MISS_LIMIT,
+  stopAckStatusOf,
+  stopAckVerdict,
+  stopArrivals,
+  stopNewsAcked,
+  stopNewsMerged,
+  stopNewsWithin,
+  stopNewsText,
+  stopReadDegraded,
+  stopsForStation,
+  stopsKnown,
+  stopsSaidAfter,
+  visibleStops,
+  withStopAck,
+  type StopAcks,
+  type StopNews,
+  type StopState,
+} from "./kds-stop";
+
+/**
+ * M270 (1) — the stop card's pure half, falsified by values: what "Got it" answered, which cards the
+ * board draws through a "Got it" in flight and a read that did not answer, and where each card
+ * stands. Each case is the one an `m270/kds-stop/*` mutant turns red.
+ */
+
+const at = (min: number) => new Date(Date.UTC(2026, 9, 11, 18, min)).toISOString();
+const stop = (clearId: string, min: number, key = `stop|${clearId}|b|${min}`): KitchenStop => ({
+  key,
+  clearId,
+  tableNumber: 3,
+  label: "t3",
+  firedAt: at(min),
+  lines: [],
+});
+const ticket = (key: string, min: number, held = false): KitchenTicket => ({
+  key,
+  cartId: `cart-${key}`,
+  sessionId: `sess-${key}`,
+  fireBatch: null,
+  round: { kind: "none" },
+  stampIso: at(min),
+  channel: "dinein",
+  label: key,
+  tableNumber: 1,
+  customerName: null,
+  shortCode: null,
+  pickupSlot: null,
+  held,
+  unpaid: false,
+  lines: [],
+  firedAt: at(min),
+});
+const keys = (items: ReturnType<typeof boardOrder>) =>
+  items.map((it) => (it.kind === "stop" ? it.s.key : it.t.key));
+
+describe("the RPC's answer, read — never cast", () => {
+  it("takes exactly the four words mms_ack_table_clear_stop answers", () => {
+    for (const s of ["ok", "already", "nothing_to_stop", "not_found"] as const)
+      expect(stopAckStatusOf(s)).toBe(s);
+  });
+  it("refuses anything else: another word, a null, a number, an object", () => {
+    // MUTATION m270/kds-stop/status-unread: a word nobody defined would hide a stop card.
+    for (const raw of ["OK", "acknowledged", "", null, undefined, 1, { status: "ok" }])
+      expect(stopAckStatusOf(raw)).toBeNull();
+  });
+});
+
+describe("what a confirmed answer does to the card", () => {
+  it("ok, already and nothing_to_stop: the kitchen has it — gone, never a failure", () => {
+    // MUTATION m270/kds-stop/already-reread: another tablet's Got it would put the card back.
+    expect(stopAckVerdict("ok")).toBe("gone");
+    expect(stopAckVerdict("already")).toBe("gone");
+    expect(stopAckVerdict("nothing_to_stop")).toBe("gone");
+  });
+  it("not_found: no such record — the hide is dropped and the next read decides", () => {
+    // MUTATION m270/kds-stop/not-found-gone: a record the RPC never found would read acknowledged.
+    expect(stopAckVerdict("not_found")).toBe("reread");
+  });
+});
+
+describe("which stop cards the board draws", () => {
+  const a1 = stop("A", 1, "stop|A|b|1");
+  const a2 = stop("A", 2, "stop|A|b|2");
+  const b = stop("B", 3);
+  it("hides every card of a clear whose Got it is out or confirmed — one tap, the whole clear", () => {
+    const acks: StopAcks = new Map([["A", { phase: "out" }]]);
+    // MUTATION m270/kds-stop/hide-ignored: the cards stay up under the finger until the answer.
+    expect(visibleStops([a1, a2, b], acks).map((s) => s.key)).toEqual([b.key]);
+    expect(visibleStops([a1, a2, b], new Map()).map((s) => s.key)).toEqual([a1.key, a2.key, b.key]);
+  });
+
+  it("a read that did not answer changes NOTHING — the cards last drawn, and every hide over them", () => {
+    const prev: StopState = {
+      stops: [a1, b],
+      acks: new Map([["A", { phase: "done", afterSeq: 4 }]]),
+    };
+    // MUTATION m270/kds-stop/null-blanks: a failed read would read as "no stop cards" — a table the
+    // kitchen never acknowledged, gone from the board.
+    expect(foldStopRead(prev, null, 9)).toBe(prev);
+  });
+
+  it("a read that answered replaces the cards and retires every confirmed hide its fetch started after", () => {
+    const prev: StopState = {
+      stops: [a1, b],
+      acks: new Map<string, { phase: "out" } | { phase: "done"; afterSeq: number }>([
+        ["A", { phase: "done", afterSeq: 4 }],
+        ["B", { phase: "done", afterSeq: 5 }],
+        ["C", { phase: "out" }],
+      ]),
+    };
+    const next = foldStopRead(prev, [b], 5);
+    expect(next.stops).toEqual([b]);
+    // seq 5 started after A's answer (afterSeq 4): A retires. B's answer came at seq 5 — this read
+    // may have run before that write committed, so B stays hidden. C is still out: it stays.
+    // MUTATION m270/kds-stop/prune-at-same-seq: B's card would come back for a beat.
+    expect([...next.acks.keys()].sort()).toEqual(["B", "C"]);
+    // MUTATION m270/kds-stop/out-pruned: a Got it still in flight would be put back by any read.
+    expect(foldStopRead(prev, [], 99).acks.has("C")).toBe(true);
+    expect(foldStopRead(prev, [], 99).acks.has("B")).toBe(false);
+  });
+
+  it("withStopAck sets one clear's hide, and null drops it (the revert to confirmed)", () => {
+    const one = withStopAck(new Map(), "A", { phase: "out" });
+    expect(one.get("A")).toEqual({ phase: "out" });
+    expect(withStopAck(one, "A", null).has("A")).toBe(false);
+    expect(withStopAck(one, "B", null).has("A")).toBe(true);
+  });
+
+  it("a card is news once: only keys the board has not drawn", () => {
+    expect(stopArrivals(new Set([a1.key]), [a1, b]).map((s) => s.key)).toEqual([b.key]);
+    expect(stopArrivals(new Set([a1.key, b.key]), [a1, b])).toEqual([]);
+  });
+});
+
+describe("where each stop card stands — the slot its ticket stood in", () => {
+  it("among the LIVE tickets by its Send's own stamp, never first and never after the held cards", () => {
+    const t1 = ticket("t1", 1);
+    const t5 = ticket("t5", 5);
+    const h = ticket("h", 0, true);
+    // MUTATION m270/kds-stop/stops-first: the card jumps to the top and every card after its slot
+    // shifts under the cook's hand.
+    expect(keys(boardOrder([t1, t5, h], [stop("A", 3)]))).toEqual(["t1", "stop|A|b|3", "t5", "h"]);
+    // MUTATION m270/kds-stop/stops-after-held: a stop card older than every live ticket would sit
+    // behind the held cards (and, on a full board, on another page).
+    expect(keys(boardOrder([t5, h], [stop("A", 0)]))).toEqual(["stop|A|b|0", "t5", "h"]);
+  });
+
+  it("equal stamps keep the ticket first; each list keeps its own order", () => {
+    const t3 = ticket("t3", 3);
+    expect(keys(boardOrder([t3], [stop("A", 3)]))).toEqual(["t3", "stop|A|b|3"]);
+    expect(keys(boardOrder([], [stop("A", 1), stop("B", 2)]))).toEqual([
+      "stop|A|b|1",
+      "stop|B|b|2",
+    ]);
+    expect(keys(boardOrder([ticket("x", 1), ticket("y", 2)], []))).toEqual(["x", "y"]);
+  });
+});
+
+describe("#347 — an UNKNOWN stop read is never none", () => {
+  const a = stop("A", 1);
+  it("no read has answered: unknown — and a read that does not answer keeps it unknown", () => {
+    const unknown: StopState = { stops: null, acks: new Map() };
+    expect(stopsKnown(unknown)).toBe(false);
+    // MUTATION m270/kds-stop/null-blanks: a failed read would turn unknown into "none".
+    expect(foldStopRead(unknown, null, 3)).toBe(unknown);
+    expect(stopsKnown(foldStopRead(unknown, null, 3))).toBe(false);
+    // The first read that answers makes it known — an empty answer included.
+    expect(stopsKnown(foldStopRead(unknown, [], 4))).toBe(true);
+    expect(foldStopRead(unknown, [a], 4).stops).toEqual([a]);
+  });
+
+  it("stop reads that keep failing degrade the board — one miss is not yet a pattern", () => {
+    expect(STOP_MISS_LIMIT).toBe(2);
+    expect(stopReadDegraded(0)).toBe(false);
+    expect(stopReadDegraded(1)).toBe(false);
+    // MUTATION m270/kds-stop/misses-never-said: a board that cannot hear a table leave keeps its
+    // quiet live face for as long as the reads fail.
+    expect(stopReadDegraded(2)).toBe(true);
+    expect(stopReadDegraded(9)).toBe(true);
+  });
+});
+
+describe("#347 (C1 · r2 C1) — a station's view draws a stop card WHOLE, only where it stopped that station's dishes", () => {
+  const line = (id: string, station: KitchenStation | null) => ({
+    id,
+    name: id,
+    nameMy: null,
+    qty: 1,
+    modifiers: [],
+    modifiersMy: [],
+    station,
+  });
+  const card = (clearId: string, lines: ReturnType<typeof line>[]): KitchenStop => ({
+    ...stop(clearId, 1),
+    lines,
+  });
+  const wok = card("W", [line("mohinga", "wok")]);
+  const mixed = card("M", [line("noodles", "wok"), line("lime", "drinks")]);
+  const unknown = card("U", [line("mystery", null)]);
+  const bare = card("B", []);
+  const keys = (out: KitchenStop[]) => out.map((s) => `${s.clearId}:${s.lines.map((l) => l.id)}`);
+
+  it("the all-stations view draws every card whole", () => {
+    expect(keys(stopsForStation([wok, mixed, unknown, bare], "all"))).toEqual([
+      "W:mohinga",
+      "M:noodles,lime",
+      "U:mystery",
+      "B:",
+    ]);
+  });
+
+  it("a station's view: only cards that stopped one of its dishes", () => {
+    // MUTATION m270/kds-stop/station-ignored: the drinks screen shows the wok's stop, and its one Got
+    // it retires the card on the wok screen that is actually cooking.
+    expect(keys(stopsForStation([wok, mixed], "drinks"))).toEqual(["M:noodles,lime"]);
+    expect(keys(stopsForStation([wok, mixed], "wok"))).toEqual(["W:mohinga", "M:noodles,lime"]);
+    expect(stopsForStation([wok, mixed], "cold")).toEqual([]);
+  });
+
+  it("a MIXED clear stands WHOLE on each station it stopped — one Got it retires every dish, so the cook sees every dish", () => {
+    // MUTATION m270/kds-stop/lines-trimmed: the drinks cook sees only the juice, taps Got it, and the
+    // noodles' stop leaves the wok's screen unseen.
+    expect(stopsForStation([mixed], "drinks")[0]!.lines.map((l) => l.id)).toEqual([
+      "noodles",
+      "lime",
+    ]);
+    expect(stopsForStation([mixed], "wok")[0]!.lines.map((l) => l.id)).toEqual(["noodles", "lime"]);
+  });
+
+  it("a clear's OTHER Sends stand beside the station's own — one Got it retires them all (Codex r3)", () => {
+    // One table, two Sends: the wok's and the drinks' — two cards under one clear.
+    const wokSend = card("T", [line("mohinga", "wok")]);
+    const drinkSend = { ...card("T", [line("lime", "drinks")]), key: "stop|T|b|drinks" };
+    // MUTATION m270/kds-stop/sibling-sends-hidden: the drinks screen draws only the juice's card, its
+    // Got it acknowledges the whole clear, and the mohinga's card leaves the wok screen unseen.
+    expect(keys(stopsForStation([wokSend, drinkSend, wok], "drinks"))).toEqual([
+      "T:mohinga",
+      "T:lime",
+    ]);
+    expect(keys(stopsForStation([wokSend, drinkSend, wok], "wok"))).toEqual([
+      "T:mohinga",
+      "T:lime",
+      "W:mohinga",
+    ]);
+    // A clear none of whose Sends touched the station still stays off it.
+    expect(stopsForStation([wokSend, drinkSend], "cold")).toEqual([]);
+  });
+
+  it("a dish whose station is unknown counts on EVERY station — unknown is never 'not mine'", () => {
+    // MUTATION m270/kds-stop/unknown-station-hidden: a dish the menu read could not place is shown on
+    // no station screen at all.
+    expect(keys(stopsForStation([unknown], "cold"))).toEqual(["U:mystery"]);
+    expect(keys(stopsForStation([mixed, unknown], "cold"))).toEqual(["U:mystery"]);
+    // A card with one unknown dish beside another station's stands whole on every station.
+    const half = card("H", [line("noodles", "wok"), line("mystery", null)]);
+    expect(keys(stopsForStation([half], "drinks"))).toEqual(["H:noodles,mystery"]);
+  });
+
+  it("a card with no dishes read shows everywhere — it can still be acknowledged", () => {
+    // MUTATION m270/kds-stop/lineless-hidden: a record whose rows were never read vanishes from
+    // every station view.
+    expect(keys(stopsForStation([bare], "drinks"))).toEqual(["B:"]);
+  });
+});
+
+describe("#347 r2 — the arrival's words: one part per card, retired by its own Got it", () => {
+  const news: StopNews = {
+    id: 7,
+    parts: [
+      { clearId: "c3", text: "Table 3 left" },
+      { clearId: "c3", text: "Table 3 left" },
+      { clearId: "c4", text: "Table 4 left" },
+    ],
+  };
+
+  it("says each table once, and nothing when there is nothing", () => {
+    expect(stopNewsText(news)).toBe("Table 3 left Table 4 left");
+    expect(stopNewsText(null)).toBeNull();
+    expect(stopNewsText({ id: 1, parts: [] })).toBeNull();
+  });
+
+  it("a Got it takes only its own clear's words, keeps the dwell's id, and leaves nothing behind", () => {
+    // MUTATION m270/kds-stop/news-ack-drops-all: one table's Got it silences every table's alarm.
+    expect(stopNewsAcked(news, "c3")).toEqual({
+      id: 7,
+      parts: [{ clearId: "c4", text: "Table 4 left" }],
+    });
+    // MUTATION m270/kds-stop/news-ack-kept-empty: the last table's Got it leaves an empty arrival
+    // standing (and its dwell running) instead of none.
+    expect(stopNewsAcked(stopNewsAcked(news, "c3"), "c4")).toBeNull();
+    // A Got it for a clear the words never named changes nothing (the same arrival, not a copy).
+    expect(stopNewsAcked(news, "c9")).toBe(news);
+    expect(stopNewsAcked(null, "c3")).toBeNull();
+  });
+
+  it("a read that no longer holds a clear (acknowledged on another tablet) takes its words — Codex r4", () => {
+    // MUTATION m270/kds-stop/news-within-ignored: "Table 3 left — stop cooking" keeps standing over a
+    // card another tablet's Got it already retired.
+    expect(stopNewsWithin(news, new Set(["c4"]))).toEqual({
+      id: 7,
+      parts: [{ clearId: "c4", text: "Table 4 left" }],
+    });
+    // MUTATION m270/kds-stop/news-within-kept-empty: an empty arrival keeps its dwell running.
+    expect(stopNewsWithin(news, new Set())).toBeNull();
+    // Every clear still open: the same arrival, not a copy (no re-render, the dwell untouched).
+    expect(stopNewsWithin(news, new Set(["c3", "c4", "c9"]))).toBe(news);
+    expect(stopNewsWithin(null, new Set(["c3"]))).toBeNull();
+  });
+});
+
+describe("#347 Codex r2 — which cards a view has SAID, and a second wave of arrivals", () => {
+  const card = (clearId: string) => ({ ...stop(clearId, 1) });
+  const a = card("A");
+  const b = card("B");
+
+  it("only the cards this view draws are marked said — a hidden one stays unsaid until it is drawn", () => {
+    // MUTATION m270/kds-stop/said-every-open-card: a card the filter hid is marked said, and the
+    // view that later draws it never says it.
+    const said = stopsSaidAfter(new Set(), [a, b], [a]);
+    expect([...said]).toEqual([a.key]);
+    expect(stopArrivals(said, [a, b]).map((s) => s.key)).toEqual([b.key]);
+  });
+
+  it("a card said once stays said while it is open, even on a view that no longer draws it — and leaves when it closes", () => {
+    // MUTATION m270/kds-stop/said-forgotten-off-view: switching away and back says it twice.
+    expect([...stopsSaidAfter(new Set([a.key]), [a, b], [])]).toEqual([a.key]);
+    // MUTATION m270/kds-stop/said-never-pruned: a closed card's key is kept for the board's life.
+    expect([...stopsSaidAfter(new Set([a.key, "gone"]), [a], [])]).toEqual([a.key]);
+  });
+
+  it("a second wave joins the words still standing, each clear once, under the newest wave's id", () => {
+    const first: StopNews = { id: 1, parts: [{ clearId: "c3", text: "Table 3 left" }] };
+    const second: StopNews = {
+      id: 2,
+      parts: [
+        { clearId: "c4", text: "Table 4 left" },
+        { clearId: "c3", text: "Table 3 left (2)" },
+      ],
+    };
+    // MUTATION m270/kds-stop/news-merge-replaces: the first table's words leave before their dwell.
+    // MUTATION m270/kds-stop/news-merge-keeps-old-id: the dwell never restarts for the newest table.
+    // MUTATION m270/kds-stop/news-merge-duplicates: table 3's older words stand beside its newer.
+    expect(stopNewsMerged(first, second)).toEqual({
+      id: 2,
+      parts: [
+        { clearId: "c4", text: "Table 4 left" },
+        { clearId: "c3", text: "Table 3 left (2)" },
+      ],
+    });
+    const third: StopNews = { id: 3, parts: [{ clearId: "c5", text: "Table 5 left" }] };
+    const merged = stopNewsMerged(first, third);
+    expect(merged).toEqual({
+      id: 3,
+      parts: [
+        { clearId: "c3", text: "Table 3 left" },
+        { clearId: "c5", text: "Table 5 left" },
+      ],
+    });
+    // A Got it after the merge still retires only its own clear's words.
+    expect(stopNewsAcked(merged, "c3")).toEqual({
+      id: 3,
+      parts: [{ clearId: "c5", text: "Table 5 left" }],
+    });
+    expect(stopNewsMerged(null, third)).toBe(third);
+  });
+});

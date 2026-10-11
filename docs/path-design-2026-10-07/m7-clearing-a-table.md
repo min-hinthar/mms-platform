@@ -1204,10 +1204,122 @@ owner's delegation, the reason is below.
   start.
 
 **Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
-→ `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause; the floor
+→ `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause (both built: §I); the floor
 card's in-slot window; the manager stamp UI behind the PIN seam; a Help door on the full table page
 for `card_live`; the two-session lock-order harness for `mms_clear_table` against a Send, a merge,
 a settle and an approve (beside `verify-merge-race` — the join, a plain close and a recall are driven
 now, `verify-bind-race` l–o); a seated member's REJOIN (no membership insert) as a clear commits, which
 can still find no open cart and make one on the closed table (8); a kitchen recall made after the
 clear, which lands on the closed table (9); the M182 prod apply (ruling #5).
+
+### I · The kitchen's stop card (2026-10-11, `claude/feat/m270-kds-stop-card`, M270 (1), kitchen-ops)
+
+Correction 12's other half: the KDS reads the durable stop record and draws "Table N left — stop
+cooking" until "Got it", so the slip's "tells the kitchen to stop" ships.
+
+- **The read** (`lib/kitchen-stop-read.ts`, beside the served rail in `getKitchenQueue`): open records
+  only (`stop_acknowledged_at` null, a non-empty `stop_line_ids` — refused in the SQL before the cap,
+  because every free clear writes a record nothing ever acknowledges), newest first, capped at 24, then
+  the tables and the stopped lines (names through the one loader). It fails SOFT: any failed leg, a
+  rejection or its 2.5 s budget answer `stops: null`, the queue is answered regardless, and the board
+  keeps the cards it last drew — never "none", which would read as every table acknowledged.
+- **The card** (`KdsStopCard`, m5 A1/B1's shape): one per SEND of each record (m5 B1 — the Send's own
+  `ticketKey`), standing in the slot its ticket stood in (`boardOrder`: among the live tickets by the
+  Send's own stamp, never first, never after the held cards), on a station's view only when it stopped that station's dishes (#347 below), with no flash, no
+  chime, no stub and no clock. Its struck rows are the dishes that Send still had in the kitchen; "Got
+  it" is described by the warn line. It is not counted in Open or Late, the region never says "All
+  clear" while one stands, and a new one is said once in the ONE region (it has no motion and no chime).
+- **"Got it"** (`ackTableClearStop` → `mms_ack_table_clear_stop(p_clear, p_by = the gate's caller)`): the
+  optimistic doctrine (`lib/kds-stop.ts`) — every card of that CLEAR leaves at the tap (the record is the
+  clear's, so one tap retires all its Sends); `ok`, `already` (another tablet was first) and
+  `nothing_to_stop` keep it gone until a read that started after the answer; `not_found` drops the hide
+  and the read decides; a refusal ("Couldn’t update Table N — try again."), a throw or a write still out
+  at the bound brings the cards back (held, the waiting line said, while it is out). Focus that was on
+  the button goes to the board's heading.
+- **The slip's clause** (`clearStopsKitchen`): "Clearing tells the kitchen to stop anything still
+  cooking and puts {n} dishes on the owner’s loss list as not approved." — when the look shows a SENT
+  dish still fired or cooking (a subset of the RPC's stop set); a table whose food the look saw all
+  served keeps the clause-less sentence. K15-HIGH (the slip's money keys are). (#347 below: worded for
+  the race.)
+
+**Decided under delegation.** One card per Send, one "Got it" per clear (the schema acknowledges the
+clear; a per-Send ack would need a migration). No floor on age: m7 decision 20 says no timer — the cap
+bounds the read, and newest-first keeps a fresh clear from being crowded out.
+
+**#347 round 1 (the blind pass's REJECT and Codex r1, each verified against source).**
+
+- **Unknown is never none** (Codex P1 · blind C2). A first stop read that did not answer (an error, or
+  past its 2.5 s budget) was coerced to "no stops" — All clear, "Nothing to cook", the guide claimed —
+  for as long as reads kept failing. Now the board holds it UNKNOWN until a stop read answers: no All
+  clear, an error-tone line in place of the empty state ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing."), no guide; two stop reads in a row that do not answer are said by the
+  board's own stop line (round 2 below — round 1 wore the board's "not updating" line, which froze
+  tickets still landing), and the first that answers ends it.
+- **A station sees its own stops** (blind C1). The first cut drew every stop card on every station's
+  view, so a drinks screen's Got it retired a wok stop on the wok screen still cooking it. A station's
+  view now draws a card only when it stopped one of that station's dishes — WHOLE, every dish it
+  stopped (round 2 below; round 1 trimmed it to the station's own dishes) — the tickets' own station
+  rule (`stationForCategory`, moved to `lib/kitchen-station.ts`); a dish the menu read cannot place
+  counts everywhere. ONE Got it still retires the clear on every screen, and the
+  kitchen guide now says so ("…it stays until the kitchen does, and one Got it clears it on every
+  screen"); per-station acknowledgement needs a migration and a design question (OPEN-ITEMS M271).
+- **The slip's clause is true under the race** (Codex P2). The slip reads a LOOK: a dish served during
+  the slip or the six-second window commits with nothing to stop. The clause now says "tells the
+  kitchen to stop anything still cooking", and `clearStopsKitchen` no longer claims it never over-says.
+- **A stop card's arrival is never lost** (a11y): its sentence stands its own 8 s and rides beside a
+  standing refusal — still the board's ONE region (round 2: beside a bump's notice too, and gone at its
+  own Got it).
+- **The dishes read is chunked** (≤ 100 ids a request, in parallel) and **never cuts a record**: a record
+  larger than the 500-line budget is read whole (one Got it retires it, so a partial card would retire
+  dishes nobody saw).
+- **Justified, no code (the lead's answers on the PR):** no deploy backlog (prod's `qr_table_clears`
+  measured empty); the stop and line reads are not one snapshot (a millisecond, one poll); two stop
+  cards for one table (the device sitting, #12). **Open:** a stop card whose ticket stood on page 2 stays on page 2
+  (said in the region; the "N new" pill counts tickets only) — the device sitting (#12) is the look.
+
+**#347 round 2 (the last capped blind pass over the round-1 commits — REJECT, both criticals verified
+in source by the lead).**
+
+- **A station's card is WHOLE** (C1). Round 1 trimmed a card to the station's own dishes, but ONE Got
+  it acknowledges the whole clear: on a MIXED clear (noodles + a lime juice) the drinks cook saw only
+  the juice, tapped Got it, and the noodles' card left the wok's screen unseen. Now a card stands on a
+  station's view when it stopped ANY of that station's dishes (or one nobody can place), with EVERY
+  dish it stopped; a card that stopped only other stations' dishes stays off (`stopsForStation`). The
+  whole-clear acknowledgement itself is still M271.
+- **Stop misses never touch the board's "not updating" state** (C2). Round 1 routed two stop reads in a
+  row that did not answer into `degraded` — over tickets that were still landing, so the frozen line,
+  "take orders on paper", the bar's not-updating and the muted re-chimes were all false. Now the board
+  says it in its own stop line under the region ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing.", static text, never a second region; the empty board's unknown line
+  already says it there), and the tickets keep their chimes, hint and bar. Those misses make the stops
+  UNKNOWN again (`stopsUnknown`), so the refusals round 1's degrade carried stay: no All clear, no
+  "Nothing to cook", no guide.
+- **The arrival's words** ride beside a bump's notice in the one region (neither dropped), and each
+  table's words leave at its own Got it (`stopNewsAcked` — a second table that arrived in the same poll
+  keeps its alarm).
+- **The menu read is chunked** like the dishes read (≤ 100 ids a request); any chunk failing makes every
+  station unknown, never some placed and some guessed.
+- **Justified, no code:** the seen-set across a station switch (a card that arrived while another
+  station's view was up is not announced when the cook switches to it — the switch is the cook's own
+  tap, and the card is on screen in its slot); the guide-replaced stamp in `useLayoutEffect` (it must
+  land before the paint that shows the card). _Superseded by Codex round 2 below: the seen-set was a
+  real gap._
+
+**#347 Codex round 2 (on `9bd9973`; three P2s, the last triaged round).**
+
+- **A card the station filter hid was marked said** (fixed). The poll marked EVERY open stop said, so a
+  card that arrived while the view showed another station was drawn, on the switch, with no words — no
+  motion and no chime either, so no alarm at all for a screen reader. Now only the cards the view
+  draws are marked said (`stopsSaidAfter`); a hidden card is said on the first read after the view
+  starts drawing it, and once (a card said stays said while it is open). The server render's cards a
+  RESTORED station never draws are unsaid the same way.
+- **A second table inside the first's dwell replaced it** (fixed). Two tables cleared five seconds
+  apart: the second arrival's words took the region before the first's 8 s. Now a wave joins the
+  words still standing (`stopNewsMerged` — each clear once, the newest wave's words winning) under the
+  newest wave's id, so the dwell restarts for the newest table and the earlier ones stand at least
+  until it ends.
+- **The stop read cannot use M182's partial index** (justified, no code — OPEN-ITEMS M272). The read
+  filters `stop_line_ids <> '{}'` (PostgREST cannot express `cardinality(...)`); the index is keyed on
+  `cardinality(stop_line_ids) > 0`, so every poll scans `qr_table_clears` — 0 rows in prod (measured
+  2026-10-11 16:37Z), at most one row per clear. A matching partial index needs a migration with the
+  owner-gated prod apply (or an RPC), so it is filed, to be measured against the row count first.

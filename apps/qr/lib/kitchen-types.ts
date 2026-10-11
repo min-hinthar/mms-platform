@@ -111,6 +111,48 @@ export type KitchenTicket = {
   firedAt: string;
 };
 
+/**
+ * M270 (1) — a dish the stop card strikes: the line's own text as the board drew it (the same shape
+ * `TicketLineText` renders — Burmese first through the one loader), and nothing a cook could act on.
+ */
+export type KitchenStopLine = {
+  id: string;
+  name: string;
+  nameMy: string | null;
+  qty: number;
+  modifiers: string[];
+  modifiersMy: (string | null)[];
+  /** The station the dish cooks on — the tickets' own derivation (`stationForCategory`) — or null
+   *  when it truly cannot be derived (the menu read failed, or the dish is not on the menu): then the
+   *  card shows on EVERY station's view rather than on none. */
+  station: KitchenStation | null;
+};
+
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — "Table N left — stop cooking": ONE Send of a table that was
+ * cleared while the kitchen still had its food (m5 B1: "each per-Send card becomes a stop card"). Read
+ * from the durable stop record `mms_clear_table` writes (`qr_table_clears.stop_line_ids`, the kitchen
+ * lines that clear voided), because the cleared cart's own lines leave the live read at once. It
+ * stays until "Got it" (`mms_ack_table_clear_stop`, which acknowledges the whole CLEAR — every card
+ * of that clear goes with one tap), with no timer (m7 decision 20).
+ */
+export type KitchenStop = {
+  /** `stop|<clearId>|<ticketKey>` — the Send's own card key (`ticketKey`) behind its clear, so it can
+   *  never collide with a live ticket's key, and two Sends of one clear are two cards. */
+  key: string;
+  /** The `qr_table_clears` row "Got it" acknowledges. */
+  clearId: string;
+  /** The registered table number off the tent, or null for an unregistered sticker. */
+  tableNumber: number | null;
+  /** The sticker id — the identity when there is no table number (the ticket's own fallback). */
+  label: string;
+  /** The Send's earliest RAW stamp (`cardStamp`): where its ticket stood in the oldest-first board,
+   *  so the stop card keeps that slot (m7 decision 20: "keeps its slot until Got it"). */
+  firedAt: string;
+  /** The dishes that Send still had in the kitchen, each drawn struck. */
+  lines: KitchenStopLine[];
+};
+
 /** Aging thresholds (minutes) per channel + the re-chime window — read from mms_kds_config so the
  *  metric and the urgency colors can never disagree (SPEC-KDS §7). */
 export type KdsThresholds = {
@@ -174,6 +216,11 @@ export type KitchenQueue = {
   /** K31 — today's served lines, newest first; `null` when that ADVISORY read failed (the rail says
    *  so; the live queue above is unaffected either way). */
   served: ServedRail | null;
+  /** M270 (1) — the stop cards still to acknowledge, oldest Send first; `null` when that read did not
+   *  answer (failed, or past its budget). It fails SOFT: the queue above is answered regardless, and
+   *  the board keeps the stop cards it last drew rather than read "none" — a card that vanished
+   *  without a "Got it" would say the kitchen had acknowledged a table it never saw leave. */
+  stops: KitchenStop[] | null;
 };
 
 /**

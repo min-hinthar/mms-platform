@@ -5,13 +5,16 @@ import type { KitchenQueue } from "@/lib/kitchen-types";
 import { ticketKey } from "@/lib/kitchen-rounds";
 
 /**
- * PD12 — the kitchen guide's gate, on the board AS SHIPPED (the blind pass on #345). `KdsBoard.test`
- * flips `staffGuideShips` file-wide to pin the host's wiring, so there the board's own consult of the
- * gate is deletable with every case green. This suite mounts the REAL board with the REAL
- * `staffGuideShips` and a signed-in person, and asks the shipped questions: the guide shows exactly
- * when its station ships (held today: OPEN-ITEMS M270 (1)), and the grid's focus catch-all is the
- * one `main` shipped — no `tabIndex` on the live list, focus that fell with a ticket goes to the
- * heading. `scripts/verify-slice.mjs` `pd12/kds-board/kitchen-gate-dropped` drops the consult.
+ * PD12 — the kitchen guide's gate, on the board AS SHIPPED (the blind pass on #345). This suite
+ * mounts the REAL board with the REAL `staffGuideShips` and a signed-in person, and asks the shipped
+ * questions: the guide shows exactly when its station ships (it does since M270 (1) drew the stop
+ * card its fifth step teaches), and the grid's focus catch-all is the one `main` shipped — no
+ * `tabIndex` on the live list, focus that fell with a ticket goes to the heading.
+ *
+ * With the kitchen shipping, the real gate alone can no longer tell a board that CONSULTS it from one
+ * that does not — so one case HOLDS the station (`heldStations`, read through the real gate for every
+ * other case) and asks that the board then offers nothing: `scripts/verify-slice.mjs`
+ * `pd12/kds-board/kitchen-gate-dropped` drops the consult, and that case goes red.
  */
 const NOW = "2026-09-20T18:00:00.000Z";
 const STAFF_ID = "2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b";
@@ -63,12 +66,22 @@ const ticketQ = (): KitchenQueue => ({
   },
   stats: { avgSecs: 0, servedToday: null },
   served: null,
+  stops: [],
 });
 const emptyQ = (): KitchenQueue => ({ ...ticketQ(), tickets: [] });
 let currentQueue = emptyQ();
 const getKitchenQueue = vi.fn(() => Promise.resolve({ ok: true as const, queue: currentQueue }));
 
-// The board's outside world, stubbed as `KdsBoard.test` stubs it — and NOT `@/lib/staff-guide`.
+// The gate: the REAL `staffGuideShips`, unless a case holds the station (see the docblock).
+const { heldStations } = vi.hoisted(() => ({ heldStations: new Set<string>() }));
+vi.mock("@/lib/staff-guide", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/staff-guide")>();
+  return {
+    ...real,
+    staffGuideShips: (s: "kitchen" | "counter") => !heldStations.has(s) && real.staffGuideShips(s),
+  };
+});
+// The board's outside world, stubbed as `KdsBoard.test` stubs it.
 vi.mock("@/lib/kitchen", () => ({
   getKitchenQueue: () => getKitchenQueue(),
   bumpTicket: () => Promise.resolve({ ok: true }),
@@ -115,6 +128,7 @@ const { staffGuideShips } = await import("@/lib/staff-guide");
 
 afterEach(() => {
   cleanup();
+  heldStations.clear();
   localStorage.clear();
   currentQueue = emptyQ();
   vi.useRealTimers();
@@ -131,17 +145,24 @@ const guideKeys = () => Object.keys(localStorage).filter((k) => k.startsWith("mm
 
 describe("KdsBoard as shipped — the kitchen guide follows its station's gate", () => {
   it("an empty board, a signed-in person, a first open: the guide shows exactly when the kitchen ships", async () => {
+    mount(emptyQ());
+    await act(async () => {});
+    // M270 (1) — the kitchen ships: the guide stands where "Nothing to cook" did, marked once.
+    expect(staffGuideShips("kitchen")).toBe(true);
+    expect(guideGroup()).not.toBeNull();
+    expect(guideKeys()).toHaveLength(1);
+  });
+
+  it("a station whose guide is HELD: the board offers nothing, and its own empty state stands as shipped", async () => {
+    heldStations.add("kitchen");
     const { container } = mount(emptyQ());
     await act(async () => {});
     // MUTATION pd12/kds-board/kitchen-gate-dropped: the board offers it although the station is
-    // held — a guide whose fifth step teaches a card this board does not draw; red.
-    expect(guideGroup() !== null).toBe(staffGuideShips("kitchen"));
-    expect(guideKeys()).toHaveLength(staffGuideShips("kitchen") ? 1 : 0);
-    if (!staffGuideShips("kitchen")) {
-      // Held: the board's own empty state, exactly as shipped.
-      expect(container.querySelector("#kds-empty-h")!.textContent).toBe(ts("en", "kds.empty"));
-      expect(container.querySelector(".kds-guide")).toBeNull();
-    }
+    // held — a guide whose fifth step would teach a card the board may not draw; red.
+    expect(guideGroup()).toBeNull();
+    expect(guideKeys()).toHaveLength(0);
+    expect(container.querySelector("#kds-empty-h")!.textContent).toBe(ts("en", "kds.empty"));
+    expect(container.querySelector(".kds-guide")).toBeNull();
   });
 
   it("the grid's focus catch-all is the shipped one: no tabIndex on the live list; focus that fell with a ticket goes to the heading", async () => {

@@ -18,6 +18,18 @@ import { staffGuideKey } from "@/lib/staff-guide";
 import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
+// M270 (1) — BOTH stations ship their step guide now, so the shipped device-keyed auto-open and
+// row 1's cards belong only to a station whose guide is HELD. That path stays in `HelpButton` (the
+// gate is still consulted: a station held again keeps its shipped door exactly), so the cases that
+// pin it HOLD a station here; every other case reads the real gate.
+const { heldStations } = vi.hoisted(() => ({ heldStations: new Set<string>() }));
+vi.mock("@/lib/staff-guide", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/staff-guide")>();
+  return {
+    ...real,
+    staffGuideShips: (s: HelpDoorScreen) => !heldStations.has(s) && real.staffGuideShips(s),
+  };
+});
 vi.mock("posthog-js", () => ({
   default: { get_distinct_id: () => "ph-d1", get_session_id: () => "ph-s1" },
 }));
@@ -70,6 +82,7 @@ const render = (ui: ReactElement, echoes = true) => {
 afterEach(() => {
   cleanup();
   delete (window as { matchMedia?: unknown }).matchMedia;
+  heldStations.clear();
 });
 beforeEach(() => {
   localStorage.clear();
@@ -154,6 +167,8 @@ describe("HelpButton", () => {
   });
 
   it("the first time a DEVICE mounts a screen's door, the cards open by themselves — once", async () => {
+    // A station whose step guide is HELD keeps this, its shipped first morning (PD12; M270 (1)).
+    heldStations.add("kitchen");
     const { unmount } = render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
     await screen.findByRole("dialog");
     expect(screen.getByText(STAFF["help.how.kitchen.1"].en)).not.toBeNull();
@@ -180,7 +195,8 @@ describe("HelpButton", () => {
     // StrictMode mounts, unmounts and re-mounts every effect; a mark written by the DISCARDED first
     // pass is read as "seen" by the live one and the first morning shows nothing. Dev runs
     // StrictMode (`reactStrictMode: true`), so that is where the promise would silently break.
-    // (The kitchen: its step guide is held, so its cards still open themselves — PD12.)
+    // (A station whose step guide is HELD: its cards still open themselves — PD12; M270 (1).)
+    heldStations.add("kitchen");
     render(
       <StrictMode>
         <HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />
@@ -241,7 +257,10 @@ describe("HelpButton", () => {
     seen("kitchen");
     render(<HelpButton lang="my" screen="kitchen" cardVars={kitchenVars} />);
     fireEvent.click(screen.getByRole("button", { name: "အကူအညီ" }));
-    fireEvent.click(await screen.findByRole("button", { name: /ဒီစခရင် ဘယ်လို သုံးရမလဲ/ }));
+    // M270 (1) — the kitchen's guide ships: its shipped cards sit behind the second row.
+    fireEvent.click(
+      await screen.findByRole("button", { name: new RegExp(STAFF["help.row.more"].my) }),
+    );
     await screen.findByText(/အဆင့် ၁ \/ ၄/);
     fireEvent.click(screen.getByRole("button", { name: /ရှေ့ဆက်/ }));
     const lede = await waitFor(() => document.getElementById("help-lede")!);
@@ -565,10 +584,11 @@ describe("HelpButton", () => {
 
 /**
  * PD12 — the step guide behind the first row (m12 decision 6; the scoped unfreeze). On a screen
- * whose guide has shipped (the counter): row 1 opens the five-step guide IN this sheet, row 2 keeps
- * the shipped cards whole, and the cards' device-keyed auto-open is retired (the guide's own first
- * run, in place, replaces it — never this modal on top of it, the critic's B5). A station whose guide
- * is held (the kitchen, until the board draws the stop card) keeps all of it as shipped.
+ * whose guide has shipped (the counter; the kitchen since M270 (1) drew its stop card): row 1 opens
+ * the five-step guide IN this sheet, row 2 keeps the shipped cards whole, and the cards' device-keyed
+ * auto-open is retired (the guide's own first run, in place, replaces it — never this modal on top of
+ * it, the critic's B5). A station whose guide is HELD keeps all of it as shipped (held here by
+ * `heldStations`).
  */
 describe("PD12 — the step guide behind Help's first row", () => {
   it("the counter's cards never open themselves any more — and the device mark is never written", async () => {
@@ -700,7 +720,45 @@ describe("PD12 — the step guide behind Help's first row", () => {
     expect(plain.textContent).not.toContain("opens itself");
   });
 
-  it("the kitchen's guide is held: row 1 still opens its cards, and there is no second row", async () => {
+  it("M270 (1) — the kitchen's guide ships: row 1 opens its five steps, row 2 keeps every card, nothing opens itself", async () => {
+    let clock = 5_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    // MUTATION (the flip reverted, `STAFF_GUIDE_SHIPS.kitchen = false`): row 1 opens the cards
+    // again and the second row is gone — red here, as the inverted held case was red before.
+    const { unmount } = render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // The device-keyed auto-open is retired on a guided screen (B5): the guide's own first run, in
+    // place on the empty board, replaces it — never this modal on top of it.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem(helpSeenKey("kitchen"))).toBeNull();
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    // Kitchen 1's title is the pictured card's identity (`kds.table` {11}).
+    const guide = await within(dialog()).findByRole("group", { name: "Table 11" });
+    for (let n = 2; n <= 5; n++) {
+      clock += 1000;
+      fireEvent.click(within(guide).getByRole("button", { name: "Next" }));
+      await waitFor(() =>
+        expect(guide.querySelector(".staff-guide-step")?.textContent).toBe(`Step ${n} of 5`),
+      );
+    }
+    // The fifth step teaches the stop card the board now draws — through its own key.
+    expect(within(guide).getByRole("heading", { level: 3 }).textContent).toContain(
+      "Table 3 left — stop cooking",
+    );
+    vi.restoreAllMocks();
+    unmount();
+    render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /More on this screen/ }));
+    await waitFor(() => expect(screen.getByText(STAFF["help.how.kitchen.1"].en)).not.toBeNull());
+    expect(screen.getByText(`Step 1 of ${helpCardCount("kitchen")}`)).not.toBeNull();
+  });
+
+  it("a station whose guide is HELD keeps its shipped door: row 1 opens its cards, and there is no second row", async () => {
+    heldStations.add("kitchen");
     seen("kitchen");
     render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
     fireEvent.click(circle());
@@ -801,8 +859,10 @@ describe("P2e — the Help sheet's Language row", () => {
     fireEvent.click(circle());
     const list = await screen.findByRole("list", { name: "Help topics" });
     const names = [...list.querySelectorAll(".staff-row-name")].map((n) => n.textContent);
-    expect(names.map((t) => /How|Text size|Language|Something/.exec(t ?? "")?.[0])).toEqual([
+    // M270 (1) — the kitchen's guide ships, so its cards' row 2 ("More on this screen") follows How.
+    expect(names.map((t) => /How|More|Text size|Language|Something/.exec(t ?? "")?.[0])).toEqual([
       "How",
+      "More",
       "Text size",
       "Language",
       "Something",

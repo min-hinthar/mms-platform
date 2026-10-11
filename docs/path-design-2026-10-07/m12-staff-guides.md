@@ -1024,7 +1024,9 @@ pointer-events:none`, with no base shadow.
 - **Eyebrow:** "အဆင့် ၅ / ၅" · "Step 5 of 5".
 - **Title** (English-only, NEW): "Stop cooking".
 - **Line** (English-only, NEW): "When the counter clears a table that still has food on your board,
-  its card turns into this. Stop those dishes, then tap Got it — it stays until you do."
+  its card turns into this. Stop those dishes, then tap Got it — it stays until the kitchen does, and
+  one Got it clears it on every screen." (#347, blind C1: the drawn "— it stays until you do" was
+  false on a kitchen with more than one screen — §I.)
 - **Picture: THE STOP CARD**, at x185–511 (326), y6–354. It is kitchen-ops' card as PATH_DESIGN
   decides it: struck dish rows plus the warn word, ALARM tier with no motion, never dashed, never
   cream, no warn ground fill.
@@ -1071,7 +1073,8 @@ pointer-events:none`, with no base shadow.
 - **Step 5:**
   - Stop cooking (NEW);
   - When the counter clears a table that still has food on your board, its card turns into this.
-    Stop those dishes, then tap Got it — it stays until you do. (NEW);
+    Stop those dishes, then tap Got it — it stays until the kitchen does, and one Got it clears it on
+    every screen. (NEW; re-worded on #347 — §I);
   - picture: 3 · Left — stop cooking (kitchen-ops' card words, English-only in the record) · Mohinga ·
     Shan Noodles · Got it.
 - **Accessible names:** Steps · Step N of 5 · Board status · Service stats · Station filter.
@@ -1635,3 +1638,48 @@ hook, 17 on the guide model, 3 on `StepGuide`, 2 on `HelpButton`, 1 on the count
 critic's C on the kitchen pictures in the sheet): no browser runs in the agent environment, so the
 crop heights (`.guide-well` 260 / 360 / 300 px) and the Burmese title wraps are computed, not seen —
 the device sitting (#12) is the look, and so is risk 3 (a picture bump reached for).
+
+### I · The kitchen flip (2026-10-11, `claude/feat/m270-kds-stop-card`, M270 (1))
+
+The board now draws the stop card the fifth step teaches (one `KdsStopCard` per Send of every open stop
+record, in its ticket's slot, until "Got it" — m7 §I), so `STAFF_GUIDE_SHIPS.kitchen` is `true`. Taken 1's
+conditions, re-checked at the flip:
+
+- **(a) the parsed refusal** stays armed: `staff-guide.test.ts` still refuses the kitchen's ship while
+  `KdsBoard.tsx` renders no LIVE `<KdsStopCard>` — its mutant (`pd12/staff-guide/kitchen-ships-without-its-card`)
+  now parks the board's card in a `false ?` branch instead of flipping the value back.
+- **(b) a tap aimed at Next meets the work that replaced the guide — settled by arming the replacing
+  card**, not by the Undo bar: the Undo bar cannot recover a stop card's "Got it" (no undo), and that card
+  can be the first work to land. When work (a ticket, a stop card, a freeze, an error) replaces the guide,
+  the board's controls — All done, Cook now, a line, the ⋯, Got it — refuse in the handler for
+  `GUIDE_ARM_MS` from that moment (`guideReplacedHeld`, stamped in the guide-left effect, which React
+  flushes before the next discrete event). Nothing is drawn for the hold, as the guide's own arm draws
+  nothing (Taken 3). The person's own Close / Got it holds nothing: their next tap is meant for the board.
+- **(c) the Help door** takes the counter's two rows: row 1 opens the five-step guide, row 2 keeps the
+  cards, the device-keyed auto-open retires. `HelpButton.test`'s held case inverted; the held path stays
+  (the gate is still consulted) and is pinned on a HELD station through the real gate
+  (`heldStations`), as is `KdsBoard.guide-gate.test.tsx`'s board (the consult's mutant stays caught).
+- **(d) not done** — the kitchen pictures in the 34rem sheet and at the board's text sizes are not looked
+  at: no browser runs in the agent environment. The device sitting (#12) is the look.
+- **The focus rescue relies on no blur** (the brief's worry about `onBlurCapture` not firing on node
+  removal): there is no blur handler — `guideHadFocus` went with the blind pass on #345 — and a guide
+  replaced by work follows the board's catch-all (a landing snapshot) or the guide's own effect (a freeze).
+- **A stop card is work:** `kitchenGuideQuiet`'s `tickets` counts the board's stop cards too (every
+  station's), at the mount's claim (a board with only a stop card never offers the guide, and never
+  marks it seen) and on every render after (a stop card landing pushes the guide away, and arms (b)).
+
+**#347 round 1 (the blind pass's REJECT and Codex r1, verified against source).**
+
+- **An unknown stop read is not a quiet board** (Codex P1 · blind C2): while no stop read has answered
+  — the server render's included — the guide is neither offered nor claimed (its seen-mark is not
+  written): `kitchenGuideQuiet` reads the unknown as `degraded`.
+- **(b)'s stamp moved to a layout effect** (blind): `replacedAt` is stamped in the commit that replaces
+  the guide, before the browser paints the card, so no real tap between the paint and a passive effect
+  can act on a Got it (which has no undo). jsdom cannot open that window, so it is pinned by the shape,
+  not a mutant (the #261 rule).
+- **The step's sentence was false on a kitchen with more than one screen** (blind C1): "— it stays
+  until you do" became "— it stays until the kitchen does, and one Got it clears it on every screen"
+  (Burmese re-drafted; K15 · kitchen-ops). A station's view now draws a stop card only where it
+  stopped one of that station's dishes, and WHOLE — every dish on it, since the one Got it retires them
+  all (#347 round 2; round 1 trimmed it to the station's own); per-station acknowledgement is OPEN-ITEMS
+  M271.

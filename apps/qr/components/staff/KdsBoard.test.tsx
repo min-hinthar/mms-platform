@@ -114,6 +114,7 @@ const queue = (firedAt = NOW): KitchenQueue => ({
   },
   stats: { avgSecs: 0, servedToday: null },
   served: null,
+  stops: [],
 });
 let currentQueue = queue();
 const getKitchenQueue = vi.fn(
@@ -176,14 +177,10 @@ vi.mock("@/lib/kds-sound", () => ({
 }));
 // The Help door auto-opens its sheet on a fresh device; this suite is about the board beneath it.
 vi.mock("./HelpButton", () => ({ HelpButton: () => null }));
-// PD12 — the kitchen's step guide is HELD in the product (`STAFF_GUIDE_SHIPS.kitchen`, until the board
-// draws the stop card it teaches); its host is built and wired, so this suite flips the gate to pin
-// the wiring the flip will switch on. Only a mount that names a `staffId` can offer it at all, so
-// every case before PD12 mounts exactly the board it always did.
-vi.mock("@/lib/staff-guide", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/staff-guide")>()),
-  staffGuideShips: () => true,
-}));
+// PD12 — the kitchen's step guide SHIPS since M270 (1) drew the stop card it teaches, so this suite
+// reads the real gate (it once flipped it in a mock, while the station was held). Only a mount that
+// names a `staffId` can offer it at all, so every case before PD12 mounts exactly the board it always
+// did.
 // The bar's two server actions and the router — the same stubs `StaffBar.test.tsx` mounts it with.
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));

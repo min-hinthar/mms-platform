@@ -429,6 +429,46 @@ describe("PAID food the kitchen has not finished — serve it or bag it first (C
 describe("food SENT and unpaid — the loss slip, only after Clear was reached for", () => {
   const slipHead = () => screen.getByRole("heading", { name: ts("en", "settle.clear.loss.head") });
 
+  it("M270 (1) — 'tells the kitchen to stop' only when the clear will stop a dish: all served, the slip says nothing of the kitchen", async () => {
+    const served: ClearPreview = {
+      ...LOSS,
+      sent: LOSS.sent.map((l) => ({ ...l, state: "served" as const })),
+    };
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: served });
+    mount();
+    await tap(trigger());
+    await tap(screen.getByRole("button", { name: ts("en", "settle.clear.walkout") }));
+    const commit = screen.getByRole("button", { name: /Clear · \$41\.00 loss/ });
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    // MUTATION m270/clear-slip/stop-said-always: a promise the kitchen board never keeps — nothing
+    // on it is still cooking, so the clear stops nothing and no stop card is drawn.
+    expect(body).toContain(tf("en", "settle.clear.loss.body.many", { n: 3 }));
+    expect(body).not.toContain("tells the kitchen to stop");
+  });
+
+  it("#347 r2 — ONE dish still cooking: the slip's literal English promises no particular stop either", async () => {
+    const one: ClearPreview = {
+      ...LOSS,
+      sent: [{ ...LOSS.sent[0]!, qty: 1, amountCents: 1400 }],
+      lossCents: 1400,
+      units: 1,
+      droppedUnits: 0,
+      lines: ["l1:1:dinein:sent"],
+    };
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: one });
+    mount();
+    await tap(trigger());
+    await tap(screen.getByRole("button", { name: ts("en", "settle.clear.walkout") }));
+    const commit = screen.getByRole("button", { name: /Clear · \$14\.00 loss/ });
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    // The shipped words, written out — never read back from the catalog they test. MUTATION
+    // m270/i18n/slip-one-promises-a-stop: "tells the kitchen to stop" alone, false the moment the
+    // kitchen serves that dish before the commit.
+    expect(body).toContain(
+      "Clearing tells the kitchen to stop anything still cooking and puts 1 dish on the owner’s loss list as not approved.",
+    );
+  });
+
   it("the dishes, their menu price, 'Did Table 4 pay?' — and nothing commits until 'No' is taken and armed", async () => {
     getClearPreview.mockResolvedValue({ kind: "preview", preview: LOSS });
     clearTable.mockResolvedValue({ ok: true, dishes: 3, lossCents: 4100 });
@@ -453,9 +493,15 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     // MUTATION clear-ui/commit-armed-at-once → red.
     expect(commit.getAttribute("aria-disabled")).toBe("true");
     expect(commit.getAttribute("aria-describedby")).toBeTruthy();
-    expect(
-      document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent,
-    ).toContain(tf("en", "settle.clear.loss.body.many", { n: 3 }));
+    // M270 (1) — Mohinga is still cooking, so the clear will stop it and the kitchen's stop card
+    // shows until "Got it": the slip says so (Codex correction 12).
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    expect(body).toContain(tf("en", "settle.clear.loss.bodyStop.many", { n: 3 }));
+    // #347 (Codex P2) — the slip reads a LOOK: a dish served during the slip or the window commits
+    // with nothing to stop. So the clause promises no particular stop — "anything still cooking".
+    // MUTATION m270/i18n/slip-promises-a-stop: "tells the kitchen to stop" alone, false the moment
+    // the kitchen serves the last dish before the commit.
+    expect(body).toContain("tells the kitchen to stop anything still cooking");
     await tap(commit);
     expect(windowGroup()).toBeNull();
     await flush(CLEAR_ARM_MS);
