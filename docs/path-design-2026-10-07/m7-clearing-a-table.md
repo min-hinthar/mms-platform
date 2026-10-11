@@ -1225,7 +1225,7 @@ cooking" until "Got it", so the slip's "tells the kitchen to stop" ships.
   keeps the cards it last drew — never "none", which would read as every table acknowledged.
 - **The card** (`KdsStopCard`, m5 A1/B1's shape): one per SEND of each record (m5 B1 — the Send's own
   `ticketKey`), standing in the slot its ticket stood in (`boardOrder`: among the live tickets by the
-  Send's own stamp, never first, never after the held cards), on every station's view, with no flash, no
+  Send's own stamp, never first, never after the held cards), on a station's view only when it stopped that station's dishes (#347 below), with no flash, no
   chime, no stub and no clock. Its struck rows are the dishes that Send still had in the kitchen; "Got
   it" is described by the warn line. It is not counted in Open or Late, the region never says "All
   clear" while one stands, and a new one is said once in the ONE region (it has no motion and no chime).
@@ -1236,14 +1236,40 @@ cooking" until "Got it", so the slip's "tells the kitchen to stop" ships.
   and the read decides; a refusal ("Couldn’t update Table N — try again."), a throw or a write still out
   at the bound brings the cards back (held, the waiting line said, while it is out). Focus that was on
   the button goes to the board's heading.
-- **The slip's clause** (`clearStopsKitchen`): "Clearing tells the kitchen to stop and puts {n} dishes
-  on the owner’s loss list as not approved." — only when a SENT dish is still fired or cooking (a subset
-  of the RPC's stop set, so the card is then drawn); a table whose food is all served keeps the clause-less
-  sentence. K15-HIGH (the slip's money keys are).
+- **The slip's clause** (`clearStopsKitchen`): "Clearing tells the kitchen to stop anything still
+  cooking and puts {n} dishes on the owner’s loss list as not approved." — when the look shows a SENT
+  dish still fired or cooking (a subset of the RPC's stop set); a table whose food the look saw all
+  served keeps the clause-less sentence. K15-HIGH (the slip's money keys are). (#347 below: worded for
+  the race.)
 
 **Decided under delegation.** One card per Send, one "Got it" per clear (the schema acknowledges the
-clear; a per-Send ack would need a migration). Every station's view draws it (a table leaving is the whole
-kitchen's news, and its one Got it retires it everywhere). No floor on age: m7 decision 20 says no timer,
-and the kitchen guide promises "it stays until you do" — the cap bounds the read, and newest-first keeps
-a fresh clear from being crowded out. **Open:** a stop card whose ticket stood on page 2 stays on page 2
-(said in the region; the "N new" pill counts tickets only) — the device sitting (#12) is the look.
+clear; a per-Send ack would need a migration). No floor on age: m7 decision 20 says no timer — the cap
+bounds the read, and newest-first keeps a fresh clear from being crowded out.
+
+**#347 round 1 (the blind pass's REJECT and Codex r1, each verified against source).**
+
+- **Unknown is never none** (Codex P1 · blind C2). A first stop read that did not answer (an error, or
+  past its 2.5 s budget) was coerced to "no stops" — All clear, "Nothing to cook", the guide claimed —
+  for as long as reads kept failing. Now the board holds it UNKNOWN until a stop read answers: no All
+  clear, an error-tone line in place of the empty state ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing."), no guide; two stop reads in a row that do not answer wear the board's
+  "not updating" line, and the first that answers ends it.
+- **A station sees its own stops** (blind C1). The first cut drew every stop card on every station's
+  view, so a drinks screen's Got it retired a wok stop on the wok screen still cooking it. A station's
+  view now draws a card only when it stopped that station's dishes, and only those dishes — the
+  tickets' own station rule (`stationForCategory`, moved to `lib/kitchen-station.ts`); a dish the menu
+  read cannot place counts everywhere. ONE Got it still retires the clear on every screen, and the
+  kitchen guide now says so ("…it stays until the kitchen does, and one Got it clears it on every
+  screen"); per-station acknowledgement needs a migration and a design question (OPEN-ITEMS M271).
+- **The slip's clause is true under the race** (Codex P2). The slip reads a LOOK: a dish served during
+  the slip or the six-second window commits with nothing to stop. The clause now says "tells the
+  kitchen to stop anything still cooking", and `clearStopsKitchen` no longer claims it never over-says.
+- **A stop card's arrival is never lost** (a11y): its sentence stands its own 8 s, outranks a bump's
+  notice, and rides beside a standing refusal — still the board's ONE region.
+- **The dishes read is chunked** (≤ 100 ids a request, in parallel) and **never cuts a record**: a record
+  larger than the 500-line budget is read whole (one Got it retires it, so a partial card would retire
+  dishes nobody saw).
+- **Justified, no code (the lead's answers on the PR):** no deploy backlog (prod's `qr_table_clears`
+  measured empty); the stop and line reads are not one snapshot (a millisecond, one poll); two stop
+  cards for one table (the device sitting, #12). **Open:** a stop card whose ticket stood on page 2 stays on page 2
+  (said in the region; the "N new" pill counts tickets only) — the device sitting (#12) is the look.

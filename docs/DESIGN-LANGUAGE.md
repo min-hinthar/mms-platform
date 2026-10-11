@@ -2697,19 +2697,25 @@ Decided in `lib/kds-stop.ts` (what "Got it" answered, which cards draw, where ea
 `lib/kitchen-stop-read.ts` from the durable stop record a clear writes; drawn by `KdsStopCard`.
 
 - **It never vanishes.** A cleared table's cooking Sends leave the live read at once; each becomes a
-  stop card, read from the record, and stays until a person taps "Got it" — no timer. A stop read that
-  does not answer keeps the cards last drawn: a card never leaves without its acknowledgement, and the
-  board never reads a failed read as "none".
+  stop card, read from the record, and stays until someone in the kitchen taps "Got it" — no timer. A
+  stop read that does not answer keeps the cards last drawn: a card never leaves without its
+  acknowledgement, and the board never reads a failed read as "none". **Unknown is never none:** until a
+  stop read has answered (the server render's included), the board never says All clear, stands no
+  "Nothing to cook" (it says it could not check), and offers no guide; reads that keep failing wear
+  the board's "not updating" line.
 - **In the slot the ticket stood in.** One card per Send (the Send's own key), placed among the live
   tickets by its own stamp — the card turns face where it was and nothing around it moves; never shoved
-  to the top, never behind the held cards. Every station's view draws it: a table leaving is the whole
-  kitchen's news.
+  to the top, never behind the held cards. **A station sees its own stops:** a station's view draws a
+  card only when it stopped that station's dishes (the tickets' own station rule; a dish nobody can
+  place shows everywhere) — and ONE Got it still clears it on every screen, which the guide says.
 - **ALARM without motion, and nothing else.** The Late tint with no pulse, struck rows, the one warn
   word, "Got it" in the bump's slot — no flash, no chime, no stub, no clock. It is not Open and not Late
   (the head counts tickets), and the region never says "All clear" while one stands; a new one is said
-  once in the ONE region (the alarm a screen reader hears, since nothing moves or sounds).
+  in the ONE region (the alarm a screen reader hears, since nothing moves or sounds) for its own dwell
+  — it outranks a transient notice and rides beside a standing refusal, never lost to either.
 - **"Got it" is optimistic and acknowledges the CLEAR.** Every card of that clear leaves at the tap;
   another tablet's acknowledgement (`already`) is the kitchen having it, never a failure; a refusal, a
   throw or a write still out brings the cards back to the confirmed state and a read decides. Focus that
-  was on it goes to the board's heading. The slip on the counter says "tells the kitchen to stop" only
-  when the clear will stop a dish the kitchen holds — the promise and the card are one fact.
+  was on it goes to the board's heading. The slip on the counter says "tells the kitchen to stop
+  anything still cooking" when its look shows a dish the kitchen holds — a promise worded to stay true
+  if the kitchen serves that dish before the commit.
