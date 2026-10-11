@@ -1224,3 +1224,65 @@ and registered a mutant for every rule below.
   kitchen half can say "All clear" while the code still reads Preparing until expo taps Ready. Both
   are true (the wok is empty; the bag is not handed over), but a guest may read them as a
   contradiction. Recorded in OPEN-ITEMS PD9 for the wording sitting.
+
+#### G.3 · After Codex's round 1 on #336 (2026-10-11)
+
+Four P2s on `049e9ca`. I checked each mechanism against the source, watched each new case go red on
+the old code, and registered a mutant for every rule below.
+
+- **The name read asks only for the dishes the wall draws.** In a pickup-only or scan-and-go-only
+  kitchen the tables are readable and the line read holds only non-table lines, so the route asked the
+  menu and grocery catalogs every 5 s for names the shaper never published. The rule that decides
+  which lines the wall draws is now one function, `wallSends` in `lib/board-tables.ts`, read by both
+  `shapeBoardTables` and `wallDishLines`. The route asks the catalog for `wallDishLines` only, and asks
+  nothing when it is empty (`board/names-for-every-line`).
+- **A row's motion key is unique across a re-seat.** Rounds are counted per session, so a table
+  re-seated inside the linger carries two parties' round 1 on one pass, and two rows of one dish shared
+  a key. The planner's stage map kept one of them (an advance went missing) and a FILL lit both. The
+  key's round part now takes its occurrence when a number repeats on the pass (`1`, then `1#1`,
+  `roundTag` in `lib/board-motion.ts`). It moves only when an older round with the SAME number leaves,
+  never when any older round does, as a bare position would (`board-motion/re-seat-shares-a-key`).
+  `rowKey` now takes the whole table, so the fit mints keys from the table, never from the fold's
+  filtered copy.
+- **A folded row names each dish as its own row would.** `dishNameLines` (`lib/board-fit.ts`) builds
+  both name lines dish by dish: the lead line carries each dish's catalog Burmese, marked on its own
+  span, or its English, unmarked; the line beneath echoes the English of the translated dishes only.
+  One dish is the ordinary row, so both kinds share one path. The lead line is one flex item
+  (`.orb-dish-head`), so a fold truncates as one line, and its " · " separators sit in inline flow,
+  not as whitespace nodes in the flex line (DESIGN-LANGUAGE §6). No new Burmese string: every name is
+  a catalog row (`board-fit/fold-translation-all-or-nothing`, `board-fit/echo-repeats-the-english`,
+  `board-wall/fold-marks-the-whole-line`).
+- **A merge committing mid-read never reads "All clear".** The wall's reads are separate statements.
+  `mms_merge_table_orders` cancels the source cart and closes its table in the same transaction that
+  re-parents (or folds) its lines onto the target. So a merge landing between the line read and the
+  cart read leaves a still-cooking line naming a cart the read no longer returns, and `if (!cart)
+continue` read it as cleared: "All clear" for one poll over the merged food. The same race lands
+  between the cart read and the session read too (an open cart under a closed table, which the KDS
+  gate hides).
+  - **Why "absent cart ⇒ not idle" alone was wrong.** A clear (`clearTable` in `lib/floor.ts`)
+    cancels the cart and closes the table but leaves every line on the cart, `fired` or
+    `in_progress`, for the rest of the service day (M182's clear RPC, which voids them, has not
+    shipped). Reading every such line as cooking would have kept "All clear" off the wall all day
+    after any mid-cook clear. The cart read cannot tell the two apart: both writes leave the cart
+    `cancelled` and the table `closed`, and `qr_carts` has no merge marker.
+  - **The separating fact is the line's CURRENT cart.** `cancelled` is terminal (no write reopens a
+    cart) and a closed table is never a merge's source again, so a re-read made after the cart and
+    session reads that still finds the line on the cart it named proves a clear. A line found
+    elsewhere (re-parented), not found (folded into a target line), or a re-read that failed is "not
+    idle". `idleRecheck` names those lines, and only when they alone stand between the reads and
+    "All clear", so a dish already on the wok answers with no re-read. The route re-reads
+    `id,cart_id` for them, and `kitchenIdle` takes the answer as `linesNow`.
+  - **Judged on the first line read.** Every cart that read names was asked of the cart read, so an
+    absent cart is a cancelled one. A line the Send completion read re-fetched can name the cart a
+    merge just moved it to, which no read asked about, and a re-read finding it there would look
+    exactly like a clear (`board/idle-reads-the-completed-sends`).
+  - Mutants: `board-tables/idle-trusts-a-dropped-cart`, `-idle-hidden-is-off`,
+    `-idle-rereads-a-busy-kitchen`, `board/cleared-table-never-all-clear`, `board/idle-rereads-every-poll`.
+    `board-tables/idle-counts-a-dropped-cart` and its case still mean what they meant: a CLEARED table
+    must say "All clear", now once the re-read finds the line in place.
+- **Mutants:** 11 added, 9 re-pointed at the new code (`board-tables/idle-counts-tables-only`,
+  `-idle-counts-served`, `-idle-misses-counter-orders`, `-idle-unknown-session-is-idle`,
+  `-idle-ignores-the-undo-window`, `-idle-counts-a-dropped-cart`, `board/idle-read-ignored`,
+  `board/idle-on-the-app-clock`, `board-wall/english-dish-under-a-burmese-mark`).
+- **Known limit, not changed:** the shaper still drops, for one poll, a line whose cart a merge has
+  just cancelled; the next poll draws it on the target. That is a missing pass for 5 s, never a claim.

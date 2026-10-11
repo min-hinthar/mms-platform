@@ -53,6 +53,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - The fold, its list names and its FILL keys are drawn by component cases; every case unstubs its
     globals; the route suite's session mock answers only the selected columns.
   - 9 mutants added, 5 re-pointed.
+- **After Codex's round 1 on #336** (m9 §G.3):
+  - The name read asks the catalog only for the dishes the wall draws (`wallDishLines`), and nothing
+    when no table is drawn, so a pickup-only or scan-and-go-only wok no longer costs every wall a menu
+    or grocery read every 5 s.
+  - A re-seated table's two round-1 Sends no longer share a motion key: a repeated round number takes
+    its occurrence on the pass, so no advance goes missing and no FILL lights two rows.
+  - A folded row names each dish as its own row would (`dishNameLines`): one untranslated dish no
+    longer turns the whole fold English.
+  - A merge committing mid-read never reads "All clear": a still-cooking line whose cart reads
+    cancelled, or whose table reads closed, is re-read for its current cart. A clear leaves the line
+    there (still "All clear"), a merge moves it (not idle), and a failed re-read is not idle.
+  - 11 mutants added, 9 re-pointed.
 - **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
   `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
   read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
