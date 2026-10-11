@@ -93,19 +93,26 @@ const ok = (lines: null = null): ScanAddResult => ({
   lines, // null: the post-write read failed — nothing on screen proves the charge
 });
 
-/** Let every pending promise (the mount read, a write, its continuation) settle. */
+/** Let every pending promise (the mount read, a write's continuation) settle. */
 const settle = () =>
   act(async () => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
   });
 
-/** A camera sighting of `code`, through the page's own handler, settled. */
+/** Wait for an EVENT the page announces through its one live region — never for a moment: a row
+ *  that read the page at a fixed tick could pass or fail by scheduling (LEARNINGS #248). Generous
+ *  bounds: a loaded CI shard renders this page slowly, and a pass returns at the first match. */
+const announced = (text: RegExp) =>
+  waitFor(() => expect(screen.getByText(text)).toBeTruthy(), { timeout: 20_000 });
+const ROW_MS = 30_000;
+
+/** A camera sighting of `code`, through the page's own handler. A charge's `scanAdd` is called
+ *  synchronously inside it (nothing is awaited before the write), so the count is readable at once. */
 async function sight(code: string) {
   expect(h.onScan).not.toBeNull();
   await act(async () => {
     h.onScan!(code);
   });
-  await settle();
 }
 
 const chargesOf = (code: string) => h.calls.filter((c) => c.barcode === code).length;
@@ -133,50 +140,64 @@ afterEach(() => {
 });
 
 describe("the grocery page — an ok charge is recorded, so a re-read never bills it twice (G25 · M186)", () => {
-  it("a LIVE add whose post-write read failed: the jar re-read is refused, not charged again", async () => {
-    render(<GroceryPage />);
-    await settle();
-    await sight(JAR);
-    expect(chargesOf(JAR)).toBe(1);
-    // MUTANT grocery-page/a-live-add-forgets-its-charge — the list shows nothing (the read failed),
-    // nothing waits in the queue, and an unrecorded charge reads as a new item: a second unit.
-    await sight(JAR);
-    expect(chargesOf(JAR)).toBe(1);
-  });
+  it(
+    "a LIVE add whose post-write read failed: the jar re-read is refused, not charged again",
+    async () => {
+      render(<GroceryPage />);
+      await settle();
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(1);
+      await announced(/Added Jasmine rice/); // the charge's continuation has run
+      // MUTANT grocery-page/a-live-add-forgets-its-charge — the list shows nothing (the read failed),
+      // nothing waits in the queue, and an unrecorded charge reads as a new item: a second unit.
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(1);
+      // …and the refusal is SAID, in the classifier's own words for a charge the view cannot prove.
+      await announced(/Already added — your list is out of date/);
+    },
+    ROW_MS,
+  );
 
-  it("a REPLAYED scan delivered with no view: the jar re-read is refused, not charged again", async () => {
-    // A scan saved in a dead spot, replayed on mount (the drain's kick) with the radio back.
-    enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000a1");
-    render(<GroceryPage />);
-    // The drain has answered: the entry left the queue, the summary was spoken.
-    await waitFor(() => expect(screen.getByText(/added 1 saved scan/)).toBeTruthy(), {
-      timeout: 3000,
-    });
-    await settle();
-    expect(pendingFor(CART)).toEqual([]);
-    expect(h.calls).toEqual([
-      { cartId: CART, barcode: JAR, scanId: "00000000-0000-4000-8000-0000000000a1" },
-    ]);
-    // MUTANT grocery-page/a-replay-forgets-its-charge — G25: the queue no longer holds it, the list
-    // does not show it yet, and the replay never said it charged — the camera bills a second unit.
-    await sight(JAR);
-    expect(chargesOf(JAR)).toBe(1);
-  });
+  it(
+    "a REPLAYED scan delivered with no view: the jar re-read is refused, not charged again",
+    async () => {
+      // A scan saved in a dead spot, replayed on mount (the drain's kick) with the radio back.
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000a1");
+      render(<GroceryPage />);
+      // The drain has answered: the summary is spoken in the same continuation that re-reads the
+      // queue (`syncPending()`), so the entry has left it and the classifier no longer counts it.
+      await announced(/added 1 saved scan/);
+      await settle();
+      expect(pendingFor(CART)).toEqual([]);
+      expect(h.calls).toEqual([
+        { cartId: CART, barcode: JAR, scanId: "00000000-0000-4000-8000-0000000000a1" },
+      ]);
+      // MUTANT grocery-page/a-replay-forgets-its-charge — G25: the queue no longer holds it, the list
+      // does not show it yet, and the replay never said it charged — the camera bills a second unit.
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(1);
+      await announced(/Already added — your list is out of date/);
+    },
+    ROW_MS,
+  );
 
-  it("a REJECTED replay charged nothing — the jar re-read still reaches the server", async () => {
-    // The other direction: a replay the server refused (an unknown code) billed nothing, so it must
-    // NOT be recorded — or the shopper's next read of that code is refused as a repeat of a charge
-    // that never happened, and an item that later joins the catalog can never be scanned in.
-    h.answers = [{ ok: false, reason: "unknown_barcode" }, ok()];
-    enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000b2");
-    render(<GroceryPage />);
-    await waitFor(() => expect(screen.getByText(/couldn’t be added/)).toBeTruthy(), {
-      timeout: 3000,
-    });
-    await settle();
-    expect(pendingFor(CART)).toEqual([]);
-    expect(chargesOf(JAR)).toBe(1);
-    await sight(JAR);
-    expect(chargesOf(JAR)).toBe(2);
-  });
+  it(
+    "a REFUSED replay charged nothing — the jar re-read still reaches the server",
+    async () => {
+      // The other direction: a replay the server refused (an unknown code) billed nothing, so it must
+      // NOT be recorded — or the shopper's next read of that code is refused as a repeat of a charge
+      // that never happened, and an item that later joins the catalog can never be scanned in.
+      h.answers = [{ ok: false, reason: "unknown_barcode" }, ok()];
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000b2");
+      render(<GroceryPage />);
+      await announced(/couldn’t be added/);
+      await settle();
+      expect(pendingFor(CART)).toEqual([]);
+      expect(chargesOf(JAR)).toBe(1);
+      // MUTANT grocery-page/a-refused-replay-recorded-as-charged — refused as "Already added".
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(2);
+    },
+    ROW_MS,
+  );
 });
