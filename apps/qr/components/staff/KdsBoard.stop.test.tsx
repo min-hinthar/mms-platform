@@ -53,7 +53,13 @@ const ticket = (n: number, min: number, station: "wok" | "drinks" = "wok"): Kitc
     },
   ],
 });
-const stop = (clearId: string, table: number, min: number, batch = "b9"): KitchenStop => ({
+const stop = (
+  clearId: string,
+  table: number,
+  min: number,
+  batch = "b9",
+  station: "wok" | "drinks" | null = "wok",
+): KitchenStop => ({
   key: `stop|${clearId}|b|${batch}`,
   clearId,
   tableNumber: table,
@@ -62,11 +68,12 @@ const stop = (clearId: string, table: number, min: number, batch = "b9"): Kitche
   lines: [
     {
       id: `stop-line-${clearId}-${batch}`,
-      name: "Shan Noodles",
+      name: station === "drinks" ? "Lime Juice" : "Shan Noodles",
       nameMy: null,
       qty: 2,
       modifiers: [],
       modifiersMy: [],
+      station,
     },
   ],
 });
@@ -200,13 +207,29 @@ describe("M270 (1) — the stop card stands in its ticket's slot", () => {
     expect(card.querySelector(".kds-flash")).toBeNull();
   });
 
-  it("on EVERY station's view — a table that left is the whole kitchen's news", async () => {
-    currentQueue = q([ticket(1, -10)], [stop("c3", 3, -5)]);
+  it("#347 (C1) — a station's view draws a stop card only for its own dishes; All draws every card; an unplaced dish shows everywhere", async () => {
+    currentQueue = q(
+      [ticket(1, -10)],
+      [
+        stop("c3", 3, -5, "b3", "wok"),
+        stop("c5", 5, -4, "b5", "drinks"),
+        stop("c7", 7, -3, "b7", null),
+      ],
+    );
     const { container } = mount(currentQueue);
     await act(async () => {});
+    expect(gridOrder(container)).toEqual([
+      "Table 1",
+      "stop:Table 3",
+      "stop:Table 5",
+      "stop:Table 7",
+    ]);
     fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.drinks") }));
-    // The wok ticket leaves the drinks view; the stop card stays.
-    expect(gridOrder(container)).toEqual(["stop:Table 3"]);
+    // MUTATION m270/kds-board/station-filter-dropped: the drinks screen shows the wok's stop — and its
+    // one Got it would retire it on the wok screen that is actually cooking.
+    expect(gridOrder(container)).toEqual(["stop:Table 5", "stop:Table 7"]);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.wok") }));
+    expect(gridOrder(container)).toEqual(["Table 1", "stop:Table 3", "stop:Table 7"]);
   });
 
   it("a stop read that did not answer keeps the cards — a card never leaves without a Got it", async () => {
@@ -256,22 +279,6 @@ describe("M270 (1) — Got it: the optimistic doctrine", () => {
     await flush(5_000);
     expect(gridOrder(container)).toEqual(["Table 1", "stop:Table 5"]);
   });
-
-  it.each(["already", "nothing_to_stop"] as const)(
-    "%s is the kitchen having it, never a failure: the card stays gone and nothing is said in warn",
-    async (status) => {
-      currentQueue = q([], [stop("c3", 3, -5)]);
-      ackTableClearStop.mockImplementationOnce(() => Promise.resolve({ ok: true, status }));
-      const { container } = mount(currentQueue);
-      await act(async () => {});
-      currentQueue = q([], []);
-      await act(async () => {
-        fireEvent.click(gotIt(container));
-      });
-      expect(stopCards(container)).toHaveLength(0);
-      expect(region().textContent).not.toContain(tf("en", "kds.err.line", { x: "Table 3" }));
-    },
-  );
 
   it("not_found re-reads: the hide is dropped at the answer, and the read decides", async () => {
     currentQueue = q([], [stop("c3", 3, -5)]);
@@ -404,5 +411,135 @@ describe("M270 (1) — a stop card is work", () => {
       fireEvent.click(gotIt(container));
     });
     expect(ackTableClearStop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#347 (Codex P1 · blind C2) — an UNKNOWN first stop read is never 'no stops'", () => {
+  it("no stop read has answered: never All clear, never 'Nothing to cook', never the guide (nor its seen-mark)", async () => {
+    mount(q([], null), STAFF_ID);
+    await act(async () => {});
+    // MUTATION m270/kds-board/unknown-read-as-none: the unknown read becomes a confirmed "none" — All
+    // clear, the empty state, and the guide claimed over a table that may have left.
+    expect(region().textContent).not.toBe(ts("en", "kds.allclear"));
+    expect(region().textContent).toBe(tf("en", "kds.open.many", { n: 0 }));
+    // MUTATION m270/kds-board/unknown-empty-state: "Nothing to cook" stands over the unknown.
+    expect(screen.queryByText(ts("en", "kds.empty"))).toBeNull();
+    expect(document.getElementById("kds-empty-h")!.textContent).toBe(ts("en", "kds.stops.unknown"));
+    // MUTATION m270/kds-board/unknown-guide-claimed: the guide is offered (and marked seen) over it.
+    expect(document.querySelector(".kds-guide")).toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
+  });
+
+  it("stop reads that keep failing wear the board's 'not updating' line; the first that answers ends it and makes the board known", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], null);
+    mount(currentQueue);
+    await flush();
+    // The server render's read missed (1): not yet a pattern.
+    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    await flush(5_000);
+    // MUTATION m270/kds-board/stop-misses-unsaid: a board that cannot hear a table leave keeps its
+    // quiet live face for as long as the reads fail.
+    expect(region().textContent).toContain(ts("en", "out.head.notUpdating"));
+    currentQueue = q([], []);
+    await flush(5_000);
+    expect(region().textContent).toBe(ts("en", "kds.allclear"));
+    expect(document.getElementById("kds-empty-h")!.textContent).toBe(ts("en", "kds.empty"));
+  });
+});
+
+describe("#347 — guard integrity", () => {
+  it("a read that STARTED before Got it's answer and still has the record cannot put the card back (afterSeq)", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], [stop("c3", 3, -5)]);
+    const write = deferred<KitchenStopAckResult>();
+    ackTableClearStop.mockImplementationOnce(() => write.promise);
+    const { container } = mount(currentQueue);
+    await flush();
+    await act(async () => {
+      fireEvent.click(gotIt(container));
+    });
+    expect(stopCards(container)).toHaveLength(0);
+    // A poll STARTS while the write is out (it reads before the write commits) …
+    const inFlight = deferred<{ ok: true; queue: KitchenQueue }>();
+    getKitchenQueue.mockImplementationOnce(() => inFlight.promise);
+    await flush(5_000);
+    // … the write answers ok …
+    await act(async () => {
+      write.resolve({ ok: true, status: "ok" });
+    });
+    // … and the read lands with the record still in it.
+    await act(async () => {
+      inFlight.resolve({ ok: true, queue: q([], [stop("c3", 3, -5)]) });
+    });
+    // MUTATION m270/kds-board/after-seq-zero: every read after the answer counts as fresh, and the
+    // stale one puts the acknowledged card back.
+    expect(stopCards(container)).toHaveLength(0);
+  });
+
+  it.each(["already", "nothing_to_stop"] as const)(
+    "%s keeps the card gone until a read that started after the answer — the verdict decides, not the re-read",
+    async (status) => {
+      currentQueue = q([], [stop("c3", 3, -5)]);
+      ackTableClearStop.mockImplementationOnce(() => Promise.resolve({ ok: true, status }));
+      const { container } = mount(currentQueue);
+      await act(async () => {});
+      // The re-read after the answer is held: before it answers, the verdict alone is on screen.
+      const reread = deferred<{ ok: true; queue: KitchenQueue }>();
+      getKitchenQueue.mockImplementationOnce(() => reread.promise);
+      await act(async () => {
+        fireEvent.click(gotIt(container));
+      });
+      // (A not_found here would put the card back: `not_found re-reads`, above.)
+      expect(stopCards(container)).toHaveLength(0);
+      expect(region().textContent).not.toContain(tf("en", "kds.err.line", { x: "Table 3" }));
+      await act(async () => {
+        reread.resolve({ ok: true, queue: q([], []) });
+      });
+      expect(stopCards(container)).toHaveLength(0);
+    },
+  );
+});
+
+describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region", () => {
+  it("it outranks a later transient notice, and rides beside a standing refusal", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([ticket(1, -10)], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    // Table 3 is cleared: its card lands on the next poll.
+    currentQueue = q([ticket(1, -10)], [stop("c3", 3, -5)]);
+    await flush(5_000);
+    expect(region().textContent).toBe(STOP3);
+    // A bump lands right after — its notice must not take the alarm's place.
+    await act(async () => {
+      fireEvent.click(container.querySelector(".kds-bump:not(.kds-stop-ack)")!);
+    });
+    await flush();
+    // MUTATION m270/kds-board/news-under-notice: "Table 1 bumped" replaces the only alarm a screen
+    // reader would hear.
+    expect(region().textContent).toContain(STOP3);
+  });
+
+  it("with a refusal already standing, the arrival is said beside it — still ONE region", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], [stop("c5", 5, -6)]);
+    ackTableClearStop.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: "x", code: "failed" }),
+    );
+    const { container } = mount(currentQueue);
+    await flush();
+    await act(async () => {
+      fireEvent.click(gotIt(container));
+    });
+    await flush();
+    const refused = tf("en", "kds.err.line", { x: "Table 5" });
+    expect(region().textContent).toBe(refused);
+    currentQueue = q([], [stop("c5", 5, -6), stop("c3", 3, -5)]);
+    await flush(5_000);
+    // MUTATION m270/kds-board/news-lost-under-err: the refusal hides the arrival entirely.
+    expect(region().textContent).toContain(refused);
+    expect(region().textContent).toContain(STOP3);
+    expect(document.querySelectorAll('[role="status"], [aria-live]')).toHaveLength(1);
   });
 });

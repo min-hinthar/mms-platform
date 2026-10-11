@@ -130,13 +130,15 @@ export function clearPaidUnserved(
 }
 
 /**
- * M270 (1) · PATH_DESIGN correction 12 — may the slip say "tells the kitchen to stop"? Only when the
- * clear WILL stop something the kitchen holds: a SENT dish still fired or cooking (never served —
- * nothing left to stop). That is a subset of `mms_clear_table`'s own stop set (fired · in progress,
- * past the grace, never grocery — SENT already is all three), so whenever this says yes the clear
- * writes a non-empty stop record and the kitchen board draws its "Table N left — stop cooking" card
- * until "Got it". It may under-say (a comped dish still cooking is stopped too, and is never on the
- * slip), never over-say: a table whose food is all served hears nothing about the kitchen.
+ * M270 (1) · PATH_DESIGN correction 12 — may the slip mention the kitchen at all? When the LOOK shows
+ * a SENT dish still fired or cooking (never served): a subset of `mms_clear_table`'s own stop set
+ * (fired · in progress, past the grace, never grocery — SENT is all three). ⚠️ It reads the look, not
+ * the commit (#347, Codex P2): a dish served during the slip or the six-second window commits with
+ * nothing left to stop, and no stop card is drawn. So the clause it unlocks promises no particular
+ * stop — "tells the kitchen to stop anything still cooking" (`settle.clear.loss.bodyStop.*`), true
+ * whatever the kitchen finishes in between — and this gate only keeps a table whose food the look saw
+ * all served from hearing about the kitchen at all. It may under-say (a comped dish still cooking is
+ * stopped too, and is never on the slip).
  */
 export function clearStopsKitchen(p: ClearPreview): boolean {
   return p.sent.some((l) => l.state === "fired" || l.state === "in_progress");

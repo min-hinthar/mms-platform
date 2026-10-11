@@ -13,8 +13,15 @@ type Row = Record<string, unknown>;
 let tables: Record<string, Row[]> = {};
 /** A leg to fail: the table read whose error the case injects. */
 let failing: Set<string> = new Set();
+/** #347 — fail only the Nth read of a table (1-based): one chunk of the dishes read. */
+let failNth: { table: string; n: number } | null = null;
+/** #347 — every IN-list's length, per table, in call order (the request-size bound). */
+let inSizes: Record<string, number[]> = {};
+let reads: Record<string, number> = {};
 
 function query(name: string) {
+  reads[name] = (reads[name] ?? 0) + 1;
+  const nth = reads[name];
   const filters: ((r: Row) => boolean)[] = [];
   let order: { col: string; asc: boolean } | null = null;
   let lim: number | null = null;
@@ -33,6 +40,7 @@ function query(name: string) {
       return api;
     },
     in(col: string, vs: unknown[]) {
+      (inSizes[name] ??= []).push(vs.length);
       filters.push((r) => vs.includes(r[col]));
       return api;
     },
@@ -45,7 +53,7 @@ function query(name: string) {
       return api;
     },
     then(res: (v: unknown) => unknown) {
-      if (failing.has(name))
+      if (failing.has(name) || (failNth?.table === name && failNth.n === nth))
         return Promise.resolve({ data: null, error: { message: "boom" } }).then(res);
       let rows = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
       if (order !== null) {
@@ -67,13 +75,18 @@ const {
   settleKitchenStops,
   shapeKitchenStops,
   stopLineBudget,
+  chunkIds,
   STOP_CLEAR_CAP,
+  STOP_ID_CHUNK,
   STOP_LINE_CAP,
 } = await import("./kitchen-stop-read");
 
 afterEach(() => {
   tables = {};
   failing = new Set();
+  failNth = null;
+  inSizes = {};
+  reads = {};
   vi.useRealTimers();
 });
 
@@ -284,15 +297,101 @@ describe("the line budget — whole records only, newest first", () => {
     const out = stopLineBudget([c("new", 3), c("mid", 4), c("old", 1)], 7);
     expect(out.clears.map((x) => x.id)).toEqual(["new", "mid"]);
     expect(out.ids).toHaveLength(7);
-    // MUTATION m270/stop-read/budget-partial: a record that does not fit is drawn with part of its
-    // dishes — a card that under-says what to stop.
+    // MUTATION m270/stop-read/budget-skips-ahead: an older record that fits jumps the one that does
+    // not — the read stops at the first record that does not fit, whole records only.
     const tight = stopLineBudget([c("new", 3), c("mid", 4), c("old", 1)], 6);
     expect(tight.clears.map((x) => x.id)).toEqual(["new"]);
     expect(tight.ids).toEqual(["new-0", "new-1", "new-2"]);
   });
-  it("one record larger than the cap on its own is taken alone, at the cap", () => {
+  it("#347 — one record larger than the cap on its own is taken alone, and WHOLE", () => {
     const out = stopLineBudget([c("huge", STOP_LINE_CAP + 5), c("next", 1)]);
     expect(out.clears.map((x) => x.id)).toEqual(["huge"]);
-    expect(out.ids).toHaveLength(STOP_LINE_CAP);
+    // MUTATION m270/stop-read/oversized-truncated: drawn with 500 of its 505 dishes, and the one Got
+    // it that retires the record retires the five nobody saw.
+    expect(out.clears[0]!.stop_line_ids).toHaveLength(STOP_LINE_CAP + 5);
+    expect(out.ids).toHaveLength(STOP_LINE_CAP + 5);
+  });
+  it("chunkIds: in order, at most the chunk each, nothing lost", () => {
+    const ids = Array.from({ length: 205 }, (_, i) => `i${i}`);
+    const chunks = chunkIds(ids, 100);
+    expect(chunks.map((x) => x.length)).toEqual([100, 100, 5]);
+    expect(chunks.flat()).toEqual(ids);
+    expect(chunkIds([], 100)).toEqual([]);
+  });
+});
+
+describe("#347 — each dish's station, the tickets' rule", () => {
+  it("a dish's station is its menu category's (drinks → drinks; none or unknown → the wok)", async () => {
+    tables = {
+      qr_table_clears: [clear(1, ["l1", "l2", "l3"])],
+      qr_cart_items: [
+        line("l1", { menu_item_id: uuid(901) }),
+        line("l2", { menu_item_id: uuid(902) }),
+        line("l3", { menu_item_id: uuid(903) }),
+      ],
+      table_sessions: [session],
+      menu_items: [
+        { id: uuid(901), name_my: null, menu_categories: { slug: "drinks" } },
+        { id: uuid(902), name_my: null, menu_categories: { slug: "curries" } },
+        { id: uuid(903), name_my: null, menu_categories: null },
+      ],
+    };
+    const lines = (await readKitchenStops(db))![0]!.lines;
+    // MUTATION m270/stop-read/station-from-default: every stopped dish reads as the wok's, and the
+    // drinks screen never sees its own stop.
+    expect(lines.map((l) => [l.id, l.station])).toEqual([
+      ["l1", "drinks"],
+      ["l2", "wok"],
+      ["l3", "wok"],
+    ]);
+  });
+
+  it("a dish the menu read does not find, or a failed menu read: the station is UNKNOWN, never a guess", async () => {
+    tables = {
+      qr_table_clears: [clear(1, ["l1"])],
+      qr_cart_items: [line("l1", { menu_item_id: uuid(904) })],
+      table_sessions: [session],
+      menu_items: [],
+    };
+    // MUTATION m270/stop-read/unknown-station-as-wok: a dish nobody could place would show only on
+    // the wok's screen — hidden from the station actually cooking it.
+    expect((await readKitchenStops(db))![0]!.lines[0]!.station).toBeNull();
+    tables.menu_items = [{ id: uuid(904), name_my: null, menu_categories: { slug: "drinks" } }];
+    failing = new Set(["menu_items"]);
+    const stops = await readKitchenStops(db);
+    // ADVISORY: still drawn — English, and shown on every station.
+    expect(stops).toHaveLength(1);
+    expect(stops![0]!.lines[0]!.station).toBeNull();
+  });
+});
+
+describe("#347 — the dishes read is chunked; a record is never cut", () => {
+  const big = (n: number) => Array.from({ length: n }, (_, i) => `big-${i}`);
+  it("a 505-dish record is read WHOLE, in IN-lists of at most STOP_ID_CHUNK ids", async () => {
+    const ids = big(STOP_LINE_CAP + 5);
+    tables = {
+      qr_table_clears: [clear(1, ids)],
+      qr_cart_items: ids.map((id) => line(id)),
+      table_sessions: [session],
+    };
+    const stops = (await readKitchenStops(db))!;
+    expect(stops.flatMap((s) => s.lines)).toHaveLength(STOP_LINE_CAP + 5);
+    // MUTATION m270/stop-read/chunk-unbounded: one ~19 KB query string.
+    expect(STOP_ID_CHUNK).toBe(100);
+    expect(inSizes.qr_cart_items!.every((n) => n <= STOP_ID_CHUNK)).toBe(true);
+    expect(inSizes.qr_cart_items).toEqual([100, 100, 100, 100, 100, 5]);
+  });
+
+  it("ANY chunk failing answers null — never a card missing that chunk's dishes", async () => {
+    const ids = big(250);
+    tables = {
+      qr_table_clears: [clear(1, ids)],
+      qr_cart_items: ids.map((id) => line(id)),
+      table_sessions: [session],
+    };
+    failNth = { table: "qr_cart_items", n: 3 };
+    // MUTATION m270/stop-read/chunk-error-swallowed: only the first chunk's error is read, and a card
+    // draws 200 of its 250 dishes.
+    expect(await readKitchenStops(db)).toBeNull();
   });
 });

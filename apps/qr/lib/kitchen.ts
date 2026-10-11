@@ -35,6 +35,7 @@ import { shapeKdsStats } from "./kitchen-stats";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
 import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
+import { stationForCategory } from "./kitchen-station";
 import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
 
 /**
@@ -84,12 +85,8 @@ const OWING_LINE_CAP = 500;
  * hygiene fix and is filed as M198.
  */
 
-/** W3d station tags: menu category slug → coarse station chip. A missing/unknown category cooks on the
- *  wok (the default line). Client-side filter only — a second physical screen is config, not schema. */
-const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
-  drinks: "drinks",
-  "appetizers-salads": "cold",
-};
+// W3d station tags live in `lib/kitchen-station.ts` (`stationForCategory`), the ONE rule the tickets
+// and the stop cards share (M270 (1)).
 
 /**
  * The live fire queue, grouped into per-SEND cards (PD5: one Send, one card — keyed by `cart_id` +
@@ -286,7 +283,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const nameMyByItem = new Map<string, string | null>();
   for (const m of menuRes.data ?? []) {
     const slug = m.menu_categories?.slug;
-    stationByItem.set(m.id, (slug && STATION_BY_CATEGORY[slug]) || "wok");
+    stationByItem.set(m.id, stationForCategory(slug));
     if (m.is_sold_out) soldOutItems.add(m.id);
     nameMyByItem.set(m.id, m.name_my);
   }

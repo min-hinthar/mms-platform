@@ -1,4 +1,4 @@
-import type { KitchenStop, KitchenTicket } from "./kitchen-types";
+import type { KitchenStation, KitchenStop, KitchenTicket } from "./kitchen-types";
 
 /**
  * M270 (1) · PATH_DESIGN correction 12 — the kitchen's "Table N left — stop cooking" card, the PURE
@@ -57,8 +57,57 @@ export function visibleStops(stops: readonly KitchenStop[], acks: StopAcks): Kit
   return stops.filter((s) => !acks.has(s.clearId));
 }
 
-/** The board's stop state: the cards it last read, and the clears it is hiding. */
-export type StopState = { stops: readonly KitchenStop[]; acks: StopAcks };
+/**
+ * The board's stop state: the cards it last read (`null` — UNKNOWN: no stop read has answered yet, the
+ * server render's included), and the clears it is hiding. Unknown is never "none": while it stands
+ * the board never says All clear, never stands its empty state, and never offers its guide (a quiet
+ * board it cannot vouch for), and stop reads that keep failing turn into the board's degraded line
+ * (`stopReadDegraded`).
+ */
+export type StopState = { stops: readonly KitchenStop[] | null; acks: StopAcks };
+
+/** Has any stop read answered? (False: the cards are unknown, never an empty list.) */
+export function stopsKnown(state: StopState): boolean {
+  return state.stops !== null;
+}
+
+/** Consecutive stop reads that did not answer — past this many the board says it is not updating. */
+export const STOP_MISS_LIMIT = 2;
+
+/**
+ * Stop reads that keep failing (`misses` in a row, the server render's counted) make the WHOLE board's
+ * honesty degraded: a table that leaves cannot reach this kitchen while it lasts, which is exactly the
+ * silence this card exists to end — so the board wears its existing "not updating" line, not a quiet
+ * live face over a hole.
+ */
+export function stopReadDegraded(misses: number): boolean {
+  return misses >= STOP_MISS_LIMIT;
+}
+
+/**
+ * The stop cards a station's view draws (C1 on #347): a card only when its stopped dishes include
+ * that station's — the tickets' own derivation, `stationForCategory` — and then only those dishes,
+ * as a ticket's own lines are filtered. A dish whose station is unknown (`null`) counts on EVERY
+ * station, and a card with no dishes at all (its rows were never read) shows everywhere: unknown is
+ * never "not mine". The all-stations view draws every card whole. ONE "Got it" still acknowledges the
+ * whole clear for every tablet (the record is the clear's; per-station acknowledgement is M271).
+ */
+export function stopsForStation(
+  stops: readonly KitchenStop[],
+  station: "all" | KitchenStation,
+): KitchenStop[] {
+  if (station === "all") return [...stops];
+  const out: KitchenStop[] = [];
+  for (const s of stops) {
+    if (s.lines.length === 0) {
+      out.push(s);
+      continue;
+    }
+    const mine = s.lines.filter((l) => l.station === null || l.station === station);
+    if (mine.length > 0) out.push({ ...s, lines: mine });
+  }
+  return out;
+}
 
 /**
  * A snapshot lands. A stop read that did not answer (`null` — failed, or past its budget) changes
@@ -73,7 +122,7 @@ export function foldStopRead(
   incoming: readonly KitchenStop[] | null,
   seq: number,
 ): StopState {
-  if (incoming === null) return prev;
+  if (incoming === null) return prev; // unknown stays unknown; the last cards stay drawn
   const acks = new Map<string, StopAckEntry>();
   for (const [id, a] of prev.acks) if (a.phase === "out" || a.afterSeq >= seq) acks.set(id, a);
   return { stops: incoming, acks };
@@ -128,3 +177,11 @@ export function stopArrivals(
 ): KitchenStop[] {
   return stops.filter((s) => !seen.has(s.key));
 }
+
+/**
+ * How long a NEW stop card's sentence stands in the board's ONE region (#347 review, a11y): the
+ * card's arrival is an ALARM with no motion and no chime, so its words are the only alarm a screen
+ * reader hears — they outrank a bump's transient notice for this long and ride beside a standing
+ * refusal, never replaced by either (`ERR_DWELL_MS`'s length: a sentence still being read).
+ */
+export const STOP_NEWS_MS = 8_000;

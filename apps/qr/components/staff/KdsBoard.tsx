@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ackTableClearStop,
   bumpLine,
@@ -78,8 +86,12 @@ import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 import {
   boardOrder,
   foldStopRead,
+  STOP_NEWS_MS,
   stopAckVerdict,
   stopArrivals,
+  stopReadDegraded,
+  stopsForStation,
+  stopsKnown,
   visibleStops,
   withStopAck,
   type StopState,
@@ -427,14 +439,25 @@ export function KdsBoard({
   // record (`snap.stops`, read from the durable record PD7's clear writes), held apart from the
   // snapshot: a stop read that did not answer keeps the cards last drawn (`foldStopRead` — soft), and
   // a "Got it" hides its clear's cards at the TAP (`acks` — the optimistic doctrine: instant flip,
-  // revert to confirmed + re-read). `stops` is what the board draws.
+  // revert to confirmed + re-read). #347 (Codex P1 · blind C2) — a stop read that never answered,
+  // the server render's included, is UNKNOWN (`stops: null`), never "none": until one answers the
+  // board never says All clear, never stands its empty state and never offers its guide, and reads
+  // that keep failing wear the board's "not updating" line (`stopReadDegraded`, below).
   const [stopState, setStopState] = useState<StopState>(() => ({
-    stops: initial.stops ?? [],
+    stops: initial.stops,
     acks: new Map(),
   }));
-  const stops = useMemo(() => visibleStops(stopState.stops, stopState.acks), [stopState]);
+  const stopsSeen = stopsKnown(stopState);
+  // Every station's cards (the guide's quiet reads the whole board); the view draws `stops`, below.
+  const allStops = useMemo(() => visibleStops(stopState.stops ?? [], stopState.acks), [stopState]);
   // The stop cards this board has drawn, for saying a NEW one once (the server render's are not news).
   const seenStops = useRef(new Set((initial.stops ?? []).map((s) => s.key)));
+  // Stop reads in a row that did not answer (the server render's counts): past `STOP_MISS_LIMIT` the
+  // board is not updating — a table that leaves cannot reach this kitchen while it lasts.
+  const stopMisses = useRef(initial.stops === null ? 1 : 0);
+  // #347 (a11y) — a NEW stop card's sentence, the region's ALARM: it outranks a transient notice and
+  // rides beside a standing refusal for `STOP_NEWS_MS`, never replaced by either.
+  const [stopNews, setStopNews] = useState<string | null>(null);
   // The device language for the poll's announcement: `refresh` is stable for the board's life, so a
   // closure would keep the language the console started in (the `onBumped` lesson, below).
   const langRef = useRef(lang);
@@ -451,16 +474,18 @@ export function KdsBoard({
   // segment, is no guide (`staffGuideKeyFor`) — never a throw during render.
   const guide = useGuideFirstRun(
     staffGuideShips("kitchen") ? staffGuideKeyFor("kitchen", staffId) : null,
+    // Unknown stop cards are a board this guide cannot call quiet (#347): never offered, never
+    // claimed (marked seen) over them.
     () =>
       kitchenGuideQuiet({
-        tickets: snap.tickets.length + stops.length,
-        degraded: false,
+        tickets: snap.tickets.length + allStops.length,
+        degraded: !stopsSeen,
         failed: err !== null,
       }),
   );
   const guideQuiet = kitchenGuideQuiet({
-    tickets: snap.tickets.length + stops.length,
-    degraded: degraded !== null,
+    tickets: snap.tickets.length + allStops.length,
+    degraded: degraded !== null || !stopsSeen,
     failed: err !== null,
   });
   // How the guide left, for where focus goes (the effect sits after the focus catch-all, below).
@@ -502,6 +527,12 @@ export function KdsBoard({
 
   // Board controls (persisted per device).
   const [station, setStation] = useState<"all" | KitchenStation>("all");
+  // The station the POLL reads (its callback is stable for the board's life): a new stop card is news
+  // only on the views that draw it.
+  const stationRef = useRef<"all" | KitchenStation>("all");
+  useEffect(() => {
+    stationRef.current = station;
+  }, [station]);
   const [railOpen, setRailOpen] = useState(false);
   // K31 (A4·1) — the rail's two views. Not persisted: the served rail is a question ("did table
   // 6's go out?"), the all-day counts are the standing view a cook works from.
@@ -716,11 +747,16 @@ export function KdsBoard({
       // started after. A stop card NEW to this board is said once in the ONE region, in the device
       // language — it has no motion and no chime, so this is the alarm a screen reader hears.
       setStopState((prev) => foldStopRead(prev, queue.stops, seq));
+      stopMisses.current = queue.stops === null ? stopMisses.current + 1 : 0;
       if (queue.stops !== null) {
-        const arrived = stopArrivals(seenStops.current, queue.stops);
+        // Only the cards THIS view draws are news here (a wok screen is not told about a drinks stop).
+        const arrived = stopsForStation(
+          stopArrivals(seenStops.current, queue.stops),
+          stationRef.current,
+        );
         seenStops.current = new Set(queue.stops.map((st) => st.key));
         if (arrived.length > 0)
-          setNotice(
+          setStopNews(
             [
               ...new Set(
                 arrived.map((st) =>
@@ -738,7 +774,11 @@ export function KdsBoard({
         setErr(null);
       }
       fails.current = 0;
-      setDegraded(null);
+      // #347 — the tickets answered, but stop reads that keep failing are still a board that cannot
+      // hear a table leave: it says so in the board's own words, never a quiet live face.
+      if (stopReadDegraded(stopMisses.current))
+        setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
+      else setDegraded(null);
     } catch (e) {
       // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
@@ -808,6 +848,12 @@ export function KdsBoard({
     const id = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(id);
   }, [notice]);
+  // #347 — a stop card's arrival stands its own dwell, never the notice's 4 s.
+  useEffect(() => {
+    if (stopNews === null) return;
+    const id = setTimeout(() => setStopNews(null), STOP_NEWS_MS);
+    return () => clearTimeout(id);
+  }, [stopNews]);
 
   // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a ticket unmounts the
   // control that held focus. Edge-triggered — restore to the board heading only when focus HAD been on
@@ -858,6 +904,9 @@ export function KdsBoard({
   // stood in (`boardOrder`: among the LIVE ones, by its Send's own stamp — the card turns face where
   // it was, and nothing around it moves). A stop card is on EVERY station's view: a table that left
   // is the whole kitchen's news, and its one "Got it" retires it on every screen.
+  // C1 on #347 — a station's view draws a stop card only when it stopped that station's dishes
+  // (`stopsForStation`, the tickets' station rule); the all-stations view draws every card.
+  const stops = useMemo(() => stopsForStation(allStops, station), [allStops, station]);
   const items = useMemo(() => boardOrder(filtered, stops), [filtered, stops]);
   const pageSize = kdsPageSize(size);
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
@@ -1165,13 +1214,16 @@ export function KdsBoard({
   // tap them). Work (a ticket, a freeze, an error) follows the catch-all's own rule: the heading,
   // only when focus had been on a real control and fell to <body> — declared after it, so a landing
   // ticket's snapshot is the catch-all's to answer, and a freeze (which changes no snapshot) is ours.
+  // M270 (1) — the flip's condition (b): work took the guide's place, so the board's controls hold
+  // for the guide's arm from NOW (`guideReplacedHeld`) — a tap aimed at Next never lands on the All
+  // done or the "Got it" (no undo) that replaced it. A LAYOUT effect (#347, blind): it runs in the
+  // commit itself, before the browser paints the card, so no real tap between the paint and a
+  // passive effect can act on it.
+  useLayoutEffect(() => {
+    if (guideLeft === "work") replacedAt.current = performance.now();
+  }, [guideLeft]);
   useEffect(() => {
     if (guideLeft === null) return;
-    // M270 (1) — the flip's condition (b): work took the guide's place, so the board's controls hold
-    // for the guide's arm from NOW (`guideReplacedHeld`) — a tap aimed at Next never lands on the All
-    // done or the "Got it" that replaced it. React flushes this effect before the next discrete
-    // event, so the tap that was already on its way meets the stamp.
-    if (guideLeft === "work") replacedAt.current = performance.now();
     if (guideLeft === "user") document.getElementById("kds-empty-h")?.focus();
     else if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
@@ -1545,8 +1597,14 @@ export function KdsBoard({
               BOTH in server-space, so a skewed tablet clock can't decide when staff are told to fall
               back to paper. Elapsed clocks keep ticking on the frozen cards: the food really has
               been waiting that long — that's the truth, not fake liveness. */}
+          {/* #347 (a11y) — a NEW stop card's sentence (`stopNews`) is the one ALARM with no motion and
+              no chime: it rides BESIDE a standing refusal and a frozen line (one region, both said),
+              and outranks a transient notice — never lost to either. */}
           {err ? (
-            <MsgText lang={lang} msg={err} />
+            <>
+              <MsgText lang={lang} msg={err} />
+              {stopNews !== null && <span lang={lang}> {stopNews}</span>}
+            </>
           ) : (
             <span lang={lang}>
               {degraded
@@ -1556,11 +1614,13 @@ export function KdsBoard({
                     nowMs - degraded.since,
                     "what.queue",
                     degraded.cause,
-                  )
-                : (notice ??
-                  // M270 (1) — never "All clear" over a stop card still waiting for its Got it:
-                  // the count then says the open tickets as they are (a stop card is not one).
-                  (count === 0 && stops.length === 0
+                  ) + (stopNews === null ? "" : ` ${stopNews}`)
+                : (stopNews ??
+                  notice ??
+                  // M270 (1) — never "All clear" over a stop card still waiting for its Got it, nor
+                  // while no stop read has answered (#347: unknown is never none): the count then
+                  // says the open tickets as they are (a stop card is not one).
+                  (count === 0 && stops.length === 0 && stopsSeen
                     ? ts(lang, "kds.allclear")
                     : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
                       (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
@@ -1647,7 +1707,16 @@ export function KdsBoard({
       <div className="kds-body">
         {items.length === 0 ? (
           <div style={{ flex: 1 }}>
-            {guide.shown ? (
+            {!stopsSeen ? (
+              // #347 (Codex P1 · blind C2) — no stop read has answered: the board cannot say
+              // "Nothing to cook" over a table that may have left. It says it could not look (the
+              // empty state's `error` tone), and repeated misses add the board's "not updating" line.
+              <EmptyState
+                titleId="kds-empty-h"
+                tone="error"
+                title={<Chrome lang={lang} k="kds.stops.unknown" />}
+              />
+            ) : guide.shown ? (
               // PD12 — the guide where "Nothing to cook" stands, the board's own truth still said
               // above it (a <p>: the guide's title is the heading). Inside the board's region, a
               // labelled group — never a second region.

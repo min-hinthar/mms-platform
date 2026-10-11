@@ -25,7 +25,8 @@ import type { KitchenStopLine } from "@/lib/kitchen-types";
  * acknowledgement through `mms_ack_table_clear_stop`. The step guide's fifth picture renders it too,
  * inert.
  */
-export type KdsStopLine = KitchenStopLine;
+/** What the card draws of a dish: its text only (the board filters by station before it draws). */
+export type KdsStopLine = Omit<KitchenStopLine, "station">;
 
 export function KdsStopCard({
   table,

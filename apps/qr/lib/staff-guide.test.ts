@@ -204,6 +204,16 @@ describe("when a guide offers itself — quiet at mount; work always wins", () =
     ).toBe(false);
     expect(counterAskingAtMount([])).toBe(false);
   });
+  it("#347 (C1) — the stop step says what one Got it does on a kitchen with several screens", () => {
+    const step = STAFF_GUIDE_STEPS.kitchen[4]!;
+    expect(step.lines.map((l) => l.k)).toEqual(["help.guide.kitchen.stop"]);
+    const en = STAFF["help.guide.kitchen.stop"].en;
+    // MUTATION m270/i18n/guide-promises-you: "it stays until you do" — false the moment another
+    // station's tablet taps Got it (one acknowledgement per clear, M271).
+    expect(en).not.toContain("until you do");
+    expect(en).toContain("one Got it clears it on every screen");
+  });
+
   it("M270 (1) — work that replaced the guide holds the board's controls for the guide's own arm, from that moment", () => {
     // The flip's condition (b): a tap aimed at Next meets the All done or the Got it that took the
     // guide's place. MUTATION m270/staff-guide/replaced-never-held: it acts — and Got it has no undo.

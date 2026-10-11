@@ -1,10 +1,11 @@
 import "server-only";
 import type { serviceClient } from "@mms/db/server";
-import type { KitchenStop, KitchenStopLine } from "./kitchen-types";
+import type { KitchenStation, KitchenStop, KitchenStopLine } from "./kitchen-types";
 import { cardStamp, ticketKey } from "./kitchen-rounds";
 import { loadLineNames, type LineNames } from "./line-names";
-import { catalogNameMy, pairModifiersMy } from "./ticket-names";
+import { catalogNameMy, isUuid, pairModifiersMy } from "./ticket-names";
 import { queueEmptiness } from "./queue-window";
+import { stationForCategory } from "./kitchen-station";
 
 /**
  * M270 (1) · PATH_DESIGN correction 12 — THE stop read: the "Table N left — stop cooking" cards the
@@ -29,10 +30,13 @@ import { queueEmptiness } from "./queue-window";
  *  ones in on the next read; nothing on the board claims there are no more (the region's All clear
  *  needs no stop card standing). A teahouse kitchen holds a handful. */
 export const STOP_CLEAR_CAP = 24;
-/** The stopped lines the read asks for at once (an IN-list of ids, well under PostgREST's 1 000
- *  `max_rows`): whole records only, newest first — a record that does not fit waits for the next
- *  read rather than being drawn with part of its dishes. */
+/** The stopped lines one read takes (well under PostgREST's 1 000 `max_rows`): whole records only,
+ *  newest first — a record that does not fit waits for the next read rather than being drawn with
+ *  part of its dishes. */
 export const STOP_LINE_CAP = 500;
+/** The ids ONE request asks for: the dishes read is split into IN-lists of at most this many, run in
+ *  parallel — 500 uuids in one query string is ~18.5 KB of URL, past what a proxy may take. */
+export const STOP_ID_CHUNK = 100;
 /** How long the LIVE queue waits for the stop read before answering without it (`null`). */
 export const STOP_READ_BUDGET_MS = 2_500;
 
@@ -61,8 +65,9 @@ export type StopSessionRow = { id: string; qr_code: string; table_number: number
 /**
  * The ids to read, newest record first, WHOLE records only, under `cap`. A record that would push the
  * read past the cap waits (with every older one) for a later read, after "Got it" has retired newer
- * ones — never drawn with some of its dishes. The one exception is a single record larger than the cap
- * on its own, which is taken alone (no read could ever take it whole; past any real table).
+ * ones — never drawn with some of its dishes. A single record larger than the cap on its own is taken
+ * alone, and WHOLE: one "Got it" retires the record, so a card drawn with part of its dishes would
+ * retire the rest unseen (the read chunks its requests, so the size is the request's, never a cut).
  */
 export function stopLineBudget(
   clears: readonly StopClearRow[],
@@ -74,14 +79,21 @@ export function stopLineBudget(
     const fresh = c.stop_line_ids.filter((id) => !ids.has(id));
     if (ids.size + fresh.length > cap) {
       if (taken.length > 0) break;
-      taken.push({ ...c, stop_line_ids: c.stop_line_ids.slice(0, cap) });
-      for (const id of c.stop_line_ids.slice(0, cap)) ids.add(id);
+      taken.push(c);
+      for (const id of fresh) ids.add(id);
       break;
     }
     taken.push(c);
     for (const id of fresh) ids.add(id);
   }
   return { clears: taken, ids: [...ids] };
+}
+
+/** `ids` in IN-lists of at most `size`, in order (none for none). */
+export function chunkIds(ids: readonly string[], size: number = STOP_ID_CHUNK): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
 }
 
 /**
@@ -91,12 +103,18 @@ export function stopLineBudget(
  * drawn under a name it does not have (the live read drops an orphan the same way); a record whose
  * line rows are all missing still draws ONE card — the table and the warn word — so it can be
  * acknowledged. Oldest Send first, the board's own order.
+ *
+ * Each dish carries its STATION (`stations`, by menu item — the tickets' own derivation), so a
+ * station's view shows a stop card only when it stopped that station's food. `stations` null (the
+ * menu read failed), or a dish the read did not find: the station is unknown (`null`), and the card
+ * shows on every station's view rather than on none.
  */
 export function shapeKitchenStops(
   clears: readonly StopClearRow[],
   lines: readonly StopLineRow[],
   sessions: readonly StopSessionRow[],
   names: LineNames,
+  stations: ReadonlyMap<string, KitchenStation> | null = null,
 ): KitchenStop[] {
   const lineById = new Map(lines.map((l) => [l.id, l]));
   const sessById = new Map(sessions.map((s) => [s.id, s]));
@@ -132,6 +150,7 @@ export function shapeKitchenStops(
             qty: l.qty,
             modifiers,
             modifiersMy: pairModifiersMy(l.modifier_option_ids, modifiers, names.optionNameMy),
+            station: stations?.get(l.menu_item_id) ?? null,
           };
         }),
       });
@@ -142,8 +161,10 @@ export function shapeKitchenStops(
 
 /**
  * The read: the open records (newest first, capped), then — in parallel — the tables and the stopped
- * lines, then their Burmese names (ADVISORY: a failed name read renders English, never `null`).
- * `null` on any failed leg, logged.
+ * lines (in IN-lists of at most `STOP_ID_CHUNK`), then the dishes' menu rows (their stations and
+ * Burmese names) and their options' Burmese — both ADVISORY: a failed menu read renders English and
+ * an unknown station (the card shows on every station's view), never `null`. `null` on any failed
+ * table or dishes leg, logged.
  */
 export async function readKitchenStops(db: Db): Promise<KitchenStop[] | null> {
   // The partial index `qr_table_clears_stop_open` is this read's: open, with something stopped. The
@@ -172,14 +193,16 @@ export async function readKitchenStops(db: Db): Promise<KitchenStop[] | null> {
   const { clears, ids } = stopLineBudget(open);
   if (clears.length === 0) return [];
   const sessionIds = [...new Set(clears.map((c) => c.session_id))];
-  const [sessRes, linesRes] = await Promise.all([
+  const [sessRes, ...lineReads] = await Promise.all([
     db.from("table_sessions").select("id,qr_code,table_number").in("id", sessionIds),
-    db
-      .from("qr_cart_items")
-      .select(
-        "id,name,qty,modifiers,modifier_option_ids,menu_item_id,cart_id,fire_batch,fire_at,created_at",
-      )
-      .in("id", ids),
+    ...chunkIds(ids).map((chunk) =>
+      db
+        .from("qr_cart_items")
+        .select(
+          "id,name,qty,modifiers,modifier_option_ids,menu_item_id,cart_id,fire_batch,fire_at,created_at",
+        )
+        .in("id", chunk),
+    ),
   ]);
   // Each leg on its own: a card with no table to name it, or with its dishes missing, is never drawn.
   if (sessRes.error) {
@@ -188,16 +211,49 @@ export async function readKitchenStops(db: Db): Promise<KitchenStop[] | null> {
     });
     return null;
   }
-  if (linesRes.error) {
+  const lineError = lineReads.find((r) => r.error)?.error;
+  if (lineError) {
     console.error("[kitchen] stop read (dishes) failed — the board keeps its stop cards", {
-      message: linesRes.error.message,
+      message: lineError.message,
     });
     return null;
   }
   const sessions = sessRes.data ?? [];
-  const dishes = linesRes.data ?? [];
-  const names = await loadLineNames(db, dishes, { tag: "kitchen/stops" });
-  return shapeKitchenStops(clears, dishes, sessions, names);
+  const dishes = lineReads.flatMap((r) => r.data ?? []);
+  // The dishes' menu rows: their station (the tickets' rule) and their Burmese, in one ADVISORY read;
+  // the options' Burmese through the one loader. Kitchen lines are always menu dishes (grocery never
+  // fires), but the soft ref is uuid-filtered first, as every menu read here does.
+  const menuIds = [...new Set(dishes.map((l) => l.menu_item_id).filter(isUuid))];
+  const [menuRes, options] = await Promise.all([
+    menuIds.length
+      ? db.from("menu_items").select("id,name_my,menu_categories(slug)").in("id", menuIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string;
+            name_my: string | null;
+            menu_categories: { slug: string } | null;
+          }[],
+          error: null,
+        }),
+    loadLineNames(db, dishes, { tag: "kitchen/stops", menu: "skip" }),
+  ]);
+  if (menuRes.error)
+    console.error("[kitchen] stop read (menu) failed — names English, stations unknown", {
+      message: menuRes.error.message,
+    });
+  const stations = menuRes.error ? null : new Map<string, KitchenStation>();
+  const nameMyByRef = new Map<string, string | null>();
+  for (const m of menuRes.error ? [] : (menuRes.data ?? [])) {
+    stations?.set(m.id, stationForCategory(m.menu_categories?.slug));
+    nameMyByRef.set(m.id, m.name_my);
+  }
+  return shapeKitchenStops(
+    clears,
+    dishes,
+    sessions,
+    { nameMyByRef, optionNameMy: options.optionNameMy },
+    stations,
+  );
 }
 
 /**

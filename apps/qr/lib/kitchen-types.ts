@@ -122,6 +122,10 @@ export type KitchenStopLine = {
   qty: number;
   modifiers: string[];
   modifiersMy: (string | null)[];
+  /** The station the dish cooks on — the tickets' own derivation (`stationForCategory`) — or null
+   *  when it truly cannot be derived (the menu read failed, or the dish is not on the menu): then the
+   *  card shows on EVERY station's view rather than on none. */
+  station: KitchenStation | null;
 };
 
 /**

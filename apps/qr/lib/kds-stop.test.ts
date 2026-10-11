@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { KitchenStop, KitchenTicket } from "./kitchen-types";
+import type { KitchenStation, KitchenStop, KitchenTicket } from "./kitchen-types";
 import {
   boardOrder,
   foldStopRead,
+  STOP_MISS_LIMIT,
   stopAckStatusOf,
   stopAckVerdict,
   stopArrivals,
+  stopReadDegraded,
+  stopsForStation,
+  stopsKnown,
   visibleStops,
   withStopAck,
   type StopAcks,
@@ -148,5 +152,80 @@ describe("where each stop card stands — the slot its ticket stood in", () => {
       "stop|B|b|2",
     ]);
     expect(keys(boardOrder([ticket("x", 1), ticket("y", 2)], []))).toEqual(["x", "y"]);
+  });
+});
+
+describe("#347 — an UNKNOWN stop read is never none", () => {
+  const a = stop("A", 1);
+  it("no read has answered: unknown — and a read that does not answer keeps it unknown", () => {
+    const unknown: StopState = { stops: null, acks: new Map() };
+    expect(stopsKnown(unknown)).toBe(false);
+    // MUTATION m270/kds-stop/null-blanks: a failed read would turn unknown into "none".
+    expect(foldStopRead(unknown, null, 3)).toBe(unknown);
+    expect(stopsKnown(foldStopRead(unknown, null, 3))).toBe(false);
+    // The first read that answers makes it known — an empty answer included.
+    expect(stopsKnown(foldStopRead(unknown, [], 4))).toBe(true);
+    expect(foldStopRead(unknown, [a], 4).stops).toEqual([a]);
+  });
+
+  it("stop reads that keep failing degrade the board — one miss is not yet a pattern", () => {
+    expect(STOP_MISS_LIMIT).toBe(2);
+    expect(stopReadDegraded(0)).toBe(false);
+    expect(stopReadDegraded(1)).toBe(false);
+    // MUTATION m270/kds-stop/misses-never-said: a board that cannot hear a table leave keeps its
+    // quiet live face for as long as the reads fail.
+    expect(stopReadDegraded(2)).toBe(true);
+    expect(stopReadDegraded(9)).toBe(true);
+  });
+});
+
+describe("#347 (C1) — a station's view draws a stop card only for its own dishes", () => {
+  const line = (id: string, station: KitchenStation | null) => ({
+    id,
+    name: id,
+    nameMy: null,
+    qty: 1,
+    modifiers: [],
+    modifiersMy: [],
+    station,
+  });
+  const card = (clearId: string, lines: ReturnType<typeof line>[]): KitchenStop => ({
+    ...stop(clearId, 1),
+    lines,
+  });
+  const wok = card("W", [line("mohinga", "wok")]);
+  const mixed = card("M", [line("noodles", "wok"), line("lime", "drinks")]);
+  const unknown = card("U", [line("mystery", null)]);
+  const bare = card("B", []);
+  const keys = (out: KitchenStop[]) => out.map((s) => `${s.clearId}:${s.lines.map((l) => l.id)}`);
+
+  it("the all-stations view draws every card whole", () => {
+    expect(keys(stopsForStation([wok, mixed, unknown, bare], "all"))).toEqual([
+      "W:mohinga",
+      "M:noodles,lime",
+      "U:mystery",
+      "B:",
+    ]);
+  });
+
+  it("a station's view: only cards with its dishes, and only those dishes", () => {
+    // MUTATION m270/kds-stop/station-ignored: the drinks screen shows the wok's stop, and its one Got
+    // it retires the card on the wok screen that is actually cooking.
+    expect(keys(stopsForStation([wok, mixed], "drinks"))).toEqual(["M:lime"]);
+    expect(keys(stopsForStation([wok, mixed], "wok"))).toEqual(["W:mohinga", "M:noodles"]);
+    expect(stopsForStation([wok, mixed], "cold")).toEqual([]);
+  });
+
+  it("a dish whose station is unknown counts on EVERY station — unknown is never 'not mine'", () => {
+    // MUTATION m270/kds-stop/unknown-station-hidden: a dish the menu read could not place is shown on
+    // no station screen at all.
+    expect(keys(stopsForStation([unknown], "cold"))).toEqual(["U:mystery"]);
+    expect(keys(stopsForStation([mixed, unknown], "drinks"))).toEqual(["M:lime", "U:mystery"]);
+  });
+
+  it("a card with no dishes read shows everywhere — it can still be acknowledged", () => {
+    // MUTATION m270/kds-stop/lineless-hidden: a record whose rows were never read vanishes from
+    // every station view.
+    expect(keys(stopsForStation([bare], "drinks"))).toEqual(["B:"]);
   });
 });

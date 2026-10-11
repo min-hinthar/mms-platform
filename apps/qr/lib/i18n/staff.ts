@@ -186,6 +186,13 @@ export const STAFF = {
     en: "Table {id} left — stop cooking",
     my: "စားပွဲ {id} ထွက်သွားပြီ — ချက်တာ ရပ်ပါ",
   }, // K15-HIGH — read wrong, a departed table's food keeps cooking
+  // #347 (Codex P1 · blind C2) — no stop read has answered yet: the board could not look for tables
+  // that left, so it never says "Nothing to cook" over one. Claude-authored MY draft (K15 ·
+  // kitchen-ops); grounded: ထွက်သွား · ချက်တာ ရပ်ပါ (kds.stop), မစစ်နိုင် (the outage lines' စစ်).
+  "kds.stops.unknown": {
+    en: "Couldn’t check for tables that left — a “stop cooking” card may be missing.",
+    my: "ထွက်သွားတဲ့ စားပွဲ ရှိမရှိ မစစ်နိုင်သေးပါ — “ချက်တာ ရပ်ပါ” ကတ် လိုနေနိုင်ပါတယ်။",
+  }, // K15-HIGH — read wrong, an empty board hides a table that left
   "kds.held": { en: "Later · ", my: "ဆိုင်းထား · " }, // K15-HIGH — a held card read as live is food cooked an hour early
   "kds.slot": {
     en: "Pickup {t} — starts cooking on its own",
@@ -2825,11 +2832,14 @@ export const STAFF = {
     en: "A late card turns red and says Late — the loudest thing on the board. The Late count at the top counts only these.",
     my: "နောက်ကျတဲ့ ကတ်က အနီရောင် ပြောင်းပြီး နောက်ကျ လို့ ပြပါတယ် — ဘုတ်ပေါ်မှာ အထင်ရှားဆုံးပါ။ အပေါ်က နောက်ကျ အရေအတွက်က ဒီကတ်တွေကိုပဲ ရေတွက်ပါတယ်။",
   },
-  // Kitchen step 5 — the stop card (held with the kitchen guide until the board draws it: M270 (1)).
-  // Grounded: ချက်တာ ရပ် (kds.stop), ရပြီ (help.done, the card's own button).
+  // Kitchen step 5 — the stop card (ships with the board's card: M270 (1)). Grounded: ချက်တာ ရပ်
+  // (kds.stop), ရပြီ (help.done, the card's own button), မီးဖိုချောင် (kds.title), စခရင် (help.row.more).
+  // #347 (blind C1) — "until you do" was false on a kitchen with more than one screen: ONE Got it, on
+  // any tablet, acknowledges the clear for all of them (per-station acknowledgement is M271). The
+  // sentence now says so; its Burmese is a K15 re-draft (K15 · kitchen-ops).
   "help.guide.kitchen.stop": {
-    en: "When the counter clears a table that still has food on your board, its card turns into this. Stop those dishes, then tap Got it — it stays until you do.",
-    my: "ဘုတ်ပေါ်မှာ ဟင်းကျန်နေတဲ့ စားပွဲကို ကောင်တာက ရှင်းလိုက်ရင် အဲဒီကတ်က ဒီလို ပြောင်းသွားပါတယ်။ အဲဒီဟင်းတွေ ချက်တာ ရပ်ပြီး ရပြီ ကို နှိပ်ပါ — မနှိပ်မချင်း ကျန်နေပါမယ်။",
+    en: "When the counter clears a table that still has food on your board, its card turns into this. Stop those dishes, then tap Got it — it stays until the kitchen does, and one Got it clears it on every screen.",
+    my: "ဘုတ်ပေါ်မှာ ဟင်းကျန်နေတဲ့ စားပွဲကို ကောင်တာက ရှင်းလိုက်ရင် အဲဒီကတ်က ဒီလို ပြောင်းသွားပါတယ်။ အဲဒီဟင်းတွေ ချက်တာ ရပ်ပြီး ရပြီ ကို နှိပ်ပါ — မီးဖိုချောင်က ရပြီ မနှိပ်မချင်း ကျန်နေပြီး တစ်ခါ နှိပ်တာနဲ့ စခရင်တိုင်းက ပျောက်ပါမယ်။",
   },
 
   // ── P7·4 — "Something's wrong": the report row in the Help sheet ─────────────────────────────
@@ -4145,15 +4155,17 @@ export const STAFF = {
     my: "ရှင်းလိုက်ရင် ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
   }, // K15-HIGH — what the commit records, before it is tapped
   // M270 (1) — the kitchen's stop card ships (it reads the stop record the clear writes, until "Got
-  // it"), so the slip may say what m7 drew: m7's own English, and the Burmese draft its spec carries
-  // (မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး "tells the kitchen to stop" — K15 · kitchen-ops).
+  // it"), so the slip may say what the clear does to the kitchen. #347 (Codex P2) — the slip reads a
+  // LOOK, and a dish served during the slip or the undo window commits with nothing to stop, so the
+  // clause promises no particular stop: it tells the kitchen to stop ANYTHING STILL COOKING. Burmese:
+  // a K15 re-draft of m7's (ချက်နေဆဲ "still cooking" is the shipped stage word; K15 · kitchen-ops).
   "settle.clear.loss.bodyStop.one": {
-    en: "Clearing tells the kitchen to stop and puts {n} dish on the owner’s loss list as not approved.",
-    my: "ရှင်းလိုက်ရင် မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+    en: "Clearing tells the kitchen to stop anything still cooking and puts {n} dish on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် ချက်နေဆဲ ဟင်းမှန်သမျှ ရပ်ဖို့ မီးဖိုချောင်ကို ပြောပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
   }, // K15-HIGH — what the commit records and stops, before it is tapped
   "settle.clear.loss.bodyStop.many": {
-    en: "Clearing tells the kitchen to stop and puts {n} dishes on the owner’s loss list as not approved.",
-    my: "ရှင်းလိုက်ရင် မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+    en: "Clearing tells the kitchen to stop anything still cooking and puts {n} dishes on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် ချက်နေဆဲ ဟင်းမှန်သမျှ ရပ်ဖို့ မီးဖိုချောင်ကို ပြောပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
   }, // K15-HIGH — what the commit records and stops, before it is tapped
   "settle.clear.loss.tail": {
     en: "Nothing is charged and nothing is refunded.",
@@ -4582,6 +4594,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.slot",
   "kds.stat.late",
   "kds.stop",
+  "kds.stops.unknown",
   "kds.undo",
   "kds.undo.86",
   "out.err.body",

@@ -472,9 +472,13 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     expect(commit.getAttribute("aria-describedby")).toBeTruthy();
     // M270 (1) — Mohinga is still cooking, so the clear will stop it and the kitchen's stop card
     // shows until "Got it": the slip says so (Codex correction 12).
-    expect(
-      document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent,
-    ).toContain(tf("en", "settle.clear.loss.bodyStop.many", { n: 3 }));
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    expect(body).toContain(tf("en", "settle.clear.loss.bodyStop.many", { n: 3 }));
+    // #347 (Codex P2) — the slip reads a LOOK: a dish served during the slip or the window commits
+    // with nothing to stop. So the clause promises no particular stop — "anything still cooking".
+    // MUTATION m270/i18n/slip-promises-a-stop: "tells the kitchen to stop" alone, false the moment
+    // the kitchen serves the last dish before the commit.
+    expect(body).toContain("tells the kitchen to stop anything still cooking");
     await tap(commit);
     expect(windowGroup()).toBeNull();
     await flush(CLEAR_ARM_MS);
