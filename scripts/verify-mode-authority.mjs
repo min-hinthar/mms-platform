@@ -2502,8 +2502,8 @@ const MUTANTS = [
   // One killed mutant per named `M182.<n> ·` case — every refusal deleted or widened, ruling #6's
   // loss rows and their gate, the M198 voids, the D2 supersede, the durable stop record, the PIN
   // seam both ways. NO documented survivor is claimed: the function's four row locks (the open
-  // cart, its pending approvals, its lines, the session) order it against a settle, a resolve, a
-  // kitchen Start and a Send — two-session work with no harness yet (filed under OPEN-ITEMS M182).
+  // cart, the session, its pending approvals, its lines — in that order) order it against a settle,
+  // a resolve, a kitchen Start and a Send — two-session work with no harness yet (M270 (5)).
   ...[
     {
       id: "clear/counter-refusal-deleted",
@@ -2757,6 +2757,104 @@ const MUTANTS = [
       why: "a clear that stopped nothing answers 'already' — the KDS reads an acknowledgement nobody made",
       find: "  if v_stops = 0 then return 'nothing_to_stop'; end if;\n",
       replace: "",
+    },
+    // ── the blind pass on #341: a post-dated look, a split share under the lock, a secured tab, the
+    // stamp's ceiling gate and its default ──
+    {
+      id: "clear/future-look-admitted",
+      fn: "mms_clear_table",
+      expect: "M182.11 · a post-dated look is refused",
+      why: "the request's own clock decides the join and added-dish refusals: post-dated past them, a party that just sat down is closed out with no refusal",
+      find: "  if p_seen_at > now() then return jsonb_build_object('status', 'changed'); end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/future-look-bound-widened",
+      fn: "mms_clear_table",
+      expect: "M182.1 · an unknown session is not_found",
+      why: "over-block: a look at this transaction's own clock refused as the future — every case that looks at now() goes red first, M182.1's before any refusal it names (M182.11 pins the same half)",
+      find: "  if p_seen_at > now() then return",
+      replace: "  if p_seen_at >= now() then return",
+    },
+    {
+      id: "clear/share-money-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.12 · an authorized share refuses",
+      why: "a split share authorized after the caller's read sees its cart cancelled: the capture lands on no order",
+      find: "    if exists (select 1 from public.qr_cart_shares sh\n                where sh.cart_id = v_cart and sh.status in ('authorized', 'captured')\n                  and sh.stripe_payment_intent_id is not null) then\n      return jsonb_build_object('status', 'in_flight');\n    end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/share-captured-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.12 · a captured share refuses",
+      why: "a captured share — money already taken — no longer holds the cart: it is cancelled under a charge",
+      find: "sh.status in ('authorized', 'captured')",
+      replace: "sh.status in ('authorized')",
+    },
+    {
+      id: "clear/share-zero-seat-counted",
+      fn: "mms_clear_table",
+      expect: "M182.12 · a pending share and a $0 seat never block",
+      why: "W10d's trap: a $0 seat auto-captured with no PaymentIntent reads as money, and the table can never be cleared",
+      find: "                  and sh.stripe_payment_intent_id is not null) then\n",
+      replace: "                  ) then\n",
+    },
+    {
+      id: "clear/secure-tab-written-off",
+      fn: "mms_clear_table",
+      expect: "M182.13 · a secured tab's sent food refuses",
+      why: "the blind pass's CRITICAL: a card-on-file tab's food written off as a walkout and its cart cancelled — the card that could pay for it is never charged",
+      find: "    if v_tab = 'secure' and p_approver is null then\n      return jsonb_build_object('status', 'secure_tab');\n    end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/secure-refuses-the-manager",
+      fn: "mms_clear_table",
+      expect: "M182.13 · a manager's write-off clears a secured tab",
+      why: "over-block: a secured tab whose card declined after the party left can never be cleared, even by a manager",
+      find: "    if v_tab = 'secure' and p_approver is null then\n",
+      replace: "    if v_tab = 'secure' then\n",
+    },
+    {
+      id: "clear/secure-refuses-every-tab",
+      fn: "mms_clear_table",
+      expect: "M182.13 · a trust tab's loss clears unapproved",
+      why: "over-block: a trust tab (no card saved) refused as if it had one — ruling #6's ordinary loss can no longer be recorded",
+      find: "    if v_tab = 'secure' and p_approver",
+      replace: "    if v_tab <> 'none' and p_approver",
+    },
+    {
+      id: "clear/ceiling-gate-reads-solo",
+      fn: "mms_clear_table",
+      expect: "M182.14 · an uncooked loss past the ceiling records ceiling",
+      why: "a stamped loss past the owner's ceiling recorded as an ordinary solo void — the loss list hides the one fact the ceiling exists to show",
+      find: "when v_loss > v_max_loss then 'ceiling'",
+      replace: "when v_loss > v_max_loss then 'solo'",
+    },
+    {
+      id: "clear/ceiling-gate-at-the-bound",
+      fn: "mms_clear_table",
+      expect: "M182.14 · a loss at the ceiling records solo",
+      why: "a loss exactly AT the ceiling recorded as past it — the no-show's `>` and the clear's disagree on the same dish",
+      find: "when v_loss > v_max_loss then 'ceiling'",
+      replace: "when v_loss >= v_max_loss then 'ceiling'",
+    },
+    {
+      id: "clear/default-ceiling-raised",
+      fn: "mms_clear_table",
+      expect: "M182.14 · with no config, 2001 is past the default ceiling",
+      why: "with no config row the ceiling drifts above the no-show's 2000: a loss past it reads as solo",
+      find: "    v_max_loss := coalesce(v_max_loss, 2000);\n",
+      replace: "    v_max_loss := coalesce(v_max_loss, 2001);\n",
+    },
+    {
+      id: "clear/default-ceiling-lowered",
+      fn: "mms_clear_table",
+      expect: "M182.14 · with no config, 2000 is at the default ceiling",
+      why: "with no config row the ceiling drifts below the no-show's 2000: a loss at it reads as past it",
+      find: "    v_max_loss := coalesce(v_max_loss, 2000);\n",
+      replace: "    v_max_loss := coalesce(v_max_loss, 1999);\n",
     },
   ].map((m) => ({ ...m, src: "m182", suite: "m182" })),
 ];

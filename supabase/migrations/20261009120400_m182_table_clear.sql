@@ -1,4 +1,4 @@
--- 20261009120000_m182_table_clear.sql — M182 · P2hf · M198 (the clear half) · PD7: the table-clear RPC.
+-- 20261009120400_m182_table_clear.sql — M182 · P2hf · M198 (the clear half) · PD7: the table-clear RPC.
 --
 -- ⚠️ PROD: one of the four files ruling #5 approved (OWNER_RULINGS_2026-10-07 #5). Applied ONE FILE AT
 -- A TIME through the Supabase MCP `apply_migration`, at a quiet time the OWNER names, never `db push`
@@ -36,23 +36,45 @@
 --   'joined'  — someone joined the table after the look (`session_members.created_at > p_seen_at`):
 --               a next party who scanned the sticker is never closed out;
 --   'changed' — a line was added after the look, or the SENT set is not the one shown (as SETS; a
---               NULL or a NULL element never matches), or its value is not `p_loss_cents`.
--- `p_seen_at` is the DATABASE clock at the look (`mms_now`), never a browser's.
+--               NULL or a NULL element never matches), or its value is not `p_loss_cents` — or the
+--               look is from the FUTURE (`p_seen_at > now()`).
+-- `p_seen_at` is the DATABASE clock at the look (`mms_now`) — and this function holds it to that:
+-- the request carries it, so a value later than this transaction's own clock is a look that never
+-- happened (a hand-built request could otherwise post-date it past every join and every added dish
+-- and close a party out with no refusal; the blind pass on #341). A look in the past only makes the
+-- 'joined' and 'changed' tests STRICTER, so no lower bound is needed for safety.
 --
 -- ## Money that may still be moving
 --   'in_flight' — `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze;
 --   'card_live' — `qr_carts.live_payment_intent_id` (M151) names a card attempt that may still
 --                 capture: cancelling its cart would strand a charge with no order (M163).
--- A split's captured shares are read by the caller first (`paymentInFlightReason`, lib/pay-guard.ts),
--- exactly as for the no-show; this function does not re-read `qr_cart_shares`.
+--   'in_flight' — also a split share holding money (`qr_cart_shares` authorized or captured, with a
+--                 PaymentIntent — `paymentInFlightReason`'s own predicate, lib/pay-guard.ts), re-read
+--                 HERE under the cart lock: the caller's read runs before this transaction, so a share
+--                 authorized in between would otherwise see its cart cancelled (the blind pass on #341).
+--                 A share write takes no cart lock, so this narrows that window to this transaction;
+--                 it cannot close it — the caller's read stays, and a capture on a cancelled cart is
+--                 the refunds-needed ledger's (M163).
 --
--- ## Lock order (the merge's, the no-show's, the counter clear's): cart → approvals → lines, then the
--- session. The open cart FOR UPDATE first (one open cart per session, `qr_carts_one_open_per_session`);
--- its PENDING approvals FOR UPDATE, in id order (so a manager resolving one waits here and then reads
--- 'superseded' — `mms_resolve_approval` takes approval → line); its LINES FOR UPDATE, in id order (the
--- kitchen's `mms_line_transition` / `mms_bump_ticket` lock only the line); then the session FOR UPDATE
--- (the fire takes cart → session FOR SHARE; the sweeper takes sessions SKIP LOCKED and no cart).
--- A table with no open cart (paid, or seated with nothing) locks the session alone.
+-- ## A secured tab (card on file) — 'secure_tab'
+-- A `tab_type = 'secure'` cart with SENT food is refused without a verified manager (`p_approver`):
+-- its food can still be charged to the saved card (`closeSecureTab`, lib/staff-cart.ts), and a
+-- cancelled cart takes that door away for good — the card-on-file sidecar cannot follow a cancelled
+-- cart, which is why the merge refuses a secure tab outright (floor.ts, S3.2). Nothing sent, nothing
+-- to charge: a free clear of a secure tab proceeds. With a manager named, the write-off is that
+-- manager's, recorded as such (the gate below) — the seam a declined card after a walkout needs
+-- (M270); the app sends no approver today, so in the app the pane says to close it on the card.
+--
+-- ## Lock order: cart → session → approvals → lines (the code below, in that order). The open cart
+-- FOR UPDATE first (one open cart per session, `qr_carts_one_open_per_session`); then the session FOR
+-- UPDATE (the fire takes cart → session FOR SHARE, the same direction; the sweeper takes sessions
+-- SKIP LOCKED and no cart); then the cart's PENDING approvals FOR UPDATE, in id order (so a manager
+-- resolving one waits here and then reads 'superseded' — `mms_resolve_approval` takes approval →
+-- line); then its LINES FOR UPDATE, in id order (the kitchen's `mms_line_transition` /
+-- `mms_bump_ticket` lock only the line). The no-show and the merge take cart → approvals → lines and
+-- no session; this is their order with the session taken right after the cart. A table with no open
+-- cart (paid, or seated with nothing) locks the session alone. No two-session harness drives this
+-- order yet (M270 (5)): it is reasoned from the statements, not measured.
 --
 -- ## What a clear writes (only after every refusal above)
 --   1. the cart's pending approval requests → 'superseded' (D2: m8 reads them "Table was cleared
@@ -74,7 +96,7 @@
 -- Returns jsonb `{status, dishes, loss_cents, clear_id}` — `dishes` the SENT units (Σ qty) the app
 -- says back with the RPC's OWN count ("Table 4 cleared — 3 dishes on the loss list").
 -- Statuses: 'ok' | 'not_found' | 'closed' | 'counter' | 'in_flight' | 'card_live' | 'joined' |
--- 'changed' | 'needs_approval' | 'self_approve' | 'bad_approver'.
+-- 'changed' | 'secure_tab' | 'needs_approval' | 'self_approve' | 'bad_approver'.
 --
 -- A COUNTER order (`mode = 'pickup' and qr_code like 'reg-%'`) is refused ('counter'): its exits are
 -- its own — `mms_clear_counter_cart` (nothing sent) and `mms_counter_no_show` (sent food).
@@ -135,7 +157,7 @@ create or replace function public.mms_clear_table(
   language plpgsql set search_path = '' as $$
 declare
   v_cart uuid; v_cart_locked boolean; v_cart_locked_at timestamptz; v_cart_settle_at timestamptz;
-  v_live_pi text;
+  v_live_pi text; v_tab text;
   v_found boolean; v_sess_status text; v_sess_mode text; v_sess_code text;
   v_sent uuid[]; v_stop uuid[]; v_loss integer := 0; v_units integer := 0; v_cooked boolean := false;
   v_max_loss integer; v_gate text; v_requires_pin boolean;
@@ -144,11 +166,13 @@ begin
   if p_session is null or p_initiator is null or p_seen_at is null or p_loss_cents is null then
     raise exception 'mms_clear_table: session, initiator, seen_at and loss_cents are required';
   end if;
+  -- A look from the future never happened (the header): refused before any lock is taken.
+  if p_seen_at > now() then return jsonb_build_object('status', 'changed'); end if;
 
   -- The open cart FIRST (the header's lock order). FOR UPDATE re-checks `status = 'open'` against the
   -- newest version, so a settle that won the race leaves no row here.
-  select c.id, c.locked, c.locked_at, c.settle_at, c.live_payment_intent_id
-    into v_cart, v_cart_locked, v_cart_locked_at, v_cart_settle_at, v_live_pi
+  select c.id, c.locked, c.locked_at, c.settle_at, c.live_payment_intent_id, c.tab_type
+    into v_cart, v_cart_locked, v_cart_locked_at, v_cart_settle_at, v_live_pi, v_tab
     from public.qr_carts c
     where c.session_id = p_session and c.status = 'open'
     for update;
@@ -171,6 +195,12 @@ begin
       return jsonb_build_object('status', 'in_flight');
     end if;
     if v_live_pi is not null then return jsonb_build_object('status', 'card_live'); end if;
+    -- A split share holding money, re-read under the cart lock (the header).
+    if exists (select 1 from public.qr_cart_shares sh
+                where sh.cart_id = v_cart and sh.status in ('authorized', 'captured')
+                  and sh.stripe_payment_intent_id is not null) then
+      return jsonb_build_object('status', 'in_flight');
+    end if;
   end if;
 
   -- Someone joined after the look: never close out a party that just sat down.
@@ -226,6 +256,10 @@ begin
     select l.max_loss_cents, l.clear_requires_pin into v_max_loss, v_requires_pin
       from public.mms_loss_config l where l.id;
     v_max_loss := coalesce(v_max_loss, 2000);
+    -- A secured tab's sent food can still go on its card: never written off without a manager.
+    if v_tab = 'secure' and p_approver is null then
+      return jsonb_build_object('status', 'secure_tab');
+    end if;
     if coalesce(v_requires_pin, false) and p_approver is null then
       return jsonb_build_object('status', 'needs_approval');
     end if;
@@ -274,7 +308,7 @@ begin
 end $$;
 comment on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, uuid) is
   'M182 · ruling #6 — clear a table: refuses a counter order, money in flight, a live card attempt, '
-  'a join or a change after the look; else supersedes pending requests, records every sent dish as a '
+  'a join or a change after the look, a secured tab''s sent food without a manager; else supersedes pending requests, records every sent dish as a '
   'table_cleared void (unapproved unless a manager approved), voids the kitchen''s lines, cancels '
   'the cart, closes the session and writes the qr_table_clears row (the durable stop record).';
 revoke all on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, uuid)

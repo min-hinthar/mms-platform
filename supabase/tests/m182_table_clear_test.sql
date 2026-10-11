@@ -1,8 +1,9 @@
 -- supabase/tests/m182_table_clear_test.sql  (M182 · P2hf · M198 · PD7 — the table-clear RPC)
 --
 -- Pins supabase/migrations/20261009120400_m182_table_clear.sql: privileges; every refusal (a counter
--- order, a closed table, money in flight, a live card attempt, a join after the look, a dish added
--- after it, a SENT set or a figure that is not the one shown, the PIN seam's three refusals) AND, for
+-- order, a closed table, money in flight — a lock, a freeze, a split share holding money — a live
+-- card attempt, a join after the look, a dish added after it, a SENT set or a figure that is not the
+-- one shown, a look from the future, a secured tab's sent food, the PIN seam's three refusals) AND, for
 -- each, the legitimate clear it must NOT over-block; ruling #6's loss rows (every SENT dish, void /
 -- table_cleared, gate 'unapproved' unless a manager approved); the kitchen lines voided, the in-grace
 -- ones back to draft (M198's clear half); the pending requests superseded (D2); the durable stop record
@@ -410,6 +411,122 @@ begin
   exception when check_violation then ok := true;
   end;
   assert ok, 'M182.9 · qr_table_clears refuses an acknowledgement with nothing stopped';
+end $$;
+
+-- ══ M182.11 · a look from the FUTURE is no look (the blind pass on #341) — and the look at now passes
+do $$
+declare s uuid; a uuid; j jsonb;
+begin
+  -- The bypass shape: a party sat down AFTER the real look, and the request post-dates its look past
+  -- that join. A future `p_seen_at` would make `created_at > p_seen_at` false for every row.
+  s := pg_temp.m182_table('M182-11-FUTURE');
+  insert into public.session_members (session_id, seat_id, display_name, role)
+    values (s, gen_random_uuid(), 'Thiri', 'host');
+  j := pg_temp.m182_clear(s, '{}', 0, now() + interval '1 day');
+  assert j->>'status' = 'changed', format('M182.11 · a post-dated look is refused (%s)', j);
+  assert pg_temp.m182_untouched(s), 'M182.11 · the post-dated refusal wrote nothing';
+  -- The same with a dish added after the real look.
+  s := pg_temp.m182_table('M182-11-FUTURE-DISH');
+  a := pg_temp.m182_line(s, 900);
+  j := pg_temp.m182_clear(s, '{}', 0, now() + interval '1 second');
+  assert j->>'status' = 'changed', format('M182.11 · a look one second ahead is refused (%s)', j);
+  assert pg_temp.m182_untouched(s), 'M182.11 · …and wrote nothing';
+  -- The legitimate half: a look AT this transaction's clock is not the future.
+  j := pg_temp.m182_clear(s, '{}', 0, now());
+  assert j->>'status' = 'ok', format('M182.11 · a look at now() clears (%s)', j);
+end $$;
+
+-- ══ M182.12 · a split share holding money, re-read under the cart lock — and its non-money halves ═
+do $$
+declare s uuid; j jsonb; sh uuid;
+begin
+  s := pg_temp.m182_table('M182-12-AUTH');
+  insert into public.qr_cart_shares (cart_id, seat_id, subtotal_cents, amount_cents,
+                                     stripe_payment_intent_id, status)
+    values (pg_temp.m182_cart(s), gen_random_uuid(), 1400, 1400, 'pi_m182_share_auth', 'authorized')
+    returning id into sh;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'in_flight', format('M182.12 · an authorized share refuses (%s)', j);
+  assert pg_temp.m182_untouched(s), 'M182.12 · the share refusal wrote nothing';
+  update public.qr_cart_shares set status = 'captured' where id = sh;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'in_flight', format('M182.12 · a captured share refuses (%s)', j);
+  -- Not money: a pending share (nothing authorized), and a $0 seat auto-captured with NO PaymentIntent
+  -- (W10d: counting it refused every clear on that table forever).
+  update public.qr_cart_shares set status = 'pending' where id = sh;
+  insert into public.qr_cart_shares (cart_id, seat_id, subtotal_cents, amount_cents, status)
+    values (pg_temp.m182_cart(s), gen_random_uuid(), 0, 0, 'captured');
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.12 · a pending share and a $0 seat never block (%s)', j);
+end $$;
+
+-- ══ M182.13 · a SECURED tab (card on file): its sent food is never written off without a manager ═
+do $$
+declare s uuid; a uuid; j jsonb; n integer; past timestamptz := now() - interval '3 minutes';
+begin
+  s := pg_temp.m182_table('M182-13-SECURE');
+  update public.qr_carts set tab_type = 'secure' where id = pg_temp.m182_cart(s);
+  a := pg_temp.m182_line(s, 1400, 1, 'served', past);
+  j := pg_temp.m182_clear(s, array[a], 1400);
+  assert j->>'status' = 'secure_tab', format('M182.13 · a secured tab''s sent food refuses (%s)', j);
+  assert pg_temp.m182_untouched(s), 'M182.13 · the secure_tab refusal wrote nothing';
+  assert (select tab_type from public.qr_carts where id = pg_temp.m182_cart(s)) = 'secure',
+    'M182.13 · the card-on-file close is still there to use';
+  -- A manager may write it off (the declined-card walkout's seam): recorded as theirs.
+  j := pg_temp.m182_clear(s, array[a], 1400, now(), '00000000-0000-0000-0000-000000182a00');
+  assert j->>'status' = 'ok', format('M182.13 · a manager''s write-off clears a secured tab (%s)', j);
+  select count(*) into n from public.mms_approvals
+    where line_id = a and reason_code = 'table_cleared'
+      and approver_staff_id = '00000000-0000-0000-0000-000000182a00' and gate_reason = 'cooked';
+  assert n = 1, 'M182.13 · the secured write-off names its manager and the gate it met';
+  -- Nothing sent, nothing to charge: a secured tab clears free.
+  s := pg_temp.m182_table('M182-13-SECURE-FREE');
+  update public.qr_carts set tab_type = 'secure' where id = pg_temp.m182_cart(s);
+  perform pg_temp.m182_line(s, 900);
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.13 · a secured tab with nothing sent clears free (%s)', j);
+  -- Only 'secure' is refused: a trust tab's sent food is ruling #6's ordinary loss.
+  s := pg_temp.m182_table('M182-13-TRUST');
+  update public.qr_carts set tab_type = 'trust' where id = pg_temp.m182_cart(s);
+  a := pg_temp.m182_line(s, 1400, 1, 'served', past);
+  j := pg_temp.m182_clear(s, array[a], 1400);
+  assert j->>'status' = 'ok', format('M182.13 · a trust tab''s loss clears unapproved (%s)', j);
+end $$;
+
+-- ══ M182.14 · the stamp's 'ceiling' gate, at and past the bound, and the 2000 default ═══════════
+do $$
+declare s uuid; a uuid; j jsonb; past timestamptz := now() - interval '3 minutes';
+begin
+  update public.mms_loss_config set max_loss_cents = 500 where id;
+  -- An uncooked dish past the ceiling, stamped: 'ceiling'.
+  s := pg_temp.m182_table('M182-14-OVER');
+  a := pg_temp.m182_line(s, 600, 1, 'fired', past);
+  j := pg_temp.m182_clear(s, array[a], 600, now(), '00000000-0000-0000-0000-000000182a00');
+  assert j->>'status' = 'ok'
+     and (select gate_reason from public.mms_approvals where line_id = a and reason_code = 'table_cleared')
+         = 'ceiling',
+    format('M182.14 · an uncooked loss past the ceiling records ceiling (%s)', j);
+  -- AT the ceiling is not past it: 'solo'.
+  s := pg_temp.m182_table('M182-14-AT');
+  a := pg_temp.m182_line(s, 500, 1, 'fired', past);
+  j := pg_temp.m182_clear(s, array[a], 500, now(), '00000000-0000-0000-0000-000000182a00');
+  assert (select gate_reason from public.mms_approvals where line_id = a and reason_code = 'table_cleared')
+         = 'solo',
+    format('M182.14 · a loss at the ceiling records solo (%s)', j);
+  -- No config row: the ceiling is 2000 — 2000 is solo, 2001 is ceiling.
+  delete from public.mms_loss_config;
+  s := pg_temp.m182_table('M182-14-DEF-AT');
+  a := pg_temp.m182_line(s, 2000, 1, 'fired', past);
+  j := pg_temp.m182_clear(s, array[a], 2000, now(), '00000000-0000-0000-0000-000000182a00');
+  assert (select gate_reason from public.mms_approvals where line_id = a and reason_code = 'table_cleared')
+         = 'solo',
+    format('M182.14 · with no config, 2000 is at the default ceiling: solo (%s)', j);
+  s := pg_temp.m182_table('M182-14-DEF-OVER');
+  a := pg_temp.m182_line(s, 2001, 1, 'fired', past);
+  j := pg_temp.m182_clear(s, array[a], 2001, now(), '00000000-0000-0000-0000-000000182a00');
+  assert (select gate_reason from public.mms_approvals where line_id = a and reason_code = 'table_cleared')
+         = 'ceiling',
+    format('M182.14 · with no config, 2001 is past the default ceiling: ceiling (%s)', j);
 end $$;
 
 -- ══ M182.10 · the record's own bounds ══════════════════════════════════════════════════════════
