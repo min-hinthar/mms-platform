@@ -874,6 +874,47 @@ describe("readLiveIntentUnderFreeze — M268: the link, ONLY while this request'
     };
     expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
   });
+  it("null when a pay attempt took the cart AFTER this freeze, though the freeze reads fresh here (Codex on #338 @ 134ae08)", async () => {
+    // This server's clock trails the one that ran `acquireCartLock`: there the freeze was stale, the
+    // successor locked and linked; here `settle_at` is still fresh. The stored era orders them.
+    // MUTATION: drop the pay-lock term → the successor's live checkout is cancelled at Stripe; red.
+    const settleAt = Date.now() - 1000;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(settleAt + 500).toISOString(),
+      settle_at: new Date(settleAt).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("the link when the pay lock PREDATES the freeze — a stale lock the freeze took over is not a successor", async () => {
+    // MUTATION: refuse every locked row → a dead attempt's link is never superseded, and the settle
+    // that took the cart over it stands down for good; red.
+    const settleAt = Date.now() - 1000;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(settleAt - 6 * 60 * 1000).toISOString(),
+      settle_at: new Date(settleAt).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_dead",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBe("pi_dead");
+  });
+  it("null for a locked row with NO era — it cannot be ordered against the freeze, so it reads as taken", async () => {
+    // MUTATION: admit a null `locked_at` → a lock nobody can date licenses a cancel; red.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: null,
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_unknown",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
   it("a failed read THROWS — the caller's catch stands down; it is never an empty link", async () => {
     statusError = { message: "connection reset" };
     await expect(readLiveIntentUnderFreeze("cart-1", "owner-A")).rejects.toEqual({

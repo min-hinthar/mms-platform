@@ -778,6 +778,16 @@ export async function claimStaleSettlement(
  * successor (`acquireCartLock` admits under a stale `settle_at` and leaves `settle_by`), and an
  * unscoped read hands it the SUCCESSOR's link to cancel at Stripe. One row, one snapshot: the link
  * and the proof that we may act on it come from the same read.
+ *
+ * ⚠️ FRESHNESS IS ONE CLOCK; THE PAY LOCK'S ERA IS THE ROW'S OWN ORDER (Codex on #338 @ 134ae08,
+ * P2). Freshness is judged on THIS server's clock, so a server running behind another can still
+ * read its freeze as fresh after an ahead server's `acquireCartLock` judged it stale, took the pay
+ * lock and linked its intent. The release RPC refuses that case on stored values
+ * (`not locked or locked_at < settle_at`); this read carries the SAME term, so the link it hands the
+ * supersede is never a successor's. A pay lock present at the freeze predates it (the freeze
+ * writers admit only an unlocked or stale-locked cart), and a successor's postdates it by about the
+ * settle TTL, so a millisecond parse cannot tie them. A `locked` row with no `locked_at` cannot be
+ * ordered against the freeze, and reads as taken: fail closed, as the SQL's NULL does.
  */
 export async function readLiveIntentUnderFreeze(
   cartId: string,
@@ -786,13 +796,17 @@ export async function readLiveIntentUnderFreeze(
   const db = serviceClient();
   const { data, error } = await db
     .from("qr_carts")
-    .select("status,settle_at,settle_by,live_payment_intent_id")
+    .select("status,locked,locked_at,settle_at,settle_by,live_payment_intent_id")
     .eq("id", cartId)
     .maybeSingle();
   if (error) throw error;
   if (!data || data.status !== "open" || data.settle_by !== owner) return null;
   const fresh = data.settle_at != null && Date.parse(data.settle_at) > Date.now() - SETTLE_TTL_MS;
-  return fresh ? (data.live_payment_intent_id ?? null) : null;
+  if (!fresh) return null;
+  const untaken =
+    !data.locked ||
+    (data.locked_at != null && Date.parse(data.locked_at) < Date.parse(data.settle_at!));
+  return untaken ? (data.live_payment_intent_id ?? null) : null;
 }
 
 /** The intent the cart currently names, or null. Read under the caller's own lock. */
