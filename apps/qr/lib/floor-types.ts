@@ -187,6 +187,10 @@ export type TableLineView = {
   nameMy: string | null;
   /** Per-slot Burmese for `modifiers` (`pairModifiersMy`), each null where unknown. */
   modifiersMy: (string | null)[];
+  /** P2do (ruling #15) — when the line was added (`qr_cart_items.created_at`), so an ASKED table's
+   *  unsent line can say "Not sent yet · 4m ago" as plain text (no "late" rule). Advisory: absent on a
+   *  settled record line and on a fixture that predates it, and then no age is said. */
+  createdAt?: string | null;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
