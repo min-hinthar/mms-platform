@@ -4,6 +4,7 @@ import {
   GRACE_REREAD_MARGIN_MS,
   graceRereadDelayMs,
   passDishes,
+  passListedNow,
   showServerStatus,
   waitingDishes,
 } from "./show-server";
@@ -71,6 +72,48 @@ describe("passDishes — the rows the pass printed stay on it after they go, a r
     ];
     expect(passDishes(items, new Set(["a", "b"])).map((i) => i.id)).toEqual(["b"]);
     expect(passDishes([items[0]!], new Set(["a"]))).toEqual([]);
+  });
+});
+
+describe("passListedNow — a dish that JOINS the open pass stays on it once sent (Codex's post-merge review of #335)", () => {
+  it("a tablemate's draft added while the pass is up is kept: once sent it reads 'sending', then 'sent' — the pass never closes on it", () => {
+    // The pass opened on "a"; Thiri's "late" lands while it is up.
+    const opened = new Set(["a"]);
+    const joined = passListedNow([line({ id: "a" }), line({ id: "late" })], opened);
+    expect([...joined].sort()).toEqual(["a", "late"]);
+    // "a" is removed and "late" is sent, inside its grace.
+    const inGrace = line({ id: "late", lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" });
+    // MUTATION (show-server/joined-dish-forgotten): the join is never kept — the sent dish leaves
+    // the ticket, the rows are empty, and the pass reads `none` and closes instead of 'Sending…'; red.
+    expect(passDishes([inGrace], joined).map((i) => i.id)).toEqual(["late"]);
+    expect(showServerStatus(passDishes([inGrace], joined), NOW)).toBe("sending");
+    const past = { ...inGrace, fireAt: "2026-10-08T09:59:59.000Z" };
+    expect(showServerStatus(passDishes([past], joined), NOW)).toBe("sent");
+    // The control: the set the pass opened on alone closes it — the defect this pins.
+    expect(showServerStatus(passDishes([inGrace], opened), NOW)).toBe("none");
+  });
+  it("keeps only dine-in drafts — never a to-go draft, a grocery line, a voided line or an earlier round's sent dish", () => {
+    const listed = new Set(["a"]);
+    const items = [
+      line({ id: "a", lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }),
+      line({ id: "t", fulfillment: "togo" }),
+      line({ id: "g", fulfillment: "grocery" }),
+      line({ id: "v", lineState: "voided" }),
+      line({ id: "old", lineState: "served", fireAt: "2026-10-08T09:00:00.000Z" }),
+    ];
+    expect([...passListedNow(items, listed)]).toEqual(["a"]);
+  });
+  it("nothing new joins: the SAME set comes back, so the host's render-time update settles", () => {
+    const listed = new Set(["a", "late"]);
+    // MUTATION (show-server/join-never-settles): a fresh set every call — the host's render-time
+    // `setPassListed` never reaches a fixed point ("Too many re-renders"); red.
+    expect(passListedNow([line({ id: "a" }), line({ id: "late" })], listed)).toBe(listed);
+    expect(passListedNow([], listed)).toBe(listed);
+    // A join returns a NEW set and leaves the one it was given alone.
+    const next = passListedNow([line({ id: "b" })], listed);
+    expect(next).not.toBe(listed);
+    expect([...listed]).toEqual(["a", "late"]);
+    expect([...next]).toEqual(["a", "late", "b"]);
   });
 });
 
