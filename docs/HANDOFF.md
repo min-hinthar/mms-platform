@@ -167,13 +167,6 @@ One bullet per stream; a stream edits only its own bullet.
   `claude/feat/pd-pass-primitives`, merged in), the create-intent
   refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
   money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
-  owner's go. Build notes: m2 / m1 specs' `### H`.
-
-- **diner-cart (2026-10-08):** PD2 on `claude/feat/pd2-pd1-diner-cart` (base `claude/feat/pd-tokens-pass`,
-  #326) — the parked `SURFACES.dineInPhonePay`, the docked counter door, the pass (post-pay's `CounterPass` from
-  `claude/feat/pd-pass-primitives`, merged in), the create-intent
-  refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
-  money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
   owner's go — apply it before or with PD1's merge (until then the build hides "Let {host} know": its
   stamp read fails, `nudgeReady`; applied 2026-10-11 — the owner's item 4 below). Build notes: m2 / m1 specs' `### H`.
 

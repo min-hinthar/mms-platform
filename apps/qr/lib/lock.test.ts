@@ -67,12 +67,14 @@ let statusError: { message: string } | null = null;
  *  (and whether it calls at all) is the assertable surface. */
 let rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 let rpcError: { message: string } | null = null;
+/** M268 — what an RPC answers as `data` (the settlement release returns its row count). */
+let rpcData: unknown = undefined;
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     rpc: (fn: string, args: Record<string, unknown>) => {
       rpcCalls.push({ fn, args });
-      return Promise.resolve({ error: rpcError });
+      return Promise.resolve({ data: rpcError ? null : rpcData, error: rpcError });
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
@@ -146,12 +148,14 @@ const {
   claimStaleSettlement,
   releaseStaleSettlement,
   settlementHeldBy,
+  readLiveIntentUnderFreeze,
 } = await import("./lock");
 
 beforeEach(() => {
   queries = [];
   rpcCalls = [];
   rpcError = null;
+  rpcData = undefined;
   updateCount = 0;
   updateError = null;
   statusRow = { status: "open" };
@@ -350,6 +354,92 @@ describe("releasePromoGrantFor — the next attempt clears the previous pin, era
   it("surfaces the write error instead of swallowing it", async () => {
     rpcError = { message: "boom" };
     expect(await releasePromoGrantFor("cart-1", "era-A")).toEqual({ message: "boom" });
+  });
+});
+
+describe("releasePromoGrantFor — M268: a SETTLEMENT holder, proved by its freeze and its row count", () => {
+  it("releases through the settlement RPC, keyed by THIS request's freeze owner", async () => {
+    rpcData = 1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toBeNull();
+    // MUTATION: the era RPC → on an unlocked cart any era matches, the cart-wide clear the era rule
+    // refuses — and a stale lock's era is one this request never held; red.
+    expect(rpcCalls).toEqual([
+      {
+        fn: "mms_release_promo_grant_for_settlement",
+        args: { p_cart_id: "cart-1", p_owner: "owner-A", p_fresh_after: expect.any(String) },
+      },
+    ]);
+  });
+
+  it("passes the freshness cutoff on the APP clock — `acquireCartLock`'s own `now - SETTLE_TTL_MS` (the blind pass on 5d19601)", async () => {
+    // `settle_at` is stamped by the app and `acquireCartLock` admits a diner by this same cutoff, so
+    // the release must judge freshness on that clock and that TTL, never the database's own.
+    // MUTATION: any other TTL (the pay lock's 5 minutes) → the release clears a pin in a window
+    // where `acquireCartLock` already admitted a successor, or refuses a freeze still ours; red.
+    rpcData = 1;
+    const before = Date.now() - SETTLE_TTL_MS;
+    await releasePromoGrantFor("cart-1", { settlement: "owner-A" });
+    const after = Date.now() - SETTLE_TTL_MS;
+    const cutoff = Date.parse(String(rpcCalls[0]!.args.p_fresh_after));
+    expect(cutoff).toBeGreaterThanOrEqual(before);
+    expect(cutoff).toBeLessThanOrEqual(after);
+  });
+
+  it("a BLOCKED write is a refusal, never ok — the settle would price from the pin it failed to clear", async () => {
+    // MUTATION: trust any answer but 1 → another freeze, a stale one, a closed cart or a live link
+    // reads as released; red.
+    rpcData = 0;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+    rpcData = -1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+    rpcData = null;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toBeNull();
+  });
+
+  it("the RPC's 0 — THIS fresh freeze holds the cart, a live intent is linked — is the ONE refusal flagged `linked`", async () => {
+    // MUTATION: drop the flag → the settle can never supersede the link that blocks it, and every
+    // such table refuses at the counter until the link clears on its own; red.
+    rpcData = 0;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "a live intent is linked under this settlement's freeze",
+      linked: true,
+    });
+  });
+
+  it("a request that does NOT hold the cart is never flagged `linked` — -1, a null answer, an error, no owner (Codex on 56a4fd1)", async () => {
+    // -1 is another freeze, none, THIS request's freeze gone stale, or a closed cart. Flagged
+    // `linked`, the settle would supersede whatever the cart names — after a stall, a successor
+    // diner's live checkout.
+    // MUTATION: flag every refusal `linked` → a stalled settle cancels a successor's payment and
+    // answers `acquired` on a freeze it lost; red.
+    rpcData = -1;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "this settlement does not hold the cart (the release answered -1)",
+    });
+    rpcData = null;
+    const nullAnswer = await releasePromoGrantFor("cart-1", { settlement: "owner-A" });
+    expect(nullAnswer).not.toBeNull();
+    expect(nullAnswer).not.toHaveProperty("linked");
+    rpcData = 0;
+    rpcError = { message: "boom" };
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).not.toHaveProperty(
+      "linked",
+    );
+    rpcError = null;
+    expect(await releasePromoGrantFor("cart-1", { settlement: "" })).not.toHaveProperty("linked");
+  });
+
+  it("no owner is no proof — a refusal, and nothing is called", async () => {
+    // MUTATION: a quiet no-op (the era form's answer) → the settle reads the pin as if released; red.
+    expect(await releasePromoGrantFor("cart-1", { settlement: "" })).not.toBeNull();
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("surfaces the write error", async () => {
+    rpcError = { message: "boom" };
+    expect(await releasePromoGrantFor("cart-1", { settlement: "owner-A" })).toEqual({
+      message: "boom",
+    });
   });
 });
 
@@ -577,6 +667,18 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     expect(lockTerm).toMatch(/,and\(locked_at\.lte\.[^,]+,live_payment_intent_id\.is\.null\)$/);
   });
 
+  it("ends the stale attempt's era in the SAME write — a stalled create-intent can never link after it (Codex on #338 @ 90732bc)", async () => {
+    // A create-intent that minted its intent and stalled before `linkPaymentIntent` keeps the era
+    // the link is keyed on (`locked_by` + `locked_at`). Left in place, it resumed after this takeover
+    // and handed the diner a payable intent on a cart the counter was collecting, priced from a pin
+    // the settlement had cleared. MUTATION: drop the pay-lock columns from the payload → that era
+    // survives the freeze; red.
+    updateCount = 1;
+    expect(await acquireSettlement(CART, UID)).toBe("acquired");
+    const update = queries.find((q) => q.payload.settle_at !== undefined)!;
+    expect(update.payload).toMatchObject({ locked: false, locked_at: null, locked_by: null });
+  });
+
   it("carries NO same-owner re-acquire arm — a mutex admits nobody twice (A3 · M201)", async () => {
     // The predicate used to read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a
     // re-open door for the host's split that the counter inherited by passing a shared staff uid.
@@ -586,7 +688,13 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     updateCount = 1;
     expect(await acquireSettlement(CART, UID)).toBe("acquired");
     const update = queries.find((q) => q.payload.settle_at !== undefined)!;
-    expect(update.payload).toEqual({ settle_at: expect.any(String), settle_by: UID });
+    expect(update.payload).toEqual({
+      settle_at: expect.any(String),
+      settle_by: UID,
+      locked: false,
+      locked_at: null,
+      locked_by: null,
+    });
     const settleTerm = update.or.find((o) => o.startsWith("settle_at.is.null"));
     expect(settleTerm).toBeDefined();
     expect(settleTerm).not.toContain("settle_by");
@@ -737,6 +845,98 @@ describe("settlementHeldBy — a READ of ownership, never an acquire arm (Codex 
     expect(await settlementHeldBy("cart-1", "attempt-1")).toEqual({
       held: false,
       error: { message: "connection reset" },
+    });
+  });
+});
+
+describe("readLiveIntentUnderFreeze — M268: the link, ONLY while this request's fresh freeze holds the open cart", () => {
+  const fresh = () => new Date().toISOString();
+  it("returns the link when the row names THIS owner, the freeze is fresh and the cart is open", async () => {
+    statusRow = {
+      status: "open",
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_dead",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBe("pi_dead");
+  });
+  it("null under ANOTHER owner's freeze — a colleague's settle, or a successor's (the blind pass on 5d19601)", async () => {
+    // MUTATION: drop the owner term → this request cancels a link it never held the cart for; red.
+    statusRow = {
+      status: "open",
+      settle_at: fresh(),
+      settle_by: "owner-B",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("null when THIS owner's freeze has gone STALE — a stalled settle reads nothing to cancel (the blind pass on 5d19601)", async () => {
+    // `acquireCartLock` admits a diner under a stale `settle_at` and leaves `settle_by`, so after a
+    // stall the row still names this owner while the link is the SUCCESSOR's live checkout.
+    // MUTATION: drop the freshness term → that successor's PaymentIntent is cancelled at Stripe; red.
+    statusRow = {
+      status: "open",
+      settle_at: new Date(Date.now() - SETTLE_TTL_MS - 1000).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("null on a cart that is no longer open", async () => {
+    // MUTATION: drop the status term → a paid cart's link is handed to a supersede; red.
+    statusRow = {
+      status: "paid",
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_paid",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("null when a pay attempt took the cart AFTER this freeze, though the freeze reads fresh here (Codex on #338 @ 134ae08)", async () => {
+    // This server's clock trails the one that ran `acquireCartLock`: there the freeze was stale, the
+    // successor locked and linked; here `settle_at` is still fresh. The stored era orders them.
+    // MUTATION: drop the pay-lock term → the successor's live checkout is cancelled at Stripe; red.
+    const settleAt = Date.now() - 1000;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(settleAt + 500).toISOString(),
+      settle_at: new Date(settleAt).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("the link when the pay lock PREDATES the freeze — a stale lock the freeze took over is not a successor", async () => {
+    // MUTATION: refuse every locked row → a dead attempt's link is never superseded, and the settle
+    // that took the cart over it stands down for good; red.
+    const settleAt = Date.now() - 1000;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(settleAt - 6 * 60 * 1000).toISOString(),
+      settle_at: new Date(settleAt).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_dead",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBe("pi_dead");
+  });
+  it("null for a locked row with NO era — it cannot be ordered against the freeze, so it reads as taken", async () => {
+    // MUTATION: admit a null `locked_at` → a lock nobody can date licenses a cancel; red.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: null,
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_unknown",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("a failed read THROWS — the caller's catch stands down; it is never an empty link", async () => {
+    statusError = { message: "connection reset" };
+    await expect(readLiveIntentUnderFreeze("cart-1", "owner-A")).rejects.toEqual({
+      message: "connection reset",
     });
   });
 });

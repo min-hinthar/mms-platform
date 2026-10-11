@@ -43,6 +43,169 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `Checkout.test.tsx`. Mutants: `show-server/joined-dish-forgotten`, `show-server/join-never-settles`,
   `checkout/pass-forgets-a-joined-dish`, all caught.
 
+### PD9 — the TV board shows every table's food, dish by dish, and never nags (2026-10-09, `claude/feat/pd9-tv-board`)
+
+- **The owner's reversal of the wall's privacy boundary** (2026-10-07; PATH_DESIGN decision 11;
+  `docs/path-design-2026-10-07/m9-tv-board.md`). Until now `/board` showed only pickup and scan-and-go
+  codes with a first name, and dine-in status stayed on the diner's phone (K32(b), P6a). Now every
+  dine-in table with food in the kitchen is a landscape `CounterPass` at the TV tier — the table number
+  once, under "စားပွဲ · Table" — with its dishes on the ONE KITCHEN TRACK (Sent · Cooking · Served),
+  beside the pickup codes. **The room now reads what each table ordered while it cooks.** SPEC-KDS §6
+  is amended to say so.
+- **A table number and dish names only.** `lib/board-tables.ts`'s output type is the boundary: per
+  Send its round, per dish row its name, its catalog Burmese, its stage and a to-go flag — no guest
+  name, id, quantity, modifier, note, price, time or age has a field. Same-name dishes in a Send are
+  one row (by name and fulfillment), so no count is published. A dish not yet sent, or inside its
+  Send's grace, never appears (the KDS's own `kdsLineGate`); a ghost session and an unnumbered sticker
+  never appear; a table leaves 5 minutes after its last dish is served, or at once when cleared.
+- **One source for every number and stage.** The stage, a row's least-advanced stage and the table's
+  roll-up are `lib/kitchen-track.ts`'s, so Served waits out Mom's 6-second Undo on the server's clock;
+  the round number is the KDS's own read, moved to `lib/kitchen-round-read.ts`, so the wall and Mom's
+  board give one card one number.
+- **Never a nag.** Sent and Cooking are marks, Served is calm green, and the pickup Ready pass is the
+  wall's only call. It moves only when food changes state, one thing at a time (`lib/board-motion.ts`):
+  a segment fills, a table turns once per visit when its last dish is served, a code arrives Ready with
+  a gold ring on the pass's edge and the shipped chime — never on a first read or after a frozen spell.
+  Tables are sorted by number, the first half down the left column, never re-sorted on status; past
+  the fit the step-down collapses the all-served, folds the served dishes, then cuts the highest
+  numbers behind "+N more".
+- **The pickup column loses the first name, the shelf wait and the collected bag** (m9 decision 19,
+  critic B4): the code is the one identity on the wall, and a wall shows no clock. The pulse band (its
+  count, oldest age and all-day rail) is retired with it.
+- **Honest when it cannot read.** A failed or saturated kitchen read is `tables: null`, drawn "Can't
+  read the kitchen right now." — never all-clear over a full wok; a frozen wall keeps codes and dish
+  names, drops every stage, and drops the tables too once the linger has passed.
+- **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
+- **After the blind pass on #336:**
+  - "All clear" now means the whole kitchen: the route publishes `kitchenIdle`, using the KDS's own gate across every channel, so no "All clear" over a pickup bag or a counter order on the wok.
+  - It is also never shown on a frozen snapshot.
+  - A dish row's motion key is minted once, from its round's original index.
+  - Every dish list on a pass has its own accessible name.
+  - The passes fit once per poll.
+  - 14 mutants added.
+- **After the last capped blind pass on #336** (m9 §G.2):
+  - "All clear" reads the wall's one still-cooking rule (`stillCooking`, the ONE track's Sent or
+    Cooking), so a dish bumped inside Mom's 6-second Undo on a pickup bag, a counter order or an
+    undrawn table no longer reads "All clear", and a grocery line never holds it back.
+  - A resize of the passes' box re-fits, including the first resize of a list that was 0×0 when
+    observed.
+  - The fold, its list names and its FILL keys are drawn by component cases; every case unstubs its
+    globals; the route suite's session mock answers only the selected columns.
+  - 9 mutants added, 5 re-pointed.
+- **After Codex's round 1 on #336** (m9 §G.3):
+  - The name read asks the catalog only for the dishes the wall draws (`wallDishLines`), and nothing
+    when no table is drawn, so a pickup-only or scan-and-go-only wok no longer costs every wall a menu
+    or grocery read every 5 s.
+  - A re-seated table's two round-1 Sends no longer share a motion key: a repeated round number takes
+    its occurrence on the pass, so no advance goes missing and no FILL lights two rows.
+  - A folded row names each dish as its own row would (`dishNameLines`): one untranslated dish no
+    longer turns the whole fold English.
+  - A merge committing mid-read never reads "All clear": a still-cooking line whose cart reads
+    cancelled, or whose table reads closed, is re-read for its current cart. A clear leaves the line
+    there (still "All clear"), a merge moves it (not idle), and a failed re-read is not idle.
+  - 11 mutants added, 9 re-pointed.
+- **Main's PD5b (#340), ported into the shared round read** (m9 §G.4):
+  - `lib/kitchen-round-read.ts` reads no orders. Settlement food is told apart by its batch's
+    version-8 mark (`isSettlementBatch`), the same read the KDS runs, so the wall and Mom's board
+    still give one card one number.
+  - `kitchen/settlement-on-a-staff-settled-cart` and `kitchen/round-orders-saturation-ignored` retire
+    with the orders leg.
+  - 1 mutant added (`board/settlement-food-numbered-on-the-wall`), caught by a route case that runs
+    the real round read.
+- **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
+  `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
+  read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
+
+### M268 — the register's settle releases a dead card attempt's promo pin before it reads a total (2026-10-09, #338)
+
+- **The hole (filed by the blind pass on #331):** `mms_promo_discount` honours any non-null pin
+  outright (m70), and only create-intent released a predecessor's. A pin an abandoned card attempt
+  left — both client exits failed, or an attempt from before the cart→intent link — reached the
+  register, whose settle charged a discount a different basket earned. With phone pay parked (PD2)
+  the counter is a dine-in table's only door.
+- **The fix:** the settlement doors (cash, the Terminal, the secure-tab close) run create-intent's
+  sequence on their ordinary path. `acquireSettlementSuperseding` releases the pin under the freeze
+  it just took, awaited, before it answers `acquired`, through the ONE binding
+  (`releasePromoGrantFor`, now holder-aware) and `mms_release_promo_grant_for_settlement` (migration
+  `20261009120000`: every guard in the WHERE, the answer checked, service_role only). A live link
+  is superseded first under the settlement rules; any other refusal answers `unavailable`. A promo
+  applied at the register still discounts, re-derived live.
+- **The freeze must be FRESH (Codex on #338 @ 56a4fd1, P2):** `acquireCartLock` takes a cart under a
+  stale `settle_at` and leaves `settle_by`, so a settle stalled past the 10-minute TTL still matched
+  `settle_by` alone and could clear a successor diner's freshly pinned grant. The release now also
+  requires `settle_at > p_fresh_after`, where the cutoff is the app's own `now - SETTLE_TTL_MS` — the
+  clock `settle_at` is stamped on and the one `acquireCartLock` admits by (the blind pass on
+  5d19601: a DB-side `now() - interval` left a clock skew between them). It answers which refusal
+  it was: 0 when this fresh freeze holds the cart and a live link is in the way (the one answer that
+  may supersede), -1 when the request does not hold the cart.
+- **A `linked` answer is one moment (the blind pass on 5d19601):** the link is read UNDER the freeze
+  (`readLiveIntentUnderFreeze` — one row: the link and the proof this request may act on it), and
+  after the supersede the release runs AGAIN; only its 1 answers `acquired`. A stalled settle stands
+  down instead of cancelling a successor's checkout, and a link someone else dropped (leaving the
+  pin) is cleared by the re-proof instead of priced. Apply `20261009120000` before deploying the
+  code: until then every counter settle refuses as `unavailable` (fail closed).
+- **Freshness alone is not the proof (Codex on #338 @ 688bc1d, P2):** the cutoff is computed before
+  the awaited RPC, so a call delayed past the TTL (a wait on a row lock, say) still read its freeze as
+  fresh while a successor's `acquireCartLock` took the stale freeze and pinned, and cleared that pin
+  before the successor linked — a captured payment that cannot reconcile. The release and its
+  refusal probe now also require `not locked or locked_at < settle_at`: a freeze is only written
+  over no pay lock or a stale one, and a successor stamps `locked_at` only once `settle_at` is a TTL
+  old, so stored values order the two with no clock involved. A successor holding the cart answers
+  -1, linked or not (never the 0 that licenses a supersede); the freshness cutoff stays.
+- **The read under the freeze carries the same term (Codex on #338 @ 134ae08, P2):**
+  `readLiveIntentUnderFreeze` judged freshness on its own server's clock, so a server trailing the
+  one that ran `acquireCartLock` could hand the supersede a successor's link between the two release
+  calls. It now refuses a cart a pay attempt took after this freeze (`locked_at` before `settle_at`,
+  or unlocked; a dateless lock reads as taken), the release's own rule on the same row
+  (`lib/lock.test.ts`; mutants `m268/scoped-read-ignores-the-pay-lock`,
+  `-refuses-every-lock`, `-admits-a-dateless-lock`).
+- **A settlement takeover ends the stale attempt's era (Codex on #338 @ 90732bc, P1):**
+  `acquireSettlement` takes over a stale, unlinked pay lock as an abandoned attempt, but a
+  create-intent that minted its PaymentIntent and stalled before `linkPaymentIntent` is alive under
+  exactly that shape — its era still matched the link's keys, so it could resume, link, and hand the
+  diner a payable intent on a cart the counter was collecting, priced from the pin the release had
+  just cleared. The freeze now clears `locked` / `locked_at` / `locked_by` in the same UPDATE that
+  admits it, so the old era can never link again (`lib/lock.test.ts`; mutant
+  `m268/takeover-keeps-the-stale-era`).
+- **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
+  the legitimate promo, five refusals including the stale freeze at, past and one second inside the
+  TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
+  lock older than the freeze that still releases and a lock with no era that fails closed,
+  privileges, a mutant per guard and per probe guard built from the live definition);
+  `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
+  `m268/…` mutants.
+
+### PD5b — settlement food carries its own mark, and a merge keeps each Send whole (2026-10-09, `claude/fix/pd5b-settlement-batch-and-fold`)
+
+- **PD5's three owner items, decided under the owner's delegation and built** (m5 §H.4).
+  - One migration, `20261009120300_pd5b_settlement_batch_and_fold.sql`. Its prod apply waits on the
+    owner's go: one file, through the Supabase MCP.
+- **The settlement batch is marked.**
+  - `mms_fire_pending_food` (the drain that fires a paid cart's unsent drafts) mints its batch as a
+    version-8 UUID; every Send mints a version-4 one.
+  - The KDS round read classifies settlement food by that mark (`isSettlementBatch`) instead of by
+    when it fired, and no longer reads orders.
+  - A Send that lands in the 10 s before a guest's own card payment is recorded now keeps its round
+    number, and so does one before a staff secure-tab close. Before this, it read as settlement food
+    and the visit's later Sends counted one fewer.
+  - `settled_by` is unchanged: it drives /staff/tips.
+- **The fold keeps each Send whole.**
+  - `mms_merge_table_orders` folds a fired or in-progress line only into a line of the same batch, so
+    a cooking portion never moves onto another Send's card with no bump.
+  - Drafts and served lines fold exactly as before.
+- **Proof:**
+  - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9), registered in CI. It went
+    red on the old drain and on the old merge.
+  - `verify-mode-authority` gains suite `pd5b` with 8 killed mutants. The merge's 18 earlier mutants
+    now patch the pd5b file, and all 241 are accounted for.
+  - `verify-counter-fire-race` gains the grace race as orders s and s2, with 2 mutants. The drain
+    and the merge join its `LATER` map, so every restore reads them from the pd5b file.
+  - `verify-merge-race` and the M96/M97/M98/M109 fold tests are green and unchanged.
+  - `kitchen-rounds/*` gains 4 mark mutants (the version, its position, the anchors and — Codex on
+    #340 — the RFC variant) and retargets 1. Two `kitchen/*` mutants retire with the orders leg.
+- **Known effect:** batches fired before the migration carry no mark, so a table live across the
+  deploy that had settlement food can read one round high until its session ends.
+
 ### PD4 — the grocery miss: the guided tag inside the lens (2026-10-08, `claude/feat/pd4-grocery-miss`)
 
 - **The miss is a paper tag INSIDE the live lens** (m4 spec, round 3): "This code isn’t in the app yet."
