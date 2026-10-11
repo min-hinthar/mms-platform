@@ -26,6 +26,75 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   it" (m12 §I).
 - 44 `m270/*` mutants; no migration (M182 made the record and the RPC).
 
+### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
+
+- **The defect (W7b × M186).** M186's classifier refuses a camera sighting of a code the basket
+  already pays for, judged from the lines on screen, the offline queue, and `billedRef` — what this
+  session charged, the only record that survives a failed post-write read (`scanAdd` answering
+  `lines: null`). The live add always recorded it; the reconnect drain (`drainNow`) did not. A replay
+  delivered with no view left the queue at the drain's `syncPending()` while the list did not show it
+  yet, so the next camera read of that jar classified `add` and charged a second unit.
+- **The fix.** Both charge paths record through ONE pure rule, `lib/scan-billed.ts` (new): each charge
+  carries the item's removal generation from dispatch (`chargeMark`), every removal bumps it
+  (`afterRemoval` — the stepper and the add-Undo), and `afterCharge` records the code only when no
+  removal crossed the write and the charge's own view (when it came back) holds the code. The
+  replay's record sits after the drain's era check; a refused replay records nothing.
+- **The reviews of #344, each verified in source first.** The blind pass (CRITICAL): a removal
+  tapped while an add or a replay is in flight lands first, and the add's response — its view read
+  before the removal — recorded a line that was gone, so the camera refused that jar for good; a
+  crossed charge is now never recorded, and the page re-reads instead. Codex (P2): an idempotent
+  replay of a scan whose earlier, lost-response attempt committed (the scan-event ledger answers `ok`
+  and writes nothing) can return a view without the code once the shopper removed it — not recorded,
+  and an older record goes too. Codex (P2): the fresh-basket handler now ends the era synchronously
+  (`cartIdRef.current = undefined`) before it resets the record; React's synchronous flush of a
+  click's effects already closed that window, and the page no longer depends on it. The blind pass's
+  open question: a charge no view shows (`lines: null`, or crossed) re-reads the basket through the
+  ticketed `syncNow` — after a live add, once per drain — so the list and its total include it.
+- **Codex's second round (P1).** A Browse add asks neither the classifier nor the queue, so the
+  shopper can add the jar while an idempotent replay's empty view is still in flight: the newer
+  view-less add landed first and recorded the code, then the older view dropped that record and —
+  because a view-less charge advances `appliedSeq` nothing — replaced the honest "Couldn’t check your
+  basket" with an empty list; the next sighting charged a third unit. The dispatch mark now also
+  carries how many charges of the code had landed (every ok landing counts, crossed ones too), and an
+  absent view drops the record only when no newer charge landed since its dispatch; every ok charge
+  raises a view floor to its own issue ticket, below which `markCartAlive` applies nothing.
+- **The second blind pass (REJECT on `6ba688d`).** The floor stopped at the charge's DISPATCH ticket,
+  so a read issued while the charge was in flight — answered before its commit, arriving after the
+  landing — still applied a stale list and cleared "Couldn’t check your basket"; and a read that
+  applied DURING the flight left the charge's own view discarded with no re-read. Now, at each landing:
+  the charge's own view applies first, the floor rises to the ticket counter at that LANDING, and a
+  read that crossed the flight (`crossedRead`) forces a re-read. Checking the stepper under the new
+  floor found one regression it would cause, fixed here: a refused stepper write whose reconcile the
+  floor rejects now rolls its flip back. The crossed-charge residual is filed as G26 (OPEN-ITEMS),
+  with its reachability: Next 16's client action queue runs server functions one at a time, so the
+  out-of-order answers these defences meet need a mid-flight navigation.
+- **Codex on `c03743f` (P2).** An idempotent replay of a removed scan answers ok with no view, so
+  it is recorded and owes a re-read; when that read (or any later one) applied a basket without the
+  code, only the list changed, and the camera refused the jar as "Already added" for the rest of the
+  basket. Every view the page APPLIES now drops each record it does not hold (`afterView`,
+  `lib/scan-billed.ts`) — safe because the floor admits only views issued after every recorded
+  charge landed; `markCartGone` does not. `check:scan-repeat` proposition 8 admits that write only in
+  `markCartAlive`, after its `applyLines`, over its own lines.
+- **Pinned.** `apps/qr/app/grocery/page.test.tsx` (new) renders the real page with the server
+  modelled (its lines, `setQty`, every read), the session and the camera stubbed, and sights the jar
+  through the page's own `onScan`: seventeen rows — a live add and a replay with no view (refused, and
+  re-read), the re-read bringing the line onto the list, a refused replay, a removal crossing a
+  replay and a live add, a replay whose view lacks the code, a cart swap mid-replay, Codex's P1
+  interleaving through a Browse add, a basket read issued before a live add or a replay landing
+  after it, a read issued during either's flight (landing after it, or applying before it), a
+  refused stepper write under a raised floor, and a view-less replay whose re-read shows the basket
+  without the jar (it scans in again). Red-first: the delivered-replay row charged twice on main; the crossing, view and
+  re-read rows failed on the first head of this PR, the P1 and floor rows on the second, the
+  in-flight read rows on the third. `lib/scan-billed.test.ts` (new) falsifies each rule by a value.
+  `check:scan-repeat` proposition 8 parses the page: for every live `scanAdd`, the dispatch mark
+  before it, an era check after it, the record — `afterCharge(…, <its code>, <its mark>,
+<its result>.lines)` stored in `billedRef` — in a top-level `if (R.ok)` after that era check, no ok
+  exit between charge and record, and nothing else in the function writes the record; page-wide,
+  every other write is `afterRemoval` or a `NO_BILLED` reset that follows the era's end, and the
+  classifier reads `billed: [...billedRef.current.billed]`. Twenty-five committed evasion rows, and
+  the matcher's own eight weakenings committed beside them — each lets exactly its evasion through.
+  Thirty-two mutants (eighteen `grocery-page/`, fourteen `scan-billed/`), all CAUGHT.
+
 ### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra, #343)
 
 - **The flake:** #340's `build` job (114406642840) counted every test green, then reported "Errors
