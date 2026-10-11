@@ -42,6 +42,12 @@
  * share under a foreign fresh freeze — the re-claim must be atomic and the capture must refuse
  * any other owner.
  *
+ * A FOURTH since PD10 (PATH_DESIGN round 3, D5): wire the served gate (`servedGateDecision`,
+ * lib/checkout-stage — the same verdict `create-intent` refuses on, from the same fail-closed read,
+ * `readServedGateInput`) into `openSettlement` and `create-share-intent`. While the split is parked
+ * those two doors are closed outright; reopened without the gate, a table could pay its shares by
+ * phone before its food is served — the exact charge D5 exists to prevent on the single-pay door.
+ *
  * Phase 2f · P2v — `payAtPickup` is the fourth door, and it is OPEN (owner decisions 1 + 7): staff
  * may Send a counter (`reg-`) order to the kitchen before it is paid. DRAWN in `getTableDetail`
  * (`detail.payAtPickup` — the table page and the order pad offer the counter Send only while it is
@@ -61,9 +67,15 @@
  * is not said) and ANSWERED in `create-intent`, which refuses a dine-in mint after
  * `supersedeCartIntent` and its captured / unknown exits — never above them, because each refusal
  * frees the lock and freeing it while a predecessor intent can still be confirmed is #257's
- * CRITICAL (M151) — and before the shipped unsent refusal; `scripts/check-phone-pay-door.mjs`
- * parses the route and pins that order. Pickup and scan-and-go never read this switch: paying IS
- * ordering there.
+ * CRITICAL (M151) — and before PD10's served gate; `scripts/check-phone-pay-door.mjs` parses the
+ * route and pins that order. Pickup and scan-and-go never read this switch: paying IS ordering
+ * there.
+ *
+ * PD10 BUILT THE SERVED DOOR BEHIND THIS SWITCH (D5): with it open, the Bill holds Pay with "Pay
+ * opens once everything’s served." and no tip ask until every dish is served (a bump counts once it
+ * is `KDS_UNDO_MS` old on the DB clock), and `create-intent` refuses the same verdict
+ * (`servedGateDecision`) from one error-aware read that fails CLOSED, in the unsent refusal's old
+ * slot. No gate at fulfillment: a card already charged is never stranded.
  *
  * THE FLIP is its own PR, one commit, never the key-swap commit (PATH_DESIGN round 3, D5): only
  * once live keys are verified in production, PD2 and PD10 have merged, and the device sitting

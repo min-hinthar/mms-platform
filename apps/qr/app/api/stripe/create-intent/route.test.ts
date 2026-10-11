@@ -19,6 +19,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *   4. the flip: the same dine-in cart with the door open mints — the refusal reads the switch and
  *      nothing else changes.
  *   5. a pickup cart never reads the switch (paying IS ordering): parked or not, it goes through.
+ *   6. PD10 · D5 — THE SERVED GATE, behind the open door: a table pays by phone only once nothing
+ *      on its bill is with the kitchen (a bump counts once it is `KDS_UNDO_MS` old on the DB clock),
+ *      refused 409 in D5's words with the lock released and nothing spent; an unreadable read
+ *      refuses 503 (fail CLOSED); the gate runs after the supersede and the parked door, before the
+ *      promo pin and Stripe; a pickup cart never spends its read.
  *
  * The route's other gates are mocked at their module seams (authz, the rate limit, the lock, the
  * supersede, totals, Stripe), each answering its happy value, so the only thing that decides each
@@ -45,6 +50,7 @@ const h = vi.hoisted(() => ({
   create: vi.fn(),
   pin: vi.fn(),
   promoRelease: vi.fn(),
+  gateRead: vi.fn(),
 }));
 /** Codex round 2 on #331 (P1) — the stale-grant release's answer (null = released). */
 let promoReleaseErr: { message: string } | null = null;
@@ -90,7 +96,29 @@ vi.mock("@/lib/availability-read", () => ({
     return Promise.resolve([]);
   },
 }));
-vi.mock("@/lib/unsent-read", () => ({ kitchenDraftUnits: () => Promise.resolve(0) }));
+/** PD10 — the served gate's read: what `readServedGateInput` answers this case (null = unreadable). */
+const NOW = "2026-10-11T19:48:00.000Z";
+const at = (ms: number) => new Date(Date.parse(NOW) + ms).toISOString();
+type GateLine = {
+  state: string;
+  fulfillment: string;
+  fire_at: string | null;
+  bumped_at: string | null;
+};
+const servedLine = (over: Partial<GateLine> = {}): GateLine => ({
+  state: "served",
+  fire_at: at(-600_000),
+  bumped_at: at(-60_000),
+  fulfillment: "dinein",
+  ...over,
+});
+let gateRead: { lines: GateLine[]; nowIso: string } | null = { lines: [servedLine()], nowIso: NOW };
+vi.mock("@/lib/unsent-read", () => ({
+  readServedGateInput: (...a: unknown[]) => {
+    h.gateRead(...a);
+    return Promise.resolve(gateRead);
+  },
+}));
 vi.mock("@/lib/totals", () => ({
   getCartTotals: () =>
     Promise.resolve({
@@ -188,6 +216,7 @@ beforeEach(() => {
   phonePayOpen = false;
   supersedeAnswer = "cleared";
   promoReleaseErr = null;
+  gateRead = { lines: [servedLine()], nowIso: NOW };
 });
 
 describe("PD2 — the parked dine-in phone-pay door is ANSWERED at create-intent", () => {
@@ -203,6 +232,8 @@ describe("PD2 — the parked dine-in phone-pay door is ANSWERED at create-intent
     expect(h.availability).not.toHaveBeenCalled();
     expect(h.pin).not.toHaveBeenCalled();
     expect(h.create).not.toHaveBeenCalled();
+    // …and the served gate's read is never spent behind a parked door (PD10).
+    expect(h.gateRead).not.toHaveBeenCalled();
   });
 
   it("2. the door runs only AFTER the supersede has finished (D5's order)", async () => {
@@ -272,5 +303,128 @@ describe("PD2 — the parked dine-in phone-pay door is ANSWERED at create-intent
     expect(h.availability).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(200);
     expect(h.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PD10 · D5 — the served gate, answered at create-intent behind the open door", () => {
+  beforeEach(() => {
+    phonePayOpen = true;
+  });
+
+  it("6a. everything served past Mom's undo window → it mints", async () => {
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    expect(h.gateRead).toHaveBeenCalledWith(CART);
+    expect(h.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("6b. a dish still cooking → 409 in D5's words, the lock released, nothing pinned, nothing at Stripe", async () => {
+    // MUTATION (served-gate/create-intent-answers-open): the refusal deleted — a raw POST from a
+    // table whose food is on the wok mints a PaymentIntent; red.
+    gateRead = {
+      lines: [servedLine(), servedLine({ state: "in_progress", bumped_at: null })],
+      nowIso: NOW,
+    };
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Pay opens once everything’s served.",
+    );
+    expect(h.release).toHaveBeenCalledWith(CART, UID, ERA);
+    expect(h.pin).not.toHaveBeenCalled();
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it("6c. a bump INSIDE Mom's undo window still holds — served only once `bumped_at` is KDS_UNDO_MS old on the DB clock", async () => {
+    gateRead = { lines: [servedLine({ bumped_at: at(-1_000) })], nowIso: NOW };
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it("6d. an unreadable read FAILS CLOSED — 503, the lock released, nothing at Stripe", async () => {
+    gateRead = null;
+    const res = await POST(req());
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "We’re having trouble on our end — try again in a moment.",
+    );
+    expect(h.release).toHaveBeenCalledWith(CART, UID, ERA);
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it("6e. the HOST with a dish to send is told to send it (and how to find Send); a guest hears D5's sentence", async () => {
+    const draft = servedLine({ state: "draft", fire_at: null, bumped_at: null });
+    gateRead = { lines: [servedLine(), draft], nowIso: NOW };
+    sessionRow = { mode: "dinein", host_seat: UID };
+    let res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Send everything to the kitchen first — Pay opens once everything’s served. Don’t see Send? Reload this page.",
+    );
+    // MUTATION (served-gate/create-intent-tells-a-guest-to-send): `canSend` always true — a guest
+    // is ordered to send what only the host can; red.
+    sessionRow = { mode: "dinein", host_seat: "someone-else" };
+    res = await POST(req());
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Pay opens once everything’s served.",
+    );
+  });
+
+  it("6f. a HOSTLESS table's draft holds — with the server and the counter named — where 'Everything sent' let it through", async () => {
+    sessionRow = { mode: "dinein", host_seat: null };
+    gateRead = {
+      lines: [servedLine({ state: "draft", fire_at: null, bumped_at: null })],
+      nowIso: NOW,
+    };
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A server will send these to the kitchen — or pay at the counter.",
+    );
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it("6g. a TO-GO draft holds, pointing at its ⋯ — it would otherwise fire only after the charge", async () => {
+    gateRead = {
+      lines: [
+        servedLine(),
+        servedLine({ state: "draft", fulfillment: "togo", fire_at: null, bumped_at: null }),
+      ],
+      nowIso: NOW,
+    };
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Send your to-go dish to the kitchen first (More ⋯) — Pay opens once everything’s served.",
+    );
+  });
+
+  it("6h. ORDER: the supersede, then the gate's read, then the lock given back — never the reverse", async () => {
+    gateRead = { lines: [servedLine({ state: "fired", bumped_at: null })], nowIso: NOW };
+    await POST(req());
+    const supersededAt = h.supersede.mock.invocationCallOrder[0]!;
+    const readAt = h.gateRead.mock.invocationCallOrder[0]!;
+    const releasedAt = h.release.mock.invocationCallOrder[0]!;
+    expect(supersededAt).toBeLessThan(readAt);
+    expect(readAt).toBeLessThan(releasedAt);
+  });
+
+  it("6i. a predecessor that captured exits BEFORE the gate and keeps the lock (M151)", async () => {
+    supersedeAnswer = "captured";
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect(h.gateRead).not.toHaveBeenCalled();
+    expect(h.release).not.toHaveBeenCalled();
+  });
+
+  it("6j. a pickup cart never spends the gate's read — its answer could not matter", async () => {
+    // MUTATION (served-gate/create-intent-reads-every-mode): the read asked for every mode — an
+    // unreadable read would become a 503 on a counter-less pickup sale; red.
+    sessionRow = { mode: "pickup", host_seat: null };
+    gateRead = null;
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    expect(h.gateRead).not.toHaveBeenCalled();
   });
 });

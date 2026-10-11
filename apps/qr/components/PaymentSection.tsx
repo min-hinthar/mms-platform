@@ -39,6 +39,7 @@ import { expressButtonTheme } from "@/lib/stripe-appearance";
 import { payProceedLabel, unsentPayNote } from "@/lib/confirm-copy";
 import {
   canConfirm,
+  cardFoldedAtReveal,
   hasWallet,
   initialPayElementState,
   payElementReducer,
@@ -51,6 +52,7 @@ import {
   shouldAutoRetry,
   PAY_ELEMENT_FALLBACK_PX,
   PAY_ELEMENT_STORAGE_KEY,
+  PAY_FOLD_TOGGLE_PX,
   PAY_ELEMENT_TIMING,
   type PayElementEvent,
   type PayElementState,
@@ -77,6 +79,15 @@ type PaymentSectionProps = {
   /** Phase 1c — dine-in: the review step holds a "Pay at the counter" door, so a failure card that
    *  sends the diner back to review NAMES it (a blocked js.stripe.com still has a real way out). */
   counterDoor?: boolean;
+  /** PD10 (m10 decision 6) — at a table: when a wallet is AVAILABLE at the reveal it leads, and the
+   *  card form folds behind "Pay with card" (`cardFoldedAtReveal`, decided ONCE). Off (pickup,
+   *  scan-and-go): today's open form, untouched. */
+  fold?: boolean;
+  /** PD10 (m10 decision 7) — at a table: "Pay at the counter", one quiet tap from the pay step (the
+   *  parent leaves Pay — releasing the lock — then asks). Absent: no counter control. */
+  onCounter?: () => void;
+  /** The parent's counter chain is in flight: the control reads "One moment…" with `aria-busy`. */
+  counterBusy?: boolean;
 };
 
 type Handles = { stripe: Stripe; elements: StripeElements };
@@ -127,6 +138,9 @@ function PayStep({
   onPayingChange,
   hold = false,
   counterDoor = false,
+  fold = false,
+  onCounter,
+  counterBusy = false,
 }: PaymentSectionProps) {
   // The RAW Stripe.js promise. It changes only when a retry re-creates the loader (after Stripe.js
   // itself rejected) — and that same retry bumps `attempt`, so Elements is re-keyed in the SAME
@@ -149,6 +163,18 @@ function PayStep({
     [clientSecret, appearance, fonts],
   );
   const [reserve] = useState(readReserve);
+  // PD10 (m10 decision 6) — THE FOLD, decided ONCE, on the render the step reveals: a wallet
+  // available then leads, and the card waits behind "Pay with card" (`cardFoldedAtReveal`). Adjusted
+  // during render (React's derived-state pattern) and latched: a wallet arriving after the reveal
+  // rises above the open form and folds nothing — no control moves under a thumb.
+  const [foldAtReveal, setFoldAtReveal] = useState<boolean | null>(null);
+  if (fold && foldAtReveal === null && view.revealed) setFoldAtReveal(cardFoldedAtReveal(state));
+  const [cardOpen, setCardOpen] = useState(false);
+  const folded = foldAtReveal === true && !cardOpen;
+  // Before the reveal, a folding step whose device measured a wallet before PREDICTS the fold: its
+  // skeleton is the wallet row and the toggle, never a card form it will not show (`PAY_FOLD_TOGGLE_PX`).
+  const predictFold = fold && foldAtReveal === null && reserve.walletPx > 0;
+  const cardFormId = useId();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ en: string; my?: string } | null>(null);
@@ -253,7 +279,12 @@ function PayStep({
 
   // Remember this device's geometry — only once the wallet SETTLED (never on grace: a pending wallet
   // would store a height without it), one frame after that commit.
+  // PD10 — a FOLDED block is never stored as the open form's height: a folded visit keeps the open
+  // form's reserve (this device's own, or the fallback) and records only the wallet slot. Codex round
+  // 2 on #346: skipping the write instead left a device whose first visit folded with no `walletH`,
+  // so it never predicted the fold and every later visit drew the full skeleton, then collapsed.
   const walletSettled = wallet !== "loading";
+  const foldedNow = foldAtReveal === true;
   useEffect(() => {
     if (!revealed || !walletSettled) return;
     const raf = window.requestAnimationFrame(() => {
@@ -264,7 +295,7 @@ function PayStep({
           PAY_ELEMENT_STORAGE_KEY,
           JSON.stringify({
             w: document.documentElement.clientWidth,
-            h: live.offsetHeight,
+            h: foldedNow ? reserve.px : live.offsetHeight,
             walletH: walletSlotRef.current?.offsetHeight ?? 0,
           }),
         );
@@ -274,7 +305,7 @@ function PayStep({
       }
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [revealed, walletSettled, attempt]);
+  }, [revealed, walletSettled, attempt, foldedNow, reserve.px]);
 
   // Connectivity. `online` auto-retries a load this attempt saw fail offline — the promise the
   // offline sentence makes ("we'll try again when you reconnect") is this code path.
@@ -378,11 +409,18 @@ function PayStep({
         ref={stageRef}
         className="pay-stage"
         role="group"
-        aria-label="Card details"
+        // PD10 (m10 B11) — a name true while the card is folded: the group leads with the wallet.
+        aria-label={fold ? "Payment" : "Card details"}
         tabIndex={-1}
-        style={{ minBlockSize: view.skeleton ? reserve.px : undefined }}
+        style={{
+          minBlockSize: view.skeleton
+            ? predictFold
+              ? reserve.walletPx + PAY_FOLD_TOGGLE_PX
+              : reserve.px
+            : undefined,
+        }}
       >
-        {view.skeleton && <PaySkeleton walletPx={reserve.walletPx} />}
+        {view.skeleton && <PaySkeleton walletPx={reserve.walletPx} folded={predictFold} />}
         {failCopy && (
           <FocusHandoff onLeaveWithFocus={markHandoff}>
             <EmptyState
@@ -447,13 +485,19 @@ function PayStep({
               dispatch={dispatch}
               onBind={onBind}
               onWalletConfirm={(event) => void confirm("wallet", event)}
+              cardFold={
+                foldAtReveal === true
+                  ? { open: cardOpen, formId: cardFormId, onToggle: () => setCardOpen((o) => !o) }
+                  : null
+              }
             />
           </Elements>
         )}
       </div>
 
-      {/* The note row keeps its box when empty (a failure), so nothing below it moves. */}
-      <p id={noteId} className="pay-note">
+      {/* The note row keeps its box when empty (a failure), so nothing below it moves. PD10 — it is
+          the CARD's note (the secure line names the card number), so a folded card shows none. */}
+      <p id={noteId} className="pay-note" hidden={folded}>
         {note && (
           <>
             <span className="pay-note-en">
@@ -517,8 +561,11 @@ function PayStep({
           thumb. Refusal is `aria-disabled` (K35 — focus stays, the reason is its description), and it
           lifts only at reveal + settleMs, so a tap aimed before the layout moved lands on a control
           that refuses it. */}
+      {/* PD10 — folded, the card's own submit waits behind "Pay with card" with the form it pays
+          (the wallet is the one hero); unfolded, it returns as the card path's hero. */}
       <button
         type="submit"
+        hidden={folded}
         aria-disabled={ctaRefuses || undefined}
         aria-busy={submitting}
         aria-describedby={describedBy}
@@ -541,6 +588,27 @@ function PayStep({
           {submitting ? "Processing…" : payProceedLabel(totals.totalCents)}
         </span>
       </button>
+
+      {/* PD10 (m10 decision 7; screen 2) — at a table the counter stays one quiet tap away: the parent
+          leaves Pay (releasing the pay-window lock) and asks the counter once the Bill is back. Quiet
+          — never a second filled hero; refused while a confirm is in flight (the lock is live). */}
+      {onCounter && (
+        <button
+          type="button"
+          className="pay-counter"
+          aria-disabled={submitting || undefined}
+          aria-busy={counterBusy || undefined}
+          onClick={() => {
+            if (submitting || counterBusy) return;
+            onCounter();
+          }}
+        >
+          <span>{counterBusy ? "One moment…" : t("en", "payAtCounter")}</span>
+          <span lang="my" className="pay-counter-my">
+            {t("my", "payAtCounter")}
+          </span>
+        </button>
+      )}
 
       <button
         type="button"
@@ -605,8 +673,16 @@ function FocusHandoff({
 }
 
 /** v7.2's `.sk` grammar at the Element's geometry: bordered paper boxes holding shimmer bars. The
- *  wallet shape is drawn only when THIS device measured one — a first visit never implies Apple Pay. */
-function PaySkeleton({ walletPx }: { walletPx: number }) {
+ *  wallet shape is drawn only when THIS device measured one — a first visit never implies Apple Pay.
+ *  PD10 — `folded`: the wallet row and the "Pay with card" toggle's pill, never the card fields. */
+function PaySkeleton({ walletPx, folded = false }: { walletPx: number; folded?: boolean }) {
+  if (folded)
+    return (
+      <div aria-hidden className="pay-skel-folded">
+        <Skeleton height={walletPx} radius="var(--r-sm)" />
+        <Skeleton height={PAY_FOLD_TOGGLE_PX - 8} radius="var(--r-full)" />
+      </div>
+    );
   return (
     <div aria-hidden>
       {walletPx > 0 && (
@@ -668,6 +744,7 @@ function PayElements({
   dispatch,
   onBind,
   onWalletConfirm,
+  cardFold,
 }: {
   attempt: number;
   revealed: boolean;
@@ -681,6 +758,9 @@ function PayElements({
   dispatch: (e: PayElementEvent) => void;
   onBind: (h: Handles | null) => void;
   onWalletConfirm: (event: StripeExpressCheckoutElementConfirmEvent) => void;
+  /** PD10 — the card form folded at the reveal: the disclosure's state and the form's id; null = no
+   *  fold (today's open form and its divider). */
+  cardFold: { open: boolean; formId: string; onToggle: () => void } | null;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -728,7 +808,21 @@ function PayElements({
           </span>
         )}
       </div>
-      {walletPending ? (
+      {cardFold ? (
+        // PD10 (m10 screen 2) — the card one tap behind the wallet: a paper disclosure (WAI: focus
+        // stays on it; `aria-expanded` + `aria-controls`), in place of the "or pay with card" rule.
+        <button
+          type="button"
+          className="pay-card-toggle"
+          aria-expanded={cardFold.open}
+          aria-controls={cardFold.formId}
+          onClick={cardFold.onToggle}
+        >
+          <Icon name="card" size={18} aria-hidden />
+          <span>Pay with card</span>
+          <Icon name={cardFold.open ? "chevron-up" : "chevron-down"} size={16} aria-hidden />
+        </button>
+      ) : walletPending ? (
         <div className="checkout-pay-divider" aria-hidden>
           <Skeleton width={96} height={10} radius="var(--r-full)" />
         </div>
@@ -742,11 +836,20 @@ function PayElements({
           </div>
         )
       )}
-      <PaymentElement
-        options={{ layout: "tabs" }}
-        onReady={() => dispatch({ type: "card-ready", attempt })}
-        onLoadError={(e) => dispatch({ type: "card-error", attempt, errorType: e.error.type })}
-      />
+      {/* PD10 — folded, the form stays MOUNTED (it is the reveal's own Element, ready) and hidden;
+          unfolded, it RISES into view (the motion language's RISE, never a height animation around
+          a Stripe iframe — m10 appendix C; `.mms-rise` is reduced-motion escorted). */}
+      <div
+        id={cardFold?.formId}
+        hidden={cardFold ? !cardFold.open : undefined}
+        className={cardFold?.open ? "mms-rise" : undefined}
+      >
+        <PaymentElement
+          options={{ layout: "tabs" }}
+          onReady={() => dispatch({ type: "card-ready", attempt })}
+          onLoadError={(e) => dispatch({ type: "card-error", attempt, errorType: e.error.type })}
+        />
+      </div>
     </div>
   );
 }

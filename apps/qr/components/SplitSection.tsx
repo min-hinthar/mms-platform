@@ -37,6 +37,7 @@ export function SplitSection({
   ctx,
   onChanged,
   onStatus,
+  payHere,
   frozen,
 }: {
   cartId: string;
@@ -45,6 +46,11 @@ export function SplitSection({
   ctx: SplitContext;
   onChanged: () => void; // re-sync the lines after an assignment (parent re-fetches the view)
   onStatus: (msg: string) => void; // announce through the parent's single live region (a11y)
+  /** PD10 (D5) — the phone-pay door is OPEN for this Bill right now: the flip done
+   *  (`SURFACES.dineInPhonePay`) AND the served gate open (every dish served). Only then is "Pay as
+   *  one bill here" true; parked or held, the counter clause alone is. Passed in — the served gate is
+   *  the Bill's verdict (`servedGateVerdict`), not something this section re-derives. */
+  payHere: boolean;
   /** T9 — Checkout's `editsFrozen` (the RAW `locked`, the same predicate `assignLine` refuses on).
    *  Reassignment is provenance, not money, but it is still a cart mutation the server will refuse
    *  while a checkout holds the lock — so the avatars must not present themselves as live. Only
@@ -294,10 +300,11 @@ export function SplitSection({
           Splitting the bill?
         </h2>
         {/* PD2 (m2 B10; PATH_DESIGN round 3 D4) — "Pay as one bill here" is a phone-pay door, so it
-            is said only while that door is open (`SURFACES.dineInPhonePay`); parked, only the
-            counter clause is true. English-only, as shipped — no Burmese invented. */}
+            is said only while that door is open; parked, only the counter clause is true. PD10
+            (D5) — and the open door is the SERVED door: while the kitchen holds Pay the section
+            reads the held clause (`payHere`). English-only, as shipped — no Burmese invented. */}
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: 0, lineHeight: 1.5 }}>
-          {surfaceOpen("dineInPhonePay")
+          {payHere
             ? "Pay as one bill here — or ask at the counter, and our staff can split it for you."
             : "Ask at the counter, and our staff can split it for you."}
         </p>

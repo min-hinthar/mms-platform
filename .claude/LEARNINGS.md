@@ -3939,6 +3939,19 @@ that leaves `vi.useFakeTimers()` on hangs the hook to its 10 s timeout. A restor
 clock is out of its reach: dropped if that clock is uninstalled before anything advances it, but
 fired by the next case to advance a clock that outlives its case (a `beforeAll` install).
 
+## #258
+
+**A new upstream rule can turn an existing mutant EQUIVALENT without making it stale. Ask which
+mutants your rule makes unreachable, not only which anchors it moves (PD10, 2026-10-11).** Under D5,
+no tip is previewed while the served door is held, so on a dine-in table only the HERO Total door can
+carry one. `checkout/total-door-drops-the-previewed-tip` was anchored on the QUIET door, and its find
+still matched exactly once, so `check:mutant-anchors` stayed green. Measured: the quiet-door mutation
+then passed all 146 Checkout cases, because that branch can no longer carry a previewed tip and the
+mutant's tip-less figure equals the real one. Only the battery would have reported it, as a SURVIVED
+after the push. When a change narrows a value's reach (a gate, an earlier return, a zeroed preview),
+grep the registry for mutants on the consumers it starves. Re-point each one at the branch that still
+receives the value, and re-run that one id with `--only=` before the push.
+
 ## #259
 
 **A file-wide mock of a gate makes the component's CONSULT of that gate deletable with every case green

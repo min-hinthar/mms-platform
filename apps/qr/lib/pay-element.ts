@@ -241,6 +241,32 @@ export function payElementView(s: PayElementState): PayElementView {
   };
 }
 
+/**
+ * PD10 (m10 decision 6; screen 2) — does the card form start FOLDED behind "Pay with card"?
+ *
+ * True only when a wallet (Apple Pay, Google Pay) is AVAILABLE at the reveal: then the wallet button
+ * is the one hero and the card waits one tap behind it, so the boarded pass, the wallet, the card
+ * and the counter fit one first view. A wallet still loading at the reveal (its grace ran out) or
+ * absent is not a fold: today's open form stays, with "Pay $X" as its hero.
+ *
+ * The host asks this ONCE — on the render the step reveals — and keeps the answer: a wallet that
+ * arrives after the reveal rises above the open form and folds nothing, so no control moves under a
+ * thumb (m10 STATES, "A late wallet"). Pure, so the rule is falsified by a value.
+ */
+export function cardFoldedAtReveal(s: PayElementState): boolean {
+  return payElementView(s).revealed && s.wallet === "available";
+}
+
+/**
+ * PD10 (m10 open risk 5) — the FOLDED skeleton's reserve: the block a folding step expects to reveal
+ * is the wallet row plus the "Pay with card" toggle (44px) and the gap above it — not the open card
+ * form. It is PREDICTED, never stored: a step folds only when this device measured a wallet before
+ * (`payElementReserve`'s `walletPx` > 0), and the folded block is never written back (it would
+ * replace the open form's height a wallet-less visit reserves). A wrong prediction — no wallet this
+ * time — reveals the open form, which grows into its space; the next visit measures again.
+ */
+export const PAY_FOLD_TOGGLE_PX = 52;
+
 /** Whether a confirm from `source` may start, as far as the form's state goes. The component adds
  *  bound handles, `!hold` and its in-flight ref, all read at call time. */
 export function canConfirm(view: PayElementView, source: "card" | "wallet"): boolean {

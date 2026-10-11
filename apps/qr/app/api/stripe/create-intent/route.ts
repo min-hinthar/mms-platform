@@ -7,17 +7,19 @@
 // grows a rule the claim does not cover, the exemption is stale, not the rule.
 // `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
 // reddens; this route only wires that refusal. (Since PD2 the route HAS a suite —
-// `route.test.ts` — and owns two mutants of its own, `surfaces/create-intent-route-answers-open`
-// and `create-intent/refusal-keeps-the-stale-pin`; the tip ceiling's rule still lives in lib/tip.ts.)
+// `route.test.ts` — and owns mutants of its own: `surfaces/create-intent-route-answers-open`,
+// `create-intent/refusal-keeps-the-stale-pin` and, since PD10, `served-gate/create-intent-*`; the
+// tip ceiling's rule still lives in lib/tip.ts.)
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
-import { payBlockedByUnsent, phonePayParked } from "@/lib/checkout-stage";
+import { phonePayParked, servedGateApplies, servedGateDecision } from "@/lib/checkout-stage";
+import { servedHoldCopy } from "@/lib/checkout-verb";
 import { surfaceOpen } from "@/lib/surfaces";
-import { kitchenDraftUnits } from "@/lib/unsent-read";
+import { readServedGateInput } from "@/lib/unsent-read";
 import { manualCaptureMode } from "@/lib/manual-capture";
 import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
@@ -235,11 +237,11 @@ export async function POST(req: NextRequest) {
     // pre-mint refusal it frees the lock, and freeing the lock while a predecessor intent can
     // still be confirmed is the double-charge shape M151 closed. It sits after the mode read
     // because the rule IS the mode (an unreadable mode already refused above, fail-closed), and
-    // BEFORE the availability gate and the shipped unsent refusal: a parked door is refused before
-    // any further read is spent on the attempt. `scripts/check-phone-pay-door.mjs` parses this
-    // file and pins that order (awaited supersede, in a statement that finishes first; the lock
-    // released on the refusal). The D5 served-gate verdict (PD10) takes the unsent refusal's slot
-    // below once the flag flips; nothing about it rides here.
+    // BEFORE the availability gate and PD10's served gate: a parked door is refused before any
+    // further read is spent on the attempt. `scripts/check-phone-pay-door.mjs` parses this file and
+    // pins that order (awaited supersede, in a statement that finishes first; the lock released on
+    // the refusal). The D5 served gate (PD10) sits below, in the unsent refusal's old slot: while
+    // this door is parked it is never reached by a table.
     if (phonePayParked(sess.mode, surfaceOpen("dineInPhonePay"))) {
       await freeLock();
       return NextResponse.json(
@@ -289,23 +291,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Phase 1b (owner, 2026-09-23: "Everything sent") — a dine-in bill is payable only once every
-    // dish the table can send has gone to the kitchen (`payBlockedByUnsent`, the same binding the
-    // Bill's Pay control reads). Refused here, at the charge boundary, because this route is directly
-    // POST-able — the button is the courtesy, this is the gate. Placed with the other pre-mint
-    // refusals: the lock is released and no slot or Stripe state is touched. The read fails OPEN
-    // (lib/unsent-read.ts) — a charge that slips past is today's behaviour, drafts fired on landing.
-    // Only a table WITH a host is gated: nobody else can send (see the rule's docblock).
+    // PD10 · D5 (PATH_DESIGN_2026-10-07 decision 10) — THE SERVED GATE, in the unsent refusal's old
+    // slot, which it REPLACES. Phone pay at a table opens only when nothing on the bill is still
+    // with the kitchen: a food line (dine-in or to-go, comped included) in draft, fired or in
+    // progress holds the door, and so does a served line until its bump is `KDS_UNDO_MS` old on the
+    // DB clock (Mom can still take it back). The rule is `servedGateDecision` (lib/checkout-stage) —
+    // the SAME verdict the Bill draws its held Pay from — over ONE error-aware read that fails
+    // CLOSED (`readServedGateInput`: the clock first, then the lines). Why the unsent refusal had to
+    // go rather than stay above it: every unsent dine-in line holds this gate too, and its sentence
+    // ("— then the bill is ready to pay") is false under D5; this gate also holds a HOSTLESS table's
+    // drafts and a to-go draft, which "Everything sent" exempted.
     //
-    // The copy names a recovery (blind pass on #301): this refusal can reach a screen that shows no
-    // Send control — /cart renders it from the split context, and that read can miss while this
-    // route's own session read, which fails closed, still knows the table is dine-in.
-    if (payBlockedByUnsent(sess.mode, await kitchenDraftUnits(cartId), sess.host_seat != null)) {
+    // ⚠️ PLACED HERE (D5; #257's CRITICAL, M151): AFTER `supersedeCartIntent` and its captured /
+    // unknown exits, because like every pre-mint refusal it frees the lock; after the parked door
+    // (`phonePayParked`), which answers first while the flag is off — so in production today this
+    // gate is reached only by pickup and scan-and-go, which it never reads for; and BEFORE the pickup
+    // block, the promo pin and `paymentIntents.create`, so a refused attempt consumes no slot, pins
+    // nothing and creates nothing at Stripe. `scripts/check-phone-pay-door.mjs` parses this file and
+    // pins all of that. NO GATE AT FULFILLMENT (D5): a recall landing after this read cannot strand
+    // a card that is already charged.
+    //
+    // The read is spent only where the gate could refuse (`servedGateApplies`): an unreadable read
+    // must never become a 503 on a pickup order, whose answer could not matter.
+    const servedHold = servedGateDecision(
+      sess.mode,
+      servedGateApplies(sess.mode) ? await readServedGateInput(cartId) : null,
+      sess.host_seat != null,
+    );
+    if (servedHold !== null) {
       await freeLock();
+      if (servedHold === "unreadable")
+        return NextResponse.json(
+          { error: "We’re having trouble on our end — try again in a moment." },
+          { status: 503 },
+        );
+      // The host is told to send; anyone else hears D5's own sentence — the server knows the host's
+      // SEAT, never the name the table chose, so it names nobody (`servedHoldCopy`). The reload
+      // hint survives from the unsent refusal (blind pass on #301): this refusal can reach a screen
+      // that shows no Send control.
+      const isHost = sess.host_seat === uid;
+      const copy = servedHoldCopy(servedHold, { canSend: isHost, hostName: null });
       return NextResponse.json(
         {
           error:
-            "Send everything to the kitchen first — then the bill is ready to pay. Don’t see Send? Reload this page.",
+            servedHold === "unsent" && isHost ? `${copy} Don’t see Send? Reload this page.` : copy,
         },
         { status: 409 },
       );

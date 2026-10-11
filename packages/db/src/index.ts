@@ -48,6 +48,11 @@ export type CartItem = {
   /** When this line's grace expires / it became visible to the kitchen (ISO), null while 'draft'.
    *  S2.2 fires at now()+grace; a line is undoable only while `fireAt` is still in the future. */
   fireAt?: string | null;
+  /** PD10 — when Mom bumped this line served (ISO, `qr_cart_items.bumped_at`), null otherwise. The
+   *  ONE KITCHEN TRACK counts a served line as SERVED only once this stamp is `KDS_UNDO_MS` old on
+   *  the DB clock (`lib/kitchen-track.ts`, D5), so the guest's pass and pay door read it raw and
+   *  never as a bare `lineState`. Display and gate input only — never an amount. */
+  bumpedAt?: string | null;
   /** Comped (S2.3): a manager gave this line away — the kitchen still makes it (state unchanged) but it's
    *  charged at $0 (excluded from getCartTotals). The cart shows a "Comped" chip. Defaults false. */
   comped?: boolean;

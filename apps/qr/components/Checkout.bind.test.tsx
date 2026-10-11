@@ -136,6 +136,7 @@ function view(over: Partial<View> = {}): View {
     sendNudge: null,
     nudgeReady: true,
     serverNow: "2026-10-08T10:00:00.000Z",
+    dbNow: "2026-10-08T10:00:00.000Z",
     mode: "dinein",
     ...over,
   } satisfies View;
@@ -246,6 +247,7 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
       splitContext={HOST}
       initialTableNumber={null}
       tables={TABLES}
+      initialDbNow={null}
       {...props}
     />,
   );
