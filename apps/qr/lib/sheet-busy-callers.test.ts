@@ -593,6 +593,9 @@ const GUARDED: [file: string, because: string][] = [
   // (`table_number` is set ONCE under the CAS) — dismissing mid-write would hide how it ended, with
   // the same send waiting on the answer.
   ["TableBindSheet.tsx", "the chip binds the live session to a table, once, then the send runs"],
+  // PD8 — "Decide it here": the pane's centred sheet around `ApprovalDecision`, whose resolve spends
+  // one of the manager's PIN attempts and voids or comps a line on the bill.
+  ["staff/ApprovalsBoard.tsx", "the decision spends a PIN attempt and takes a dish off the bill"],
 ];
 
 /** StaffModSheet takes its busy as a PROP; the contract lives where the value is produced. */
@@ -659,7 +662,8 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     }
     // …and those are ALL of its parents, so no third one can wire it from somewhere else.
     expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
-  });
+    // A whole-tree TypeScript parse: past the 5 s default under a loaded full run (5.4 s, 2026-10-08).
+  }, 20_000);
 
   it("⚠️ the sheets that write nothing irreversible stay freely dismissible", () => {
     // The negative half, and the one that keeps this honest. `busy` on a picker is a lock with no
@@ -679,7 +683,7 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     // Now the call sites are discovered on disk and the union must match them exactly, so a new
     // caller fails here until someone triages it into one list or the other.
     expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
-  });
+  }, 20_000); // whole-tree parse, as the case above
 });
 
 // ── the MATCHER, falsified red-first (LEARNINGS #60: "what text satisfies this without shipping

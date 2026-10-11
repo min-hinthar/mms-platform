@@ -558,8 +558,6 @@ export const STAFF = {
     en: "Deny this request — confirm with your PIN",
     my: "ဒီ တောင်းဆိုချက်ကို ငြင်းပယ်မယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
-  "table.appr.verb.confirmApprove": { en: "Confirm approve", my: "ခွင့်ပြုကြောင်း အတည်ပြု" },
-  "table.appr.verb.confirmDeny": { en: "Confirm deny", my: "ငြင်းပယ်ကြောင်း အတည်ပြု" },
   "table.appr.verb.cancel": { en: "Cancel", my: "မလုပ်တော့" },
   "table.appr.working": { en: "Working…", my: "လုပ်နေပါတယ်…" }, // as table.loss.working — 44 values use ပါတယ်, 3 used သည်
   // A4·3 — the card's six server verdicts, keys rather than the English literals they were.
@@ -571,10 +569,12 @@ export const STAFF = {
     en: "That item has since changed — refreshing.",
     my: "ဒီပစ္စည်း ပြောင်းသွားပြီ — ပြန်ဖတ်နေပါတယ်။",
   },
+  // PD8 (the blind pass on #333) — re-worded: "deny it" steered to the `denied` record round 3's D2
+  // retired; the card re-draws as close-only, so the sentence names Close it. A K15 draft (`K15 · staff-authority`).
   "table.appr.msg.notOpen": {
-    en: "That table is no longer open — deny it (a refund after payment is handled separately).",
-    my: "ဒီစားပွဲ ပိတ်သွားပြီ — ငြင်းပယ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
-  },
+    en: "That table is no longer open — close this request instead (a refund after payment is handled separately).",
+    my: "ဒီစားပွဲ ပိတ်သွားပြီ — ဒီတောင်းဆိုချက်ကို ပိတ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
+  }, // K15-HIGH — what a manager does with a request on a paid table
   "table.appr.msg.inFlight": {
     en: "That table is mid-payment — try again once they’ve finished.",
     my: "ဒီစားပွဲ ငွေရှင်းနေဆဲ — ပြီးမှ ထပ်ကြိုးစားပါ။",
@@ -617,6 +617,110 @@ export const STAFF = {
   "table.appr.refunds.stale": {
     en: "The refunds list couldn’t refresh — showing the last good list; a new one may be missing.",
     my: "ပြန်အမ်းရန် စာရင်းကို ပြန်မဖတ်နိုင်ပါ — နောက်ဆုံး ဖတ်နိုင်ခဲ့တဲ့ စာရင်းကို ပြထားပါတယ်၊ အသစ် ကျန်နေတဲ့ ငွေကောက်ခံမှု ပါမလာနိုင်ပါ။",
+  },
+
+  // ═══ PD8 · m8 — a dish needs a manager (2026-10-08) ═══════════════════════════
+  // Register: the counter tablet, glanceable, Burmese first. Every MY value below is a DRAFT for the
+  // native sitting (OPEN-ITEMS `K15 · staff-authority`), grounded in the shipped words around it
+  // (ဖျက် · အခမဲ့ · ခွင့်ပြု · ငြင်းပယ် · ပင်နံပါတ် · စားပွဲ). The money and food sentences are marked HIGH
+  // beside their own entry (the word-check sheet reads a marker above an entry as that entry's).
+  // ── the request card (Decide → the slip → the keys that ARE the decision) ──
+  "table.appr.verb.decide": { en: "Decide", my: "ဆုံးဖြတ်မယ်" },
+  "table.appr.chooseKey": {
+    en: "Choose Approve or Deny.",
+    my: "ခွင့်ပြု ဒါမှမဟုတ် ငြင်းပယ် တစ်ခု ရွေးပါ။",
+  },
+  // The receipt row's headline, in the same words the asker's line will show. `{x}` = the manager.
+  "table.appr.verdict.removed": { en: "Removed · {x} approved", my: "ဖျက်ပြီး · {x} ခွင့်ပြုထား" }, // K15-HIGH — a dish came off the bill
+  "table.appr.verdict.free": {
+    en: "On the house · no charge · {x} approved",
+    my: "အခမဲ့ ပေးထား · {x} ခွင့်ပြုထား",
+  }, // K15-HIGH — a dish is given away
+  "table.appr.verdict.kept": {
+    en: "Kept on the bill · {x} said no",
+    my: "စာရင်းထဲ ဆက်ထား · {x} က ငြင်းလိုက်တယ်",
+  }, // K15-HIGH — the guest pays for it
+  // The close-only cards (round 3 D2): what happened, derived from the cart's status, never "denied".
+  "table.appr.paid.note": {
+    en: "Table {t} paid while this was waiting — {x} stayed on the bill.",
+    my: "ဒါ စောင့်နေတုန်း စားပွဲ {t} ငွေရှင်းသွားပြီ — {x} စာရင်းထဲမှာ ရှိနေခဲ့ပါတယ်။",
+  }, // K15-HIGH — the figure is deliberately absent: the request's snapshot is not the charge (m8 appendix B3)
+  "table.appr.paid.noteCounter": {
+    en: "This order paid while this was waiting — {x} stayed on the bill.",
+    my: "ဒါ စောင့်နေတုန်း ဒီအော်ဒါ ငွေရှင်းသွားပြီ — {x} စာရင်းထဲမှာ ရှိနေခဲ့ပါတယ်။",
+  }, // K15-HIGH
+  "table.appr.cleared.note": {
+    en: "This table was cleared while this was waiting.",
+    my: "ဒါ စောင့်နေတုန်း ဒီစားပွဲကို ရှင်းလင်းလိုက်ပြီ။",
+  }, // K15-HIGH — food went uncharged
+  "table.appr.changed.note": {
+    en: "Changed after {x} asked — now {n}× · {m}. Nothing was taken off; {x} can ask again.",
+    my: "{x} တောင်းပြီးမှ ပြောင်းသွားတယ် — အခု {n} ခု · {m}။ ဘာမှ မနုတ်ရသေးပါ၊ {x} ထပ်တောင်းနိုင်ပါတယ်။",
+  }, // K15-HIGH — the M184 compare, said before any PIN
+  "table.appr.changed.goneNote": {
+    en: "The item changed after {x} asked — it is no longer on the order. Nothing was taken off.",
+    my: "{x} တောင်းပြီးမှ ပစ္စည်း ပြောင်းသွားတယ် — အော်ဒါထဲမှာ မရှိတော့ပါ။ ဘာမှ မနုတ်ရသေးပါ။",
+  }, // K15-HIGH
+  // The blind pass on #333 — a line a manager already removed or made free with their own PIN: the
+  // loss is recorded once, so this request only closes.
+  "table.appr.changed.doneNote": {
+    en: "Already removed or made free after {x} asked — close this request.",
+    my: "{x} တောင်းပြီးမှ ဖျက်ပြီး ဒါမှမဟုတ် အခမဲ့ ပေးပြီးသား — ဒီတောင်းဆိုချက်ကို ပိတ်လိုက်ပါ။",
+  }, // K15-HIGH — a dish already off the bill
+  "table.appr.verb.close": { en: "Close it", my: "ပိတ်မယ်" },
+  "table.appr.msg.stillOpen": {
+    en: "This request still needs a decision — approve or deny it.",
+    my: "ဒီတောင်းဆိုချက်ကို ဆုံးဖြတ်ဖို့ လိုသေးပါတယ် — ခွင့်ပြု ဒါမှမဟုတ် ငြင်းပယ်ပါ။",
+  },
+  // The bar's circle when the count could not be read: never a false all-clear.
+  "floor.nav.approvalsUnknown": {
+    en: "Approvals — couldn’t check",
+    my: "ခွင့်ပြုချက်များ — မစစ်နိုင်ပါ",
+  }, // K15-HIGH — a manager reading the bar must not read "nothing waiting"
+  // ── THE ONE SLIP (the sheet, the card, the pane): Thiri → Aye, then "Aye, your PIN" ──
+  "pin.yourPin": { en: "{x}, your PIN", my: "{x} ရဲ့ ပင်နံပါတ်" },
+  "pin.onlySelf": {
+    en: "Only {x} can approve here, and nobody approves their own request.",
+    my: "ဒီမှာ {x} တစ်ယောက်ပဲ ခွင့်ပြုနိုင်တယ် — ကိုယ့်တောင်းဆိုချက်ကို ကိုယ်တိုင် ခွင့်မပြုရပါဘူး။",
+  },
+  "pin.noPinHere": {
+    en: "No manager has a tablet PIN yet, so nobody can approve it here.",
+    my: "မန်နေဂျာ ဘယ်သူမှ တက်ဘလက် ပင်နံပါတ် မသတ်မှတ်ရသေးလို့ ဒီမှာ ဘယ်သူမှ ခွင့်မပြုနိုင်သေးပါဘူး။",
+  },
+  "pin.sendToQueue": {
+    en: "Send it to Open requests — it stays on the bill until a manager decides.",
+    my: "ဖွင့်ထားတဲ့ တောင်းဆိုချက်များဆီ ပို့လိုက်ပါ — မန်နေဂျာ ဆုံးဖြတ်တဲ့အထိ စာရင်းထဲမှာ ရှိနေပါမယ်။",
+  }, // K15-HIGH — says the dish stays charged
+  "pin.a11y.signers": { en: "Who can approve", my: "ခွင့်ပြုနိုင်သူများ" },
+  // ── the flag at Take payment (PATH_DESIGN decision 4): warn, then take payment ──
+  "settle.flag.title": {
+    en: "{x} is waiting for a manager",
+    my: "{x} — မန်နေဂျာ ဆုံးဖြတ်ချက် စောင့်နေတယ်",
+  }, // K15-HIGH — read just before money is taken
+  "settle.flag.decide": { en: "Decide it here", my: "ဒီမှာ ဆုံးဖြတ်မယ်" },
+  // The blind pass on #333 — re-worded: it promised a manager could approve AFTER payment, which the
+  // resolve refuses (`not_open`); once the table pays, the request only closes and a refund is its
+  // own decision, made in Today's payments & refunds.
+  "settle.flag.consequence": {
+    en: "{x} is charged as it is. Once the table pays, this request can only be closed — any refund is a manager’s call in Today’s payments & refunds.",
+    my: "{x} ကို လက်ရှိအတိုင်း ငွေယူပါမယ်။ ငွေရှင်းပြီးရင် ဒီတောင်းဆိုချက်ကို ပိတ်ရုံပဲ ရပါမယ် — ပြန်အမ်းမလား ဆိုတာ “ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ” မှာ မန်နေဂျာ ဆုံးဖြတ်ပါမယ်။",
+  }, // K15-HIGH — the money sentence at arm's length
+  "settle.flag.nobody": {
+    en: "Nobody here can decide {x}. Take payment now and the guest pays for it — report it from Help with {t}.",
+    my: "ဒီမှာ {x} ကို ဘယ်သူမှ မဆုံးဖြတ်နိုင်ပါ။ အခု ငွေရှင်းရင် ဧည့်သည်က အဲဒါပါ ပေးရမယ် — {t} လို့ အကူအညီ ကနေ ပြောပါ။",
+  }, // K15-HIGH
+  "settle.flag.updating": { en: "Updating the total…", my: "စုစုပေါင်း ပြန်တွက်နေပါတယ်…" },
+  "settle.flag.pendingRefused": {
+    en: "{x} is waiting for a manager — tap again to take payment with it on the bill.",
+    my: "{x} — မန်နေဂျာ ဆုံးဖြတ်ချက် စောင့်နေတယ်။ စာရင်းထဲ ထားပြီး ငွေရှင်းဖို့ ထပ်နှိပ်ပါ။",
+  }, // K15-HIGH — the server's re-warning, said once, then the next tap passes
+  "settle.approvalsUnreadable": {
+    en: "Couldn’t check for waiting requests — try again.",
+    my: "စောင့်နေတဲ့ တောင်းဆိုချက် ရှိမရှိ စစ်လို့ မရပါ — ထပ်နှိပ်ကြည့်ပါ။",
+  }, // K15-HIGH — a payment door's refusal
+  "settle.flag.a11y.waiting": {
+    en: "Waiting for a manager",
+    my: "မန်နေဂျာ ဆုံးဖြတ်ချက် စောင့်နေတာ",
   },
 
   // ═══ P2 PR B · browse ═══════════════════════════════════════════════════════════
@@ -4444,6 +4548,24 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "shell.version.wait.handBack",
   // ── Phase 2i · Codex r2 on #311 ──
   "shell.version.wait.draft",
+  // ── PD8 · m8 (a dish needs a manager) ──
+  "table.appr.verdict.removed",
+  "table.appr.verdict.free",
+  "table.appr.verdict.kept",
+  "table.appr.paid.note",
+  "table.appr.paid.noteCounter",
+  "table.appr.cleared.note",
+  "table.appr.changed.note",
+  "table.appr.changed.goneNote",
+  "table.appr.changed.doneNote",
+  "table.appr.msg.notOpen",
+  "floor.nav.approvalsUnknown",
+  "pin.sendToQueue",
+  "settle.flag.title",
+  "settle.flag.consequence",
+  "settle.flag.nobody",
+  "settle.flag.pendingRefused",
+  "settle.approvalsUnreadable",
 ]);
 
 /**

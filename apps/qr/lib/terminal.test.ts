@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UNSENT_UNREADABLE_REFUSAL } from "./settle-refusal";
+import type { PendingFlag } from "./settle-approvals";
 
 /**
  * W6c — the Terminal settle's authority rules, asserted as CALL SHAPES + ordering (the
@@ -123,6 +124,11 @@ let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
 let sessionMode: "pickup" | "dinein" = "pickup";
 /** Phase 2c · gate — what the unsent read answers: the dine-in dishes still to send. */
 let unsentUnits: number | null = 0;
+/** PD8 — the cart's pending requests as the reader door reads them (`null` = unreadable). */
+let pendingFlags: PendingFlag[] | null = [];
+vi.mock("./approvals-read", () => ({
+  readPendingApprovalFlags: () => Promise.resolve(pendingFlags),
+}));
 vi.mock("./unsent-read", () => ({
   // P2dc — settleCard reads the error-aware twin (`null` = unreadable).
   readKitchenDraftUnits: (cartId: string) => {
@@ -251,6 +257,7 @@ function mintedAttempt(): string {
 }
 
 beforeEach(() => {
+  pendingFlags = [];
   inFlight = null;
   cartFreeze = { settle_at: null, settle_by: null };
   sessionMode = "pickup";
@@ -285,6 +292,60 @@ afterEach(() => {
   heldByAttempt = false;
   heldError = null;
   vi.unstubAllEnvs();
+});
+
+/**
+ * PD8 (Codex correction 13) — the reader door acknowledges ITS OWN displayed snapshot: the compare
+ * runs under the freeze, before any PaymentIntent, and each refusal releases THIS attempt.
+ */
+describe("settleCard — the acknowledged-ids compare (PD8)", () => {
+  const FLAG: PendingFlag = {
+    id: "55555555-5555-4555-8555-555555555555",
+    kind: "comp",
+    lineId: "l-1",
+    lineName: "Shan Noodles",
+    nameMy: null,
+    qty: 1,
+    amountCents: 1300,
+    cooked: true,
+    initiatorName: "Thiri",
+    initiatorStaffId: "thiri",
+    createdAt: "2026-10-08T10:00:00Z",
+    lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
+  };
+  beforeEach(() => {
+    pendingFlags = [];
+  });
+  it("a request the tap did not display refuses `approval_pending`, mints NOTHING, and releases this attempt", async () => {
+    pendingFlags = [FLAG];
+    const res = await settleCard({ sessionId: SESSION, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("approval_pending");
+    if (res.code !== "approval_pending") throw new Error("unreachable");
+    expect(res.pending).toEqual([FLAG]);
+    expect(calls.some((c) => c.op === "pi.create")).toBe(false);
+    const acquire = calls.find((c) => c.op === "acquire")?.args as { uid: string };
+    expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
+      cartId: "cart-1",
+      attemptId: acquire.uid,
+    });
+  });
+  it("the ids the tap displayed pass: the PaymentIntent is minted", async () => {
+    pendingFlags = [FLAG];
+    const res = await settleCard({ sessionId: SESSION, acknowledgedApprovalIds: [FLAG.id] });
+    expect(res.ok).toBe(true);
+    expect(calls.some((c) => c.op === "pi.create")).toBe(true);
+  });
+  it("an unreadable pending read refuses `approval_unreadable`, mints nothing, and releases", async () => {
+    pendingFlags = null;
+    const res = await settleCard({ sessionId: SESSION, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("approval_unreadable");
+    expect(calls.some((c) => c.op === "pi.create")).toBe(false);
+    expect(calls.some((c) => c.op === "releaseFor")).toBe(true);
+  });
 });
 
 describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () => {

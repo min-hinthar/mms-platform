@@ -64,7 +64,8 @@
  * requests (P2F.31a, and P2F.31b — a 'sent' refusal must not supersede), the merge's in-grace revert to
  * draft (P2F.28e), and the sweeper's exemption now counting a COMPED kitchen line (P2F.19f — the
  * mutant re-adds `not ci.comped`). The Clear's approvals LOCK and the no-show's LINES lock are killed
- * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead. `mms_line_transition` and
+ * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead — the first until M269, which
+ * made it a documented survivor THERE (the approve now meets the Clear at the cart row). `mms_line_transition` and
  * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
  * Phase 3c-ii · M258 (D29) adds suite `p3c2`: `mms_undo_fire` restated with the two freshness legs
@@ -106,6 +107,20 @@
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
+ *
+ * M184 · PD8 (round 3 D2) adds suite `m184`: `mms_resolve_approval` restated — APPROVE refuses
+ * 'changed' when the line's qty or amount moved since the ask, and the new `close` arm writes
+ * 'superseded' only once the cart left 'open' or the line changed. Fifteen killed mutants, each
+ * beside its legitimate half (deny unchanged, the self rule kept for approve, the role check kept
+ * for close), and NO new survivor: the approve's line lock is the shipped s2 lock, unchanged here.
+ *
+ * M269 adds suite `m269`: `mms_resolve_approval` restated again — the approve takes the line's cart
+ * FOR SHARE before the request and the line, then reads the cart's freshness. M184's resolve mutants
+ * now patch M269's text (`src: "m269"`, still judged by `m184`). Three killed mutants (the settle
+ * term, its age, the pay-lock term — each beside its legitimate half) and TWO documented survivors:
+ * the lock dropped, and the lock taken after the read. Both are KILLED by
+ * `scripts/verify-counter-fire-race.mjs --mutants` (orders k and k2). Twenty-one survivors in all
+ * (PD1's lock order, above, included — measured: `grep -c "expect: null"`).
  *
  * USAGE
  * -----
@@ -180,15 +195,33 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
     test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
   },
+  // M184 · PD8 (round 3 D2) — `mms_resolve_approval` restated: APPROVE refuses 'changed' when the
+  // line is no longer the one asked about, and the `close` arm writes 'superseded'. Its LAST
+  // definition was 20260622090000 (s2_audit_fixes), outside every chain, so the function joins
+  // TARGETS here and the drift check now covers it.
+  m184: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261008120000_m184_approval_refuses_when_changed.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/m184_approval_refuses_when_changed_test.sql"),
+  },
   // PD1 — `mms_nudge_host` (new) and `mms_fire_cart`, whose LAST definition moves here from
   // 20260624030000 (outside every chain), so both join TARGETS and the drift check covers them.
   pd1: {
     migration: path.join(ROOT, "supabase/migrations/20261008123000_pd1_send_nudge.sql"),
     test: path.join(ROOT, "supabase/tests/pd1_send_nudge_test.sql"),
   },
+  // M269 — `mms_resolve_approval` restated AGAIN: the approve takes the line's cart FOR SHARE before
+  // the request and the line. Its LAST definition now, so M184's resolve mutants patch THIS text
+  // (`src: "m269"`) and are still judged by the m184 suite.
+  m269: {
+    migration: path.join(ROOT, "supabase/migrations/20261009120100_m269_approve_cart_lock.sql"),
+    test: path.join(ROOT, "supabase/tests/m269_approve_cart_lock_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "pd1"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "m184", "pd1", "m269"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -1656,12 +1689,12 @@ const MUTANTS = [
   {
     id: "p2f/request-open-recheck-dropped",
     fn: "mms_request_approval",
-    src: "p2f",
+    src: "m184", // M184 restates this function; patch the LAST definition or it is overwritten
     suite: "p2f",
     expect: "P2F.29e ·",
     why: "a pending request raised on a cancelled cart — a manager asked to approve a loss on an order that no longer exists",
-    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  if v_state = 'voided' or v_comped",
-    replace: "  if v_state = 'voided' or v_comped",
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  -- M184 (the blind pass on #333)",
+    replace: "  -- M184 (the blind pass on #333)",
   },
   {
     id: "p2f/void-cart-binding-refuses-everything",
@@ -1676,7 +1709,7 @@ const MUTANTS = [
   {
     id: "p2f/request-cart-binding-refuses-everything",
     fn: "mms_request_approval",
-    src: "p2f",
+    src: "m184", // M184 restates this function; patch the LAST definition or it is overwritten
     suite: "p2f",
     expect: "P2F.29b ·",
     why: "over-block: the line read bound to a cart it can never equal — every request answers not_found",
@@ -2497,6 +2530,234 @@ const MUTANTS = [
       replace: "",
     },
   ].map((m) => ({ fn: "mms_fire_cart", ...m, src: "pd1", suite: "pd1" })),
+
+  // ── M184 · PD8 (round 3 D2) — the resolve refuses a changed line; the `close` arm. One mutant
+  // per named case, each beside the legitimate half it must not over-block. NO new survivor: the
+  // approve's line lock is the shipped one (s2), unchanged here and not claimed by this suite. ──
+  ...[
+    {
+      id: "m184/approve-compare-dropped",
+      expect: "M184.2 · approve after a qty step is refused as changed",
+      why: "the whole M184 fix: without the compare a $12 comp on screen takes $36 off the bill — the resolve applies the line as it stands now",
+      find: "  if v_qty is distinct from v_req_qty or (v_price * v_qty) is distinct from v_req_amount then\n    return 'changed';\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/approve-compares-qty-only",
+      expect: "M184.3 · approve after a re-price is refused as changed",
+      why: "the compare written as the count alone: a re-price at the same qty applies a loss the manager never read",
+      find: "  if v_qty is distinct from v_req_qty or (v_price * v_qty) is distinct from v_req_amount then\n    return 'changed';",
+      replace: "  if v_qty is distinct from v_req_qty then\n    return 'changed';",
+    },
+    {
+      id: "m184/approve-compares-amount-only",
+      expect: "M184.3 · a qty and price that multiply back",
+      why: "the compare written as the amount alone: 2 × $7.00 reads as the 1 × $14.00 that was asked about, and two dishes come off for one",
+      find: "  if v_qty is distinct from v_req_qty or (v_price * v_qty) is distinct from v_req_amount then\n    return 'changed';",
+      replace: "  if (v_price * v_qty) is distinct from v_req_amount then\n    return 'changed';",
+    },
+    {
+      id: "m184/changed-still-applies",
+      expect: "M184.2 · nothing was taken off the line",
+      why: "the reason returned but the line voided anyway — a refusal that writes (this repo's most expensive shape, inverted)",
+      find: "    return 'changed';\n  end if;\n  v_amount := v_price * v_qty;",
+      replace:
+        "    update public.qr_cart_items set state = 'voided' where id = v_line;\n    return 'changed';\n  end if;\n  v_amount := v_price * v_qty;",
+    },
+    {
+      id: "m184/close-admits-still-open",
+      expect: "M184.6 · close on a live request is refused as still_open",
+      why: "the close arm with its admission dropped: a live, unchanged request can be closed as 'superseded' with a real decision still to make — the deny path in a new coat",
+      find: "    if coalesce(v_cart_status, 'gone') = 'open' and not v_changed then return 'still_open'; end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/close-writes-denied",
+      expect: "M184.7 · the row reads superseded, never denied",
+      why: "the whole point of D2: a table that paid first recorded as the manager saying no",
+      find: "      set status = 'superseded', approver_staff_id = p_approver, resolved_at = now()",
+      replace: "      set status = 'denied', approver_staff_id = p_approver, resolved_at = now()",
+    },
+    {
+      id: "m184/close-keeps-self-rule",
+      expect: "M184.9 · the asker may close their own request",
+      why: "the self rule applied to close too: a manager who asked, alone on the counter, can never clear their own stale request after the table paid",
+      find: "  if p_decision <> 'close' and p_approver = v_initiator then return 'self_approve'; end if;",
+      replace: "  if p_approver = v_initiator then return 'self_approve'; end if;",
+    },
+    {
+      id: "m184/self-rule-dropped",
+      expect: "M184.9 · the asker still cannot approve their own request",
+      why: "the self rule gone with the close arm's exception: the asker approves their own loss",
+      find: "  if p_decision <> 'close' and p_approver = v_initiator then return 'self_approve'; end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/close-skips-role-check",
+      expect: "M184.10 · a server cannot close",
+      why: "the role check scoped to approve/deny: any active account closes a request, and the PIN-proven closer the audit records is a server",
+      find: "  if not coalesce(v_approver_active, false) or v_approver_role not in ('manager','owner') then\n    return 'bad_approver';",
+      replace:
+        "  if p_decision <> 'close' and (not coalesce(v_approver_active, false) or v_approver_role not in ('manager','owner')) then\n    return 'bad_approver';",
+    },
+    {
+      id: "m184/close-touches-the-line",
+      expect: "M184.7 · the line stays charged",
+      why: "the close arm applying the void: a request closed because the table paid removes a dish from a paid order, and the ledger and the bill disagree",
+      find: "    update public.mms_approvals\n      set status = 'superseded', approver_staff_id = p_approver, resolved_at = now()",
+      replace:
+        "    update public.qr_cart_items set state = 'voided' where id = v_line;\n    update public.mms_approvals\n      set status = 'superseded', approver_staff_id = p_approver, resolved_at = now()",
+    },
+    {
+      id: "m184/close-ignores-changed-line",
+      expect: "M184.11 · close on a changed line lands",
+      why: "'changed' dropped from the admission: a stale request on an open cart can be neither approved (changed) nor closed (still_open), and the line's one-pending index blocks the re-ask forever",
+      find: "    v_changed := v_line_state is null\n      or v_line_state = 'voided' or coalesce(v_line_comped, false)\n      or v_qty is distinct from v_req_qty\n      or (v_price * v_qty) is distinct from v_req_amount;",
+      replace: "    v_changed := false;",
+    },
+    {
+      id: "m184/close-no-closer-recorded",
+      expect: "M184.7 · the closer and the time are recorded",
+      why: "the audit without the PIN-proven closer: a superseded row nobody signed",
+      find: "      set status = 'superseded', approver_staff_id = p_approver, resolved_at = now()",
+      replace: "      set status = 'superseded', resolved_at = now()",
+    },
+    {
+      id: "m184/deny-becomes-superseded",
+      expect: "M184.5 · the row reads denied",
+      why: "deny is UNCHANGED (D2): a manager's no recorded as 'the table paid first'",
+      find: "      set status = 'denied', approver_staff_id = p_approver, resolved_at = now()\n      where id = p_id;\n    return 'ok';\n  end if;\n\n  if p_decision = 'close' then",
+      replace:
+        "      set status = 'superseded', approver_staff_id = p_approver, resolved_at = now()\n      where id = p_id;\n    return 'ok';\n  end if;\n\n  if p_decision = 'close' then",
+    },
+    {
+      id: "m184/approve-ignores-not-open",
+      expect: "M184.14 · approve on a paid cart is not_open",
+      why: "the shipped not_open guard, restated here and still load-bearing: an approve on a paid order voids a line nobody can refund from",
+      find: "  if v_cart_status <> 'open' then return 'not_open'; end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/close-not-a-decision",
+      expect: "illegal decision close",
+      why: "the decision set without 'close': the paid-table card's one key raises, and the request stays pending forever",
+      find: "  if p_decision not in ('approve','deny','close') then raise exception 'illegal decision %', p_decision; end if;",
+      replace:
+        "  if p_decision not in ('approve','deny') then raise exception 'illegal decision %', p_decision; end if;",
+    },
+    // ── the blind pass on #333 (2026-10-09) ──
+    {
+      id: "m184/close-ignores-reprice",
+      expect: "M184.16 · close on a re-priced line lands",
+      why: "the close admission without its amount term: a line re-priced at the same qty can be neither approved ('changed') nor closed ('still_open'), and the one-pending index blocks the re-ask",
+      find: "      or (v_price * v_qty) is distinct from v_req_amount;",
+      replace: "      ;",
+    },
+    {
+      id: "m184/close-ignores-off-the-bill",
+      expect: "M184.17 · close on a line voided since the ask lands",
+      why: "a line a manager already removed reads unchanged to the close: its request can never be closed",
+      find: "      or v_line_state = 'voided' or coalesce(v_line_comped, false)\n",
+      replace: "",
+    },
+    {
+      id: "m184/approve-ignores-off-the-bill",
+      expect: "M184.17 · approve on a line voided since the ask is changed",
+      why: "approve on a line already voided: the request records the loss a second time for one dish",
+      find: "  if v_line_state = 'voided' or v_line_comped then\n    return 'changed';\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "m184/approve-ignores-comped",
+      expect: "M184.17 · approve on a line comped since the ask is changed",
+      why: "the off-the-bill rule written as voided alone: a comp approved over a line already given away records the loss twice",
+      find: "  if v_line_state = 'voided' or v_line_comped then",
+      replace: "  if v_line_state = 'voided' then",
+    },
+    {
+      id: "m184/request-ignores-settle",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request on a settling cart is refused in_flight",
+      why: "a request lands between a settle door's acknowledgement and its write: the table pays over a flag nobody saw",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "  if (v_locked and v_locked_at > now() - interval '5 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+    },
+    {
+      id: "m184/request-ignores-lock",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request on a pay-locked cart is refused in_flight",
+      why: "a request lands while a card payment is going through: the PI's base and the queue disagree about the dish",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "  if (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+    },
+    {
+      id: "m184/request-freeze-never-ages",
+      fn: "mms_request_approval",
+      expect: "M184.18 · a request after a stale settle freeze lands",
+      why: "over-block: a settle freeze that never ages refuses every request on a table whose abandoned settle left settle_at behind",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  if v_state",
+      replace:
+        "     or (v_settle_at is not null) then\n    return 'in_flight';\n  end if;\n  if v_state",
+    },
+  ].map((m) => {
+    // M269 restates `mms_resolve_approval`, so its mutants patch M269's text (the LAST definition);
+    // `mms_request_approval`'s stay on M184's. Both are judged by the m184 suite.
+    const fn = m.fn ?? "mms_resolve_approval";
+    return { ...m, fn, src: fn === "mms_resolve_approval" ? "m269" : "m184", suite: "m184" };
+  }),
+  // M269 — the approve reads the cart only after its lock. Three killed mutants on the freshness the
+  // lock exists to make current (each beside its legitimate half), and TWO documented survivors: the
+  // lock itself, and the lock taken after the read. No single session can see either (the fixture's
+  // line insert already stamps the cart's `xmax`); both are KILLED by
+  // `scripts/verify-counter-fire-race.mjs --mutants` (orders k and k2).
+  ...[
+    {
+      id: "m269/approve-ignores-settle",
+      expect: "M269.1 · approve on a settling cart is refused in_flight",
+      why: "an approve on a cart a settle door has frozen voids a dish the door is charging",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
+      replace: "     or false then\n    return 'in_flight';",
+    },
+    {
+      id: "m269/approve-freeze-never-ages",
+      expect: "M269.2 · approve after a stale settle freeze lands",
+      why: "over-block: an abandoned settle's stamp refuses every approve on that table for good",
+      find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
+      replace: "     or (v_settle_at is not null) then\n    return 'in_flight';",
+    },
+    {
+      id: "m269/approve-ignores-pay-lock",
+      expect: "M269.3 · approve on a pay-locked cart is refused in_flight",
+      why: "an approve under a guest's live card payment drops a line from the amount being captured",
+      find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at",
+      replace: "  if false\n     or (v_settle_at",
+    },
+    {
+      id: "m269/approve-cart-lock-dropped",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR HERE — the approve's cart FOR SHARE orders it against a settle door's freeze and its cash fulfillment; only TWO sessions can interleave them, and the fixture's line insert already stamps the cart's xmax. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (approve-before-settle and settle-before-approve)",
+      find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+      replace: "",
+    },
+    {
+      id: "m269/approve-reads-the-cart-before-the-lock",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR HERE — the lock kept but taken after the read that decides not_open / in_flight orders nothing; single-session the answers are identical. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (settle-before-approve)",
+      edits: [
+        {
+          find: "    perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+          replace: "",
+        },
+        {
+          find: "    where ci.id = v_line for update of ci;\n",
+          replace:
+            "    where ci.id = v_line for update of ci;\n  perform 1 from public.qr_carts where id = v_lock_cart for share;\n",
+        },
+      ],
+    },
+  ].map((m) => ({ fn: "mms_resolve_approval", ...m, src: "m269", suite: "m269" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2560,6 +2821,7 @@ const TARGETS = [
   "mms_claim_untouched_shell",
   "mms_nudge_host",
   "mms_fire_cart",
+  "mms_resolve_approval",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.
