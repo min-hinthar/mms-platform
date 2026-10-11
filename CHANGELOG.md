@@ -8,14 +8,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **HANDOFF's new top block records the wave as built.** It holds the owner's directives and what the
   2026-10-09 delegation covered, the merged PRs by moment, the eight prod migrations in apply order,
-  the decisions for the owner to ratify, the open PRs and branches, and the next tasks. The 2026-10-09
+  the decisions and the gate and merge calls for the owner to ratify, the open PRs and branches, and
+  the next tasks. It also says the delegation covered this wave only. The 2026-10-09
   in-flight block moves verbatim to HANDOFF_ARCHIVE. CLAUDE.md's "Where things stand" points there and
   carries the sql lane's 2026-10-11 re-measure. OPEN-ITEMS adds M276 (M182's invoker clear relies on
   the hosted default privileges) and T55 (`verify-mode-authority` toward its 15-minute timeout), and
-  its stale statuses are swept. Fourteen status cells now say built and merged (PR and SHA) or applied
+  its stale statuses are swept. Fifteen status cells now say built and merged (PR and SHA) or applied
   to prod via the MCP. Seven rows' now-false sentences ("NOT applied", "prod apply on the owner's go",
-  "Merges after the device sitting") are restated. No row was moved, added or lost. LEARNINGS adds
-  #266–#269.
+  "Merges after the device sitting") are restated. The sweep moved, added and lost no row; M276 and
+  T55 are this PR's only new rows. LEARNINGS adds #266–#269.
 
 ### PD11 — the diner's first-visit guide: five pages, once per phone, re-openable from Account (2026-10-11, `claude/feat/pd11-diner-guide`)
 

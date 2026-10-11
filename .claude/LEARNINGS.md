@@ -4074,14 +4074,17 @@ that module before the push, and make each fixture reach the outcome through exa
 
 ## #267
 
-**The prod MCP apply stalls on a destructive statement, so a prod-bound migration carries no
-top-level `DROP` or `DELETE` (the path-design wave, 2026-10-09 to 10-11).** The Supabase MCP
-`apply_migration` is the one path a QR migration takes to prod (CLAUDE.md, M125), and it stalled on a
-migration with a top-level DROP / DELETE. The wave's later migrations were written without either and
-say so in their headers: `20261009120400_m182_table_clear.sql` ("no DROP: the MCP apply path cannot
-confirm one") and `20261011123000_pd1_nudge_line_lock.sql` ("No `drop`, no `delete`: the MCP apply path
-stalls on a destructive statement"). Restate a function with `create or replace` under the same
-signature instead.
+**`apply_migration` stalled on a prod migration with a top-level `DROP` / `DELETE`. That is an
+observation, and the mechanism is not established (the path-design wave, 2026-10-09 to 10-11).** The
+Supabase MCP `apply_migration` is the one path a QR migration takes to prod (CLAUDE.md, M125), and it
+stalled on a file that carried a top-level DROP / DELETE. The wave's later migrations were written
+without either, and their headers give the authors' reading, not a measured cause:
+`20261009120400_m182_table_clear.sql` ("no DROP: the MCP apply path cannot confirm one") and
+`20261011123000_pd1_nudge_line_lock.sql` ("No `drop`, no `delete`: the MCP apply path stalls on a
+destructive statement"). The rule: `create or replace` covers a restate under the same signature only.
+A migration that must drop something (an overload's retirement, a revoke) goes to the owner as a
+decision. It is never disguised inside a `DO` block and never silently left out. After an apply,
+verify that no old overload survives (`pg_proc` by name), not only the objects the file creates.
 
 ## #268
 
@@ -4095,8 +4098,10 @@ the push. When a migration moves a lock order, run all of the harnesses
 
 ## #269
 
-**Mark a PR ready only after the CI run for its pushed head has started (the path-design wave,
-2026-10-08 to 10-11).** The race between a push and a mark-ready right after it was observed this
-wave; its mechanism is not recorded here. The rule: after pushing a PR's final head, read
+**Mark a PR ready only once its head's `CI` run has started (the path-design wave, 2026-10-08 to
+10-11).** The race between a push and a mark-ready right after it was observed this wave; its
+mechanism is not recorded here. The rule: after pushing a PR's final head, read
 `GET /repos/min-hinthar/mms-platform/actions/runs?head_sha=<sha>`, and mark the PR ready only once it
-lists a run for that SHA.
+lists a run named `CI` (`ci.yml`) for that SHA. "Require docs/progress update", "Require Codex
+review" and "Ensure Vercel preview" start on the same push, so a listed run of any of them does not
+satisfy the rule.

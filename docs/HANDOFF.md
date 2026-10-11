@@ -24,18 +24,24 @@ at that day's current clock time: "How work runs here"), the open PRs (`list_pul
   with even more creative design-thinking refinements enhancements best hospitality qr dine-in to-go
   grocery ordering industry worldclass UIUX iOS design-thinking awesomeness. Believe in yourself". Then
   "just handoff and merge all on CI green". Then the owner's go to carry on the orchestration.
-- **2026-10-09:** "I trust you to make all decisions, apply migrations, and merge all". This is the
-  standing delegation the wave ran under: decisions, prod migrations and merges. Then "permission
-  granted, run the whole train" and "switched to Accept, proceed all".
-- **Merges.** Each PR merged on its own head once `build` · `verify-slice` · `require-docs` and the
-  lanes that ran were green, the blind pass's findings were fixed or justified on the PR, and Codex's
-  rounds were triaged. With Codex out of quota, the capped blind pass stood in. After fix commits, ONE
-  more capped pass covered exactly those commits, and the lead hand-read anything after that. The lead
-  then merged the red-`codex-review` head under the delegation: the owner's "merge all", not an
-  automated bypass. The rules files did not change. CLAUDE.md, WORKFLOW §Review step 5 (g) and the
-  rulings file's G3 still say the owner merges a red-`codex-review` head.
-- **Prod migrations.** Every wave migration went to the QR project `fasnpdhtvqtzjlvruqcu` ONE FILE AT
-  A TIME through the Supabase MCP `apply_migration`, after `get_project_url`. Each was verified object
+- **2026-10-09:** "I trust you to make all decisions, apply migrations, and merge all". It covered THIS
+  wave's PRs and migrations (2026-10-08 to 10-11): decisions, prod migrations and merges. Then
+  "permission granted, run the whole train" and "switched to Accept, proceed all".
+- **The delegation is NOT authority for later sessions.** From the next session on, CLAUDE.md,
+  WORKFLOW §Review step 5 and the OWNER_RULINGS file govern, unless the owner renews the delegation in
+  their own words. Under them, only the owner merges a red-`codex-review` head (G3), and each prod
+  migration waits for the owner's go for that file (ruling #5). The rules files did not change during
+  the wave.
+- **How this wave's PRs merged.** Each PR merged on its own head once `build` · `verify-slice` ·
+  `require-docs` and the lanes that ran were green, the blind pass's findings were fixed or justified
+  on the PR, and Codex's rounds were triaged. Where Codex had not reviewed the merge head, the capped
+  blind pass stood in. After fix commits, ONE more capped pass covered exactly those commits, and the
+  lead hand-read anything after that. The lead then merged the head under the wave's delegation: the
+  owner's "merge all", not an automated bypass. The section "Gate and merge calls made under the
+  delegation" below lists these merges for the owner to ratify.
+- **How this wave's migrations reached prod.** Each wave migration went to the QR project
+  `fasnpdhtvqtzjlvruqcu` ONE FILE AT A TIME through the Supabase MCP `apply_migration`, after
+  `get_project_url`, on the wave's delegation rather than a go for each file. Each was verified object
   by object before the next (the list is below).
 - **Decisions.** Each is recorded where it was made, as decided under the owner's delegation and never
   as an owner ruling. They are listed below for the owner to ratify.
@@ -86,6 +92,12 @@ The last prod stamp is `20261011105607`. The MCP generates prod's stamps and the
 (M125), so this is the apply order, not the files' order. PD1's file is never re-applied after
 PD1N's: its `create or replace` would put back the nudge with no line lock (OPEN-ITEMS PD1). Measured
 on prod 2026-10-11 16:37Z: `qr_table_clears` held 0 rows.
+
+**Apply order vs file order.** Some files were applied out of filename order (PD1 after M269 and
+PD3's; M268 after PD5b). Measured over the eight files' `create … function` names: no pair applied out
+of file order restates the same function. The only functions two files share are
+`mms_resolve_approval` (M184 → M269) and `mms_nudge_host` (PD1 → PD1N), and both pairs were applied in
+file order.
 
 ### Decided under the delegation — for the owner to ratify
 
@@ -144,6 +156,39 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
   and draws no Pay control after it (`GUIDE_PROVEN_WALLETS = ["Apple Pay"]`). Page 2's picture has no
   avatars.
 
+### Gate and merge calls made under the delegation — for the owner to ratify
+
+These were measured 2026-10-11 from each PR's `merged_at` and the `codex-review` check runs on its
+merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check_name=codex-review`).
+
+- **15 PRs merged before Codex had reviewed their merge head:** #329 #330 #331 #332 #333 #334 #335
+  #336 #337 #338 #339 #340 #341 #343 #346.
+  - **#335** is the one where Codex's verdict arrived after the merge. It merged at 04:51:07Z, with no
+    `codex-review` run yet on its head `7811cba`. Codex's review came at 05:13:05Z, and the check
+    turned green ("Codex reviewed this commit") at 05:18:19Z. Its findings became #342 (PD1N). PD1's
+    migration was applied before #335 merged (prod row `20261011045025`), so the nudge ran on prod
+    without its line lock until PD1N was applied, the wave's last apply (`20261011105607`).
+  - The other 14 had `codex-review` red ("Waiting on Codex") at merge, with Codex out of quota. The
+    capped blind passes and the lead's hand-read stood in.
+- **Codex had reviewed the merge head before the merge** on #326 #327 #328 #342 #344 #345 #347 #348.
+- **Money-path PRs merged without waiting for Codex.** Ruling #1's default is to wait. Measured over
+  the 15, from each PR's file list (`GET /repos/min-hinthar/mms-platform/pulls/<n>/files`), against
+  `scripts/check-money-coverage.mjs`'s `MONEY_PATHS` (non-test files under `apps/qr/lib/` or
+  `apps/qr/app/api/`):
+  - 13 touch a `MONEY_PATHS` file: #329 #330 #331 #333 #334 #335 #336 #338 #339 #340 #341 #343
+    #346.
+  - Of those, 9 touch a file the guard treats as money-bearing (its text at the merge commit matches
+    a `MONEY_MARKERS` pattern): #329 #330 #331 #333 #334 #335 #338 #341 #346.
+  - #332 and #337 touch none. `MONEY_PATHS` covers TypeScript only: #337 (M269) changes the SQL
+    function `mms_resolve_approval`, which it does not see.
+- **PD6 (#334) merged before the device sitting.** Ruling #12 puts the sitting "before K39 merges",
+  PD6 carried K39's re-host, and K39's row said "PD6 merges after the device sitting (#12)".
+- **The eight prod migrations were applied on the delegation**, not on the owner's go for each file
+  (ruling #5).
+- **A tension for the owner, not resolved here.** PD7's "paid food the kitchen has not finished holds
+  the clear" (`paid_unserved`, m7 §H, decided under the delegation) reads against ruling #6's
+  "Clearing a table never waits."
+
 ### Open PRs and branches (measured 2026-10-11 ~22:55Z)
 
 - **#348 PD11 → `73c34c9`** merged at 23:18Z, after this block was first written. Its branch,
@@ -165,7 +210,7 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
 2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
    merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
-   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · K44 · PD3 ·
+   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · P2hf · K44 · PD3 ·
    PD4 · PD5 · PD6 · PD7 · PD8 · PD11 · PD12. The rows' now-false sentences were restated too ("NOT applied",
    "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device sitting",
    "Waits on PD7"), in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39. Every open follow-up stayed open, and
@@ -203,8 +248,8 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
    - **PD2:** the ask over unsent dishes, refused until P2do (P2do was built in #334).
    - **PD4:** the composite-contrast rows for the constant-cream tag and for the CounterPass over a
      live image (m4 amendment A2); the device-sitting checks.
-   - **PD6:** the row says it "Merges after the device sitting (#12)". It merged under the delegation,
-     so the sitting's till-tray checks still stand.
+   - **PD6:** it merged (#334) before the device sitting (#12), so the sitting's till-tray checks still
+     stand (item 2; "Gate and merge calls made under the delegation").
    - **PD7:** M270 (2)–(9).
    - **PD9:** a station nobody bumps pins its table; burn-in and the TURN's frame rate on the TV; the
      read's p95 (m9 §G); an "All clear" wording question for the native sitting.
@@ -268,9 +313,12 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 - **Prod migrations:** never `supabase db push` or SQL-editor DDL against the QR project (divergent
   history, M125); ONE file at a time with the Supabase MCP `apply_migration` on the owner's go,
   verifying the objects that file creates (CLAUDE.md, Commands).
-- **A prod-bound migration carries no top-level `DROP` or `DELETE`.** The MCP `apply_migration`
-  stalled on a migration that had one. The wave's later migrations were written without either (M182's
-  file and PD1N's say so). Restate with `create or replace` instead (LEARNINGS #267).
+- **A top-level `DROP` / `DELETE` in a prod migration.** Observed this wave: `apply_migration`
+  stalled on a file that had one. The mechanism is not established. `create or replace` covers a
+  restate under the same signature only. A migration that must drop something (an overload's
+  retirement, a revoke) goes to the owner as a decision, never disguised inside a `DO` block and never
+  silently left out. After an apply, check `pg_proc` by name that no old overload survives, not only
+  the objects the file creates (LEARNINGS #267).
 - **A migration that changes a lock order re-runs every race harness, not only its own.** PD1's new
   cart lock (the cart is locked first) made PD5b's grace-race scenario hang, which would have timed CI
   out. Codex caught it on #340's merge with `main`. The scenario was rewritten for the new lock order,
@@ -285,13 +333,14 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 - **The capped pass over fix commits after a `main` merge:**
   `pnpm review:bundle --base <the merge commit of the reviewed head with main>` yields exactly the fix
   commits, not `main`'s changes.
-- **Mark a PR ready only after the CI run for its pushed head has started**
-  (`GET /repos/min-hinthar/mms-platform/actions/runs?head_sha=<sha>`). Observed this wave
-  (LEARNINGS #269).
+- **Mark a PR ready only once `GET /repos/min-hinthar/mms-platform/actions/runs?head_sha=<sha>` lists
+  a run named `CI` for the pushed head.** The other workflows start on the same push, so any run does
+  not satisfy it. Observed this wave (LEARNINGS #269).
 - **Ask Codex on every final head (`@codex review`): its quota is not predictable.** It was out of
-  quota through 2026-10-09 and into 2026-10-11 ~01:16Z (#331, #333, #329, #339 and #334 merged on the
-  blind-pass stand-in under the delegation). It was back ~15:15Z, out again ~19:14Z and ~19:31Z, and
-  back ~20:29Z, and it reviewed through #347's merge (~22:40Z).
+  quota through 2026-10-09 and into 2026-10-11 ~01:16Z. It was back ~15:15Z, out again ~19:14Z and
+  ~19:31Z, and back ~20:29Z, and it reviewed through #347's merge (~22:40Z). It was out again ~23:08Z
+  (#349). The PRs that merged before Codex had reviewed their head are the measured list of 15 in "Gate
+  and merge calls made under the delegation" (top block).
 - **After adding a second path to the same outcome, re-run the module's WHOLE mutant set**, and fix
   the fixture so it separates the paths (LEARNINGS #266; #347's `m270/kds-board/news-outlives-ack`).
 - **Test infra.** The Radix/jsdom timer flake (#343, LEARNINGS #257): `apps/qr/lib/test-setup.ts`

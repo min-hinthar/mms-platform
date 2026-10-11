@@ -17,15 +17,18 @@ Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-
 
 ## Where things stand (2026-10-11)
 
-Shipped the polish plan's Phase 0–2 and Phase 3a–3d (#299–#315; `ROADMAP.md`; 3e and 3f stay open),
-then **#319** (the path-design record `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the
-design-prototyping standard), **#320** (the merge gate fits in 30 minutes) and **#324** (the
-flaky-mutant fix). **The path-design wave is built (2026-10-08 to 10-11):** PD1–PD12 merged
-with their follow-ups (#326–#348; #348 PD11 → `73c34c9`), and PD13 stays gated. The wave's eight prod migrations
-were applied one file at a time under the owner's 2026-10-09 delegation ("I trust you to make all
-decisions, apply migrations, and merge all"). **Next:** `docs/HANDOFF.md`'s top block. It lists the
-merged PRs, the migrations in order, the decisions for the owner to ratify, and the next tasks: the
-registry sweep, the PD10 flip's conditions, and M276 · T55.
+Shipped the polish plan's Phase 0–2 and Phase 3a–3d's receipt stack (#299–#315; `ROADMAP.md`).
+3d·counter's cash-sheet re-host (K39 · K44) shipped later, in PD6 (#334); K39 stays open for the Team
+tile, and 3e and 3f stay open. Then came **#319** (the path-design record
+`docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the design-prototyping standard), **#320**
+(the merge gate fits in 30 minutes) and **#324** (the flaky-mutant fix). **The path-design wave is
+built (2026-10-08 to 10-11):** PD1–PD12 merged with their follow-ups (#326–#348; #348 PD11 →
+`73c34c9`), and PD13 stays gated. The wave's merges and its eight prod migrations ran under the
+owner's 2026-10-09 delegation for THIS wave ("I trust you to make all decisions, apply migrations, and
+merge all"). It is not authority for later sessions: the rules below and the OWNER_RULINGS file govern
+unless the owner renews it. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
+migrations in order, and the decisions and gate calls for the owner to ratify. Its next tasks include
+the PD10 flip's conditions, M276 · T55, and the rows ready to move to Closed.
 
 - **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
   with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and

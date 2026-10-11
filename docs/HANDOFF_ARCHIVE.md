@@ -53,6 +53,8 @@ old Environment facts, The loop, Verify and Open decisions sections last. The ol
 
 _Moved verbatim from `docs/HANDOFF.md` on 2026-10-11 when the wave's handoff was written; its "Where things stand", "Next tasks" and "Parallel streams" sections follow._
 
+_Archive note: "the owner's item 4 below" (twice in this block) meant item 4 of HANDOFF's "The owner's items (not code)", which stayed in `docs/HANDOFF.md` and was restated 2026-10-11. The PD1 apply it recorded (prod row `20261011045025`) now lives in HANDOFF's "Prod migrations applied, in order" and in OPEN-ITEMS PD1._
+
 ### Where things stand (2026-10-09 ~03:45Z — the path-design wave is in flight)
 
 Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requests` / `gh pr list`), and
