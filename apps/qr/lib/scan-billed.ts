@@ -34,11 +34,15 @@
  *     view drops the record only when that count has not moved; otherwise the view is older than a
  *     charge it never saw, and the page re-reads.
  *
- * ⚠️ Accepted residual, named rather than guessed around: a removal that crosses a write AND lands
- * with its reconcile read before the write commits at the server leaves the add's unit charged while
- * the list (the removal's view, the newest ticket) does not show it. The crossed charge is then not
- * recorded, so until the re-read this function asks for lands, a sighting of that jar charges again.
- * Ordering the two writes needs a server sequence the client does not have.
+ * ⚠️ Accepted residual — OPEN-ITEMS G26, named rather than guessed around. A removal that crosses a
+ * write AND lands with its reconcile read before that write commits at the server leaves the add's
+ * unit charged while the list (the removal's view, the newest ticket) does not show it. The crossed
+ * charge is not recorded, so a sighting of that jar charges again until a read issued AFTER the
+ * landing applies: the re-read the landing asks for — fire-and-forget, never retried — or, when that
+ * read fails, the shopper's next re-focus or Retry. Reachability: both writes must reach the server
+ * out of dispatch order, and Next 16's client action queue runs server functions one at a time — it
+ * lets a later one start early only across a mid-flight navigation. Ordering the two writes needs a
+ * server sequence the client does not have.
  *
  * Pure, so a value falsifies each rule (lib/scan-billed.test.ts, mutant-pinned).
  */

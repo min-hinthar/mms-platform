@@ -7392,9 +7392,9 @@ const MUTANTS = [
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: "M186 — a live add whose post-write read failed (`lines: null`) leaves nothing on screen and nothing queued; the record is the only proof it was charged, and without it the jar still in frame is billed again",
-    find: "        billedRef.current = billing.ledger;\n        viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge\n",
+    find: "        billedRef.current = billing.ledger;\n        // G25 — a read left while this charge was in flight: whatever it answers may predate the\n",
     replace:
-      "        viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge\n",
+      "        // G25 — a read left while this charge was in flight: whatever it answers may predate the\n",
   },
   {
     id: "grocery-page/a-refused-replay-recorded-as-charged",
@@ -7454,7 +7454,7 @@ const MUTANTS = [
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: "The same for a live add whose post-write read failed: nothing asks the server again, and the total omits a charged item",
-    find: "        if (billing.reread) syncNow();\n",
+    find: "        if (billing.reread || crossedRead) syncNow();\n",
     replace: "",
   },
   {
@@ -7462,7 +7462,7 @@ const MUTANTS = [
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: 'Codex P1 on #344 — a replay that landed raises no floor: an OLDER view (read before a newer, view-less charge committed) applies over the honest "Couldn’t check your basket", showing an empty basket the newer charge disproved',
-    find: "          viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge\n",
+    find: "          viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);\n",
     replace: "",
   },
   {
@@ -7470,8 +7470,50 @@ const MUTANTS = [
     file: "apps/qr/app/grocery/page.tsx",
     suite: "app/grocery/page.test.tsx",
     why: "The same for a live add with no view: a basket read issued before it left lands after it and replaces the failed re-read's honest words with a basket the add disproved",
-    find: "        billedRef.current = billing.ledger;\n        viewFloor.current = Math.max(viewFloor.current, seq); // older views predate this charge\n",
-    replace: "        billedRef.current = billing.ledger;\n",
+    find: "        // G25 — every view issued before this landing may predate the write: none applies after it.\n        viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);\n",
+    replace:
+      "        // G25 — every view issued before this landing may predate the write: none applies after it.\n",
+  },
+  {
+    id: "grocery-page/live-add-floor-at-dispatch",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: 'The second blind pass on #344 — the floor stops at the add\'s DISPATCH ticket: a read issued while the add was in flight, answered before its commit, applies after the landing and turns the honest "Couldn’t check" into a basket the add disproved',
+    find: "        // G25 — every view issued before this landing may predate the write: none applies after it.\n        viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);\n",
+    replace:
+      "        // G25 — every view issued before this landing may predate the write: none applies after it.\n        viewFloor.current = Math.max(viewFloor.current, seq);\n",
+  },
+  {
+    id: "grocery-page/replay-floor-at-dispatch",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The same on the replay: a read that crossed the replay's flight applies after it lands",
+    find: "          viewFloor.current = Math.max(viewFloor.current, reqSeq.current + 1);\n",
+    replace: "          viewFloor.current = Math.max(viewFloor.current, seq);\n",
+  },
+  {
+    id: "grocery-page/live-add-crossed-read-no-reread",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The second blind pass on #344 — a read that crossed the add applied FIRST, so the add's own view loses to its ticket; with no re-read owed, the list keeps a basket without the jar the shopper just paid for",
+    find: "        if (billing.reread || crossedRead) syncNow();\n",
+    replace: "        if (billing.reread) syncNow();\n",
+  },
+  {
+    id: "grocery-page/replay-crossed-read-no-reread",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "The same on the replay: a crossing read applied first and nothing asks again",
+    find: "          if (billing.reread || crossedRead) reread = true;\n",
+    replace: "          if (billing.reread) reread = true;\n",
+  },
+  {
+    id: "grocery-page/a-refused-step-outlives-a-floored-read",
+    file: "apps/qr/app/grocery/page.tsx",
+    suite: "app/grocery/page.test.tsx",
+    why: "Found checking stepQty under the new floor: a charge that lands during a stepper's reconcile raises the floor past its ticket; when that stepper write was REFUSED, its optimistic flip outlived the refusal (the reconcile that would undo it cannot apply)",
+    find: "          if (!wrote && appliedSeq.current === appliedAtFlip) setLines(snapshot);\n",
+    replace: "",
   },
   {
     id: "grocery-page/a-stale-view-passes-the-floor",

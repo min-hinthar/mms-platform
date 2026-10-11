@@ -43,6 +43,8 @@ const h = vi.hoisted(() => ({
   read: null as unknown as (i: number, cartId: string) => Promise<unknown>,
   /** The model server's lines — what `setQty` writes and the default read returns. */
   server: [] as { lineId: string; qty: number }[],
+  /** `setQty`'s answer (set per row; the default writes the model server). */
+  setQty: null as unknown as (lineId: string, qty: number) => Promise<void>,
   /** The session: `revalidate()` (the fresh-basket recovery) moves it to `nextCart`. */
   cart: "",
   nextCart: "",
@@ -60,12 +62,7 @@ vi.mock("@/lib/grocery", () => ({
   searchGroceryItems: () => Promise.resolve([]),
 }));
 vi.mock("@/lib/cart", () => ({
-  setQty: (lineId: string, qty: number) => {
-    h.server = h.server.flatMap((l) =>
-      l.lineId !== lineId ? [l] : qty > 0 ? [{ lineId, qty }] : [],
-    );
-    return Promise.resolve();
-  },
+  setQty: (lineId: string, qty: number) => h.setQty(lineId, qty),
 }));
 vi.mock("@/lib/useTableSession", () => {
   const sessions = new Map<string, { cartId: string; sessionId: string }>();
@@ -102,6 +99,13 @@ vi.mock("@/components/ActiveOrderProvider", () => {
   return { usePublishCart: () => publish, useRegisterDrain: () => register };
 });
 vi.mock("posthog-js", () => ({ default: { capture: () => {} } }));
+// `@mms/ui` stays REAL except for ONE export: `NumberFlow` drives a custom element jsdom does not
+// register (`this.el?.willUpdate is not a function` when the running total changes; the Checkout
+// suites stub it the same way). The animated digits are not what this suite guards.
+vi.mock("@mms/ui", async (orig) => ({
+  ...(await orig<typeof import("@mms/ui")>()),
+  NumberFlow: ({ value }: { value: number }) => <span>{value}</span>,
+}));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: () => null }));
 vi.mock("@/components/DoorSheet", () => ({ DoorSheet: () => null }));
 // The Browse door's aisles (their own catalog read): drawn as nothing, handing back the page's own
@@ -135,8 +139,24 @@ const jarLine = (qty: number): GroceryLine => ({
   ebt: true,
   imageUrl: null,
 });
+/** Another item in the basket — the green tea. */
+const teaLine = (qty: number): GroceryLine => ({
+  ...jarLine(qty),
+  lineId: "l-tea",
+  barcode: "076808280357",
+  name: "Green tea",
+  ebt: false,
+});
 /** The model server's lines, as a read returns them. */
-const serverView = (): GroceryLine[] => h.server.map((l) => jarLine(l.qty));
+const serverView = (): GroceryLine[] =>
+  h.server.map((l) => (l.lineId === "l-tea" ? teaLine(l.qty) : jarLine(l.qty)));
+/** The model server's own write: `setQty` sets a line's qty, and 0 removes it. */
+const writeServer = (lineId: string, qty: number) => {
+  h.server = h.server.flatMap((l) =>
+    l.lineId !== lineId ? [l] : qty > 0 ? [{ lineId, qty }] : [],
+  );
+  return Promise.resolve();
+};
 
 const ok = (lines: GroceryLine[] | null = null): ScanAddResult => ({
   ok: true,
@@ -178,6 +198,15 @@ async function sight(code: string) {
   });
 }
 
+/** The shopper comes back to the tab: the page's re-focus read leaves (a read DURING whatever is in
+ *  flight). jsdom reports the document visible, so `visibilitychange` takes the sync path. */
+async function refocus() {
+  expect(document.visibilityState).toBe("visible");
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
 /** A Browse card's one-tap add of `code`, through the page's own handler, until it has landed. */
 async function browseAdd(code: string) {
   expect(h.onBrowseAdd).not.toBeNull();
@@ -212,6 +241,7 @@ beforeEach(() => {
   h.nextCart = FRESH;
   h.scan = () => Promise.resolve(ok());
   h.read = () => Promise.resolve(linesOk(serverView()));
+  h.setQty = writeServer;
 });
 afterEach(() => {
   cleanup();
@@ -319,8 +349,10 @@ describe("…and a record never outlives the line it stands for (the reviews of 
         { timeout: 20_000 },
       );
       await until(() => expect(h.calls).toHaveLength(1)); // the replay is in flight
-      // The shopper removes the jar; its write and its reconcile read land (the server has applied
-      // the replay's +1 before the removal took the whole line).
+      // The shopper removes the jar; its write and its reconcile read land. The model server holds
+      // what the removal left (no line). The server-side ORDER — the replay's +1 applied before the
+      // removal took the whole line — is modelled by the answers, not by writing `h.server`: the
+      // replay's own answer, below, carries the ×2 view it read before the removal.
       await act(async () => {
         fireEvent.click(remove);
       });
@@ -442,28 +474,44 @@ describe("…and a record never outlives the line it stands for (the reviews of 
   it(
     "CODEX P1 — an older replay's empty view lands after a NEWER Browse add of the jar: the newer charge's record stands, and the stale view is not shown",
     async () => {
-      // The jar's first, lost-response scan committed and the shopper removed its line; its replay
-      // is an idempotent ok whose view (read on the emptied basket) is delayed.
+      // The basket holds a green tea. The jar's first, lost-response scan committed and the shopper
+      // removed its line; its replay is an idempotent ok whose view — read while the tea was still
+      // there, and without the jar — is delayed.
+      h.server = [{ lineId: "l-tea", qty: 1 }];
       enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000f7");
       const replay = deferred<ScanAddResult>();
       h.scan = (i) => (i === 0 ? replay.promise : Promise.resolve(ok()));
       // The mount read lands; every later read fails (the radio is still flaky).
-      h.read = (i) => (i === 0 ? Promise.resolve(linesOk([])) : readFails());
+      h.read = (i) => (i === 0 ? Promise.resolve(linesOk(serverView())) : readFails());
       render(<GroceryPage />);
+      const tea = await screen.findByRole(
+        "button",
+        { name: "Remove Green tea" },
+        { timeout: 20_000 },
+      );
       await until(() => expect(h.calls).toHaveLength(1)); // the replay is in flight
-      // The shopper taps Add on the jar's Browse card: a fresh unit, its own read failed.
+      // The shopper removes the tea (its write lands, its reconcile read fails: the list keeps the
+      // removal)…
+      await act(async () => {
+        fireEvent.click(tea);
+      });
+      await until(() =>
+        expect(screen.queryByRole("button", { name: "Remove Green tea" })).toBeNull(),
+      );
+      // …then taps Add on the jar's Browse card: a fresh unit, its own read failed.
       await browseAdd(JAR);
       expect(chargesOf(JAR)).toBe(2);
       await shown(/Couldn’t check your basket\./); // its re-read failed — said
-      // …and only now the older replay lands with its empty view.
+      // …and only now the older replay lands, its view still holding the tea and not the jar.
       await act(async () => {
-        replay.resolve(ok([]));
+        replay.resolve(ok([teaLine(1)]));
       });
       await shown(/added 1 saved scan/);
       await settle();
       expect(pendingFor(CART)).toEqual([]);
       // MUTANT grocery-page/a-live-add-raises-no-view-floor (the Browse add is the NEWER charge here)
-      // — the older view replaces the honest "Couldn’t check" with an empty basket that is not true.
+      // — the older view applies: the removed tea is back on the list, a basket that is not true.
+      expect(screen.queryByRole("button", { name: "Remove Green tea" })).toBeNull();
       expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
       // MUTANT scan-billed/an-older-view-drops-a-newer-charge — the list is empty, the queue is
       // empty and the record was dropped: the jar in frame charges a THIRD unit.
@@ -515,6 +563,142 @@ describe("…and a record never outlives the line it stands for (the reviews of 
       expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(1);
+    },
+    ROW_MS,
+  );
+
+  // ── The second blind pass on #344: the floor is the LANDING's, not the dispatch's ──────────────
+  for (const path of ["live", "replay"] as const) {
+    const dispatch = async (held: Promise<ScanAddResult>) => {
+      if (path === "replay") {
+        enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000b9");
+        h.scan = (i) => (i === 0 ? held : Promise.resolve(ok()));
+        render(<GroceryPage />);
+        await until(() => expect(h.calls).toHaveLength(1)); // the drain's replay is in flight
+        return async () => {
+          await shown(/added 1 saved scan/);
+          await settle();
+        };
+      }
+      h.scan = (i) => (i === 0 ? held : Promise.resolve(ok()));
+      render(<GroceryPage />);
+      await settle();
+      let landed: Promise<void> = Promise.resolve();
+      await act(async () => {
+        landed = h.onBrowseAdd!({ barcode: JAR }); // in flight — not awaited
+      });
+      expect(h.calls).toHaveLength(1);
+      return async () => {
+        await act(async () => {
+          await landed;
+        });
+        await settle();
+      };
+    };
+
+    it(
+      `(${path}) a read issued WHILE the charge is in flight, answered before its commit, arriving after it lands: never applied`,
+      async () => {
+        const mid = deferred<GroceryLinesResult>();
+        // Mount: an empty basket. The re-focus read during the flight is held. Every later read fails.
+        h.read = (i) =>
+          i === 0 ? Promise.resolve(linesOk([])) : i === 1 ? mid.promise : readFails();
+        const charge = deferred<ScanAddResult>();
+        const landed = await dispatch(charge.promise);
+        await refocus();
+        expect(h.reads).toHaveLength(2); // the re-focus read left during the flight
+        await act(async () => {
+          charge.resolve(ok()); // lands with no view…
+        });
+        await landed();
+        await shown(/Couldn’t check your basket\./); // …and its re-read failed — said
+        // The re-focus read answers now: read before the write committed, without the jar.
+        await act(async () => {
+          mid.resolve(linesOk([]));
+        });
+        await settle();
+        // MUTANT grocery-page/${path === "live" ? "live-add" : "replay"}-floor-at-dispatch — the
+        // floor stopped at the charge's dispatch ticket: the crossing read applies, and the honest
+        // "Couldn’t check" becomes an empty basket the charge disproved.
+        expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
+        await sight(JAR);
+        expect(chargesOf(JAR)).toBe(1);
+      },
+      ROW_MS,
+    );
+
+    it(
+      `(${path}) a read issued WHILE the charge is in flight applies BEFORE it lands: the landing re-reads, and the jar shows`,
+      async () => {
+        // Mount: empty. The re-focus read answers at once — read before the write committed. Every
+        // read after that one shows the jar.
+        h.read = (i) => Promise.resolve(linesOk(i <= 1 ? [] : [jarLine(1)]));
+        const charge = deferred<ScanAddResult>();
+        const landed = await dispatch(charge.promise);
+        await refocus();
+        await settle();
+        expect(h.reads).toHaveLength(2);
+        // The charge lands WITH its own view — but that view's ticket is older than the read that
+        // already applied, so it cannot.
+        await act(async () => {
+          charge.resolve(ok([jarLine(1)]));
+        });
+        await landed();
+        // MUTANT grocery-page/${path === "live" ? "live-add" : "replay"}-crossed-read-no-reread — nothing
+        // asks again: the list keeps the crossing read's basket, without the jar the shopper paid for.
+        expect(h.reads).toHaveLength(3);
+        await until(() =>
+          expect(screen.getByRole("button", { name: "Remove Jasmine rice" })).toBeTruthy(),
+        );
+      },
+      ROW_MS,
+    );
+  }
+
+  it(
+    "a REFUSED stepper write whose reconcile the floor rejects (a charge landed during that read): its flip is rolled back",
+    async () => {
+      h.server = [{ lineId: "l-tea", qty: 1 }];
+      const add = deferred<ScanAddResult>();
+      h.scan = (i) => (i === 0 ? add.promise : Promise.resolve(ok()));
+      const reconcile = deferred<GroceryLinesResult>();
+      // Mount: the tea ×1. The stepper's reconcile is held. Every later read fails.
+      h.read = (i) =>
+        i === 0
+          ? Promise.resolve(linesOk(serverView()))
+          : i === 1
+            ? reconcile.promise
+            : readFails();
+      h.setQty = () => Promise.reject(new Error("refused")); // the stepper's write is refused
+      render(<GroceryPage />);
+      const more = await screen.findByRole(
+        "button",
+        { name: "One more Green tea" },
+        { timeout: 20_000 },
+      );
+      let landed: Promise<void> = Promise.resolve();
+      await act(async () => {
+        landed = h.onBrowseAdd!({ barcode: JAR }); // a Browse add of the jar, in flight
+      });
+      // The shopper taps + on the tea: the flip shows ×2, the write is refused, the reconcile leaves.
+      await act(async () => {
+        fireEvent.click(more);
+      });
+      await until(() => expect(h.reads).toHaveLength(2));
+      // The add lands (no view; its re-read fails) — its floor rises past the reconcile's ticket…
+      await act(async () => {
+        add.resolve(ok());
+        await landed;
+      });
+      await until(() => expect(h.reads).toHaveLength(3));
+      // …and the reconcile answers the truth, ×1, under a floor it cannot pass.
+      await act(async () => {
+        reconcile.resolve(linesOk([teaLine(1)]));
+      });
+      await settle();
+      // MUTANT grocery-page/a-refused-step-outlives-a-floored-read — the refused ×2 stays on screen.
+      expect(screen.getByRole("button", { name: "Remove Green tea" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "One less Green tea" })).toBeNull();
     },
     ROW_MS,
   );

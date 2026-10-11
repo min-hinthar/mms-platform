@@ -3980,3 +3980,17 @@ it is pinned structurally (`check:scan-repeat` proposition 8: a `NO_BILLED` rese
 `cartIdRef.current = undefined` in its block) and the row pins what a render CAN show (the record's
 placement behind the era check). Before writing "red-first" for a race, run the row against the
 unfixed code: green there means the harness cannot open the window, not that the fix works.
+
+## #262
+
+**Next 16 serializes server functions on the client, and a navigation releases the queue — measure
+that before building, or dismissing, an ordering defence (#344, 2026-10-11).** The grocery page's
+view floor defends against server-function answers arriving out of order (a read answered before a
+write committed, landing after it). Next 16.2.9's action queue (`app-router-instance.js`,
+`dispatchAction`) runs server functions ONE AT A TIME; only an ACTION_NAVIGATE / RESTORE starts early,
+and the queue resumes after it while the discarded action's fetch is still in flight. So those
+interleavings are reachable only across a mid-flight navigation — narrow, but real. Both mistakes
+are cheap to make: a reviewer can call such a defence decorative because "actions are serialized",
+and an author can build an elaborate one for an interleaving the framework never produces. Read the
+queue's dispatch rule in the INSTALLED version, name the one path that breaks serialization, and
+write the defence (and its residual's reachability) against that path.
