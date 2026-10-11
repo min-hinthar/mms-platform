@@ -1361,6 +1361,8 @@ export function KdsBoard({
             sheetClassName="dark"
             // What the board believes about its feed, for a report's diagnostics — never guessed.
             connection={degraded ? "not_updating" : "live"}
+            // PD12 — a guide opened from Help is recorded as seen for this person.
+            staffId={staffId}
           />
         }
       />

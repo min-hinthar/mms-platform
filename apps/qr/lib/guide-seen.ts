@@ -76,6 +76,22 @@ export function guideDue({ stored, quiet }: { stored: GuideStored; quiet: boolea
 }
 
 /**
+ * Record a guide as seen because it was SHOWN some other way — a person opened it themselves (the
+ * staff Help door's first row; PD11's Account row). A guide seen there is seen: the first run must
+ * not offer it again on a later quiet open (Codex round 1 on #345). An explicit open still always
+ * shows; this only writes. Answers whether the store took the mark (a refusal is not an error here —
+ * nothing else depends on it).
+ */
+export function markGuideSeen(store: () => GuideStore, key: string): boolean {
+  try {
+    store().setItem(key, GUIDE_SEEN_MARK);
+    return true;
+  } catch {
+    return false; // refused: the explicit open still shows; the next quiet open may offer it
+  }
+}
+
+/**
  * The at-open claim: read, decide, and — only when due — mark, BEFORE the caller shows anything.
  * True means "show it now; it is already marked". False means "do not show": seen, refused, or not
  * quiet (in which case nothing was written, so the next quiet open may still show it).

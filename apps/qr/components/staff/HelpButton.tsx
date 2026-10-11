@@ -16,7 +16,13 @@ import {
   type HelpDoorScreen,
 } from "@/lib/help";
 import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
-import { STAFF_GUIDE_STEPS, staffGuideOpensItself, staffGuideShips } from "@/lib/staff-guide";
+import {
+  STAFF_GUIDE_STEPS,
+  staffGuideKey,
+  staffGuideOpensItself,
+  staffGuideShips,
+} from "@/lib/staff-guide";
+import { markGuideSeen } from "@/lib/guide-seen";
 import { PANE_IDLE_QUERY } from "@/lib/floor-pane";
 import type { SlotsOf } from "@/lib/i18n/fill";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
@@ -61,6 +67,9 @@ type HelpProps = {
   /** What the screen believes about its feed, for the report's diagnostics. A server-rendered page
    *  has no feed to speak of (`page`); a board says whether it is updating. */
   connection?: ReportConnection;
+  /** PD12 (Codex r1 on #345) — the signed-in person: a guide opened from Help is recorded as SEEN
+   *  under the same per-person key the in-place first run reads. Absent → nothing is recorded. */
+  staffId?: string | null;
 } & (
   | {
       screen: "kitchen";
@@ -172,10 +181,13 @@ function safe(read: () => string | undefined): string | undefined {
  * the guide's own first run (once per person, per station, per tablet, in the screen's quiet space,
  * never a modal — `useGuideFirstRun`) replaces it, so a fresh tablet never gets this modal sheet AND
  * the in-place guide on one load (the critic's B5). A station whose guide is held keeps all of this
- * exactly as shipped — its cards, its row, its auto-open.
+ * exactly as shipped — its cards, its row, its auto-open. A guide opened from row 1 is recorded as
+ * SEEN under the person's own key (`staffId`, Codex r1 on #345): if their first open was busy or
+ * narrow (nothing marked) and they read it here, a later quiet open does not offer it again; an
+ * explicit Help open always shows it.
  */
 export function HelpButton(props: HelpProps) {
-  const { lang, screen, size, sheetClassName } = props;
+  const { lang, screen, size, sheetClassName, staffId = null } = props;
   // A4·2 — a screen whose live boards report their feed (`LiveConnectionProvider`) supplies the
   // report's connection word when the page's bar cannot know it; an explicit prop still wins.
   const live = useLiveConnection();
@@ -543,6 +555,11 @@ export function HelpButton(props: HelpProps) {
                   onClick={() => {
                     haptic("pick");
                     setStep(1);
+                    // Codex r1 on #345 — a guide shown from Help is SEEN for this person, at this
+                    // station, on this tablet (the first run's own key): a later quiet open never
+                    // offers it again. The open itself never waits on the store.
+                    if (guided && staffId !== null)
+                      markGuideSeen(() => window.localStorage, staffGuideKey(screen, staffId));
                     setView(guided ? "guide" : "how");
                   }}
                 >

@@ -148,7 +148,11 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       // P7·3 — the Help door rides the counter's bar, not the doors': the doors explain themselves
       // (two named tiles), and a help circle beside a static mark would be a control that leads
       // somewhere from a screen that has nothing to explain.
-      help={home.view === "floor" ? <HelpButton lang={lang} screen="counter" /> : undefined}
+      help={
+        home.view === "floor" ? (
+          <HelpButton lang={lang} screen="counter" staffId={caller.staffId} />
+        ) : undefined
+      }
       lock={hasPin}
       // Phase 2b · feedback — the counter's status slot folds its two boards (the provider below
       // is the bar's parent there); the doors have no feed, so no slot — the offline row instead.

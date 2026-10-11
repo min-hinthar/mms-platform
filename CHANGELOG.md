@@ -26,8 +26,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   busy open marks nothing, a refused store never auto-shows.
 - **Help** (`HelpButton`, the scoped unfreeze): on the counter, row 1 "How this screen works" opens the
   guide in the sheet; NEW row 2 "More on this screen" keeps all six shipped cards; the cards'
-  device-keyed auto-open retires there. The kitchen's Help door is unchanged.
-- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 26
+  device-keyed auto-open retires there. The kitchen's Help door is unchanged. A guide opened from Help
+  is recorded as seen under the person's own key (Codex round 1 on #345), so a later quiet open never
+  offers it again after a busy or narrow first open.
+- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 28
   `pd12/*` mutants; DESIGN-LANGUAGE §36 (the step guide).
 
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)

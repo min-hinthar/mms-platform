@@ -2659,7 +2659,8 @@ and `GuidePicture`. What a first-run guide may and may not be:
 - **Once per person, per station, per tablet; marked the moment it shows; quiet decided at mount.** A
   busy first open (a table asking to pay, a ticket on the board) shows nothing and marks nothing; a store
   that refuses never auto-shows. Close, the last step, a reload or work pushing it away all leave it
-  seen. **Work always wins:** a table tap or a landing ticket replaces it for good, and focus that was
+  seen — and so does a person opening it themselves from Help (the same per-person key), so it is
+  never offered again; an explicit open always shows it. **Work always wins:** a table tap or a landing ticket replaces it for good, and focus that was
   inside it goes to the work (the ticket list — never an All done).
 - **A guide teaches only what ships.** Each station's guide is ONE revision, after every control it
   teaches (`STAFF_GUIDE_SHIPS`, refused by a parsed test while a control is missing); a guide whose

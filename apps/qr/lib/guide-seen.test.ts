@@ -6,6 +6,7 @@ import {
   claimGuideFirstRun,
   guideDue,
   guideSeenKey,
+  markGuideSeen,
   readGuideMark,
   type GuideStore,
 } from "./guide-seen";
@@ -122,5 +123,22 @@ describe("claimGuideFirstRun — marked the moment it shows; refused means never
     const s = memStore();
     expect(claimGuideFirstRun(s.get, guideSeenKey("counter", 1, STAFF_B), true)).toBe(true);
     expect(claimGuideFirstRun(s.get, key, true)).toBe(true);
+  });
+});
+
+describe("markGuideSeen — a guide a person opened themselves is seen (Codex r1 on #345)", () => {
+  const key = guideSeenKey("counter", 1, STAFF_A);
+  it("writes the same mark the first run reads, so a later quiet open never offers it again", () => {
+    const s = memStore();
+    expect(markGuideSeen(s.get, key)).toBe(true);
+    expect(s.map.get(key)).toBe(GUIDE_SEEN_MARK);
+    expect(claimGuideFirstRun(s.get, key, true)).toBe(false);
+  });
+  it("a refused store answers false and never throws", () => {
+    expect(markGuideSeen(memStore({ refuseWrite: true }).get, key)).toBe(false);
+    const blocked = () => {
+      throw new DOMException("blocked", "SecurityError");
+    };
+    expect(markGuideSeen(blocked, key)).toBe(false);
   });
 });

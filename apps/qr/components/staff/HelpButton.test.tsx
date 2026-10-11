@@ -14,6 +14,8 @@ import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
 import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
 import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { staffGuideKey } from "@/lib/staff-guide";
+import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -604,6 +606,44 @@ describe("PD12 — the step guide behind Help's first row", () => {
     fireEvent.click(within(guide).getByRole("button", { name: "Got it" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     vi.restoreAllMocks();
+  });
+
+  it("Codex r1 on #345 — a guide shown from Help is SEEN for this person: a later quiet open never offers it again, and Help still always opens it", async () => {
+    const STAFF_ID = "3a4b5c6d-7e8f-4091-a2b3-c4d5e6f7a8b9";
+    const key = staffGuideKey("counter", STAFF_ID);
+    // The first open was busy (a table asking to pay) or narrow: the first run marked NOTHING.
+    expect(localStorage.getItem(key)).toBeNull();
+    const first = render(<HelpButton lang="en" screen="counter" staffId={STAFF_ID} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en });
+    // Shown from Help → recorded under the SAME key the in-place first run reads.
+    // MUTATION: drop the Help path's mark — the key stays unset and the host below offers it; red.
+    expect(localStorage.getItem(key)).toBe("1");
+    first.unmount();
+    // A later QUIET open (the wide counter, nobody asking): the hosts' own first-run seam.
+    function QuietHost() {
+      const g = useGuideFirstRun(key, () => true);
+      return g.shown ? <p>offered again</p> : null;
+    }
+    render(<QuietHost />);
+    await act(async () => {});
+    expect(screen.queryByText("offered again")).toBeNull();
+    // …and an explicit Help replay still opens it, every time.
+    render(<HelpButton lang="en" screen="counter" staffId={STAFF_ID} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    expect(
+      await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en }),
+    ).not.toBeNull();
+  });
+
+  it("a Help open with no signed-in person marks nothing — and still opens", async () => {
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en });
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
   });
 
   it("row 2 keeps every shipped card, whole", async () => {

@@ -1532,7 +1532,11 @@ chose under the owner's delegation, the reason is below.
   shipped station row 1 opens the guide in the sheet; NEW row 2 "More on this screen" keeps the shipped
   cards whole; the cards' device-keyed auto-open is retired there (B5: never this modal AND the guide
   on one load). Row 1's sub-line keeps "it opens itself the first time" only where the screen makes one
-  (`staffGuideOpensItself`); a narrower counter reads "5 things, with pictures".
+  (`staffGuideOpensItself`); a narrower counter reads "5 things, with pictures". A guide opened from
+  row 1 is recorded as SEEN under the person's own key (`markGuideSeen`, the host pages hand
+  `HelpButton` the signed-in `staffId`; Codex round 1 on #345): a first open that was busy or narrow
+  marks nothing, and a person who then reads the guide from Help is never offered it again by a later
+  quiet open — an explicit Help open still always shows it.
 
 **Taken and decided.**
 
@@ -1572,8 +1576,9 @@ chose under the owner's delegation, the reason is below.
 10. **Kitchen 1's title is the card's identity** ("Table 11", B7) rather than the spec's English-only
     "One Send, one card"; its sentence carries the lesson (A4's shared stage words).
 
-**Measured.** 26 `pd12/*` mutants in `scripts/verify-slice.mjs` (9 on the seen-key helper, 1 on the
-hook, 14 on the guide model, 2 on `StepGuide`'s arm wiring), each watched CAUGHT by its owning suite.
+**Measured.** 28 `pd12/*` mutants in `scripts/verify-slice.mjs` (10 on the seen-key helper, 1 on the
+hook, 14 on the guide model, 2 on `StepGuide`'s arm wiring, 1 on `HelpButton`'s Help-path mark),
+each watched CAUGHT by its owning suite.
 
 **Not measured (open risks).** The headless look at 1366×1024 and in the 34rem sheet (risk 9; the
 critic's C on the kitchen pictures in the sheet): no browser runs in the agent environment, so the
