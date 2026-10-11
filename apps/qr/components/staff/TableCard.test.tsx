@@ -298,3 +298,36 @@ describe("TableCard — the table open in the counter's pane", () => {
     expect(card().hasAttribute("aria-current")).toBe(false);
   });
 });
+
+describe("PD7 (m7 B6) — the quiet hint on a paid, finished table", () => {
+  const hint = () => document.querySelector(".floor-card-hint");
+  const mount = (over: Partial<FloorTable> = {}, frozen = false, kitchenUnknown = false) =>
+    render(
+      <TableCard
+        table={{ ...SETTLED, ...over }}
+        serverNow={SETTLED.lastActivityAt}
+        thresholds={TH}
+        pulse={undefined}
+        lang="en"
+        frozen={frozen}
+        kitchenUnknown={kitchenUnknown}
+      />,
+    );
+  it("words inside the card's link, said in its name too — never a second control", () => {
+    mount();
+    expect(hint()!.textContent).toBe("Clear when they leave");
+    // MUTATION table-card/hint-unnamed → the hint is colour-and-shape only to a screen reader; red.
+    expect(card().getAttribute("aria-label")).toContain("Clear when they leave");
+    expect(card().querySelectorAll("button")).toHaveLength(0);
+  });
+  it("never on a frozen floor or over an unknown kitchen read", () => {
+    // MUTATION table-card/hint-on-a-frozen-floor → red.
+    mount({}, true);
+    expect(hint()).toBeNull();
+    cleanup();
+    // MUTATION table-card/hint-ignores-unknown → red.
+    mount({}, false, true);
+    expect(hint()).toBeNull();
+    expect(card().getAttribute("aria-label")).not.toContain("Clear when they leave");
+  });
+});

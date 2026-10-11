@@ -9,6 +9,8 @@ import { relativeAge } from "@/lib/relative-time";
 import type { KdsThresholds } from "@/lib/kitchen-types";
 import { FloorKitchenLine } from "./FloorKitchenLine";
 import { plural, tf } from "@/lib/i18n/fill";
+import { ts } from "@/lib/i18n/staff";
+import { clearHint } from "@/lib/clear-verdict";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -48,7 +50,11 @@ export function TableCard({
   selected = false,
   onSelect,
   frozen,
+  kitchenUnknown = false,
 }: {
+  /** PD7 — the floor read could not say what the kitchen has this poll (`snapshot.kitchenUnknown`):
+   *  an unknown kitchen read is never "go", so the quiet hint stays off. */
+  kitchenUnknown?: boolean;
   /** Phase 2d · review — the floor is not updating (the board's freeze). REQUIRED, so the caller
    *  decides: the wait pill then holds at the read's instant, the same minutes this card's name
    *  says, instead of escalating over a kitchen nobody can see. */
@@ -105,6 +111,20 @@ export function TableCard({
     wait: wait === null ? null : { min: wait.min, late: wait.level === "red" },
     opened: relativeAge(table.openedAt, serverNowMs),
   });
+  // PD7 (m7 B6) — the QUIET hint on a paid, finished table the floor can vouch for (`clearHint`,
+  // decided once): words inside the card's link, never a second control — the verb lives in the
+  // pane, where it answers a question Dad has started. A frozen floor shows none (fail closed: the
+  // read it would vouch from is stale). Said in the card's name too, so it is never colour-only.
+  const hint =
+    !frozen &&
+    clearHint({
+      status: table.status,
+      refundState,
+      tab: table.tab,
+      itemCount: table.itemCount,
+      kitchen: table.kitchen,
+      kitchenUnknown,
+    });
 
   return (
     <Card
@@ -113,7 +133,7 @@ export function TableCard({
       interactive
       textured
       style={card}
-      aria-label={aria}
+      aria-label={hint ? `${aria} · ${ts(lang, "floor.card.clearHint")}` : aria}
       data-session-id={table.sessionId}
       className="floor-card"
       aria-current={selected ? "true" : undefined}
@@ -280,6 +300,12 @@ export function TableCard({
           <RelativeTime iso={table.openedAt} serverNow={serverNow} />
         </span>
       </div>
+      {hint && (
+        <p className="floor-card-hint">
+          <Icon name="check" size={14} strokeWidth={2} />
+          <Chrome lang={lang} k="floor.card.clearHint" />
+        </p>
+      )}
     </Card>
   );
 }
