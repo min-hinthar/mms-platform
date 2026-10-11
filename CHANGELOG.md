@@ -4,7 +4,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra)
+### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra, #343)
 
 - **The flake:** #340's `build` job (114406642840) counted every test green, then reported "Errors
   1 error" and exited 1. The error was a `TypeError` from jsdom's `dispatchEvent` ("parameter 1 is
