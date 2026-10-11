@@ -26,7 +26,7 @@
  *     (the scan-event ledger, 20260813210000) — and if the shopper removed that line in between, the
  *     view (its own, or the re-read it owes when its own read failed) does not hold the code: absent
  *     means not charged. `afterCharge` applies the same rule to a charge's own view as it lands —
- * *   · …UNLESS A NEWER CHARGE OF THE CODE LANDED SINCE THIS ONE LEFT (Codex P1 on #344). A Browse add
+ *   · …UNLESS A NEWER CHARGE OF THE CODE LANDED SINCE THIS ONE LEFT (Codex P1 on #344). A Browse add
  *     asks neither the classifier nor the queue, so the shopper can add the jar again while the
  *     replay's empty view is still in flight; that newer charge lands first (its record, perhaps its
  *     only proof) and the older view, read before it, would drop it — leaving the list, the queue and
