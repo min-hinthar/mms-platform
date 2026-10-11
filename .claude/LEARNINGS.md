@@ -3938,3 +3938,17 @@ pass found that position unpinned; a mutant now moves it). It runs last under th
 that leaves `vi.useFakeTimers()` on hangs the hook to its 10 s timeout. A restore queued on a FAKE
 clock is out of its reach: dropped if that clock is uninstalled before anything advances it, but
 fired by the next case to advance a clock that outlives its case (a `beforeAll` install).
+
+## #259
+
+**A file-wide mock of a gate makes the component's CONSULT of that gate deletable with every case green
+— pin the consult in a second, unmocked suite (2026-10-11, PD12 · the blind pass on #345).**
+`KdsBoard.test.tsx` mocks `staffGuideShips: () => true` for the whole file to exercise the held kitchen
+guide's host, so deleting `staffGuideShips("kitchen") ? … : null` in `KdsBoard.tsx` changed nothing any
+case could see — the held guide would have shipped. The fix is a sibling suite
+(`KdsBoard.guide-gate.test.tsx`) that mounts the REAL component with the REAL gate and asks the shipped
+question (guide shown ⇔ the station ships), plus a mutant on the consult owned by THAT suite. Two
+traps from the same pass: a rescue for a new surface must never re-shape a shipped control to land on
+it (a `tabIndex={-1}` added to the live ticket grid changed the board for every cook) — follow the
+screen's own focus rule instead; and a liveness matcher must be aimed red-first at the literal-dead
+shapes too (`{false && <X/>}` satisfied a parse-only refusal).

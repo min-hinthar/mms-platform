@@ -14,6 +14,8 @@ import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
 import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
 import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { staffGuideKey } from "@/lib/staff-guide";
+import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -178,20 +180,22 @@ describe("HelpButton", () => {
     // StrictMode mounts, unmounts and re-mounts every effect; a mark written by the DISCARDED first
     // pass is read as "seen" by the live one and the first morning shows nothing. Dev runs
     // StrictMode (`reactStrictMode: true`), so that is where the promise would silently break.
+    // (The kitchen: its step guide is held, so its cards still open themselves — PD12.)
     render(
       <StrictMode>
-        <HelpButton lang="en" screen="counter" />
+        <HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />
       </StrictMode>,
     );
     await screen.findByRole("dialog");
-    expect(localStorage.getItem(helpSeenKey("counter"))).toBe("1");
+    expect(localStorage.getItem(helpSeenKey("kitchen"))).toBe("1");
   });
 
   it("pages the cards one at a time, moves focus to each, and Got it closes on the last", async () => {
     seen("counter");
     render(<HelpButton lang="en" screen="counter" />);
     fireEvent.click(circle());
-    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    // PD12 — on the counter the shipped cards sit behind the guide, under the second row.
+    fireEvent.click(await screen.findByRole("button", { name: /More on this screen/ }));
     const lede = () => document.getElementById("help-lede")!;
     await waitFor(() => expect(lede().textContent).toMatch(/Tap Walk-up/));
     expect(document.activeElement).toBe(lede());
@@ -219,7 +223,7 @@ describe("HelpButton", () => {
     seen("counter");
     render(<HelpButton lang="en" screen="counter" />);
     fireEvent.click(circle());
-    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /More on this screen/ }));
     await screen.findByText(/Step 1 of/);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText(/Step 2 of/);
@@ -559,13 +563,160 @@ describe("HelpButton", () => {
   });
 });
 
+/**
+ * PD12 — the step guide behind the first row (m12 decision 6; the scoped unfreeze). On a screen
+ * whose guide has shipped (the counter): row 1 opens the five-step guide IN this sheet, row 2 keeps
+ * the shipped cards whole, and the cards' device-keyed auto-open is retired (the guide's own first
+ * run, in place, replaces it — never this modal on top of it, the critic's B5). A station whose guide
+ * is held (the kitchen, until the board draws the stop card) keeps all of it as shipped.
+ */
+describe("PD12 — the step guide behind Help's first row", () => {
+  it("the counter's cards never open themselves any more — and the device mark is never written", async () => {
+    render(<HelpButton lang="en" screen="counter" />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem(helpSeenKey("counter"))).toBeNull();
+  });
+
+  it("row 1 opens the five-step guide in this sheet: its title takes focus, no Close of its own, Got it closes", async () => {
+    let clock = 5_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    const d = dialog();
+    const guide = await within(d).findByRole("group", { name: STAFF["floor.strip.label"].en });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(guide).getByRole("heading", { level: 3 })),
+    );
+    expect(within(guide).queryByRole("button", { name: "Close" })).toBeNull();
+    expect(
+      within(within(guide).getByRole("group", { name: "Steps" })).getAllByRole("button"),
+    ).toHaveLength(5);
+    for (let n = 2; n <= 5; n++) {
+      clock += 1000;
+      fireEvent.click(within(guide).getByRole("button", { name: "Next" }));
+      await waitFor(() =>
+        expect(guide.querySelector(".staff-guide-step")?.textContent).toBe(`Step ${n} of 5`),
+      );
+    }
+    clock += 1000;
+    fireEvent.click(within(guide).getByRole("button", { name: "Got it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    vi.restoreAllMocks();
+  });
+
+  it("Codex r1 on #345 — a guide shown from Help is SEEN for this person: a later quiet open never offers it again, and Help still always opens it", async () => {
+    const STAFF_ID = "3a4b5c6d-7e8f-4091-a2b3-c4d5e6f7a8b9";
+    const key = staffGuideKey("counter", STAFF_ID);
+    // The first open was busy (a table asking to pay) or narrow: the first run marked NOTHING.
+    expect(localStorage.getItem(key)).toBeNull();
+    const first = render(<HelpButton lang="en" screen="counter" staffId={STAFF_ID} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en });
+    // Shown from Help → recorded under the SAME key the in-place first run reads.
+    // MUTATION: drop the Help path's mark — the key stays unset and the host below offers it; red.
+    expect(localStorage.getItem(key)).toBe("1");
+    first.unmount();
+    // A later QUIET open (the wide counter, nobody asking): the hosts' own first-run seam.
+    function QuietHost() {
+      const g = useGuideFirstRun(key, () => true);
+      return g.shown ? <p>offered again</p> : null;
+    }
+    render(<QuietHost />);
+    await act(async () => {});
+    expect(screen.queryByText("offered again")).toBeNull();
+    // …and an explicit Help replay still opens it, every time.
+    render(<HelpButton lang="en" screen="counter" staffId={STAFF_ID} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    expect(
+      await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en }),
+    ).not.toBeNull();
+  });
+
+  it("a Help open with no signed-in person marks nothing — and still opens", async () => {
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en });
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
+  });
+
+  it("a staff id no key can carry never throws: the guide still opens and nothing is written", async () => {
+    // `staff.user_id` is a uuid primary key, so this never arrives — but the open must not depend on it.
+    render(<HelpButton lang="en" screen="counter" staffId="bad id:" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    expect(
+      await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en }),
+    ).not.toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
+  });
+
+  it("the guide's step 1 Back returns to the rows, like the cards' first Back — focus kept in the sheet", async () => {
+    let clock = 5_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    const guide = await within(dialog()).findByRole("group", {
+      name: STAFF["floor.strip.label"].en,
+    });
+    clock += 1000;
+    fireEvent.click(within(guide).getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(screen.queryByRole("group", { name: STAFF["floor.strip.label"].en })).toBeNull();
+    expect(dialog().closest(".mms-sheet")!.contains(document.activeElement)).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("row 2 keeps every shipped card, whole", async () => {
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    const more = await screen.findByRole("button", { name: /More on this screen/ });
+    expect(more.textContent).toContain(`${helpCardCount("counter")} cards, with pictures`);
+    fireEvent.click(more);
+    await waitFor(() =>
+      expect(screen.getByText(`Step 1 of ${helpCardCount("counter")}`)).not.toBeNull(),
+    );
+  });
+
+  it("row 1 promises the auto-open only where the pane can host it", async () => {
+    stubMatchMedia(true);
+    const { unmount } = render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    const how = await screen.findByRole("button", { name: /How this screen works/ });
+    expect(how.textContent).toContain("5 things, with pictures — it opens itself the first time");
+    unmount();
+    delete (window as { matchMedia?: unknown }).matchMedia;
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    const plain = await screen.findByRole("button", { name: /How this screen works/ });
+    expect(plain.textContent).toContain("5 things, with pictures");
+    expect(plain.textContent).not.toContain("opens itself");
+  });
+
+  it("the kitchen's guide is held: row 1 still opens its cards, and there is no second row", async () => {
+    seen("kitchen");
+    render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await waitFor(() => expect(screen.getByText(STAFF["help.how.kitchen.1"].en)).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /More on this screen/ })).toBeNull();
+  });
+});
+
 describe("M76 — the help sheet through its exit", () => {
   it("closing keeps the card on screen while the sheet slides; the reset rides the NEXT open", async () => {
     seen("counter");
     stubComputedStyle();
     render(<HelpButton lang="en" screen="counter" />);
     fireEvent.click(circle());
-    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /More on this screen/ }));
     await waitFor(() =>
       expect(document.getElementById("help-lede")!.textContent).toMatch(/Tap Walk-up/),
     );
@@ -827,11 +978,12 @@ describe("P2e — the Help sheet's Language row", () => {
     seen("counter");
     const { rerender } = mountLang("en");
     await landEnglishToBurmese();
+    // PD12 — on the counter, How opens the step guide (in this same sheet).
     fireEvent.click(screen.getByRole("button", { name: /How this screen works/ }));
-    await waitFor(() => expect(document.querySelector(".help-how")).not.toBeNull());
+    await waitFor(() => expect(dialog().querySelector(".staff-guide")).not.toBeNull());
     await boardCatchesUp(rerender);
     expect(screen.queryByRole("dialog")).not.toBeNull();
-    expect(document.querySelector(".help-how")).not.toBeNull();
+    expect(dialog().querySelector(".staff-guide")).not.toBeNull();
   });
 
   it("review C3 — landed, then Back → Something's wrong → Send: never closed mid-report, and the outcome is seen", async () => {

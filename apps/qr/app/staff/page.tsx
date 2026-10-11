@@ -32,6 +32,7 @@ import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
+import { counterAskingAtMount } from "@/lib/staff-guide";
 
 export const dynamic = "force-dynamic";
 
@@ -147,7 +148,11 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       // P7·3 — the Help door rides the counter's bar, not the doors': the doors explain themselves
       // (two named tiles), and a help circle beside a static mark would be a control that leads
       // somewhere from a screen that has nothing to explain.
-      help={home.view === "floor" ? <HelpButton lang={lang} screen="counter" /> : undefined}
+      help={
+        home.view === "floor" ? (
+          <HelpButton lang={lang} screen="counter" staffId={caller.staffId} />
+        ) : undefined
+      }
       lock={hasPin}
       // Phase 2b · feedback — the counter's status slot folds its two boards (the provider below
       // is the bar's parent there); the doors have no feed, so no slot — the offline row instead.
@@ -249,7 +254,15 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             thumb-zone Undo pill. Phase 2d · split — the column IS the split (`CounterSplit`): the
             zones in its main column, the selected table's pane beside them on a tablet. One tree
             around the boards (the bell's seam: no second provider, no remount on rotation). */}
-          <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
+          <CounterSplit
+            terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
+            // PD12 — the counter guide's first run, keyed to THIS person, and whether a table was
+            // already asking to pay as the floor was read (then this open is not a quiet one).
+            guide={{
+              staffId: caller.staffId,
+              askingAtMount: counterAskingAtMount(floor.snapshot.tables),
+            }}
+          >
             {greeting}
             {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
             <CounterZoneStrip lang={lang} zones={zones} />

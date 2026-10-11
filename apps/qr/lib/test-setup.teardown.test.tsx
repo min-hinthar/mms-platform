@@ -54,7 +54,7 @@ describe("a sheet's close-restore fires inside the case that unmounted it", () =
 
   it("…and its close-restore has run before the next case begins", () => {
     // MUTATION (setup-teardown/focus-scope-drain): the setup's drain is gone — the first case's timer
-    // is still queued here, and in the file's LAST case it outlives jsdom (the #340 flake); red.
+    // is still queued here (red), and in the file's LAST case it can outlive jsdom (the #340 flake).
     expect(restoredFirst).toHaveBeenCalledTimes(1);
   });
 });
@@ -95,8 +95,10 @@ describe("a case that leaves vi.useFakeTimers() on", () => {
 /**
  * The drain's documented LIMIT (T54), shown rather than asserted in prose: a fake clock installed in
  * a `beforeAll` outlives the case that queued a restore on it, so the restore crosses into the next
- * case that advances that clock. The drain waits on the real clock and cannot reach it; no suite in
- * apps/qr has this shape — this fixture is the only one.
+ * case that advances that clock. The drain waits on the real clock and cannot reach it; a sweep on
+ * 2026-10-11 found no other suite in apps/qr with this shape (a snapshot, not a guard).
+ * ⚠️ THIS DESCRIBE PINS A LIMIT, NOT A REQUIREMENT: if the drain is ever taught to flush a fake clock,
+ * rewrite it to assert the restore lands in case N — its red then is the fix working, not a regression.
  */
 describe("a fake clock that outlives its case", () => {
   beforeAll(() => {

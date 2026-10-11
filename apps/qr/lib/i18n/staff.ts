@@ -2765,6 +2765,72 @@ export const STAFF = {
   },
   "help.a11y.rows": { en: "Help topics", my: "အကူအညီ ခေါင်းစဉ်များ" },
   "help.a11y.pager": { en: "Steps", my: "အဆင့်များ" },
+  // ── PD12 · kitchen-ops (m12 "Point and Call") — the staff step guides ──────────────────────────
+  // Each step's TITLE is a shipped control key (`lib/staff-guide.ts`); these are the step SENTENCES
+  // the shipped help lines do not already say, and the Help door's second row. Every MY value below
+  // is a Claude-authored DRAFT for the native sitting (OPEN-ITEMS `K15 · kitchen-ops`, PD12), built
+  // from shipped words where one exists — each names its grounding. Every sentence was written
+  // against the control it teaches, and says only what that control does.
+  // When the guide is in the pane (≥64em) it opens itself; on a narrower counter it never does, so
+  // the row's sub-line there drops the promise (`staffGuideOpensItself`). Grounded: the first half of
+  // `help.row.how.sub`, verbatim in both tongues.
+  "help.row.how.subPlain": { en: "{n} things, with pictures", my: "{n} ချက် · ပုံနဲ့" },
+  // The second row: the shipped cards, whole, behind the guide (m12 change 3 · decision 6). ကတ် is
+  // the help card here (the board's own word for a card); နောက်ထပ် "further".
+  "help.row.more": { en: "More on this screen", my: "ဒီစခရင်အကြောင်း နောက်ထပ်" },
+  "help.row.more.sub": { en: "{n} cards, with pictures", my: "ကတ် {n} ခု · ပုံနဲ့" },
+  // Counter step 2 — the hollow ring. Grounded: မီးဖိုချောင် (kds.title), ဧည့်သည် (help.how.counter.3).
+  "help.guide.counter.ring": {
+    en: "A hollow ring: the kitchen hasn’t got these dishes yet. A guest may show you the same ring on their phone.",
+    my: "အဝိုင်းအလွတ် — ဒီဟင်းတွေ မီးဖိုချောင်ကို မရောက်သေးပါ။ ဧည့်သည်က သူ့ဖုန်းပေါ်က ဒီအဝိုင်းကို ပြနိုင်ပါတယ်။",
+  },
+  // Counter step 3 — the one filled tile and the pane's ask pass. Grounded: ငွေရှင်း (floor.status.*),
+  // စုစုပေါင်း (floor.settled.row.total), အကွက် (help.how.counter.5).
+  "help.guide.counter.ask": {
+    en: "A filled tile is a table asking to pay — the only tile that ever fills. Tap it to see their ask, with the same total their phone shows.",
+    my: "အရောင်ဖြည့်ထားတဲ့ အကွက်က ငွေရှင်းချင်တဲ့ စားပွဲပါ — အရောင်ဖြည့်တဲ့ အကွက် ဒီတစ်မျိုးပဲ ရှိပါတယ်။ နှိပ်ရင် သူတို့ဖုန်းပေါ်က စုစုပေါင်း အတိုင်း မြင်ရပါမယ်။",
+  },
+  // Counter step 4 — the till tray. No "in the corner": the readout sits in the band's money corner
+  // only from the till's breakpoint (85.375em); the single-column sheet below it draws it above the
+  // actions, and the guide shows from 64em. "Take" is the door's own verb (settle.cash.settleAmount, ရှင်း);
+  // the change is အကြွေ (settle.cash.changeLabel); "nothing is taken" is settle.cash.cancelClean's
+  // ဘာငွေမှ မယူရသေးပါ.
+  "help.guide.counter.cash": {
+    en: "Tap the note they gave you, and the change to hand back appears — nothing is taken until you tap Take.",
+    my: "ပေးတဲ့ ငွေစက္ကူကို နှိပ်ရင် ပြန်အမ်းရမယ့် အကြွေ ပေါ်လာပါမယ် — ရှင်း ကို မနှိပ်မချင်း ဘာငွေမှ မယူရသေးပါ။",
+  },
+  // Counter step 5 — the clear window. {n} is the window's seconds (`CLEAR_UNDO_MS`), never typed.
+  // Grounded: ထွက်သွားရင် ရှင်းပါ (floor.card.clearHint), ပြန်ဖျက် (kds.undo), နောက်ဧည့်သည် ဖွင့်
+  // (settle.clear.seatNext), {n} စက္ကန့်အတွင်း (help.how.kitchen.2).
+  "help.guide.counter.clear": {
+    en: "Clear a table once they’ve left. For {n} seconds, Undo waits right where you tapped — Seat next party skips the wait.",
+    my: "ဧည့်သည် ထွက်သွားမှ စားပွဲ ရှင်းပါ။ {n} စက္ကန့်အတွင်း နှိပ်ခဲ့တဲ့ နေရာမှာပဲ ပြန်ဖျက် ရှိနေပါမယ် — နောက်ဧည့်သည် ဖွင့် က မစောင့်ဘဲ ဆက်သွားပါတယ်။",
+  },
+  // Kitchen step 1 — one Send, one card (m12 A4: the shared stage words, and the TV clause now that
+  // PD9's wall is shipped). Grounded: စလုပ် · ပြီးပြီ (kds.line.start · .done), အားလုံး ပြီးပြီ
+  // (kds.bump), ချက်နေဆဲ (kds.line.cooking), ထုတ်ပြီး (kds.served.chip), တီဗီ ဘုတ် (kds.nav.wall).
+  "help.guide.kitchen.card": {
+    en: "Every Send arrives as its own card — drinks too. Start makes a dish Cooking; Done or All done makes it Served — on guests’ phones and the TV board too.",
+    my: "ပို့တိုင်း ကတ်တစ်ကတ်စီ ရောက်လာပါတယ် — သောက်စရာလည်း ပါပါတယ်။ စလုပ် ကို နှိပ်ရင် ချက်နေဆဲ၊ ပြီးပြီ ဒါမှမဟုတ် အားလုံး ပြီးပြီ ကို နှိပ်ရင် ထုတ်ပြီး ဖြစ်ပါတယ် — ဧည့်သည်ဖုန်းတွေနဲ့ တီဗီ ဘုတ်ပေါ်မှာလည်း အတူတူပါပဲ။",
+  },
+  // Kitchen step 2 — the round stub. Grounded: အားလုံး ပြီးပြီ (kds.bump); လက်မှတ်ပိုင်း "the stub".
+  "help.guide.kitchen.round": {
+    en: "The same table sent again. The new card wears this stub, and its All done serves only its own dishes.",
+    my: "စားပွဲတစ်ခုတည်းက ထပ်ပို့တာပါ။ ကတ်အသစ်မှာ ဒီလက်မှတ်ပိုင်း ပါပါတယ် — သူ့ရဲ့ အားလုံး ပြီးပြီ က သူ့ဟင်းတွေကိုပဲ ထုတ်ပါတယ်။",
+  },
+  // Kitchen step 4 — Late. No minutes: the thresholds are configurable (m12 change 5). "Turns red and
+  // says Late" holds under reduced motion, where the pulse stops (change 4). Grounded: နောက်ကျ
+  // (kds.stat.late).
+  "help.guide.kitchen.late": {
+    en: "A late card turns red and says Late — the loudest thing on the board. The Late count at the top counts only these.",
+    my: "နောက်ကျတဲ့ ကတ်က အနီရောင် ပြောင်းပြီး နောက်ကျ လို့ ပြပါတယ် — ဘုတ်ပေါ်မှာ အထင်ရှားဆုံးပါ။ အပေါ်က နောက်ကျ အရေအတွက်က ဒီကတ်တွေကိုပဲ ရေတွက်ပါတယ်။",
+  },
+  // Kitchen step 5 — the stop card (held with the kitchen guide until the board draws it: M270 (1)).
+  // Grounded: ချက်တာ ရပ် (kds.stop), ရပြီ (help.done, the card's own button).
+  "help.guide.kitchen.stop": {
+    en: "When the counter clears a table that still has food on your board, its card turns into this. Stop those dishes, then tap Got it — it stays until you do.",
+    my: "ဘုတ်ပေါ်မှာ ဟင်းကျန်နေတဲ့ စားပွဲကို ကောင်တာက ရှင်းလိုက်ရင် အဲဒီကတ်က ဒီလို ပြောင်းသွားပါတယ်။ အဲဒီဟင်းတွေ ချက်တာ ရပ်ပြီး ရပြီ ကို နှိပ်ပါ — မနှိပ်မချင်း ကျန်နေပါမယ်။",
+  },
 
   // ── P7·4 — "Something's wrong": the report row in the Help sheet ─────────────────────────────
   // Every MY value a Claude-authored draft pending K15. The row, the field, what is sent with it,

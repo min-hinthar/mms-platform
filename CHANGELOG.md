@@ -33,7 +33,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `setup-teardown/drain-after-resets`, moves the drain and is caught. The pass also found the
   recorded mechanism ("no macrotask before the teardown") contradicted by its own "usually goes the
   other way", and "a faked restore can never fire" false for a clock that outlives its case. Both
-  now say only what was measured, and the fixture shows the fake-clock limit in-runner.
+  now say only what was measured or name their source (vitest 4.0.17's `useFakeTimers` re-install), and the fixture shows the `beforeAll` fake-clock limit in-runner.
+
+### PD12 — the staff step guides: five steps per station, in the screen's quiet space, once per person (2026-10-11)
+
+- **The counter guide ships** (m12 "Point and Call"; PATH_DESIGN decision 12). The first time a
+  signed-in person opens the counter on a tablet — when the pane is a column beside the floor, no table
+  is open (the URL included) and none is asking to pay — five steps stand where "Pick a table" stands,
+  never a modal: the floor at a glance, the hollow ring (Not sent yet), the one filled tile and the
+  pane's ask pass, the till tray's Take cash, the clear window and its Undo. Each title is the control's
+  own key; each picture is the real control (`FloorKitchenLine`, `CounterPass`, the strip's tiles, the
+  tray's notes, the clear window), inert and cropped; the only motion is the till's own pop on the
+  change, once. Work wins: a table tap replaces it for good. Close · ပိတ် top-right; one foot on every
+  step; every control arms 400 ms after the guide shows and after every step change, and a press that
+  began before the arm never counts (Codex round 3).
+- **The kitchen guide is built and HELD** until the board draws the stop card its fifth step teaches
+  (OPEN-ITEMS M270 (1)): its host on the empty board, its five pictures (the arrival flash, the round
+  stub, D3's two words in their places — ပြန်ဖျက် on the cream pill, ပြန်ယူ on the rail — Late drawn
+  still, the real `KdsStopCard`) and its keys are pinned; the flip is `STAFF_GUIDE_SHIPS.kitchen`, which
+  a parsed test refuses while `KdsBoard` renders no `<KdsStopCard>`.
+- **The ONE seen-key helper** (`lib/guide-seen.ts` + `lib/hooks/useGuideFirstRun.ts`) PD11's diner
+  guide will import unchanged: `mms.guide.seen:<surface>:<rev>[:<who>]`, marked the moment it shows, a
+  busy open marks nothing, a refused store never auto-shows.
+- **Help** (`HelpButton`, the scoped unfreeze): on the counter, row 1 "How this screen works" opens the
+  guide in the sheet; NEW row 2 "More on this screen" keeps all six shipped cards; the cards'
+  device-keyed auto-open retires there. The kitchen's Help door is unchanged. A guide opened from Help
+  is recorded as seen under the person's own key (Codex round 1 on #345), so a later quiet open never
+  offers it again after a busy or narrow first open.
+- **The blind pass on #345 (REJECT), fixed in one push.** The live board's grid keeps the catch-all
+  `main` shipped (no `tabIndex`; focus that was in the guide goes to the heading, a freeze included);
+  a NEW suite, `KdsBoard.guide-gate.test.tsx`, mounts the board with the REAL gate, so dropping the
+  board's consult of it reddens; the ships refusal and the rail-label guard count only a LIVE parsed
+  element (the literal-dead shapes, comments and strings refused, red-first rows committed); the
+  counter pictures crop ONE floor (`guideFloor`). The hosts key through `staffGuideKeyFor` (an id that
+  is no key segment is no guide, never a render-time throw); a tap before the first commit stamps the
+  arm's clock is refused; the Help sheet's guide has a step 1 Back to the rows; the page's
+  `askingAtMount` wiring is parsed.
+- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 37
+  `pd12/*` mutants; DESIGN-LANGUAGE §36 (the step guide).
 
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
 

@@ -10,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import Link from "next/link";
-import { Icon, KitchenTrack, type IconName } from "@mms/ui";
+import { Icon, KitchenTrack } from "@mms/ui";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import {
   createFlipGuard,
@@ -20,7 +20,7 @@ import {
   tableStrip,
   type FlipGuard,
 } from "@/lib/floor-rows";
-import { floorTone, type FloorTone } from "@/lib/floor-tone";
+import { FLOOR_TONE_GLYPH, floorTone } from "@/lib/floor-tone";
 import { al } from "@/lib/staff-labels";
 import { tf } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -65,14 +65,8 @@ import { ReloadButton } from "./ReloadOffer";
  * browser reload): the strip offers the reload at its head, under that region, until the late
  * answer lands.
  */
-const GLYPH: Record<FloorTone, IconName> = {
-  ask: "receipt",
-  inflight: "card",
-  live: "cart",
-  rest: "people",
-  done: "check",
-  returned: "undo",
-};
+/** The tone's glyph — ONE map (`lib/floor-tone.ts`), shared with the guide's strip picture (PD12). */
+const GLYPH = FLOOR_TONE_GLYPH;
 
 export function TableStrip({
   registry,

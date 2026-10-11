@@ -46,12 +46,17 @@ const REAL_SET_TIMEOUT = globalThis.setTimeout;
  *  - REAL CLOCK: a suite that leaves `vi.useFakeTimers()` on through its hooks would otherwise hang
  *    this hook until the hook timeout (measured: "Hook timed out in 10000ms"). A restore queued while
  *    the clock was faked sits on THAT clock, out of this drain's reach. Uninstalled before anything
- *    advances it — by `vi.useRealTimers()`, or by the next `vi.useFakeTimers()`, which installs a
- *    fresh clock — it is dropped and never fires. A clock that OUTLIVES its case (installed in a
- *    `beforeAll`, or left on into the next case) keeps it, and the next case to advance that clock
- *    fires it there (measured); a `shouldAdvanceTime` clock left running to the end of a file would
- *    tick it after the teardown. Both shapes are out of reach; no suite has either, past the pinning
- *    file's own fixture (T54).
+ *    advances it — by `vi.useRealTimers()`, or by the next `vi.useFakeTimers()` (from vitest 4.0.17's
+ *    source, not measured: `useFakeTimers` uninstalls a live clock before installing a fresh one) — it
+ *    is dropped and never fires. A clock installed in a `beforeAll` OUTLIVES its case and keeps it,
+ *    and the next case to advance that clock fires it there (measured: the pinning file's fixture); a
+ *    `shouldAdvanceTime` clock left running to the end of a file would tick it after the teardown
+ *    (not measured). Both shapes are out of reach. A sweep on 2026-10-11 found neither in apps/qr past
+ *    that fixture — a snapshot, not a guard (T54).
+ *  - ONE MACROTASK: the drain lets a restore's SYNCHRONOUS work land in its own case. A restore whose
+ *    handler defers again (its own `setTimeout`, a frame) queues behind the drain and lands after the
+ *    resets — out of reach too; no `onCloseAutoFocus` handler in apps/qr defers (2026-10-11: the
+ *    three — Checkout's two, TableBindSheet's — are synchronous).
  *  - jsdom only: a node suite mounts nothing, so it pays nothing.
  *
  * Pinned by `lib/test-setup.teardown.test.tsx`.
