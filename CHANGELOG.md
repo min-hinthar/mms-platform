@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The path-design wave's handoff (2026-10-11, docs only)
+
+- **HANDOFF's new top block records the wave as built.** It holds the owner's directives and what the
+  2026-10-09 delegation covered, the merged PRs by moment, the eight prod migrations in apply order,
+  the decisions for the owner to ratify, the open PRs and branches, and the next tasks. The 2026-10-09
+  in-flight block moves verbatim to HANDOFF_ARCHIVE. CLAUDE.md's "Where things stand" points there and
+  carries the sql lane's 2026-10-11 re-measure. OPEN-ITEMS adds M276 (M182's invoker clear relies on
+  the hosted default privileges) and T55 (`verify-mode-authority` toward its 15-minute timeout).
+  LEARNINGS adds #266–#269.
+
 ### M270 (1) — the kitchen's "Table N left — stop cooking" card, and the kitchen guide ships (2026-10-11)
 
 - **A cleared table never vanishes from the kitchen board** (PATH_DESIGN correction 12; m7 decision 20;

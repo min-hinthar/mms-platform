@@ -15,12 +15,17 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go, the staff console under `/staff` — register, kitchen and expo, tables, approvals, team, tips — the kiosk and the order-ready board) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
-## Where things stand (2026-10-08)
+## Where things stand (2026-10-11)
 
-Shipped the polish plan's Phase 0–2 and Phase 3a–3d's receipt stack (#299–#315; `ROADMAP.md`) — 3d·counter's cash-sheet re-host (K39 · K44), 3e and 3f stay open — then **#319**
-(the path-design record `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the
-design-prototyping standard), **#320** (the merge gate fits in 30 minutes) and **#324** (the flaky-mutant
-fix). **Next:** build the path designs in the record's Sequencing order — `docs/HANDOFF.md`'s top block.
+Shipped the polish plan's Phase 0–2 and Phase 3a–3d (#299–#315; `ROADMAP.md`; 3e and 3f stay open),
+then **#319** (the path-design record `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the
+design-prototyping standard), **#320** (the merge gate fits in 30 minutes) and **#324** (the
+flaky-mutant fix). **The path-design wave is built (2026-10-08 to 10-11):** PD1–PD10 and PD12 merged
+with their follow-ups (#326–#347), PD11 is #348, and PD13 stays gated. The wave's eight prod migrations
+were applied one file at a time under the owner's 2026-10-09 delegation ("I trust you to make all
+decisions, apply migrations, and merge all"). **Next:** `docs/HANDOFF.md`'s top block. It lists the
+merged PRs, the migrations in order, the decisions for the owner to ratify, and the next tasks: the
+registry sweep, the PD10 flip's conditions, and M276 · T55.
 
 - **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
   with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and
@@ -30,7 +35,9 @@ fix). **Next:** build the path designs in the record's Sequencing order — `doc
   A draft's `verify-slice` is RED on purpose ("not run — DRAFT"); a docs-only PR's is green ("not run —
   docs-only lane"). Measured 2026-10-08: shards 4.1–10.5 min (two PR runs), the aggregate ~10.5–11 min
   wall after `changes`, `build` ~6 min, `migrations-check + types-fresh` 11.1–13.3 min (the critical path
-  whenever the sql lane runs).
+  whenever the sql lane runs). Re-measured 2026-10-11 on two pushes to main (`bd9ea46`, `f95f8cc`):
+  `migrations-check + types-fresh` took 22 min 21 s and 23 min 28 s, the longest job both times, and its
+  mode-authority step took 9 min 20 s and 10 min 23 s of that (OPEN-ITEMS T55).
 - **GitHub enforces nothing on `main` yet.** The repo is public again (the owner's pick, 2026-10-08);
   measured ~07:20Z that day with an admin-scoped token: `GET /branches/main` → `protected:false`,
   `/branches/main/protection` → 404, `/rulesets` → `[]`, `/rules/branches/main` → `[]`. The owner
