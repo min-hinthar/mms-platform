@@ -2685,3 +2685,31 @@ and `GuidePicture`. What a first-run guide may and may not be:
   change moves focus to the new title. Every control arms after the guide shows AND after every step
   change (`GUIDE_ARM_MS`, ≥ the 350 ms gesture guard), and a press that began before the arm never
   counts — a double-tap on step 4's Next never finishes the guide unseen.
+- **Work that replaces a guide inherits its arm** (M270 (1), the kitchen flip): the card that lands
+  where the guide stood is under a finger already on its way to Next, so the screen's own controls
+  refuse for `GUIDE_ARM_MS` from the moment work replaced it (`guideReplacedHeld`) — never an All done
+  the person did not aim at, and never a "Got it", which has no undo. Drawn as nothing, like the arm
+  itself; a guide the person closed holds nothing.
+
+## 37 · A table that left: the card turns face in its slot, until Got it (M270 (1) · m7 · m5 B1)
+
+Decided in `lib/kds-stop.ts` (what "Got it" answered, which cards draw, where each stands) and read by
+`lib/kitchen-stop-read.ts` from the durable stop record a clear writes; drawn by `KdsStopCard`.
+
+- **It never vanishes.** A cleared table's cooking Sends leave the live read at once; each becomes a
+  stop card, read from the record, and stays until a person taps "Got it" — no timer. A stop read that
+  does not answer keeps the cards last drawn: a card never leaves without its acknowledgement, and the
+  board never reads a failed read as "none".
+- **In the slot the ticket stood in.** One card per Send (the Send's own key), placed among the live
+  tickets by its own stamp — the card turns face where it was and nothing around it moves; never shoved
+  to the top, never behind the held cards. Every station's view draws it: a table leaving is the whole
+  kitchen's news.
+- **ALARM without motion, and nothing else.** The Late tint with no pulse, struck rows, the one warn
+  word, "Got it" in the bump's slot — no flash, no chime, no stub, no clock. It is not Open and not Late
+  (the head counts tickets), and the region never says "All clear" while one stands; a new one is said
+  once in the ONE region (the alarm a screen reader hears, since nothing moves or sounds).
+- **"Got it" is optimistic and acknowledges the CLEAR.** Every card of that clear leaves at the tap;
+  another tablet's acknowledgement (`already`) is the kitchen having it, never a failure; a refusal, a
+  throw or a write still out brings the cards back to the confirmed state and a read decides. Focus that
+  was on it goes to the board's heading. The slip on the counter says "tells the kitchen to stop" only
+  when the clear will stop a dish the kitchen holds — the promise and the card are one fact.

@@ -4,6 +4,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M270 (1) — the kitchen's "Table N left — stop cooking" card, and the kitchen guide ships (2026-10-11)
+
+- **A cleared table never vanishes from the kitchen board** (PATH_DESIGN correction 12; m7 decision 20;
+  m5 B1). The board reads the durable stop record PD7's clear writes (`qr_table_clears.stop_line_ids`):
+  each Send that was still cooking turns into a `KdsStopCard` in the slot its ticket stood in — the Late
+  tint without the pulse, its dishes struck, the warn word — on every station's view, until a cook taps
+  "Got it · ရပြီ" (`mms_ack_table_clear_stop`, acknowledged as the signed-in person). No timer. The read
+  (`lib/kitchen-stop-read.ts`) takes the open records newest first, capped, refusing a record with
+  nothing stopped in the SQL before the cap, and fails soft: a failed or late read keeps the cards the
+  board last drew, and the queue is answered regardless.
+- **"Got it" is optimistic** (`lib/kds-stop.ts`): every card of that clear leaves at the tap; another
+  tablet's acknowledgement is not a failure; a refusal, a throw or a write still out brings the cards
+  back and the board re-reads. Focus goes to the board's heading; a new stop card is said once in the
+  board's one region, and the region never says "All clear" while one stands.
+- **The slip says "tells the kitchen to stop"** — only when the clear will stop a dish the kitchen
+  still holds (`clearStopsKitchen`); two keys, K15-HIGH.
+- **The kitchen's step guide ships** (`STAFF_GUIDE_SHIPS.kitchen`, PD12): the board now draws the card
+  its fifth step teaches. Its Help door takes the counter's two rows. Work that replaces the guide holds
+  the board's controls for the guide's arm, so a tap aimed at Next never lands on an All done or a "Got
+  it" (m12 §I).
+- 44 `m270/*` mutants; no migration (M182 made the record and the RPC).
+
 ### PD12 — the staff step guides: five steps per station, in the screen's quiet space, once per person (2026-10-11)
 
 - **The counter guide ships** (m12 "Point and Call"; PATH_DESIGN decision 12). The first time a

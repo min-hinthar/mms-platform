@@ -3929,3 +3929,19 @@ traps from the same pass: a rescue for a new surface must never re-shape a shipp
 it (a `tabIndex={-1}` added to the live ticket grid changed the board for every cook) — follow the
 screen's own focus rule instead; and a liveness matcher must be aimed red-first at the literal-dead
 shapes too (`{false && <X/>}` satisfied a parse-only refusal).
+
+## #262
+
+**Flipping a ship gate turns every mutant that guarded the HELD state into a survivor — re-aim them
+at the gate's consult on a held station, never delete them (2026-10-11, M270 (1) · the kitchen flip).**
+#259's fix pinned `KdsBoard`'s consult of `staffGuideShips` with the REAL gate, which only worked while
+the kitchen was held: once `STAFF_GUIDE_SHIPS.kitchen` is `true`, a board that drops the consult and a
+board that keeps it render the same guide, so `pd12/kds-board/kitchen-gate-dropped` SURVIVES, and
+`pd12/staff-guide/kitchen-ships-without-its-card` (`false → true`) has nothing left to flip. Measure it
+at the flip, not after: `check:mutant-anchors` reports the flipped value STALE, but the consult mutant
+stays anchored and silently stops being killable. The fix keeps the real gate for every case and adds a
+hoisted override that HOLDS one station through it (`vi.hoisted` set → `!held.has(s) &&
+real.staffGuideShips(s)`), so one case can still ask "a held station: nothing offered"; the ships
+mutant re-anchors on the CONSUMER (the board parking its `<KdsStopCard>` in a `false ?` branch). Same
+shape for any feature flag: the day it flips, every test written for its off side needs an off side to
+stand on.

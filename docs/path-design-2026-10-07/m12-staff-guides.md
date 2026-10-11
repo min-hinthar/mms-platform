@@ -1635,3 +1635,32 @@ hook, 17 on the guide model, 3 on `StepGuide`, 2 on `HelpButton`, 1 on the count
 critic's C on the kitchen pictures in the sheet): no browser runs in the agent environment, so the
 crop heights (`.guide-well` 260 / 360 / 300 px) and the Burmese title wraps are computed, not seen —
 the device sitting (#12) is the look, and so is risk 3 (a picture bump reached for).
+
+### I · The kitchen flip (2026-10-11, `claude/feat/m270-kds-stop-card`, M270 (1))
+
+The board now draws the stop card the fifth step teaches (one `KdsStopCard` per Send of every open stop
+record, in its ticket's slot, until "Got it" — m7 §I), so `STAFF_GUIDE_SHIPS.kitchen` is `true`. Taken 1's
+conditions, re-checked at the flip:
+
+- **(a) the parsed refusal** stays armed: `staff-guide.test.ts` still refuses the kitchen's ship while
+  `KdsBoard.tsx` renders no LIVE `<KdsStopCard>` — its mutant (`pd12/staff-guide/kitchen-ships-without-its-card`)
+  now parks the board's card in a `false ?` branch instead of flipping the value back.
+- **(b) a tap aimed at Next meets the work that replaced the guide — settled by arming the replacing
+  card**, not by the Undo bar: the Undo bar cannot recover a stop card's "Got it" (no undo), and that card
+  can be the first work to land. When work (a ticket, a stop card, a freeze, an error) replaces the guide,
+  the board's controls — All done, Cook now, a line, the ⋯, Got it — refuse in the handler for
+  `GUIDE_ARM_MS` from that moment (`guideReplacedHeld`, stamped in the guide-left effect, which React
+  flushes before the next discrete event). Nothing is drawn for the hold, as the guide's own arm draws
+  nothing (Taken 3). The person's own Close / Got it holds nothing: their next tap is meant for the board.
+- **(c) the Help door** takes the counter's two rows: row 1 opens the five-step guide, row 2 keeps the
+  cards, the device-keyed auto-open retires. `HelpButton.test`'s held case inverted; the held path stays
+  (the gate is still consulted) and is pinned on a HELD station through the real gate
+  (`heldStations`), as is `KdsBoard.guide-gate.test.tsx`'s board (the consult's mutant stays caught).
+- **(d) not done** — the kitchen pictures in the 34rem sheet and at the board's text sizes are not looked
+  at: no browser runs in the agent environment. The device sitting (#12) is the look.
+- **The focus rescue relies on no blur** (the brief's worry about `onBlurCapture` not firing on node
+  removal): there is no blur handler — `guideHadFocus` went with the blind pass on #345 — and a guide
+  replaced by work follows the board's catch-all (a landing snapshot) or the guide's own effect (a freeze).
+- **A stop card is work:** `kitchenGuideQuiet`'s `tickets` counts the board's stop cards too, at the
+  mount's claim (a board with only a stop card never offers the guide, and never marks it seen) and on
+  every render after (a stop card landing pushes the guide away, and arms (b)).
