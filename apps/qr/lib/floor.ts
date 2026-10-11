@@ -43,6 +43,8 @@ import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
+import { readPendingApprovalFlags } from "./approvals-read";
+import type { PendingFlag } from "./settle-approvals";
 import type {
   ClearTableResult,
   CounterFloorRow,
@@ -500,12 +502,13 @@ export async function getFloorView(): Promise<FloorPoll> {
     let lastActivity = laterIso(s.created_at ?? nowIso, agg.lastLineAt);
     if (paid) lastActivity = laterIso(lastActivity, paid.latest);
     const tab = (cart?.tab_type ?? "none") as FloorTable["tab"];
+    const status = deriveFloorStatus(cart, agg.count, paid != null);
     return {
       sessionId: s.id,
       label: s.qr_code,
       tableNumber: s.table_number,
       mode: s.mode as FloorTable["mode"],
-      status: deriveFloorStatus(cart, agg.count, paid != null),
+      status,
       partySize: party.length,
       hostName: party.find((m) => m.host || m.seat === s.host_seat)?.name ?? null,
       itemCount: agg.count,
@@ -524,6 +527,9 @@ export async function getFloorView(): Promise<FloorPoll> {
         : foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
             mode: s.mode,
             hostPresent: s.host_seat != null,
+            // P2do (ruling #15) — an ASKED table's every unsent dish is the counter's to count: the
+            // same `status` the card's chip reads, so the ring and "Pay at counter" cannot disagree.
+            counterAsk: status === "counter",
             nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
           }),
     };
@@ -748,6 +754,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   }));
 
   let lines: TableLineView[] = [];
+  // PD8 — the open cart's pending requests, for the flag at Take payment; [] with no cart.
+  let pendingRequests: PendingFlag[] = [];
   let itemCount = 0;
   let runningSubtotalCents = 0;
   let lastLineAt: string | null = null;
@@ -803,17 +811,27 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       menu: "skip",
     });
     // Lines with an OPEN approval request (S2.4) — so the editor shows "approval requested" instead of a
-    // second Void/Comp button. One bounded read on the (non-hot) detail path.
+    // second Void/Comp button. One bounded read on the (non-hot) detail path. PD8: the SAME read now
+    // feeds the flag card at Take payment (`pendingRequests`), through `readPendingApprovalFlags` —
+    // the one read the three settle doors compare their acknowledged ids against.
     const pendingLineIds = new Set<string>();
     {
       // Deliberate degrade (parity with the sold-out read): a failed approvals read re-shows the
-      // Void/Comp buttons on a pending line — the SQL refuses a duplicate request regardless.
-      const { data: pend } = await db
-        .from("mms_approvals")
-        .select("line_id")
-        .eq("cart_id", cart.id)
-        .eq("status", "pending");
-      for (const p of pend ?? []) if (p.line_id) pendingLineIds.add(p.line_id);
+      // Void/Comp buttons on a pending line — the SQL refuses a duplicate request regardless — and
+      // draws no flag: the dish stays charged (the safe state), and the door's own server read
+      // re-warns if a request is really there.
+      const flags = await readPendingApprovalFlags(cart.id);
+      const nameMyByLine = new Map(
+        (items ?? []).map((i) => [
+          i.id,
+          catalogNameMy(i.menu_item_id ? nameMyById.get(i.menu_item_id) : null, i.name),
+        ]),
+      );
+      pendingRequests = (flags ?? []).map((f) => ({
+        ...f,
+        nameMy: f.lineId ? (nameMyByLine.get(f.lineId) ?? null) : null,
+      }));
+      for (const f of pendingRequests) if (f.lineId) pendingLineIds.add(f.lineId);
     }
     lines = (items ?? []).map((i) => ({
       id: i.id,
@@ -845,6 +863,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       // so narrow it the way every other reader does rather than trusting the row's type.
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
       refundedCents: 0, // an OPEN cart line cannot be refunded — it is voided or comped instead
+      // P2do — the line's age, for an asked table's "Not sent yet · 4m ago" (plain text, no rule).
+      createdAt: i.created_at ?? null,
     }));
     // Phase 2a · send — the table's send counts, ONE binding (`kitchenDraftUnitsFromRows` inside),
     // so the Send's "3 items", the add page's "3 not sent" and the diner's Pay gate agree.
@@ -1086,6 +1106,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,
+    // PD8 — the flag card's requests; the doors acknowledge exactly these ids at their tap.
+    pendingRequests,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
     tab,
     tabOpenedAt: cart?.tab_opened_at ?? null,

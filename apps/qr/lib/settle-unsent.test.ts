@@ -104,6 +104,9 @@ vi.mock("./stripe", () => ({
   }),
 }));
 
+// PD8 — the pending-request read behind the acknowledgement compare, mocked by module exactly as the
+// unsent read above: nothing waits here; the compare itself is pinned in staff-cart.test / terminal.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 type Row = { state: string; fulfillment: string; qty: number };
 /** The cart's lines, as the unsent read sees them. */
 let rows: Row[] = [];

@@ -100,6 +100,9 @@ vi.mock("./unsent-read", () => ({
   kitchenDraftUnits: () => Promise.resolve(0),
 }));
 vi.mock("./tax", () => ({ lineTax: () => 0 }));
+// PD8 — the pending-request read behind the settle's acknowledgement compare (main, #333): nothing
+// waits here, as in the other settle suites; the compare itself is pinned in staff-cart.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 vi.mock("./order-lines", () => ({
   insertOrIncLine: () => Promise.resolve(),
   priceItem: () => Promise.resolve({}),

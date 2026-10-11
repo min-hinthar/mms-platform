@@ -19,7 +19,9 @@ export type TableSession = {
   created: boolean;
 };
 
-const DINEIN_KEY = "mms.qr.dinein";
+/** This device's stored session key for a mode — the dine-in join code, or a solo mode's own key. */
+const sessionKey = (mode: string) => `mms.qr.${mode}`;
+const DINEIN_KEY = sessionKey("dinein");
 const NAME_KEY = "mms.name";
 
 /**
@@ -57,7 +59,7 @@ function resolveQrCode(mode: string, code: string | undefined): string | undefin
     if (code) return code;
     return window.localStorage.getItem(DINEIN_KEY) ?? undefined; // undefined → server mints one
   }
-  const key = `mms.qr.${mode}`;
+  const key = sessionKey(mode);
   let v = window.localStorage.getItem(key);
   if (!v) {
     v = `${mode}-${crypto.randomUUID()}`;
@@ -188,6 +190,10 @@ export function useTableSession(
         // Persist the resolved dine-in code so a reload (or a tab without the deep-link param)
         // rejoins the SAME session instead of the host minting a second one.
         if (mode === "dinein") window.localStorage.setItem(DINEIN_KEY, d.joinCode);
+        // PD3 follow-up — a SOLO key comes back changed only when the server re-minted this device's
+        // session under a fresh key (its stored key named a session another identity holds, which
+        // refuses a second member). Adopt it, or every visit would re-mint and the basket would reset.
+        else if (d.joinCode !== qrCode) window.localStorage.setItem(sessionKey(mode), d.joinCode);
         setSession({
           cartId: d.cartId,
           sessionId: d.sessionId,

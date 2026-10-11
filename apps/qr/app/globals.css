@@ -356,7 +356,9 @@ select {
 
 /* Active step on the /track timeline — a soft accent halo (ports the v7.2 `.tk.now` pulse). */
 .mms-track-now {
-  animation: mmsPulse 1.4s var(--ease-out) infinite;
+  /* PD3 (round 3, D4) — at most 3 cycles per step change (under WCAG 2.2.2's 5 s): the dot is keyed
+     on the step, so a new step restarts it; only ALARM loops. */
+  animation: mmsPulse 1.4s var(--ease-out) 3;
 }
 @keyframes mmsPulse {
   0%,
@@ -6487,6 +6489,322 @@ html[data-seen-surface] .mms-stagger {
   line-height: 1.5;
 }
 
+/* ── PD3 · the pickup promise (docs/path-design-2026-10-07/m3-pickup-promise.md) ────────────────────
+   NOW once (the h1), the where-am-I path, the claim ticket, the one question. Tokens only; every
+   animation RM-escorted; the base style of every face is its final frame. */
+.pickup-now {
+  margin: 10px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: 1.08;
+  letter-spacing: var(--track-tight);
+  color: var(--tx);
+}
+.pickup-now-my,
+.pickup-sub-my,
+.pickup-line-my,
+.pickup-btn-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  font-synthesis: none;
+}
+.pickup-now-my {
+  margin-top: 4px;
+  font-size: var(--fs-body);
+  color: var(--t2);
+}
+.pickup-sub {
+  margin: 8px 0 0;
+  font-size: var(--fs-lead);
+  line-height: 1.5;
+  color: var(--t2);
+}
+.pickup-sub-my,
+.pickup-line-my {
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+
+/* The path: four equal stops, a 2.5px rail through the dot centres, the done span flowing in --ok. */
+.pickup-path {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.pickup-rail {
+  position: absolute;
+  top: 8px; /* the 18px dot's centre, less the rail's half-height */
+  left: 12.5%;
+  right: 12.5%;
+  height: 2.5px;
+  background: var(--bd);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pickup-rail-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--ok);
+  transform-origin: left;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.pickup-stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+.pickup-dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2.5px solid var(--bd);
+  background: var(--pg);
+  color: var(--okb);
+  transition:
+    background var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
+}
+.pickup-stop[data-state="done"] .pickup-dot {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.pickup-stop[data-state="now"] .pickup-dot {
+  background: var(--ac);
+  border-color: var(--ac);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ac) 18%, transparent);
+}
+.pickup-stop-label {
+  max-width: 80px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  line-height: 1.22;
+  color: var(--t3);
+}
+.pickup-stop[data-state="done"] .pickup-stop-label {
+  color: var(--t2);
+}
+.pickup-stop[data-state="now"] .pickup-stop-label {
+  color: var(--tx);
+}
+.pickup-stop-clock {
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The claim ticket — the ONE PASS (`CounterPass`, @mms/ui/pass.css) at its holder tier. The paper,
+   the seam, the notches, the stamp, the figure's tier and the TURN are the primitive's; these are the
+   HOST's fields inside its slots, inked with the pass's constant tokens (never a theme token). */
+/* ONE footprint on every face (Codex r1 on #330): the live face and the other face's inert sizer
+   share one grid cell, so the ticket is always the taller face's height and nothing below it moves
+   at the TURN. The sizer is invisible, inert and aria-hidden (CounterPass's guide-picture mode). */
+.claim-ticket {
+  display: grid;
+  margin-top: 20px;
+}
+.claim-ticket > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.claim-ticket > .ui-pass {
+  align-self: stretch;
+}
+.claim-ticket > .ui-pass .ui-pass-paper {
+  height: 100%;
+}
+.claim-sizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+.claim-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--pass-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.claim-countdown-my {
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  font-synthesis: none;
+  color: var(--pass-ink-3);
+}
+.claim-kicker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--pass-ok);
+}
+.claim-kicker-en {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.claim-kicker-dot {
+  color: var(--pass-ink-3);
+}
+.claim-kicker-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  font-synthesis: none;
+}
+/* REST (picked up): the kicker and the code step back to the pass's second ink; no ✓ (round 3). */
+.claim-ticket-rest .claim-kicker,
+.claim-ticket-rest .ui-pass-figure {
+  color: var(--pass-ink-2);
+}
+.claim-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  text-align: center;
+  color: var(--pass-ink-2);
+}
+.claim-sub-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  font-synthesis: none;
+  font-size: var(--fs-sm);
+  color: var(--pass-ink-2);
+}
+.claim-stub {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+}
+.claim-stub-row {
+  min-width: 0;
+}
+.claim-stub dt {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--pass-ink-3);
+}
+.claim-stub dd {
+  margin: 2px 0 0;
+  color: var(--pass-ink);
+  font-weight: var(--fw-bold);
+}
+.claim-stub-name {
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claim-stub-code {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
+  font-variant-numeric: tabular-nums;
+}
+.claim-stub-time {
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pickup-rail-fill {
+    transition: none;
+  }
+}
+
+/* The guide card: ONE question, ONE hero verb; the Undo in the same 64px slot. */
+.pickup-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  outline: none;
+}
+.pickup-guide-title {
+  margin: 0;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: 1.25;
+  color: var(--tx);
+}
+.pickup-btn-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+.pickup-btn-my {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+/* One Undo form: --sf, a 1.5px dashed accent edge, never filled, never the hero (the lane's posture). */
+.arrival-undo.ui-btn-secondary {
+  background: var(--sf);
+  border: 1.5px dashed var(--ac);
+}
+.pickup-confirmed {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+/* The shared DONE mark: a solid --ok disc with the --okb check (the path's own, C2). */
+.pickup-done-disc {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: var(--okb);
+}
+.pickup-confirmed-line {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  line-height: 1.5;
+  color: var(--tx);
+}
+.pickup-refused {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+}
+.pickup-refused .pickup-line-my {
+  color: var(--warn);
+}
+.pickup-door {
+  align-self: flex-start;
+  gap: 8px;
+}
+.pickup-door-number {
+  font-variant-numeric: tabular-nums;
+}
+.pickup-door-alone {
+  margin: 16px 0 0;
+}
+
 /* ── K5 · Grocery grown up (docs/JOURNEY2_PLAN.md) ─────────────────────────────────────────────────── */
 .grocery-thumb {
   flex: none;
@@ -8151,19 +8469,23 @@ a .chrome-en {
   opacity: var(--kds-held-op);
   border-style: dashed;
 }
+/* PD5 — the strip's ground is named ONCE as `--kds-strip-bg` (the same three values as before), so
+   the round stub's coupon notches can be holes in the strip's OWN ground on every tint, and ride the
+   red pulse's brightness with it (they are inside the strip subtree the filter applies to). */
 .kds-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
   padding: 10px 14px;
-  background: var(--sf);
+  --kds-strip-bg: var(--sf);
+  background: var(--kds-strip-bg);
 }
 .kds-strip-amber {
-  background: color-mix(in srgb, var(--gold) 30%, var(--cd));
+  --kds-strip-bg: color-mix(in srgb, var(--gold) 30%, var(--cd));
 }
 .kds-strip-red {
-  background: color-mix(in srgb, var(--warn) 46%, var(--cd));
+  --kds-strip-bg: color-mix(in srgb, var(--warn) 46%, var(--cd));
 }
 .kds-strip-red.kds-strip-pulse {
   animation: kdsRedPulse 1.6s var(--ease-in-out) infinite;
@@ -8217,6 +8539,75 @@ a .chrome-en {
 .kds-strip-amber .kds-badge,
 .kds-strip-red .kds-badge {
   color: var(--tx);
+}
+
+/* ── PD5 — the round stub (m5 "One Send, One Sheet", refined; appendix B4/B5; round 3 D4) ──────────
+   A card that is a table's second (or later) Send carries row B under its strip's row A: the stub
+   "အလှည့် 2" / "Round 2". Row A is byte-identical to a card without one (a two-column grid draws
+   the same two ends the flex row did), and row B is 8px below it at the strip's 14px inset.
+   The stub is a LABEL (`<p>`), never a control, and it is MARK tier: an outline plus a word, no
+   fill (B4 dropped the wash — a wash sat brighter than the Late strip on an amber card), and no
+   motion of its own (it rides the card's arrival flash). It speaks at the clock's tier, the tier of
+   every card's own time, so it sits below the table number and the dish. The vocabulary's ONE stub
+   shape: a DOTTED perforation (dashed already means held, and a Bring-back chip) with 12px coupon
+   notches at the perforation's ends, holes in the host's ground — `--kds-strip-bg`, so they follow
+   the tint and the red pulse. On an amber or red strip the outline takes --tx, the same promotion
+   the badge and the sub-line take, so it keeps ≥3:1 at the pulse's peak. Nothing here is cream: the
+   board's one cream object is the undo pill. */
+.kds-strip-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--s2);
+  row-gap: var(--s2);
+  align-items: center;
+}
+.kds-round {
+  grid-column: 1 / -1;
+  justify-self: start;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  min-height: 44px;
+  padding: 0 16px 0 14px;
+  border: 2px solid var(--t2);
+  border-right: 4px dotted var(--t2);
+  border-radius: 10px 0 0 10px;
+  color: var(--tx);
+  font-size: var(--kfs-clock);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+}
+.kds-strip-amber .kds-round,
+.kds-strip-red .kds-round {
+  border-color: var(--tx);
+}
+.kds-round::before,
+.kds-round::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--kds-strip-bg);
+}
+.kds-round::before {
+  top: -8px;
+}
+.kds-round::after {
+  bottom: -8px;
+}
+/* The Burmese word at the stub's tier in Padauk's heaviest cut (700 — never 800, which would match
+   the same face; `.chrome-my` sets the face and the --lh-my leading, which the 44px row absorbs);
+   the Latin digit beside it, marked `lang="en"` by <Chrome>'s rule 3, keeps the stub's 800. */
+.kds-round > .chrome-my {
+  font-size: var(--kfs-clock);
+  font-weight: var(--fw-bold);
+}
+.kds-round > .chrome-my > [lang="en"] {
+  font-weight: var(--fw-heavy);
 }
 
 .kds-lines {
@@ -8756,6 +9147,70 @@ a .chrome-en {
   font-weight: var(--fw-heavy);
   font-size: var(--kfs-meta);
   cursor: pointer;
+}
+/* PD5 (m5 decision 12/14) — the pill's text column: line 1 the bump sentence as today; line 2, only
+   after a bump that left the table's other card on the board, "Table 4 still has a card on the
+   board." in Padauk's regular cut (400 — Padauk ships 400/700), the same ink. The Undo button
+   stays vertically centred beside both. */
+.kds-undo-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.kds-undo-sub {
+  font-weight: var(--fw-regular);
+}
+
+/* ── PD5 / m7 — "Table N left — stop cooking" (the shape, reserved; PATH_DESIGN reconciliation 1) ──
+   TODAY nothing draws it — a cleared table's cards leave the board on the next poll. Once PD7 mounts
+   it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
+   tier WITHOUT motion — the strip takes the Late tint but never the pulse — struck dish rows, the
+   one warn word in the strip, and "Got it" in the bump's slot, until the cook taps it. Never
+   dashed (held), never cream (the pill), never a stub (m5 B1): the board's four marks never
+   overlap. Its durable stop record lands with the table-clear migration (PD7); until then the
+   component (`KdsStopCard.tsx`) renders from props and nothing mounts it. */
+.kds-ticket-stop {
+  border-color: var(--warn);
+}
+.kds-strip-stop {
+  --kds-strip-bg: color-mix(in srgb, var(--warn) 46%, var(--cd));
+}
+.kds-strip-stop .kds-badge,
+.kds-strip-stop .kds-id small {
+  color: var(--tx);
+}
+.kds-stop-word {
+  margin: 0;
+  padding: 8px 14px 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--warn);
+  font-size: var(--kfs-mod);
+  font-weight: var(--fw-heavy);
+}
+/* A struck row keeps the line's layout (the qty chip, the stacked name) but is a <span>, not the
+   Start/Done button: nothing on a dish nobody will eat is tappable. */
+.kds-stop-line {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 56px;
+  text-decoration: line-through;
+  text-decoration-color: var(--warn);
+  text-decoration-thickness: 2px;
+  color: var(--t2);
+}
+.kds-stop-line .kds-qty {
+  opacity: var(--kds-held-op);
+}
+.kds-stop-ack {
+  background: var(--sf);
+  color: var(--tx);
+  border: 2px solid var(--warn);
 }
 
 /* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits
@@ -13698,6 +14153,19 @@ html[data-reloading] body::after {
 .pad-main > .staff-bar {
   margin-bottom: 0;
 }
+/* PD6 — the seal stands where the pad shell was (the shell UNMOUNTED): the shell's row, its own
+   scroller, the page's paper behind it (the seal's notches cut to the seal's own ground). */
+.pad-sealed {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: var(--s4) var(--s4) var(--s6);
+}
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .pad-sealed {
+    padding: 0 0 var(--s4);
+  }
+}
 /* The skip link: the FIRST focusable element, visible only when a keyboard reaches it. */
 .pad-skip {
   position: absolute;
@@ -14461,83 +14929,228 @@ html[data-reloading] body::after {
   font-size: var(--fs-body);
 }
 
-/* The paid card: a focused region (never a status region) whose name carries its facts. Stacked on a
-   phone; from 40em a counter card sets the rows beside the #CODE and its call-out, with the way back
-   spanning below. */
-.staff-handoff {
+/* PD2 (m2 screen 3) — Dad's twin of the guest's counter pass at the top of the table's detail: the
+   ONE PASS (`.ui-pass`, constant paper) with its figureless identity (the ask, in the family's
+   words — the table's number is the pane's heading), the ask's age as plain text in its status
+   row, and the total — the very figure Take cash names — set big in its body. The notches cut to the
+   page's ground (the default `--pass-hole`). */
+.floor-ask-pass {
+  margin-top: var(--s4);
+}
+.floor-ask-age {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--pass-ink-2);
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+}
+.floor-ask-total {
+  margin: 0;
+}
+.floor-ask-total > div {
+  display: grid;
+  justify-items: center;
+  gap: var(--s1);
+}
+.floor-ask-total dt {
+  color: var(--pass-ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+.floor-ask-total dd {
+  margin: 0;
+  color: var(--pass-ink);
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+/* K44 — the order card's receipt stack (the pad's own rows), a rule above it. */
+.floor-receipts {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 2px solid var(--bd);
+}
+
+/* PD6 — THE SEAL (m6 screen 2, `HandoffCard`): the paid card's grammar on every counter surface. A
+   focused region (never a status region) whose name carries its facts: a solid ✓ disc + the title,
+   the HERO (the Change handed back, or the Total when no tender was entered) and the count-back rows
+   under it, the #CODE on the ONE PASS (a CounterPass stub on constant paper, its notches cut to the
+   seal's own ground), and one quiet secondary beside "Back to the counter". CALM by default (paper,
+   no motion); `[data-landing]` — the in-place landing only — adds the green wash with the card's
+   dots, the rise (`.mms-rise`, RM-gated) and ONE breath of the ok bloom on the disc (RM: none). */
+.staff-seal {
+  --seal-ground: var(--cd);
+  --pass-hole: var(--seal-ground);
   display: grid;
   gap: var(--s4);
   margin-top: var(--s4);
   padding: var(--s5);
+  border: 1px solid color-mix(in oklab, var(--ok) 30%, transparent);
+  border-radius: var(--r-card);
+  background-color: var(--seal-ground);
+  box-shadow: var(--sh-paper);
+}
+.staff-seal:focus:not(:focus-visible) {
   outline: none;
 }
-.staff-handoff-rows {
+.staff-seal[data-landing] {
+  --seal-ground: var(--okb);
+  background-image: radial-gradient(var(--tex-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.staff-seal-body {
   display: grid;
-  gap: var(--s3);
+  gap: var(--s4);
   min-width: 0;
 }
-.staff-handoff-title {
+.staff-seal-main {
+  display: grid;
+  align-content: start;
+  gap: var(--s4);
+  min-width: 0;
+}
+.staff-seal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.staff-seal-disc {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  color: var(--oa);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.staff-seal[data-landing] .staff-seal-disc {
+  filter: var(--bloom-ok);
+  animation: mmsCheckBloom 760ms var(--ease-out) 120ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-seal[data-landing] .staff-seal-disc {
+    animation: none;
+  }
+}
+.staff-seal-title {
+  display: flex;
+  flex-direction: column;
   margin: 0;
-  font-size: var(--fs-h3);
+  font-size: var(--fs-h1);
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
-.staff-handoff-check {
-  color: var(--ok);
+/* The visual echo of an aria-labelledby target (aria-hidden — the name keeps one script). */
+.staff-seal-echo {
+  color: var(--t2);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
 }
-.staff-handoff-dl {
-  display: grid;
-  gap: var(--s1);
+.staff-seal-hero {
   margin: 0;
 }
-.staff-handoff-row {
+.staff-seal-hero dt {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  font-size: var(--fs-body);
+  gap: var(--s3);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
 }
-.staff-handoff-row dd {
+.staff-seal-hero .staff-seal-echo {
+  font-size: var(--fs-lead);
+}
+.staff-seal-hero dd {
   margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-pass);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.staff-seal-hero dd[data-tier="hand"] {
+  font-size: var(--till-fs-hand);
+}
+.staff-seal-hero dd[data-tier="display"] {
+  font-size: var(--fs-display);
+}
+/* Still to collect (a belt): the word and the figure in warn, with the alert glyph — never colour
+   alone. */
+.staff-seal-hero[data-row="collect"] dt,
+.staff-seal-hero[data-row="collect"] dd {
+  color: var(--warn);
+}
+.staff-seal-rows {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+}
+.staff-seal-row {
+  display: flex;
+  align-items: baseline;
+  font-size: var(--fs-h3);
+}
+.staff-seal-row dd {
+  margin: 0;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
-.staff-handoff-row-change dt {
-  font-weight: var(--fw-bold);
-}
-.staff-handoff-row-change dd {
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-weight: var(--fw-heavy);
-}
-.staff-handoff-row-collect dt,
-.staff-handoff-row-collect dd {
-  color: var(--warn);
-  font-weight: var(--fw-bold);
-}
-.staff-handoff-call {
-  display: grid;
-  gap: var(--s1);
-  align-content: center;
-  text-align: center;
-}
-.staff-handoff-code {
+.staff-seal-callout {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-weight: var(--fw-heavy);
-  letter-spacing: var(--track-caps);
+  color: var(--pass-ink-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
-.staff-handoff-callout {
+.staff-seal-actions-in {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: var(--s3);
+}
+/* The quiet secondary's own note (Walk-up's description) sits over the buttons, full width. */
+.staff-seal-note {
+  flex-basis: 100%;
   margin: 0;
   color: var(--t2);
   font-size: var(--fs-sm);
 }
-@media (min-width: 40em) {
-  .staff-handoff-counter {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: center;
+.staff-seal-pass {
+  min-width: 0;
+}
+/* Wide — the till's own viewport predicate (lib/till.ts `TILL_MEDIA`; seal.test pins this block to
+   it): the seal sits where the tray stood (the same gutters and padding), the stub beside the green
+   main, and the actions take the till grid's money corner — track 5 — so a late tap from the tray's
+   Take (tracks 1–3) lands on inert space (m6 decision 7). */
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .staff-seal[data-wide] {
+    margin-inline: var(--s5);
+    padding: var(--s8);
   }
-  .staff-handoff-counter .staff-handoff-done {
-    grid-column: 1 / -1;
+  .staff-seal[data-wide] .staff-seal-body {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: var(--s8);
+  }
+  .staff-seal[data-wide] .staff-seal-disc {
+    width: 88px;
+    height: 88px;
+  }
+  .staff-seal[data-wide] .staff-seal-title {
+    font-size: var(--fs-display);
+  }
+  .staff-seal[data-wide] .staff-seal-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+  }
+  .staff-seal[data-wide] .staff-seal-actions > .staff-seal-actions-in {
+    grid-column: 5;
   }
 }
 
@@ -14561,6 +15174,257 @@ html[data-reloading] body::after {
 }
 .mms-sheet:has(.reg-settle-actions) {
   padding-bottom: 0;
+}
+
+/* ── PD6 · the crowned TILL TRAY (m6 "Shape of the Sale") ──────────────────────────────────────
+   The counter tablet's ONE cash sheet, whichever door opens it (the pad's dock, the pane's Take
+   cash, later the loss slip and the flag door): the same `CashSettleButton` sheet, laid out as a
+   wide cream tray wearing a gold crown, read left to right as OWE → TIP → GAVE, with the Change in
+   the money corner so a second tap of the door lands on inert text (lib/till.ts, the geometry).
+   Keyed on ONE viewport predicate — `TILL_MEDIA` in lib/till.ts, the width the grid really needs
+   (1262 of columns + 64 of padding + 40 of gutters = 1366 → 85.375em; Codex correction 8) — which
+   the JSX branch reads through `useMediaQuery` and till.test.ts pins this block's query and tracks
+   to. Below it today's single-column §29 sheet serves, unchanged. Every size is a token: the due
+   at `--fs-pass` (the figure said across the counter), the banknotes at `--fs-display`, the
+   readout's Change at `--fs-display` (the band), and `--till-fs-hand` is the seal's alone. No grab
+   bar (hidden from 48em), no glass (opaque paper; the scrim's blur is the only one). */
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .mms-sheet.till-sheet {
+    /* The bar's foot + a gutter down to a gutter above the frame's foot (④: y84–1008 at 1024),
+       the keyboard lift still composing on the bottom edge. */
+    top: calc(var(--staff-bar-h, 68px) + var(--s4));
+    bottom: calc(var(--kb-inset, 0px) + var(--s4));
+    left: var(--s5);
+    right: var(--s5);
+    translate: none;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    margin-inline: 0;
+    padding: 0 var(--s8);
+    border-radius: var(--r-sheet);
+  }
+  /* The head keeps its sticky band, full-bleed over the tray's wider gutters, and wears the
+     CROWN: a 6px band of gold-into-paper under a 1px sheen, clipped by the tray's corners, no
+     text. The rake (globals.css ~9815) still plays over it; reduced motion gets the still band. */
+  .till-sheet .mms-sheet-head {
+    margin-inline: calc(-1 * var(--s8));
+    padding: var(--s4) var(--s8) var(--s3);
+    box-shadow:
+      inset 0 6px 0 color-mix(in oklab, var(--gold) 40%, var(--cd)),
+      inset 0 7px 0 var(--sheen);
+  }
+  .till-sheet .mms-sheet-title {
+    font-size: var(--fs-h1);
+  }
+  .till-sheet .mms-sheet-close {
+    top: var(--s2);
+    right: var(--s3);
+  }
+  /* The title's cash glyph: a gold-tint square (the cash state's shape beside its word). */
+  .till-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s4);
+  }
+  .till-glyph {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-sm);
+    background: color-mix(in oklab, var(--gold) 18%, var(--cd));
+    color: var(--gold-strong);
+  }
+  /* The body: the spec's columns (④b) as fr columns in its proportion, the two gaps fixed. */
+  .till-body {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+    align-items: start;
+    padding: var(--s5) 0 var(--s4);
+  }
+  .till-arrow {
+    justify-self: center;
+    margin-top: var(--s6);
+    font-size: var(--fs-h1);
+    color: var(--t3);
+    user-select: none;
+  }
+  .till-owe,
+  .till-tip,
+  .till-gave {
+    display: grid;
+    align-content: start;
+    gap: var(--s3);
+    min-width: 0;
+  }
+  /* OWE — the hero (the due, said aloud), the question that carries it, and the slip. */
+  .till-hero {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-pass);
+    font-weight: var(--fw-heavy);
+    line-height: var(--lh-tight);
+    letter-spacing: var(--track-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--tx);
+  }
+  .till-hero[data-tier="display"] {
+    font-size: var(--fs-display);
+  }
+  .till-question {
+    margin: 0;
+    font-size: var(--fs-h2);
+    font-weight: var(--fw-bold);
+  }
+  .till-question .chrome-en {
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-semibold);
+    color: var(--t2);
+  }
+  .till-closes {
+    margin: 0;
+    font-size: var(--fs-lead);
+    color: var(--t2);
+  }
+  .till-rule {
+    border: 0;
+    border-top: 1px solid var(--bd);
+    margin: var(--s2) 0 0;
+  }
+  .till-slip-h {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+    color: var(--t2);
+  }
+  /* The heading's English echo is visual only (aria-hidden): the list's name keeps one script. */
+  .till-slip-h > .till-slip-echo {
+    margin-inline-start: var(--s2);
+  }
+  .till-slip {
+    display: grid;
+    gap: var(--s1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .till-slip > li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s2);
+    min-height: 40px;
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-bold);
+  }
+  .till-slip .staff-qty {
+    color: var(--t2);
+    font-variant-numeric: tabular-nums;
+  }
+  .till-slip .chrome-en {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--t2);
+  }
+  /* Codex round 3 on m6 — the slip diverged: a MARK (glyph + word, warn ink, no fill) that is
+     also the control re-freezing it; Take holds until it is tapped. */
+  .till-slip-changed {
+    justify-self: start;
+    gap: var(--s2);
+    color: var(--warn);
+    font-weight: var(--fw-bold);
+  }
+  /* GAVE — the banknotes as a 2×2 of tiles, each wearing an `::after` hairline frame (never a
+     fill: the lit cap stays the console's one selection, `.staff-chip-cash` declares none). */
+  .till-sheet .reg-tender-grid {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+  }
+  .till-sheet .staff-chip-cash {
+    position: relative;
+    min-height: 120px;
+    font-family: var(--font-display);
+    font-size: var(--fs-display);
+    font-weight: var(--fw-heavy);
+    letter-spacing: var(--track-display);
+  }
+  .till-sheet .staff-chip-cash::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px solid var(--bd);
+    border-radius: calc(var(--r-sm) / 2);
+    pointer-events: none;
+  }
+  .till-sheet .staff-chip-cash[aria-pressed="true"]::after {
+    border-color: color-mix(in srgb, var(--oa) 35%, transparent);
+  }
+  /* The Exact tile: its word in the body face, its figure one tier under the notes. */
+  .till-sheet .staff-chip-cash[data-exact] {
+    font-family: var(--font-body);
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-bold);
+    letter-spacing: normal;
+  }
+  .till-sheet .staff-chip-cash[data-exact] .staff-chip-amount {
+    font-family: var(--font-display);
+    font-size: var(--fs-h1);
+    font-weight: var(--fw-heavy);
+  }
+  /* The BAND (④c): the actions pinned to the tray's foot, on the body's own tracks — Cancel and
+     Take on OWE + TIP, the inert readout (Take's description) in the money corner, GAVE. The one
+     alert and the reload beside it span the same three tracks, so a grown band never puts a
+     control under the door's spot (lib/till.ts `tillDoorLandsInert`). */
+  .till-sheet .reg-settle-actions {
+    margin: 0 calc(-1 * var(--s8));
+    padding: var(--s4) var(--s8) var(--s8);
+  }
+  .till-band-row {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+    align-items: center;
+    row-gap: var(--s2);
+  }
+  .till-band-row > .till-band-alert,
+  .till-band-row > .till-band-reload {
+    grid-column: 1 / 4;
+  }
+  .till-band-row > .till-band-reload {
+    justify-self: start;
+  }
+  .till-band-row > .till-band-actions {
+    grid-column: 1 / 4;
+    display: flex;
+    gap: var(--s3);
+    align-items: stretch;
+  }
+  .till-band-row > .till-band-actions > .till-take {
+    flex: 1;
+  }
+  .till-band-row > .reg-change {
+    grid-column: 5;
+    align-self: center;
+    min-height: var(--tap-bump);
+  }
+  .till-band-row .reg-change-row dt {
+    font-size: var(--fs-h3);
+    font-weight: var(--fw-bold);
+    color: var(--tx);
+  }
+  .till-band-row .reg-change-row dd {
+    font-size: var(--fs-display);
+  }
+  .till-band-row .reg-change-exact {
+    font-size: var(--fs-h2);
+    font-weight: var(--fw-bold);
+    color: var(--tx);
+  }
+  .till-band-row .reg-change-exact .chrome-en {
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-semibold);
+  }
 }
 
 /* ── Phase 2c · gate ── the settle gate's note (owner decision 3) ─────────────────────────────────
@@ -14744,20 +15608,22 @@ html[data-reloading] body::after {
   --floor-edge: var(--t3);
   --floor-ink: var(--t2);
 }
-/* THE OWED-SEND MARK: a warn dot in the tile's corner when the table owes a Send (the card's "not
-   sent"), and the same dot in the key. A shape, not a tint — the tile's tone is untouched. */
-.floor-owed-dot {
-  display: inline-block;
-  flex: none;
-  width: var(--s2);
-  height: var(--s2);
-  border-radius: var(--r-full);
-  background: var(--warn);
+/* PD1 · P2do — THE NOT-SENT MARK: the hollow ring (the ONE KITCHEN TRACK's `unsent` stage, rendered)
+   in --warn on Dad's console — a MARK (glyph + word, no fill, no motion), wherever the solid owed-Send
+   dot was: the tile's corner, the key, the card's "not sent" segment, the line tag, the ticket's
+   group. One shape and one word (`pad.group.unsent`) on every surface. The tone override is the
+   host's own line to defend (m10 §H decision 10); never gold or accent. */
+.ui-track[data-stage="unsent"].staff-unsent-ring {
+  --trk-ink: var(--warn);
 }
-.floor-tile > .floor-owed-dot {
+.floor-tile > .floor-owed-ring {
   position: absolute;
   inset-block-start: var(--s1);
   inset-inline-end: var(--s1);
+}
+.floor-kitchen-seg .staff-unsent-ring,
+.pad-ticket-group-h .staff-unsent-ring {
+  margin-inline-end: var(--s1);
 }
 /* THE KEY under the strip: each glyph on screen, in the tile's own word; the owed dot last. */
 .floor-key {
@@ -15156,15 +16022,16 @@ html[data-reloading] body::after {
   overflow-wrap: anywhere;
 }
 /* The paid card's "went to the kitchen before they paid" line and its lane link (a counter order
-   sent unpaid): full width under the #CODE call-out on the two-column tablet layout. */
+   sent unpaid): the seal's ONE quiet secondary, full width over "Back to the counter". */
 .staff-handoff-early {
   display: grid;
+  flex-basis: 100%;
   gap: var(--s2);
 }
-@media (min-width: 40em) {
-  .staff-handoff-counter .staff-handoff-early {
-    grid-column: 1 / -1;
-  }
+.staff-handoff-callout {
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
 }
 /* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
    only the glyph beside it is its own. */
@@ -15198,4 +16065,457 @@ html[data-reloading] body::after {
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   line-height: var(--lh-normal);
+}
+
+/* ═══ PD8 · m8 — a dish needs a manager (2026-10-08) ════════════════════════════════════════════
+   The flag lives only where a decision is made (the request card, the Take payment card); the ONE
+   slip ("Thiri → Aye", then "Aye, your PIN") is shared by the sheet, the card and the pane; the lit
+   tile and the lit chip wear the console's ONE cap through `.staff-chip[aria-pressed]`, never a fill
+   of their own. Kind marks: a minus-square for Remove, the gift disc for Make it free, an ✕ square
+   for Deny — a ✓ disc never marks an approval (✓ means paid on this counter). Tokens only. ─────── */
+
+/* The kind marks — a shape plus a word, never colour alone. */
+.appr-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+}
+.appr-mark-sm {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+.appr-mark-lg {
+  width: 32px;
+  height: 32px;
+}
+/* Remove: a square on the warn tint holding a centred bar. The bar is drawn by the pseudo-element so
+   the mark needs no glyph asset. */
+.appr-mark-remove {
+  background: var(--warnb);
+}
+.appr-mark-remove::before {
+  content: "";
+  display: block;
+  width: 50%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--warn);
+}
+.appr-mark-sm.appr-mark-remove::before {
+  height: 2.5px;
+}
+/* Make it free: the gift disc, gold-tinted — the till's tint (money waived), never a status. */
+.appr-mark-free {
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--gold) 22%, var(--cd));
+  color: var(--gold-strong);
+}
+/* Deny: an ✕ in an outlined square — the request kept the money, so it wears no warn ink. */
+.appr-mark-deny {
+  border: 2px solid var(--t2);
+  color: var(--t2);
+  background: transparent;
+}
+/* The flag's square: one warm glyph square on a paper card, never a warn slab (appendix A/B1). */
+.appr-flag-square {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--warnb);
+  color: var(--warn);
+}
+.appr-flag-glyph {
+  color: var(--warn);
+  flex: none;
+}
+.appr-kind-word {
+  color: var(--warn);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+}
+.appr-kind-word-free {
+  color: var(--gold-strong);
+}
+
+/* ── THE ONE SLIP ─────────────────────────────────────────────────────────────────────────────── */
+.appr-slip {
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: linear-gradient(180deg, var(--sf), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+  padding: 14px 16px;
+}
+.appr-slip-legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.appr-slip-names {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.appr-slip-asker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding-inline-end: 4px;
+}
+.appr-slip-asker-words {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.appr-slip-arrow {
+  color: var(--t3);
+  font-size: var(--fs-lead);
+  flex: none;
+}
+.appr-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-family: var(--font-display, inherit);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.appr-slip-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* A name tile: 64 tall, radius 18, the initial disc + the name. Lit = the shared cap rule. */
+.appr-tile {
+  min-height: 64px;
+  min-width: 150px;
+  padding: 0 18px 0 14px;
+  border-radius: 18px;
+  gap: 10px;
+  justify-content: flex-start;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+}
+.appr-tile .appr-initial {
+  width: 32px;
+  height: 32px;
+  font-size: var(--fs-body);
+}
+.appr-tile-skeleton {
+  display: inline-block;
+  background: var(--sunken);
+  border: 1px solid var(--bd);
+}
+.appr-slip-inset {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+}
+.appr-slip-pin {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+.appr-slip-pin-label {
+  flex: 0 1 120px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.appr-slip-pin-field {
+  flex: 1 1 200px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-wide);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+}
+
+/* ── The asker's sheet: one chip says what AND why ────────────────────────────────────────────── */
+.loss-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 37.5em) {
+  .loss-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.loss-col-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin-bottom: 8px;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+}
+.loss-chips {
+  display: grid;
+  gap: 6px;
+}
+/* A chip is 48 tall, the kind mark at 18px then the stacked label; the lit cap keeps the mark's own
+   tile so the kind still reads on the cap. */
+.loss-chip {
+  min-height: 48px;
+  gap: 8px;
+  padding: 4px 12px 4px 10px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.loss-chip[aria-invalid="true"] {
+  border-color: var(--warn);
+}
+/* The consequence hint: reserved at all times, so nothing jumps when it fills. */
+.loss-hint {
+  min-height: 72px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+
+/* ── The request card and its receipt row ────────────────────────────────────────────────────── */
+.appr-card {
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+}
+.appr-card-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: 8px 16px;
+  background: var(--sf);
+}
+.appr-card-table {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--tx);
+  text-decoration: none;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-lead);
+}
+.appr-card-table:hover,
+.appr-card-table:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 2px;
+}
+.appr-card-number {
+  font-family: var(--font-display, inherit);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+}
+.appr-card-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+}
+.appr-card-body {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+.appr-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.appr-card-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.appr-card-amount {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+}
+.appr-card-dish {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+}
+.appr-card-fact {
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+.appr-card-decision {
+  border-top: 1px solid var(--bd);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  outline: none;
+}
+/* The "you are here" form while a decision is open: the shipped floor-card halo, never the cap. */
+.appr-card[data-open="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper),
+    0 0 18px -8px var(--glow-gold);
+}
+.appr-keys {
+  display: flex;
+  gap: 12px;
+}
+.appr-keys > * {
+  flex: 1;
+}
+.appr-key-glyph {
+  flex: none;
+}
+/* The changed-after-asking band: a △ in warn plus the words in --tx/--t2, no fill (B8). */
+.appr-changed {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin: 0;
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.appr-changed > svg {
+  color: var(--warn);
+  flex: none;
+  margin-top: 2px;
+}
+.appr-close-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.appr-paid-word {
+  color: var(--ok);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+}
+/* The receipt row: the verdict mark, the headline, the facts beneath, "Got it" on the right. */
+.appr-receipt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  outline: none;
+}
+.appr-receipt-words {
+  flex: 1;
+  min-width: 0;
+}
+.appr-receipt-head {
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-body);
+}
+.appr-receipt-sub {
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  margin-top: 2px;
+}
+
+/* ── The flag at Take payment: a paper card with one warm glyph square ────────────────────────── */
+.settle-flag {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  margin-bottom: var(--s4);
+}
+.settle-flag-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.settle-flag-title h4,
+.settle-flag-title h3 {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+}
+.settle-flag-lines {
+  list-style: none;
+  margin: 0;
+  padding: 10px 0 0;
+  border-top: 1px dotted color-mix(in oklab, var(--tx) 16%, transparent);
+  display: grid;
+  gap: 8px;
+}
+.settle-flag-line {
+  display: grid;
+  gap: 2px;
+}
+.settle-flag-line-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settle-flag-leader {
+  flex: 1;
+  border-bottom: 2px dotted color-mix(in oklab, var(--tx) 25%, transparent);
+  min-width: 12px;
+  align-self: flex-end;
+  margin-bottom: 5px;
+}
+.settle-flag-price {
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+}
+.settle-flag-consequence {
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+
+/* ── The bar's approvals circle: a dashed ring while the count is frozen or unknown ───────────── */
+.staff-circ[data-frozen="true"] {
+  border-style: dashed;
+  border-width: 1.5px;
 }

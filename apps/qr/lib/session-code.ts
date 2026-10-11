@@ -79,3 +79,37 @@ export function reservedCodeRefusal(i: {
   if (!i.found) return "create";
   return "join";
 }
+
+/**
+ * PD3 follow-up (2026-10-09, decided under the owner's delegation) — dine-in is the ONE party mode;
+ * every other mode (pickup, scan-and-go, and any added later) is SOLO: one device's own order. The
+ * SQL twin is `mms_refuse_solo_join`'s `v_mode = 'dinein'` (20261009120200), which refuses a second
+ * member where the membership is written.
+ */
+export function isSoloMode(mode: string): boolean {
+  return mode !== "dinein";
+}
+
+/**
+ * What a SOLO session this POST found means for the calling seat, decided before `/api/session`
+ * writes anything (the SQL trigger refuses a second member at the write whatever this says):
+ *  - `rejoin` — the seat is the session's member, or its host (the minting device: a reload, or a
+ *    retry after its own first membership insert failed);
+ *  - `refuse` — a `?j=` invite join of someone else's solo session: the same 404 a wrong code gets,
+ *    so the answer is no existence oracle;
+ *  - `remint` — the device's OWN stored solo code under a NEW identity (its anonymous session was
+ *    replaced): a session for this device under a retry-stable key (`soloRemintKey`,
+ *    lib/solo-remint.ts) — never a member of the old one, and never stranded behind a refusal it
+ *    cannot fix.
+ * `null` — not a solo session: the dine-in arms decide.
+ */
+export function soloJoinVerdict(i: {
+  mode: string;
+  member: boolean;
+  host: boolean;
+  joinOnly: boolean;
+}): "rejoin" | "refuse" | "remint" | null {
+  if (!isSoloMode(i.mode)) return null;
+  if (i.member || i.host) return "rejoin";
+  return i.joinOnly ? "refuse" : "remint";
+}

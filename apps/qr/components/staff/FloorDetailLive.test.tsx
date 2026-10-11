@@ -119,6 +119,7 @@ const line = (id: string, name: string): TableLineView => ({
 const DETAIL: TableDetail = {
   sessionId: "s1",
   settled: false,
+  pendingRequests: [],
   cartId: "c1",
   label: "T4",
   tableNumber: 4,
@@ -744,9 +745,10 @@ describe("FloorDetailLive — a counter settle whose response was LOST holds the
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
-  it("a later KNOWN answer releases the hold (a refused retry), so a genuine close bounces again", async () => {
+  it("a NEWER attempt's refusal ('That table is closed.') answers nothing about the lost one: the hold stays, and the close is said in place (#334, C1)", async () => {
     await lostSettle();
-    // The retry is refused outright — a known outcome.
+    // The retry meets the session the first settle closed — a refusal of the RETRY, which says
+    // nothing about whether the first one recorded the payment (it most likely did).
     settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     const take = within(dialog)
@@ -757,7 +759,12 @@ describe("FloorDetailLive — a counter settle whose response was LOST holds the
     });
     answer = () => Promise.resolve({ kind: "closed" });
     await tick(5000);
-    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    // MUTATION till-ui/refusal-frees-the-page-hold (judged here too): the cashier is yanked to the
+    // floor over a payment that most likely went through; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("region", { name: ts("en", "settle.cash.unknownClosed") }),
+    ).toBeTruthy();
     vi.restoreAllMocks();
   });
 });
@@ -1309,6 +1316,41 @@ describe("FloorDetailLive — a lost counter cash settle's 'most likely went thr
     // clear the mark — a late-landing settle's close bounces the cashier to the floor; red.
     expect(unknownNotice()).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("#334 sequence b: the page's read cleared the lost settle, a NEW attempt went out and was REFUSED late — the close is the ordinary close", async () => {
+    await lostThenCancel(); // A's answer lost at T, the sheet cancelled
+    // Reads keep showing the order OPEN past A's window: A never landed (the page's mark clears).
+    await tick(SETTLE_TTL_MS + 5000);
+    // C: the sheet again, Take, and no answer at the bound — the page holds again.
+    let resolveC: (v: unknown) => void = () => {};
+    settleCash.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveC = r;
+      }),
+    );
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(STAFF_HANG_MS);
+    // C's late answer: refused — nothing recorded, and A was already proved never to have landed.
+    await act(async () => {
+      resolveC({ ok: false, error: "Couldn’t take it." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION till-ui/host-read-not-asked (judged here too): the till never applies the page's
+    // open read, keeps A's doubt, never hands up `false` — and a colleague's close is said as "the
+    // payment most likely went through" over a settle the server refused; red.
+    expect(unknownNotice()).toBeNull();
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
     vi.restoreAllMocks();
   });
 });
@@ -1894,6 +1936,7 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
   const SETTLED: TableDetail = {
     ...COUNTER,
     settled: true,
+    pendingRequests: [],
     cartId: null,
     settleTotalCents: null,
     status: "paid",
@@ -2227,5 +2270,102 @@ describe("Phase 2h · integration — a settle answered late, after the detail l
     await act(async () => late.resolve(OK));
     await tick(1_000);
     expect(getTableDetail).not.toHaveBeenCalled();
+  });
+});
+
+describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till, and a receipt that never sits on two bases", () => {
+  const ASKED_AT = new Date(Date.parse(NOW) - 4 * 60_000).toISOString();
+  const priced: Partial<TableDetail> = {
+    send: { ...DETAIL.send, sendable: 0, staffAdded: 0, foodDraft: false, inKitchen: true },
+    lines: [
+      { ...line("l1", "Mohinga"), state: "fired", sendable: false },
+      { ...line("l2", "Tea Leaf Salad"), state: "fired", sendable: false },
+    ],
+    settleTotalCents: 4641,
+    settleTipBaseCents: 4200,
+    settleBreakdown: {
+      subtotalCents: 4200,
+      discountCents: 0,
+      serviceChargeCents: 0,
+      taxCents: 441,
+      tipCents: 0,
+    },
+  };
+  const mountWith = (d: TableDetail) => {
+    answer = () => Promise.resolve({ kind: "detail", detail: d });
+    return render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <FloorDetailLive initial={d} sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  };
+
+  it("an ASKED table: the ONE PASS at the top, named by the ask (never the number twice), its age plain text, its total Take cash's figure", () => {
+    mountWith({ ...DETAIL, ...priced, status: "counter", counterRequestedAt: ASKED_AT });
+    const pass = screen.getByRole("region", { name: tf("en", "table.detail.counterAsk", {}) });
+    // MUTATION pd2/ask-pass-redrawn (a plain card again): the guest and Dad hold two looks; red.
+    expect(pass.classList.contains("ui-pass")).toBe(true);
+    expect(pass.getAttribute("data-figure")).toBe("none");
+    // The age is plain text in the status row (no escalation): "asked 4m ago".
+    expect(pass.querySelector(".floor-ask-age")!.textContent).toBe("asked 4m ago");
+    // ONE binding: the pass's total IS the trigger's figure. MUTATION pd2/ask-total-off-the-binding
+    // (the lines' pre-tax $24.00): two figures for one bill; red.
+    const total = pass.querySelector(".floor-ask-total dd")!.textContent;
+    expect(total).toBe("$46.41");
+    expect(
+      screen.getByRole("button", { name: tf("en", "settle.cash.trigger", { m: "$46.41" }) }),
+    ).toBeTruthy();
+    // It sits ABOVE the order card (m2's one pane order).
+    const order = document.getElementById("order-h")!;
+    expect(pass.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No money row in the order card on an asked table: the pass carries the one figure (m2 B4).
+    // MUTATION k44/receipt-on-an-asked-table → red.
+    expect(order.closest("section")!.querySelector(".pad-receipts")).toBeNull();
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+  });
+
+  it("K44 — an open table that has not asked: the receipt stack, its Total the very figure Take cash names; no pre-tax 'so far'", () => {
+    mountWith({ ...DETAIL, ...priced });
+    expect(document.querySelector(".floor-ask-pass")).toBeNull();
+    const rows = [...document.querySelectorAll(".pad-receipts [data-row]")].map((r) => [
+      r.getAttribute("data-row"),
+      r.querySelector(".pad-receipt-amt")!.textContent,
+    ]);
+    // MUTATION k44/receipt-stack-dropped: the card names no money beside a tax-inclusive door; red.
+    expect(rows).toEqual([
+      ["subtotal", "$42.00"],
+      ["tax", "$4.41"],
+      ["total", "$46.41"],
+    ]);
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.pretaxNote"));
+  });
+
+  it("P2do (ruling #15) — an ASKED table's unsent dish wears the ring and says how long, as plain text; an un-asked one does not", () => {
+    const unsent = {
+      ...line("l1", "Mohinga"),
+      createdAt: new Date(Date.parse(NOW) - 6 * 60_000).toISOString(),
+    };
+    mountWith({
+      ...DETAIL,
+      status: "counter",
+      counterRequestedAt: ASKED_AT,
+      lines: [unsent],
+      itemCount: 1,
+    });
+    const lineItem = () =>
+      within(screen.getByRole("list", { name: ts("en", "table.detail.a11y.lines") })).getByRole(
+        "listitem",
+      );
+    const tag = lineItem().textContent!;
+    expect(tag).toContain(`${ts("en", "pad.group.unsent")} · 6m ago`);
+    // MUTATION pd1/line-tag-ring-dropped: the pane's line speaks another mark; red.
+    expect(document.querySelector("li .staff-unsent-ring")).not.toBeNull();
+    cleanup();
+    mountWith({ ...DETAIL, lines: [unsent], itemCount: 1 });
+    // MUTATION p2do/age-on-every-table: a "late"-looking clock on a table still choosing; red.
+    expect(lineItem().textContent).not.toContain("6m ago");
   });
 });

@@ -48,6 +48,9 @@ vi.mock("./lock", () => ({
 }));
 // Phase 2c · review (R5) — the settle gate's read, answered EXPLICITLY (see settle-cash-cas.test):
 // unmocked, the fake DB's answer sent `kitchenDraftUnits` down its fail-open path on every case.
+// PD8 — the pending-request read behind the acknowledgement compare, mocked by module exactly as the
+// unsent read above: nothing waits here; the compare itself is pinned in staff-cart.test / terminal.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 let unsentUnits = 0;
 let unsentReads = 0;
 vi.mock("./unsent-read", () => ({
