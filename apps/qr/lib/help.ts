@@ -18,6 +18,11 @@ import type { StaffKey } from "./i18n/staff";
  * point is that the tablet on the pass shows the cards once, on its first morning, and then never
  * interrupts a shift again. Per screen, because the counter tablet and the kitchen tablet are
  * different devices with different first mornings.
+ *
+ * PD12 — on a screen whose STEP GUIDE has shipped (`lib/staff-guide.ts`, the counter today) the
+ * cards no longer open themselves: the guide's own first run replaces that auto-open, and its seen
+ * mark is a device fact PER PERSON, PER STATION (`lib/guide-seen.ts`). `helpSeenKey` stays the cards'
+ * key on a screen whose guide is held (the kitchen, until the board draws the stop card).
  */
 export type HelpScreen = "kitchen" | "counter" | "expo";
 

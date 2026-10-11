@@ -48,6 +48,7 @@ import {
 import type { KitchenErrCode } from "@/lib/kitchen-types";
 import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
+import { StepGuide } from "./StepGuide";
 import { ReloadButton } from "./ReloadOffer";
 import { useReloadHold } from "./useReloadHold";
 import { Chrome } from "./Chrome";
@@ -58,6 +59,8 @@ import { al, chromeVisible, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { servedMoreKey } from "@/lib/kitchen-stats";
 import { KDS_UNDO_MS } from "@/lib/kds-undo";
+import { kitchenGuideQuiet, staffGuideKeyFor, staffGuideShips } from "@/lib/staff-guide";
+import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 import {
   cardTags,
   decideRounds,
@@ -299,7 +302,16 @@ async function kitchenWrite<T>(
   });
 }
 
-export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; hasPin?: boolean }) {
+export function KdsBoard({
+  initial,
+  hasPin = false,
+  staffId = null,
+}: {
+  initial: KitchenQueue;
+  hasPin?: boolean;
+  /** PD12 — the signed-in person, whose kitchen guide this tablet offers once (null: no guide). */
+  staffId?: string | null;
+}) {
   // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
   const lang = useStaffLang();
@@ -386,6 +398,30 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // bug the pre-merge review caught.
   const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // one-shot SR announcement (bump/recall)
+  // ── PD12 · the kitchen's step guide (m12) ── offered ONCE per person, per station, per tablet, on
+  // the EMPTY board (no ticket of any station, updating, no error) as it stands at MOUNT, in place of
+  // the empty state — never a modal. Work always wins: the first ticket that lands (or a freeze, or
+  // an error) takes its place for good, and focus follows the board's OWN catch-all rule (its
+  // heading — never a bump, and no `tabIndex` on the live grid: the blind pass on #345). Held behind
+  // `staffGuideShips("kitchen")` until the board draws the stop card its fifth step teaches
+  // (OPEN-ITEMS M270 (1)); the shipped Help cards stand until then. No person, or an id that is not a
+  // key segment, is no guide (`staffGuideKeyFor`) — never a throw during render.
+  const guide = useGuideFirstRun(
+    staffGuideShips("kitchen") ? staffGuideKeyFor("kitchen", staffId) : null,
+    () =>
+      kitchenGuideQuiet({ tickets: snap.tickets.length, degraded: false, failed: err !== null }),
+  );
+  const guideQuiet = kitchenGuideQuiet({
+    tickets: snap.tickets.length,
+    degraded: degraded !== null,
+    failed: err !== null,
+  });
+  // How the guide left, for where focus goes (the effect sits after the focus catch-all, below).
+  const [guideLeft, setGuideLeft] = useState<"user" | "work" | null>(null);
+  if (guide.shown && !guideQuiet) {
+    guide.dismiss();
+    setGuideLeft("work");
+  }
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
@@ -1040,6 +1076,18 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
+  // PD12 — the guide left. Close / Got it land on the empty state's title (the person was in it to
+  // tap them). Work (a ticket, a freeze, an error) follows the catch-all's own rule: the heading,
+  // only when focus had been on a real control and fell to <body> — declared after it, so a landing
+  // ticket's snapshot is the catch-all's to answer, and a freeze (which changes no snapshot) is ours.
+  useEffect(() => {
+    if (guideLeft === null) return;
+    if (guideLeft === "user") document.getElementById("kds-empty-h")?.focus();
+    else if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    // Settled on a microtask, never a synchronous setState in the effect body.
+    void Promise.resolve().then(() => setGuideLeft(null));
+  }, [guideLeft]);
 
   const openMenu = (line: KitchenLine) => {
     // A dish whose 86 is in flight refuses its ⋯ (aria-disabled says so); a sold-out or grocery line
@@ -1312,6 +1360,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             sheetClassName="dark"
             // What the board believes about its feed, for a report's diagnostics — never guessed.
             connection={degraded ? "not_updating" : "live"}
+            // PD12 — a guide opened from Help is recorded as seen for this person.
+            staffId={staffId}
           />
         }
       />
@@ -1452,13 +1502,37 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       <div className="kds-body">
         {filtered.length === 0 ? (
           <div style={{ flex: 1 }}>
-            {/* W10b — an EMPTY board mid-freeze must not read as an all-clear, and must not promise
+            {guide.shown ? (
+              // PD12 — the guide where "Nothing to cook" stands, the board's own truth still said
+              // above it (a <p>: the guide's title is the heading). Inside the board's region, a
+              // labelled group — never a second region.
+              <div className="kds-guide">
+                <p className="kds-guide-empty">
+                  <Chrome lang={lang} k="kds.empty" />
+                </p>
+                <StepGuide
+                  screen="kitchen"
+                  host="inplace"
+                  lang={lang}
+                  size={size}
+                  onDone={() => {
+                    guide.dismiss();
+                    setGuideLeft("user");
+                  }}
+                />
+              </div>
+            ) : (
+              /* W10b — an EMPTY board mid-freeze must not read as an all-clear, and must not promise
                 arrivals we can't deliver ("tickets appear the moment an order is sent" is false
-                while we can't hear about orders at all). */}
-            <EmptyState
-              title={<Chrome lang={lang} k={degraded ? "kds.empty.degraded" : "kds.empty"} />}
-              subtitle={<Chrome lang={lang} k={degraded ? "kds.empty.outage" : "kds.empty.hint"} />}
-            />
+                while we can't hear about orders at all). */
+              <EmptyState
+                titleId="kds-empty-h"
+                title={<Chrome lang={lang} k={degraded ? "kds.empty.degraded" : "kds.empty"} />}
+                subtitle={
+                  <Chrome lang={lang} k={degraded ? "kds.empty.outage" : "kds.empty.hint"} />
+                }
+              />
+            )}
           </div>
         ) : (
           <ul className="kds-grid" role="list" aria-label={sx(lang, "kds.a11y.tickets")}>
@@ -1628,16 +1702,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         <footer style={{ display: "grid", gap: 8 }}>
           {recall.length > 0 && (
             <div className="kds-recall" role="group" aria-label={sx(lang, "kds.a11y.recall")}>
-              <span
-                style={{
-                  fontSize: "var(--kfs-meta)",
-                  fontWeight: "var(--fw-heavy)",
-                  color: "var(--t2)",
-                  textTransform: "uppercase",
-                  letterSpacing: "var(--track-wide)",
-                  flex: "none",
-                }}
-              >
+              {/* PD12 — the label's look is ONE rule (`.kds-recall-label`), shared with the guide's
+                  picture of this rail, never an inline copy that could drift from it. */}
+              <span className="kds-recall-label">
                 <Chrome lang={lang} k="kds.recall" />
               </span>
               {recall.map((r) => (

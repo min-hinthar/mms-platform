@@ -176,6 +176,14 @@ vi.mock("@/lib/kds-sound", () => ({
 }));
 // The Help door auto-opens its sheet on a fresh device; this suite is about the board beneath it.
 vi.mock("./HelpButton", () => ({ HelpButton: () => null }));
+// PD12 — the kitchen's step guide is HELD in the product (`STAFF_GUIDE_SHIPS.kitchen`, until the board
+// draws the stop card it teaches); its host is built and wired, so this suite flips the gate to pin
+// the wiring the flip will switch on. Only a mount that names a `staffId` can offer it at all, so
+// every case before PD12 mounts exactly the board it always did.
+vi.mock("@/lib/staff-guide", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/staff-guide")>()),
+  staffGuideShips: () => true,
+}));
 // The bar's two server actions and the router — the same stubs `StaffBar.test.tsx` mounts it with.
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
@@ -188,6 +196,7 @@ const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { padDishName } = await import("@/lib/order-pad");
 const { sx, al } = await import("@/lib/staff-labels");
 const { fmtElapsed } = await import("@/lib/kds-time");
+const { staffGuideKey, GUIDE_ARM_MS } = await import("@/lib/staff-guide");
 
 afterEach(() => {
   cleanup();
@@ -3254,5 +3263,128 @@ describe("PD5 — round two lands on a ticket that's still cooking: one Send, on
     await waitFor(() => expect(bumpLine).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(getKitchenQueue.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(played.mock.calls.length).toBe(chimes);
+  });
+});
+
+/**
+ * PD12 — the kitchen guide's in-place host (m12): offered once per person, per station, per tablet,
+ * on the EMPTY board as it stands at mount, where "Nothing to cook" stands — never a modal; the first
+ * ticket that lands replaces it for good, and focus that was inside it follows the board's OWN
+ * catch-all to its heading — never a bump, and the live grid keeps no `tabIndex` (the blind pass on
+ * #345: the grid's shipped catch-all is unchanged; `KdsBoard.guide-gate.test.tsx` pins it unmocked).
+ */
+describe("KdsBoard — PD12 · the kitchen guide on the empty board", () => {
+  const STAFF_ID = "2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b";
+  const KEY = staffGuideKey("kitchen", STAFF_ID);
+  const emptyQ = () => ({ ...queue(), tickets: [] });
+  const mountGuided = (initial: KitchenQueue = emptyQ()) =>
+    render(
+      <StaffLangProvider lang="en">
+        <KdsBoard initial={initial} staffId={STAFF_ID} />
+      </StaffLangProvider>,
+    );
+  const guideGroup = () => screen.queryByRole("group", { name: "Table 11" });
+  afterEach(() => localStorage.clear());
+
+  it("an empty board on a first open: the guide stands where 'Nothing to cook' stood — still said above it", async () => {
+    currentQueue = emptyQ();
+    const { container } = mountGuided();
+    await act(async () => {});
+    const g = guideGroup()!;
+    expect(g).not.toBeNull();
+    expect(container.querySelector(".kds-guide-empty")!.textContent).toBe(ts("en", "kds.empty"));
+    expect(localStorage.getItem(KEY)).toBe("1");
+    // ONE region on the board: the head's; the guide adds none and is no second region.
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(g.querySelectorAll('[role="status"], [aria-live], section')).toHaveLength(0);
+    expect(g.querySelector(".kds-strip-pulse")).toBeNull();
+  });
+
+  it("the first ticket that lands replaces it for good, and focus inside it goes to the board's heading — the catch-all's own rule", async () => {
+    vi.useFakeTimers();
+    currentQueue = emptyQ();
+    const { container } = mountGuided();
+    await act(async () => {});
+    const g = guideGroup()!;
+    // Focus is inside the guide (a step's title), as a cook's would be after a Next.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GUIDE_ARM_MS);
+    });
+    fireEvent.click(within(g).getByRole("button", { name: "Next" }));
+    expect(g.contains(document.activeElement)).toBe(true);
+    currentQueue = queue();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(guideGroup()).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector("#kds-h"));
+    expect(container.querySelector("ul.kds-grid")!.hasAttribute("tabindex")).toBe(false);
+    // …never onto an All done.
+    expect((document.activeElement as HTMLElement).classList.contains("kds-bump")).toBe(false);
+    // The board empties again: the empty state, never the guide.
+    currentQueue = emptyQ();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(guideGroup()).toBeNull();
+  });
+
+  it("a freeze (an outage read — no new snapshot) also replaces it, and focus inside it goes to the heading", async () => {
+    vi.useFakeTimers();
+    currentQueue = emptyQ();
+    const { container } = mountGuided();
+    await act(async () => {});
+    const g = guideGroup()!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GUIDE_ARM_MS);
+    });
+    fireEvent.click(within(g).getByRole("button", { name: "Next" }));
+    expect(g.contains(document.activeElement)).toBe(true);
+    // The read's outage verdict (a refusal the mock's happy-path type does not carry).
+    getKitchenQueue.mockImplementation(
+      () =>
+        Promise.resolve({ ok: false, reason: "outage" }) as unknown as Promise<{
+          ok: true;
+          queue: KitchenQueue;
+        }>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(guideGroup()).toBeNull();
+    expect(container.querySelector(".kds-body")!.textContent).toContain(
+      ts("en", "kds.empty.degraded"),
+    );
+    // The catch-all answers snapshots only, so this rescue is the guide's own — the same rule.
+    // MUTATION (by hand): drop the effect's work branch — focus stays on <body>; red.
+    expect(document.activeElement).toBe(container.querySelector("#kds-h"));
+  });
+
+  it("a board with work on it at mount offers nothing and marks NOTHING", async () => {
+    mountGuided(queue());
+    await act(async () => {});
+    expect(guideGroup()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("Close lands focus on the empty state's title", async () => {
+    vi.useFakeTimers();
+    currentQueue = emptyQ();
+    const { container } = mountGuided();
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GUIDE_ARM_MS);
+    });
+    fireEvent.click(within(guideGroup()!).getByRole("button", { name: "Close" }));
+    await act(async () => {});
+    expect(guideGroup()).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector("#kds-empty-h"));
+  });
+
+  it("no signed-in person to key it to: nothing is offered", async () => {
+    currentQueue = emptyQ();
+    mount("en", emptyQ());
+    await act(async () => {});
+    expect(guideGroup()).toBeNull();
   });
 });
