@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { Icon, type IconName } from "@mms/ui";
+import { Icon } from "@mms/ui";
 import { TransitionLink as Link, useJourneyRouter } from "./TransitionNav";
 import { useActiveOrder } from "../ActiveOrderProvider";
 import { useActiveOrderStatus } from "../useActiveOrderStatus";
 import { getRewardsBadge } from "@/lib/rewards";
-import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/diner-tabs";
+import { DINER_TAB_ICON, dinerTabs, dinerTabsHidden, tabsMode } from "@/lib/diner-tabs";
 import { navEpoch } from "@/lib/nav-epoch";
 
 /**
@@ -38,11 +38,6 @@ import { navEpoch } from "@/lib/nav-epoch";
  * every surface under a tab stays bilingual. `aria-current="page"` is the lit tab's one claim; the
  * count badge is decorative to the ear (the link's accessible name carries it).
  */
-const ICON: Record<DinerTabKey, IconName> = {
-  menu: "grid",
-  order: "receipt",
-  account: "star",
-};
 
 export function DinerTabs() {
   const pathname = usePathname();
@@ -170,7 +165,9 @@ export function DinerTabs() {
               {/* In the market the first tab wears the bag, not the grid. */}
               <Icon
                 name={
-                  t.key === "menu" && tabsMode(pathname, mode) === "scango" ? "bag" : ICON[t.key]
+                  t.key === "menu" && tabsMode(pathname, mode) === "scango"
+                    ? "bag"
+                    : DINER_TAB_ICON[t.key]
                 }
                 size={22}
               />

@@ -42,6 +42,11 @@ import { passIdentity } from "@/lib/pass-identity";
  * Nothing moves on a first read, and nothing is announced: kitchen progress is ambient (the view
  * keeps its one live region). The pass hosts no controls.
  *
+ * `picture` is a GUIDE PICTURE (PD11, m11 — round 3, ONE PASS: "rendered, never redrawn … inside both
+ * guides"): this same pass, inert and hidden from assistive tech (`CounterPass inert`), stripped of
+ * what a guide never shows — no price, no total and no stub (no person, no clock) — over sample rows
+ * the guide hands in. The host sets `--pass-hole` to its own ground and the stage names the picture.
+ *
  * `boarded` is the pay step's variant (m10 screen 2): the rows the charge was minted from, compact.
  * They keep their options and notes, and their words ("On the house", "Removed", "In your basket",
  * a to-go draft's sentence), but drop the kitchen track and the owner: the head already says where
@@ -60,6 +65,7 @@ export function LivePass({
   filling,
   turning,
   boarded = false,
+  picture = false,
   children,
 }: {
   items: CartItem[];
@@ -83,6 +89,8 @@ export function LivePass({
   /** The head's TURN plays now (the roll-up just reached Served). */
   turning: boolean;
   boarded?: boolean;
+  /** PD11 — a guide picture: inert, no price, no total, no stub (`totalCents`/`tipCents` unread). */
+  picture?: boolean;
   /** The money rows (a `<dl>`), between the dishes and the foot. */
   children?: ReactNode;
 }) {
@@ -92,7 +100,11 @@ export function LivePass({
   const showHeadings = present.length > 1;
   const estimated = tipCents > 0;
   return (
-    <div className="live-pass" style={{ "--pass-hole": "var(--pg)" } as CSSProperties}>
+    <div
+      className="live-pass"
+      // A picture's notches show the GUIDE'S ground — its host sets `--pass-hole` (PD11).
+      style={picture ? undefined : ({ "--pass-hole": "var(--pg)" } as CSSProperties)}
+    >
       <CounterPass
         tier="holder"
         {...passIdentity(tableNumber, hostName)}
@@ -103,8 +115,9 @@ export function LivePass({
             <KitchenTrack stage={head.stage} size="glyph" word={DINER_STAGE_WORD[head.stage]} />
           ) : undefined
         }
+        inert={picture}
         stub={
-          hostLabel || sent ? (
+          !picture && (hostLabel || sent) ? (
             <dl className="live-pass-stub ph-no-capture">
               {hostLabel && (
                 <div>
@@ -144,31 +157,34 @@ export function LivePass({
                       owner={boarded ? null : (ownerOf?.(i) ?? null)}
                       filling={filling === i.id}
                       boarded={boarded}
+                      picture={picture}
                     />
                   ))}
               </ul>
             </div>
           ))}
           {children}
-          <div className="live-pass-foot">
-            <span className="live-pass-foot-label">
-              {t("en", estimated ? "estimatedTotal" : "rowTotal")}
-              <span lang="my" className="live-pass-foot-my">
-                {t("my", estimated ? "estimatedTotal" : "rowTotal")}
-              </span>
-              {estimated && (
-                <span className="live-pass-foot-tip">
-                  includes ${(tipCents / 100).toFixed(2)} tip
+          {!picture && (
+            <div className="live-pass-foot">
+              <span className="live-pass-foot-label">
+                {t("en", estimated ? "estimatedTotal" : "rowTotal")}
+                <span lang="my" className="live-pass-foot-my">
+                  {t("my", estimated ? "estimatedTotal" : "rowTotal")}
                 </span>
-              )}
-            </span>
-            <span className="live-pass-foot-amount vt-cart-total">
-              <NumberFlow
-                value={totalCents / 100}
-                format={{ style: "currency", currency: "USD" }}
-              />
-            </span>
-          </div>
+                {estimated && (
+                  <span className="live-pass-foot-tip">
+                    includes ${(tipCents / 100).toFixed(2)} tip
+                  </span>
+                )}
+              </span>
+              <span className="live-pass-foot-amount vt-cart-total">
+                <NumberFlow
+                  value={totalCents / 100}
+                  format={{ style: "currency", currency: "USD" }}
+                />
+              </span>
+            </div>
+          )}
         </div>
       </CounterPass>
     </div>
@@ -182,12 +198,15 @@ function DishRow({
   owner,
   filling,
   boarded,
+  picture = false,
 }: {
   item: CartItem;
   nowIso: string;
   owner: string | null;
   filling: boolean;
   boarded: boolean;
+  /** A guide picture prints no price (PD11, m11 decision 5). */
+  picture?: boolean;
 }) {
   const voided = item.lineState === "voided";
   const struck = item.comped || voided;
@@ -209,9 +228,11 @@ function DishRow({
             </span>
           )}
         </span>
-        <span className="live-pass-dish-price" data-struck={struck || undefined}>
-          ${((item.unitPriceCents * item.qty) / 100).toFixed(2)}
-        </span>
+        {!picture && (
+          <span className="live-pass-dish-price" data-struck={struck || undefined}>
+            ${((item.unitPriceCents * item.qty) / 100).toFixed(2)}
+          </span>
+        )}
       </span>
       {/* Codex round 1 on #346 (N1) — the options the line was CHARGED for and the diner's note (an
           allergy, "no peanuts"), exactly as the receipt line had them: on the full pass AND boarded,

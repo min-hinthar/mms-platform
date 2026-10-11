@@ -175,6 +175,22 @@ describe("the arm — after mount and after EVERY step change (Codex round 3 E1)
     );
     expect(guideActAccepted({ now: 1000 + GUIDE_ARM_MS, shownAt: 1000, downAt: null })).toBe(true);
   });
+  it("takes a guide's OWN arm when it names one (PD11's phone guide: the kit's 350 ms)", () => {
+    // MUTATION (pd11/arm/own-arm-ignored): `armMs` ignored — the phone guide holds the console's
+    // 400 ms, and a press at 350 is refused; red.
+    const armMs = SAME_GESTURE_MS;
+    expect(guideActAccepted({ now: 1000 + armMs - 1, shownAt: 1000, downAt: null, armMs })).toBe(
+      false,
+    );
+    expect(guideActAccepted({ now: 1000 + armMs, shownAt: 1000, downAt: null, armMs })).toBe(true);
+    expect(
+      guideActAccepted({ now: 1000 + armMs, shownAt: 1000, downAt: 1000 + armMs - 1, armMs }),
+    ).toBe(false);
+    // Without one, the console's own.
+    expect(guideActAccepted({ now: 1000 + armMs, shownAt: 1000, downAt: null })).toBe(
+      armMs >= GUIDE_ARM_MS,
+    );
+  });
   it("refuses a press that BEGAN before the arm, even when it is released after", () => {
     // Step 4's Next, double-tapped: the second press went down 300ms after step 5 showed and lifted
     // at 500ms — it is the first gesture's tail, never step 5's Got it.

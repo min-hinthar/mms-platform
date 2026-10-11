@@ -217,7 +217,7 @@ describe("StepGuide — one card, five steps", () => {
       <StepGuide screen="kitchen" host="inplace" lang="my" onDone={vi.fn()} />,
       "my",
     );
-    const dots = within(container.querySelector(".staff-guide-dots")!).getAllByRole("button");
+    const dots = within(container.querySelector(".guide-dots")!).getAllByRole("button");
     armed();
     fireEvent.click(dots[2]!);
     expect(container.querySelector(".kds-undo .help-pic-undo-btn")!.textContent).toBe(
@@ -260,7 +260,7 @@ describe("StepGuide — the counter pictures are the real controls", () => {
     const { container } = render(
       <StepGuide screen="kitchen" host="inplace" lang="en" onDone={vi.fn()} />,
     );
-    const dots = () => within(container.querySelector(".staff-guide-dots")!).getAllByRole("button");
+    const dots = () => within(container.querySelector(".guide-dots")!).getAllByRole("button");
     for (let i = 0; i < 5; i++) {
       armed();
       if (i > 0) act(() => fireEvent.click(dots()[i]!));

@@ -97,3 +97,49 @@ describe("LivePass — a boarded row keeps its words; only the track and the own
     expect(rowOf("Mohinga").textContent).toContain("Thiri");
   });
 });
+
+describe("LivePass — PD11's guide picture: the same pass, inert, with no money, person or clock", () => {
+  it("picture: inert and hidden, no price, no total, no stub (Host · Sent), no owner — the rows and tracks stay", () => {
+    const { container } = render(
+      <LivePass
+        picture
+        items={[COOKING]}
+        nowIso={NOW}
+        tableNumber={null}
+        hostName={null}
+        hostLabel="You"
+        ownerOf={null}
+        totalCents={1200}
+        tipCents={300}
+        filling={null}
+        turning={false}
+      />,
+    );
+    const pass = container.querySelector(".ui-pass")!;
+    expect(pass.hasAttribute("inert")).toBe(true);
+    expect(pass.getAttribute("aria-hidden")).toBe("true");
+    // MUTATION (pd11/live-pass/picture-prices): a row's price in the picture; red.
+    expect(container.querySelector(".live-pass-dish-price")).toBeNull();
+    // MUTATION (pd11/live-pass/picture-foot): the total under the picture; red.
+    expect(container.querySelector(".live-pass-foot")).toBeNull();
+    // MUTATION (pd11/live-pass/picture-stub): the Host · Sent stub (a person, a clock); red.
+    expect(container.querySelector(".live-pass-stub")).toBeNull();
+    expect(container.textContent).not.toMatch(/\$|tip|Host|Sent \d/);
+    // The guide's host sets the notches' ground (the tray), never the page's.
+    expect(
+      (container.querySelector(".live-pass") as HTMLElement).style.getPropertyValue("--pass-hole"),
+    ).toBe("");
+    expect(rowOf("Mohinga").querySelector(".ui-track")).not.toBeNull();
+  });
+
+  it("the Bill's own pass is unchanged: prices, the total and the stub stay", () => {
+    const { container } = renderPass(false);
+    expect(container.querySelector(".ui-pass")!.hasAttribute("inert")).toBe(false);
+    expect(container.querySelectorAll(".live-pass-dish-price").length).toBeGreaterThan(0);
+    expect(container.querySelector(".live-pass-foot")).not.toBeNull();
+    expect(container.querySelector(".live-pass-stub")).not.toBeNull();
+    expect(
+      (container.querySelector(".live-pass") as HTMLElement).style.getPropertyValue("--pass-hole"),
+    ).toBe("var(--pg)");
+  });
+});
