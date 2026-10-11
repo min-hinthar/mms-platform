@@ -148,6 +148,8 @@ export default function Grocery() {
   // it — a fresh identity per basket change would tear down and restart the camera on every scan.
   // `billedRef` is this session's own record and the ONLY source that survives a failed post-write
   // read (`scanAdd` answers `lines: null`), which is exactly when the server view cannot prove it.
+  // EVERY ok charge records its code here — the live add and the offline queue's replay alike (G25;
+  // check:scan-repeat proposition 8).
   const linesRef = useRef<GroceryLine[]>(lines);
   const pendingRef = useRef<QueuedScan[]>([]);
   const billedRef = useRef<Set<string>>(new Set());

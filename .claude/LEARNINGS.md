@@ -3915,3 +3915,15 @@ prereq layer, and every SQL test ran as `postgres` — so only a privilege ASSER
 `supabase start` stack (PD1N.4) noticed that nothing in the migrations granted them. Grant what an
 invoker function relies on explicitly in its migration (idempotent; a no-op where it already stands),
 and assert it in the test; a throwaway whose prereq copies the hosted defaults cannot see this gap.
+
+## #260
+
+**An exemption is a population cut: the obligations that still bind the exempt site need their own
+proposition (G25, 2026-10-11).** `check:scan-repeat` proposition 1 exempted the offline queue's replay
+from "every charge is classified first" — rightly: it was classified at scan time. But the exemption
+made the replay invisible to the only proposition about charges, and nothing asserted what EVERY
+charge owes regardless of door: recording its code in `billedRef` on ok. The live add kept that line;
+the replay never had it, so a replay delivered with `lines: null` was billed again on the next camera
+read, with every guard green. When a guard exempts a call site, list what the exempt site must still
+do, and pin THOSE over the whole population (proposition 8 walks every live `scanAdd`, exempt or
+not) — an exemption should narrow one rule, never the guard's sight.

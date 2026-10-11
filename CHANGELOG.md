@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### G25 — a delivered offline replay records its charge, so the camera never bills it twice (2026-10-11)
+
+- **The defect (W7b × M186).** M186's classifier refuses a camera sighting of a code the basket
+  already pays for, judged from the lines on screen, the offline queue, and `billedRef` — what this
+  session charged, the only record that survives a failed post-write read (`scanAdd` answering
+  `lines: null`). The live add always recorded it; the reconnect drain (`drainNow`) did not. A replay
+  delivered with no view left the queue at the drain's `syncPending()` while the list did not show it
+  yet, so the next camera read of that jar classified `add` and charged a second unit.
+- **The fix.** The drain's ok branch records `entry.barcode` exactly as the live add records its
+  code, after the era check (an abandoned basket's replay never marks the fresh one); a refused
+  replay records nothing.
+- **Pinned.** `apps/qr/app/grocery/page.test.tsx` (new) renders the real page with the server
+  actions, the session and the camera stubbed, and sights the jar through the page's own `onScan`: a
+  live add, a delivered replay and a refused replay, each with `lines: null`. Red-first: the
+  delivered-replay row charged twice on main. `check:scan-repeat` proposition 8 parses the page:
+  every live `scanAdd`'s top-level `if (R.ok)` records its own code at its top level, ahead of
+  anything that can leave the branch, and the function never takes it back; `billedRef` is declared
+  once and is the set `classifyScan` reads. Thirteen committed matcher rows (the record dropped,
+  left in a comment, riding `r.lines`, parked, deferred to a callback, after a return, of another
+  code, into another set, taken back, shadowed, the classifier reading another set) — each red, and
+  three weakenings of the matcher each turned a row red. Three `grocery-page/` mutants, owned by the
+  page suite, all CAUGHT.
+
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
 
 - **A nudge is serialized with a fulfillment change (comment 4240355357, P2).** `mms_nudge_host`
