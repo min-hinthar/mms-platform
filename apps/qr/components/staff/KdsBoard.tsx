@@ -1657,6 +1657,15 @@ export function KdsBoard({
                         (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
             </span>
           )}
+          {/* #347 Codex r3 (a11y) — the stop warning is SAID through this one region (the static line
+              and the empty state's heading below only show it): visually hidden here, so a sighted
+              cook reads it once. A frozen board's own line already says nothing is landing. */}
+          {stopsStale && degraded === null && (
+            <span className="sr-only" lang={lang}>
+              {" "}
+              {ts(lang, "kds.stops.unknown")}
+            </span>
+          )}
         </p>
         {/* Phase 2h — "no answer yet … reload the board to see": the console is installed standalone
             (no browser reload), so the button the sentence promises stands BESIDE the one region,

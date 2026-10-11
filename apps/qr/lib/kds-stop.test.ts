@@ -231,6 +231,25 @@ describe("#347 (C1 · r2 C1) — a station's view draws a stop card WHOLE, only 
     expect(stopsForStation([mixed], "wok")[0]!.lines.map((l) => l.id)).toEqual(["noodles", "lime"]);
   });
 
+  it("a clear's OTHER Sends stand beside the station's own — one Got it retires them all (Codex r3)", () => {
+    // One table, two Sends: the wok's and the drinks' — two cards under one clear.
+    const wokSend = card("T", [line("mohinga", "wok")]);
+    const drinkSend = { ...card("T", [line("lime", "drinks")]), key: "stop|T|b|drinks" };
+    // MUTATION m270/kds-stop/sibling-sends-hidden: the drinks screen draws only the juice's card, its
+    // Got it acknowledges the whole clear, and the mohinga's card leaves the wok screen unseen.
+    expect(keys(stopsForStation([wokSend, drinkSend, wok], "drinks"))).toEqual([
+      "T:mohinga",
+      "T:lime",
+    ]);
+    expect(keys(stopsForStation([wokSend, drinkSend, wok], "wok"))).toEqual([
+      "T:mohinga",
+      "T:lime",
+      "W:mohinga",
+    ]);
+    // A clear none of whose Sends touched the station still stays off it.
+    expect(stopsForStation([wokSend, drinkSend], "cold")).toEqual([]);
+  });
+
   it("a dish whose station is unknown counts on EVERY station — unknown is never 'not mine'", () => {
     // MUTATION m270/kds-stop/unknown-station-hidden: a dish the menu read could not place is shown on
     // no station screen at all.

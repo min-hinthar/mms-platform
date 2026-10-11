@@ -90,18 +90,27 @@ export function stopReadDegraded(misses: number): boolean {
  * `stationForCategory` — or any dish whose station is unknown (`null`), and it stands WHOLE, every
  * dish it stopped. Never trimmed to the station's own dishes: ONE "Got it" acknowledges the whole
  * clear for every tablet, so a drinks cook who saw only the juice would retire the noodles card on
- * the wok's screen unseen. A card that stopped only other stations' dishes stays off the view; a
- * card with no dishes read shows everywhere (unknown is never "not mine"). The all-stations view
- * draws every card. Per-station acknowledgement is M271.
+ * the wok's screen unseen. And for the same reason it stands with EVERY card of its clear (Codex r3
+ * on #347): a clear draws one card per Send, so a table with a wok Send and a drinks Send owns two
+ * cards under one "Got it" — a station that stands one of them stands them all. A clear that stopped
+ * only other stations' dishes stays off the view; a card with no dishes read shows everywhere
+ * (unknown is never "not mine"). The all-stations view draws every card. Per-station
+ * acknowledgement is M271.
  */
 export function stopsForStation(
   stops: readonly KitchenStop[],
   station: "all" | KitchenStation,
 ): KitchenStop[] {
   if (station === "all") return [...stops];
-  return stops.filter(
-    (s) => s.lines.length === 0 || s.lines.some((l) => l.station === null || l.station === station),
+  const mine = new Set(
+    stops
+      .filter(
+        (s) =>
+          s.lines.length === 0 || s.lines.some((l) => l.station === null || l.station === station),
+      )
+      .map((s) => s.clearId),
   );
+  return stops.filter((s) => mine.has(s.clearId));
 }
 
 /**

@@ -512,6 +512,12 @@ describe("#347 (Codex P1 · blind C2) — an UNKNOWN first stop read is never 'n
     // MUTATION m270/kds-board/stop-misses-unsaid: a board that cannot hear a table leave keeps a
     // quiet face for as long as the reads fail.
     expect(stale()!.textContent).toBe(ts("en", "kds.stops.unknown"));
+    // MUTATION m270/kds-board/stale-unsaid: the warning only SHOWS — static text no screen reader is
+    // told about (Codex r3); the one region says it beside the count.
+    expect(region().textContent).toContain(ts("en", "kds.stops.unknown"));
+    expect(region().querySelector(".sr-only")!.textContent).toContain(
+      ts("en", "kds.stops.unknown"),
+    );
     // MUTATION m270/kds-board/misses-to-degraded: the WHOLE board freezes over tickets that still
     // land — the frozen line, "take orders on paper", the bar's not-updating, the re-chime muted.
     expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
@@ -536,7 +542,10 @@ describe("#347 (Codex P1 · blind C2) — an UNKNOWN first stop read is never 'n
     await flush(5_000);
     // MUTATION m270/kds-board/stale-read-as-known: All clear and "Nothing to cook" over a kitchen
     // that cannot hear a table leave — round 1's degrade said it; without it nothing would.
-    expect(region().textContent).toBe(tf("en", "kds.open.many", { n: 0 }));
+    // The count, and the warning said (visually hidden: the empty state's heading shows it).
+    expect(region().textContent).toBe(
+      `${tf("en", "kds.open.many", { n: 0 })} ${ts("en", "kds.stops.unknown")}`,
+    );
     expect(document.getElementById("kds-empty-h")!.textContent).toBe(ts("en", "kds.stops.unknown"));
     expect(screen.queryByText(ts("en", "kds.empty"))).toBeNull();
     expect(container.querySelector(".kds-stop-stale")).toBeNull();
