@@ -30,7 +30,7 @@ import { haptic } from "@/lib/haptics";
 import { useCounterBellCover } from "./CounterBell";
 import { useReaderCollectOptional } from "./ReaderCollectContext";
 import type { TableHint } from "./TableNav";
-import { TablePane } from "./TablePane";
+import { TablePane, type CounterGuideSeed } from "./TablePane";
 import { CounterMintProvider } from "./CounterMint";
 import { TurnoverNewsProvider } from "./TurnoverNews";
 import { useReloadHold } from "./useReloadHold";
@@ -66,9 +66,12 @@ const noopSubscribe = () => () => {};
 
 export function CounterSplit({
   terminalReady,
+  guide = null,
   children,
 }: {
   terminalReady: boolean;
+  /** PD12 — the counter guide's first run: the signed-in person and the floor's ask at mount. */
+  guide?: CounterGuideSeed | null;
   children: ReactNode;
 }) {
   // SSR and the hydration frame: `unknown` (the server cannot see the hash) — no empty-state copy.
@@ -357,6 +360,7 @@ export function CounterSplit({
               settleOnce={settleOnce}
               onSettleConsumed={() => setSettleOnce(null)}
               terminalReady={terminalReady}
+              guide={guide}
               onClose={(reason) => close(reason, "control")}
               onSelect={(id, hint) => {
                 select(id, hint, { write: true, focus: true });

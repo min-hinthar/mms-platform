@@ -9416,6 +9416,15 @@ a .chrome-en {
   overscroll-behavior-x: contain;
   padding: 2px 0;
 }
+/* The rail's label — ONE rule for the board and the guide's picture of the rail (PD12). */
+.kds-recall-label {
+  flex: none;
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-heavy);
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+}
 .kds-recall-btn {
   flex: none;
   min-height: 48px;
@@ -17292,4 +17301,282 @@ html[data-reloading] body::after {
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--tx);
+}
+
+/* ── PD12 · the staff step guides (m12 "Point and Call"; DESIGN-LANGUAGE §36) ─────────────────────
+   ONE card, two hosts: the screen's own quiet space (`data-host="inplace"` — the counter's idle
+   pane, the kitchen's empty board) and the Help sheet (`data-host="sheet"`). Tokens only, and no new
+   motion: the pictures play their controls' own shipped motions (`.kds-flash`, `.mms-pop`, each
+   already in its reduced-motion block), and the step swap is instant. The card is the console's
+   paper card (`.card.card-textured`); the well is `.help-pic`'s own ground at a FIXED height, so a
+   picture is a crop of the real control at its real size, never a scaled drawing. Accent is spent on
+   the one primary only (the critic's B6): the eyebrow is --t2, and the current dot is a --tx CAPSULE
+   (shape, not colour) beside --t3 dots. */
+.staff-guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s5);
+  margin: 0;
+}
+.staff-guide[data-host="sheet"] {
+  padding: var(--s4);
+}
+.staff-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 44px;
+}
+.staff-guide-step {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.staff-guide-step > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+}
+/* Close (ပိတ်) — the skip control: a text button, the ✕ beside the word, a full 44px target. */
+.staff-guide-close {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 var(--s3) 0 var(--s2);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+  text-align: left;
+  cursor: pointer;
+}
+.staff-guide-close > .chrome-pair > .chrome-en {
+  font-size: var(--fs-caption);
+  color: var(--t2);
+}
+/* The well: `.help-pic`'s ground, radius and inertness, at a fixed height so the picture CROPS. A
+   column, stretched, so a strip or a card spans the well as it spans its own column. */
+.guide-well {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: var(--s3);
+  height: 16.25rem;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.staff-guide[data-screen="kitchen"] .guide-well {
+  height: 22.5rem;
+}
+.staff-guide[data-screen="kitchen"][data-host="sheet"] .guide-well {
+  height: 18.75rem;
+}
+/* The title — the control's own word, the step's focus target (a programmatic one: no ring). */
+.staff-guide-title {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--tx);
+  outline: none;
+}
+.staff-guide-title > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+}
+.staff-guide-title > .chrome-pair > .chrome-en {
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
+}
+.staff-guide-lines {
+  display: grid;
+  gap: var(--s2);
+}
+.staff-guide-line {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-normal);
+  color: var(--tx);
+}
+.staff-guide-line > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-regular);
+}
+.staff-guide-line > .chrome-pair > .chrome-en {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+}
+/* The kitchen reads at arm's length: its title and sentences take the board's own tiers. */
+.staff-guide[data-screen="kitchen"] .staff-guide-title > .chrome-pair > [lang="my"],
+.staff-guide[data-screen="kitchen"] .staff-guide-title {
+  font-size: var(--kfs-item-my, var(--fs-h1));
+}
+.staff-guide[data-screen="kitchen"] .staff-guide-title > .chrome-pair > .chrome-en {
+  font-size: var(--fs-h3);
+}
+.staff-guide[data-screen="kitchen"] .staff-guide-line > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-h2);
+}
+.staff-guide[data-screen="kitchen"] .staff-guide-line > .chrome-pair > .chrome-en {
+  font-size: var(--fs-lead);
+}
+/* The foot — the dots, the pager, the footer — STICKS to the bottom of its scroller, so Next never
+   scrolls away under a large Burmese title (m12 risk 9). Opaque card ground, a hairline on top. In
+   the counter's pane it sits above the pane's own reserve for the lane's thumb-zone pill. */
+.staff-guide-foot {
+  position: sticky;
+  bottom: var(--guide-foot-bottom, 0px);
+  display: grid;
+  justify-items: center;
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s5)) calc(-1 * var(--s5));
+  padding: var(--s3) var(--s5) var(--s5);
+  border-top: 1px solid var(--bd);
+  border-radius: 0 0 var(--r-card) var(--r-card);
+  background: var(--cd);
+}
+.staff-guide[data-host="sheet"] .staff-guide-foot {
+  margin: 0 calc(-1 * var(--s4)) calc(-1 * var(--s4));
+  padding: var(--s3) var(--s4) var(--s4);
+}
+.staff-split-pane .staff-guide {
+  --guide-foot-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
+}
+.staff-guide-dots {
+  display: flex;
+  justify-content: center;
+}
+.staff-guide-dot {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  cursor: pointer;
+}
+.staff-guide-dot:focus-visible {
+  outline: 2.5px solid var(--ac);
+  outline-offset: -4px;
+}
+.staff-guide-dot-mark {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--t3);
+}
+/* The current step: a CAPSULE in full ink — told apart by shape, never by colour alone. */
+.staff-guide-dot[aria-current="step"] > .staff-guide-dot-mark {
+  width: 24px;
+  background: var(--tx);
+}
+/* ONE grid on every step (1fr · 2fr): Back's slot is held empty on step 1, so Next never moves. */
+.staff-guide-pager {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--s3);
+  width: 100%;
+  max-width: 34rem;
+}
+.staff-guide-pager > .ui-btn {
+  padding-inline: var(--s4);
+}
+.staff-guide-pager > .ui-btn .chrome-en {
+  font-size: var(--fs-caption);
+}
+.staff-guide-slot {
+  display: block;
+}
+.staff-guide-footer {
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--t2);
+  text-align: center;
+}
+.staff-guide-footer > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-sm);
+}
+.staff-guide-footer > .chrome-pair > .chrome-en {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+}
+/* The counter's in-place host: the guide stands where "Pick a table" stands, and the pane keeps its
+   region name through the sr-only label TablePane renders. */
+.staff-pane-guide {
+  padding-top: var(--s4);
+}
+/* Below the split the pane shows only a lost write's line (`data-pane="lost"`), never a guide page. */
+@media (max-width: 63.99em) {
+  .staff-split[data-pane="lost"] .staff-pane-guide {
+    display: none;
+  }
+}
+/* The kitchen's in-place host: the empty board's own truth stays said above the card. */
+.kds-guide {
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s4) 0;
+}
+.kds-guide > .staff-guide {
+  width: min(100%, 47.5rem);
+}
+.kds-guide-empty {
+  margin: 0;
+  font-size: var(--kfs-meta, var(--fs-sm));
+  font-weight: var(--fw-bold);
+  color: var(--t2);
+}
+
+/* The pictures' PLACEMENT — where a replica sits, never its size, ink or border (`guide-pic-*` is
+   held to placement by `HelpPicture.test.tsx`, the same parsed refusal as `help-pic-*`). */
+.guide-pic-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.guide-pic-center {
+  align-items: center;
+}
+.guide-pic-pair {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+/* A ticket outside the board's grid has no column to size it: it takes the grid's own column (the
+   2×4 envelope's ≈326px), and a pair shares the well. */
+.guide-pic-ticket {
+  align-self: center;
+  width: min(100%, 20.375rem);
+}
+.guide-pic-pair > .guide-pic-ticket {
+  flex: 1 1 0;
+  width: auto;
+}
+/* A bump outside its card has no card to fill: it takes the card's width. */
+.guide-pic-bump {
+  min-width: min(100%, 20rem);
+}
+.guide-pic-band {
+  display: block;
+}
+/* The <ul> that holds the real stop card's <li>: no indent, no marker of its own. */
+.guide-pic-list {
+  display: block;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
