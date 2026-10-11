@@ -110,13 +110,37 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
   field) — expo finally has something to call out.
 - Bagging bump → `togo_status='ready'` → the diner's /track AND the order-ready board flip together.
 
-## 6 · Order-ready board (`/board` on any smart TV)
+## 6 · The wall board (`/board` on any smart TV)
 
-- Two columns — **Preparing | Ready** (Fresh Order Tracker). Cards: first name + short code. Gold
-  flash + optional chime on the Preparing→Ready transition; auto-clear 10 min after picked-up.
-  Takeout + grocery only (dine-in status stays on the diner's phone). Bilingual EN/MY headings.
+- **AMENDED by PD9 (2026-10-09; the owner's 2026-10-07 message, PATH_DESIGN decision 11,
+  `docs/path-design-2026-10-07/m9-tv-board.md`). This reverses the boundary this section shipped
+  with** — "takeout + grocery only (dine-in status stays on the diner's phone)" and "first name +
+  short code + status ONLY" — knowingly: the room now reads what each table ordered while it cooks
+  (OPEN-ITEMS K32(b) closed, P6a retired).
+- **The kitchen half:** every dine-in table with food in the kitchen is a landscape CounterPass at
+  the TV tier — the table figure once at `--fs-pass` under "စားပွဲ · Table" — with its dishes on the
+  ONE KITCHEN TRACK (Sent · Cooking · Served), Burmese on top in both board languages, one stage word
+  per row in the lead tongue, the KDS's "To-go" tag, and m5's round stub for round 2 and up. A table
+  number and dish names ONLY (`lib/board-tables.ts`'s type is the boundary): same-name dishes in a
+  Send are one row (by name and fulfillment), so no count is published; no guest name, price, clock,
+  age, ETA, approval or Undo word; a dish not yet sent, or inside its Send's grace, never appears.
+  Tables sorted by number, the first ⌈n/2⌉ down the left column and the rest down the right, never
+  re-sorted on status. A table appears when its first dish clears the grace and leaves 5 minutes
+  after its last dish is served (`PULSE_PASS_LINGER_MS`), or at once when cleared.
+- **Never a nag:** Sent and Cooking are marks, Served is calm (green), and the pickup Ready pass is
+  the wall's only call. One TURN per table visit, when its last dish is served — after Mom's 6-second
+  Undo (`KDS_UNDO_MS`, on the server's clock), never on a first read or after a frozen spell; a
+  segment FILLs when a dish advances; one thing moves at a time. No table chimes.
+- **The pickup column:** Ready codes are issued as passes (the code alone, in the phone pass's code
+  face at the board's 54px row) with the gold arrival on the pass's edge and the shipped chime;
+  Preparing codes are plain rows. **No first name** (the code is the one identity; Dad still calls the
+  name aloud — the shipped checkout promise), **no wait**, and a collected bag leaves the wall at once.
+- **Frozen:** past two missed polls the wall says it is reconnecting; codes and dish names stay,
+  drawn dashed; every stage, roll-up and arrival goes; past the linger the tables go too and the
+  kitchen half keeps only "Can't read the kitchen right now."
+- **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
 - **Auth (decided at W0):** the TV **cannot** join the private RLS-gated realtime channels — it runs
-  a **sanitized poll endpoint** (first name + short code + status ONLY) behind a device token in the
+  a **sanitized poll endpoint** (the payload above and nothing else) behind a device token in the
   board URL, 5s interval (the house poll-backstop pattern). No `realtime.messages` change.
 
 ## 7 · Metrics (free, from the bump)
