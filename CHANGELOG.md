@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra)
+
+- **The flake:** #340's `build` job (114406642840) counted every test green, then reported "Errors
+  1 error" and exited 1. The error was a `TypeError` from jsdom's `dispatchEvent` ("parameter 1 is
+  not of type 'Event'"), thrown from `@radix-ui/react-focus-scope` after `LineOptionsSheet.test.tsx`
+  had finished. A suite's own `afterEach(cleanup)` unmounts an open `Sheet`, and FocusScope queues
+  its close-restore on `setTimeout(…, 0)`. vitest yields no macrotask between a file's last hook
+  and its jsdom teardown, and that teardown puts Node's own `CustomEvent` back. When the timer lost
+  the race, jsdom was handed a Node event. Main stayed green because the race usually goes the
+  other way.
+- **The fix:** `lib/test-setup.ts` waits one macrotask after every jsdom case, before its resets.
+  It waits on the real `setTimeout` captured at load, so a suite that leaves `vi.useFakeTimers()` on
+  does not hang the hook. The setup registers first, and vitest runs `afterEach` hooks in reverse
+  order, so this runs after every suite's own cleanup. One place covers every suite that opens a
+  sheet. No test is skipped or retried.
+- **Proof:** `lib/test-setup.teardown.test.tsx` was red before the fix in 10 of 10 runs and green
+  after it in 10 of 10. A naive drain on the global `setTimeout` timed out its fake-clock case
+  ("Hook timed out in 10000ms"). Two new mutants, `setup-teardown/*`, are both caught. Run on
+  vitest's own jsdom environment outside the runner, the teardown reproduces the CI error with
+  the same frames. With one drain first, it does not.
+
 ### PD7 — clearing a table: quiet hints, a named loss, and the six-second window (2026-10-09)
 
 - **M182 · `mms_clear_table`** (`20261009120400_m182_table_clear.sql`; the prod apply waits for the

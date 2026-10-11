@@ -3903,3 +3903,19 @@ the line-cap guard SURVIVED: the second guard answered for the first. The fix wa
 an assertion: one line carries the batch, so the completion read answers one row and only the line cap
 can refuse. When a later read is DERIVED from an earlier one, saturating the first tends to saturate
 the second, so build each guard's fixture to answer short everywhere downstream.
+
+## #256
+
+**"Errors 1 error" after every test passed is a timer that outlived its jsdom file — vitest yields NO
+macrotask between a case's hooks and the next case, or between a file's last hook and its environment
+teardown (2026-10-11, T54).** Measured: a `setTimeout(…, 0)` queued in a file's last `afterEach` had not
+fired in its `afterAll`, 5 of 5 runs. The teardown deletes jsdom's globals and restores Node's own
+(`CustomEvent` among them), so Radix FocusScope's unmount timer — queued by the suite's own
+`afterEach(cleanup)` — builds a Node event and jsdom's `dispatchEvent` refuses it. Whether it lands after
+the teardown is IPC timing: 0 of 70 isolated local runs, one CI run. Don't chase the race. Reproduce
+the mechanism deterministically instead: `builtinEnvironments.jsdom.setup(globalThis, {})` from
+`vitest/environments`, unmount, call its `teardown` at once. Pin the PRECONDITION in-runner: the
+timer's effect has not happened by the next case or by `afterAll`. The fix is one drain in the shared
+`setupFiles` hook. It runs last under the default `sequence.hooks: "stack"`. It waits on a `setTimeout`
+captured at load: on the global one, any case that leaves `vi.useFakeTimers()` on hangs the hook to
+its 10 s timeout.
