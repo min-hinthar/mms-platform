@@ -20,8 +20,8 @@ Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-
 Shipped the polish plan's Phase 0–2 and Phase 3a–3d (#299–#315; `ROADMAP.md`; 3e and 3f stay open),
 then **#319** (the path-design record `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the
 design-prototyping standard), **#320** (the merge gate fits in 30 minutes) and **#324** (the
-flaky-mutant fix). **The path-design wave is built (2026-10-08 to 10-11):** PD1–PD10 and PD12 merged
-with their follow-ups (#326–#347), PD11 is #348, and PD13 stays gated. The wave's eight prod migrations
+flaky-mutant fix). **The path-design wave is built (2026-10-08 to 10-11):** PD1–PD12 merged
+with their follow-ups (#326–#348; #348 PD11 → `73c34c9`), and PD13 stays gated. The wave's eight prod migrations
 were applied one file at a time under the owner's 2026-10-09 delegation ("I trust you to make all
 decisions, apply migrations, and merge all"). **Next:** `docs/HANDOFF.md`'s top block. It lists the
 merged PRs, the migrations in order, the decisions for the owner to ratify, and the next tasks: the

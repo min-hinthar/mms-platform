@@ -64,7 +64,7 @@ Before the wave, on 2026-10-08: #319 · #320 · #324 · #325 (the archive's 2026
 - **PD9:** #336 `191a549` (10-11).
 - **PD10:** #346 `f95f8cc` (10-11): the live pass, with card / Apple Pay after served built behind the
   parked flag.
-- **PD11:** #348 — in merge.
+- **PD11:** #348 PD11 → `73c34c9` (10-11), the diner's first-visit guide.
 - **PD12:** #345 `4b3e7d6` (10-11), the counter guide. The kitchen guide shipped with #347.
 - **Other follow-ups:** #343 `33c5179` (10-11), T54 (the Radix teardown flake) · #344 `bd9ea46`
   (10-11), G25 (a delivered offline replay records its charge).
@@ -137,29 +137,36 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 - **PD12** (kitchen-ops; m12 §H, "Taken and decided"). The kitchen guide was built and held until the
   stop card it teaches was mounted. It shipped with M270 (1) in #347, and the flip's condition (b) was
   decided there (m12 §I).
-- **PD11:** its build notes (m11) land with #348.
+- **PD11** (the PD11 stream; m11 §H, "Decided under the owner's delegation" 1–9). Focus stays on the
+  pressed control while the dialog's one region speaks the page. The opening stop is the sheet's
+  container. The sheet's ✕ is the close, and it is not armed. It shares PD12's guide grammar. Page 5 is
+  titled "Your order". Page 2's two sentences are English-only. Page 4 states no tender before the flip
+  and draws no Pay control after it (`GUIDE_PROVEN_WALLETS = ["Apple Pay"]`). Page 2's picture has no
+  avatars.
 
 ### Open PRs and branches (measured 2026-10-11 ~22:55Z)
 
-- **#348** — in merge (PD11, `claude/feat/pd11-diner-guide`).
+- **#348 PD11 → `73c34c9`** merged at 23:18Z, after this block was first written. Its branch,
+  `claude/feat/pd11-diner-guide`, joins the merged-PR branches below.
 - **#323**: dependabot's `npm_and_yarn` group bump, open since 2026-10-08. It is not part of the wave.
 - **This handoff** is on `claude/docs/handoff-path-design-wave-built`. The wave's first handoff branch,
   `claude/docs/handoff-path-design-wave`, belongs to #332 (merged).
 - Every other wave branch on origin belongs to a merged PR and has not been deleted. Under
   `claude/feat/`: pd-tokens-pass · pd-pass-primitives · pd3-pickup-promise · pd5-kitchen-round-two ·
   pd2-pd1-diner-cart · pd8-manager-approval · pd6-till-tray · pd1-tablemate-send · pd4-grocery-miss ·
-  pd9-tv-board · pd7-clearing-a-table · pd12-staff-guides · pd10-live-pass · m270-kds-stop-card. Under
+  pd9-tv-board · pd7-clearing-a-table · pd12-staff-guides · pd10-live-pass · m270-kds-stop-card ·
+  pd11-diner-guide. Under
   `claude/fix/`: m269-approve-cart-lock · pickup-session-refuses-join ·
   pd5b-settlement-batch-and-fold · m268-register-releases-promo-pin · pd1-codex-post-merge ·
   radix-focus-scope-teardown · g25-replay-billed.
 
 ## Next tasks — after the wave
 
-1. **#348 (PD11) — in merge.**
+1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
 2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
    merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
    it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · K44 · PD3 ·
-   PD4 · PD5 · PD6 · PD7 · PD8 · PD12. The rows' now-false sentences were restated too ("NOT applied",
+   PD4 · PD5 · PD6 · PD7 · PD8 · PD11 · PD12. The rows' now-false sentences were restated too ("NOT applied",
    "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device sitting",
    "Waits on PD7"), in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39. Every open follow-up stayed open, and
    no row was moved. Left to the streams: M269, P2do, PD3 and PD8 say in their text that they close on
@@ -202,7 +209,7 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
    - **PD9:** a station nobody bumps pins its table; burn-in and the TURN's frame rate on the TV; the
      read's p95 (m9 §G); an "All clear" wording question for the native sitting.
    - **PD10:** item 4.
-   - **PD11:** #348.
+   - **PD11:** its row names nothing left (#348 PD11 → `73c34c9`).
    - **PD12:** the headless measurement at 1366 and in the 34rem sheet (m12 risk 9), and the K15-HIGH
      candidates (for staff-authority or the owner).
    - **PD13:** `gated`. It is not built, and its reopen trigger is unchanged.
@@ -289,7 +296,7 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
   the fixture so it separates the paths (LEARNINGS #266; #347's `m270/kds-board/news-outlives-ack`).
 - **Test infra.** The Radix/jsdom timer flake (#343, LEARNINGS #257): `apps/qr/lib/test-setup.ts`
   drains real timers after each jsdom case, before the resets. Radix's close-time focus timing is
-  #348's (LEARNINGS #265 once #348 merges). Next 16.2.9 serializes server actions, and only a navigate
+  #348's (LEARNINGS #265). Next 16.2.9 serializes server actions, and only a navigate
   or restore starts early (LEARNINGS #262).
 - **Give `git log --since` a time.** A bare `--since=2026-10-08` starts at that day's current clock
   time: run at 2026-10-11 ~22:54Z, it dropped every merge of 2026-10-08 (#319, #320, #324, #325 and
