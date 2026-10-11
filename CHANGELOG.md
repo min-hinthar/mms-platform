@@ -26,6 +26,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   it" (m12 §I).
 - 44 `m270/*` mutants; no migration (M182 made the record and the RPC).
 
+### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra, #343)
+
+- **The flake:** #340's `build` job (114406642840) counted every test green, then reported "Errors
+  1 error" and exited 1. The error was a `TypeError` from jsdom's `dispatchEvent` ("parameter 1 is
+  not of type 'Event'"), thrown from `@radix-ui/react-focus-scope` after `LineOptionsSheet.test.tsx`
+  had finished. A suite's own `afterEach(cleanup)` unmounts an open `Sheet`, and FocusScope queues
+  its close-restore on `setTimeout(…, 0)`. No macrotask runs between a file's last `afterEach` and
+  its `afterAll` (measured, 5 of 5). After `afterAll`, the jsdom teardown waits for the pool's
+  `stop` message, so a timer still queued races that IPC round trip — and the teardown puts Node's
+  own `CustomEvent` back. When the timer lost, jsdom was handed a Node event. Main stayed green
+  because the timer usually wins: one queued in a file's last `afterAll` beat the teardown in 113
+  of 113 local runs.
+- **The fix:** `lib/test-setup.ts` waits one macrotask after every jsdom case, before its resets.
+  It waits on the real `setTimeout` captured at load, so a suite that leaves `vi.useFakeTimers()` on
+  does not hang the hook. The setup registers first, and vitest runs `afterEach` hooks in reverse
+  order, so this runs after every suite's own cleanup. One place covers every suite that opens a
+  sheet. No test is skipped or retried.
+- **Proof:** `lib/test-setup.teardown.test.tsx` was red before the fix in 10 of 10 runs and green
+  after it in 10 of 10. A naive drain on the global `setTimeout` timed out its fake-clock case
+  ("Hook timed out in 10000ms"). Three new mutants, `setup-teardown/*`, are all caught. Run on
+  vitest's own jsdom environment outside the runner, the teardown reproduces the CI error with
+  the same frames. With one drain first, it does not.
+- **The blind pass on #343:** the drain's position before the resets was unpinned — moved below
+  them, every guard stayed green. A restore runs caller code, and drained after the resets what it
+  writes is read by the next case. A new case has a sheet's close-restore leave a tracked call hung
+  and requires the next case's stall ledger empty; the third mutant,
+  `setup-teardown/drain-after-resets`, moves the drain and is caught. The pass also found the
+  recorded mechanism ("no macrotask before the teardown") contradicted by its own "usually goes the
+  other way", and "a faked restore can never fire" false for a clock that outlives its case. Both
+  now say only what was measured or name their source (vitest 4.0.17's `useFakeTimers` re-install), and the fixture shows the `beforeAll` fake-clock limit in-runner.
+
 ### PD12 — the staff step guides: five steps per station, in the screen's quiet space, once per person (2026-10-11)
 
 - **The counter guide ships** (m12 "Point and Call"; PATH_DESIGN decision 12). The first time a
