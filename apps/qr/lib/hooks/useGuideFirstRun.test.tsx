@@ -82,6 +82,27 @@ describe("useGuideFirstRun — the one at-open seam", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
+  it("reads and marks through the store it is HANDED (PD11's device store), never localStorage behind its back", async () => {
+    const map = new Map<string, string>();
+    const store = () => ({
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+    });
+    const read = vi.spyOn(Storage.prototype, "getItem");
+    function Handed() {
+      const { shown } = useGuideFirstRun(KEY, () => true, store);
+      return shown ? <p>guide</p> : <p>idle</p>;
+    }
+    render(<Handed />);
+    await settle();
+    // MUTATION (pd11/first-run/store-ignored): the hook reads localStorage whatever it is handed —
+    // the diner's cookie half is never consulted; red.
+    expect(screen.getByText("guide")).not.toBeNull();
+    expect(map.get(KEY)).toBe(GUIDE_SEEN_MARK);
+    expect(read).not.toHaveBeenCalled();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
   it("dismiss hides it for good — the mark stays", async () => {
     render(<Probe />);
     await settle();

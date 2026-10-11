@@ -17,8 +17,10 @@ import { SLOT_RECHECK_MAX_MS } from "@/lib/pickup-slot";
  * ## The mock is ONE module, on purpose
  *
  * `vi.mock("@/components/TableCartProvider")` replaces the context hook with a mutable fixture, so
- * the real provider — and its `server-only` import chains — is never loaded. The component's other
- * imports are React, a type, and nothing else.
+ * the real provider — and its `server-only` import chains — is never loaded. Since PD11 the beat also
+ * mounts the first-visit guide's first run (`DinerGuideFirstRun`), which reads the same fixture. These
+ * fixtures carry none of the session facts it decides on (the guide stays shut here, and nothing in
+ * these cases opens a dialog); `DinerGuideFirstRun.test.tsx` pins when it opens.
  */
 
 type Ctx = {

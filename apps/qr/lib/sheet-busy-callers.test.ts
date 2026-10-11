@@ -653,6 +653,10 @@ const UNGUARDED = [
   // PD1 (m1 screen 2) — "Show a server": a full-screen pass the server READS at the table. It
   // writes nothing; Done (or a swipe) only returns focus to the opener.
   "ShowServerPass.tsx",
+  // PD11 (m11) — the diner's first-visit guide: five pages a guest READS. Its one write, the seen
+  // mark, lands when it OPENS (and the server's copy is fire-and-forget), so a dismissal at any
+  // moment hides nothing — Close, Esc and a swipe must always work (an exit is never held).
+  "DinerGuide.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {

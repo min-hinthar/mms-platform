@@ -237,15 +237,22 @@ export const GUIDE_ARM_MS = 400;
  * pointer that produced this tap went down (null for a keyboard press). Refused while the step's
  * controls are not yet armed, and refused for a press that BEGAN before they armed — a slow second
  * half of a double-tap that is released after the arm is still the first gesture.
+ *
+ * `armMs` is the guide's own guard, defaulting to the console's `GUIDE_ARM_MS`. PD11's diner guide
+ * is a PHONE surface and passes the kit's phone guard (`DINER_GUIDE_ARM_MS` = `SAME_GESTURE_MS`,
+ * the vocabulary's "350 ms on phones, 400 ms on the console") — ONE arm rule for both guides, two
+ * numbers the vocabulary names, never a second copy of the rule.
  */
 export function guideActAccepted(t: {
   now: number;
   shownAt: number | null;
   downAt: number | null;
+  armMs?: number;
 }): boolean {
+  const arm = t.armMs ?? GUIDE_ARM_MS;
   if (t.shownAt === null) return false; // not yet shown: arming
-  if (t.now - t.shownAt < GUIDE_ARM_MS) return false;
-  if (t.downAt !== null && t.downAt - t.shownAt < GUIDE_ARM_MS) return false;
+  if (t.now - t.shownAt < arm) return false;
+  if (t.downAt !== null && t.downAt - t.shownAt < arm) return false;
   return true;
 }
 

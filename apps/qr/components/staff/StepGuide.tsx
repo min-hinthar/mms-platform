@@ -7,6 +7,7 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
 import { STAFF_GUIDE_STEPS, guideActAccepted } from "@/lib/staff-guide";
+import { GuideDots } from "../GuideDots";
 import { Chrome } from "./Chrome";
 import { GuidePicture } from "./HelpPicture";
 
@@ -163,25 +164,14 @@ export function StepGuide({
       </div>
 
       <div className="staff-guide-foot">
-        <div className="staff-guide-dots" role="group" aria-label={sx(lang, "help.a11y.pager")}>
-          {steps.map((_, i) => {
-            const n = i + 1;
-            return (
-              <button
-                key={n}
-                type="button"
-                className="staff-guide-dot"
-                aria-current={n === step ? "step" : undefined}
-                onClick={(e) => tap(e, () => go(n))}
-              >
-                <span className="staff-guide-dot-mark" aria-hidden />
-                <span className="sr-only">
-                  <Chrome lang={lang} k="help.step" vars={{ n, total }} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {/* The ONE pager of dots both guides draw (PD11 shares it). */}
+        <GuideDots
+          total={total}
+          current={step}
+          label={sx(lang, "help.a11y.pager")}
+          name={(n) => <Chrome lang={lang} k="help.step" vars={{ n, total }} />}
+          onPick={(n, e) => tap(e, () => go(n))}
+        />
         <div className="staff-guide-pager">
           {step > 1 ? (
             <Button variant="secondary" size="xl" onClick={(e) => tap(e, () => go(step - 1))}>

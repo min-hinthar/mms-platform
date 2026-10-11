@@ -2725,3 +2725,40 @@ Decided in `lib/kds-stop.ts` (what "Got it" answered, which cards draw, where ea
   was on it goes to the board's heading. The slip on the counter says "tells the kitchen to stop
   anything still cooking" when its look shows a dish the kitchen holds — a promise worded to stay true
   if the kitchen serves that dish before the commit.
+
+## 38 · The first-visit guide: a key, not a teacher, once per phone (PD11 · m11)
+
+Decided in `lib/diner-guide.ts` (when it opens, the pages, the words, the mark that outlives Safari)
+over PD12's ONE seen-key rule (`lib/guide-seen.ts`, `useGuideFirstRun`) and ONE arm
+(`guideActAccepted`); drawn by `DinerGuide` (the dialog and the Account door) and `DinerGuideFirstRun`
+(mounted by ArrivalBeat). What a diner's first-run guide may and may not be:
+
+- **One per surface, dine-in only, once per phone, decided once.** It opens by itself only when the
+  table session has answered and everything is quiet: joined with its first view (so the lock it reads
+  is the server's), no error, no pay lock, not settling, no reorder landing, no other dialog, and not a
+  diner the server already knows (a named account, or a card payer this month — an unknown read may
+  open). Marked the moment it opens, never at close; a busy arrival marks nothing; a store that refuses
+  never opens it. The mark is ALSO set by the server (`/api/guide-seen`, a Route Handler so the menu
+  never re-renders), because iOS Safari clears script-written storage after seven days and a monthly
+  regular would otherwise meet it every visit. Opened from Account it is seen too.
+- **Every title is a shipped key, whole; the guide adds English, never Burmese.** Mingalaba · Not sent
+  yet · Your order’s with the kitchen. · Your bill · Your order — the guest meets each again. Every
+  Burmese line is a shipped string referenced in place; the English it adds is listed for K15.
+- **Pictures are the real components, inert:** the CounterPass and the Bill's own `LivePass` in its
+  `picture` mode (no price, no total, no stub), on a sunken `role="img"` tray named by one sentence.
+  Only page 1 prints the guest's real table; every other picture is a sample on the "Your table" pass
+  and says "Example —". No money, no count, no name, no time; no second filled pill; no wallet logo.
+- **The guide follows the door it teaches.** Page 4 reads the parked `dineInPhonePay`: the counter
+  only while it is parked (no card word anywhere — page, picture name and region, equality-pinned),
+  D5's own sentence and the PROVEN wallets after the flip.
+- **The grammar is PD12's:** `GuideDots` (a `--tx` capsule), one dock grid whose Back holds its slot on
+  page 1, accent on the one primary, every guide control armed after the open and after every page
+  change (the phone's 350 ms), the ✕ and Esc never held. In a modal the focus stays on the pressed
+  control and the dialog's ONE region says the page; every exit from the first run lands on the menu's
+  heading, from Account on the row that opened it.
+- **Motion is the product's own, once per open:** RISE (after the sheet's entrance on page 1), FILL,
+  TURN; a revisit draws the end frame; reduced motion gets it; no loop, no auto-advance, no swipe.
+- **Measured, not assumed (2026-10-11, headless Chromium, the production CSS and the real fonts):** at
+  390×844, 375×667 and 320×568, at 100% and 200% root text, every picture sits inside its tray, the
+  dock stays in view and nothing scrolls sideways; below 46em of height the tray steps down and the
+  words scroll inside the page. A real phone and iOS's own text size are the device sitting's look.

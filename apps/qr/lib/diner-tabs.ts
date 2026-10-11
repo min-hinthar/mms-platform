@@ -1,3 +1,4 @@
+import type { IconName } from "@mms/ui";
 import { liveOrderTrackHref } from "./live-order";
 import { menuHref } from "./menu-href";
 import { orderNoun, slotCount } from "./order-noun";
@@ -35,6 +36,14 @@ import { orderNoun, slotCount } from "./order-noun";
  * with nothing else to open links to `here` (the route's own URL, query included), never the slip.
  */
 export type DinerTabKey = "menu" | "order" | "account";
+
+/** Each place's glyph — the bar's (`DinerTabs`) and PD11's guide picture of it, named once. The
+ *  market's first tab wears the bag instead (the bar decides that, by mode). */
+export const DINER_TAB_ICON: Readonly<Record<DinerTabKey, IconName>> = {
+  menu: "grid",
+  order: "receipt",
+  account: "star",
+};
 
 export type DinerTab = {
   key: DinerTabKey;
