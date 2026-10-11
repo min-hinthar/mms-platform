@@ -1389,6 +1389,45 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
 10. **The post-drain re-ask reads the render's clock**, which is never newer than the drained view.
     It can hold more but never less (fail closed).
 
+**After the capped blind pass on #346 (REJECT on `7ba84c9`).**
+
+- **C1, live today.** `app/cart/page.tsx` never passed `initialDbNow`, so production opened every
+  Bill on the unknown clock: settled bumps read "Cooking", no settle re-read was scheduled, and the
+  first realtime self-heal replayed FILL and TURN for every dish (after the flip it would also have
+  POPped "Ready to pay." on every visit). The page now passes `view.dbNow`. The prop is REQUIRED on
+  `Checkout` (`initialDbNow: string | null`), so `tsc` refuses a call site that forgets it. A case
+  applies the same view once through the realtime self-heal and asserts nothing moves. Red-first:
+  without the prop, FILL, TURN and the POP all play.
+- **C2, behind the flag.** `staged` reads the authoritative mode: `isDineIn || gateMode === "dinein"`,
+  a superset of the old `isDineIn || phonePayOff`. With the door open and the split read missed, a
+  dine-in table had landed on the unstaged review: Pay held by the served gate ("…or pay at the
+  counter") with no counter drawn and no pass. The pay step's fold, counter and counter-door copy
+  read `staged` too. The Phase 1c list cases now mount views that say the mode they mean (pickup):
+  their split-less mounts beside a "dinein" view were that same staged table.
+- **C3, behind the flag.** The dock's counter, held, says ITS OWN reason (`counterHoldCopy`,
+  `lib/checkout-verb.ts`). When that reason is the slot's sentence (a lock, the register), the
+  counter is described by the slot. When it differs (the kitchen holds Pay while the undo window
+  holds the counter, or a Send is still owed), its own sentence is drawn directly above it
+  (`#pay-counter-line`, its `aria-describedby`), and every blocked tap re-says it. The undo window's
+  counter sentence is new: "Pay at the counter once the undo window closes." The extra line shows
+  only in that mixed state. It is always gone before the served door can open, so the door opening
+  still moves nothing.
+  **After Codex round 1 on #346** (its other two findings repeat C1 and C2):
+
+- **N1, live today.** The One Pass's dish rows had dropped the receipt line's charged options and the
+  diner's note. Each row now carries them again in the receipt line's own format ("Extra egg, Large ·
+  “no peanuts”", `.live-pass-dish-mods` in `--pass-ink-3`), on the full pass and the boarded pay
+  step alike. The payer can check what each line is charged for, and an allergy note stays in sight.
+- **N2.** The menu's kitchen strip counted lines still inside the Send's undo grace as "sent to
+  kitchen" and headed itself "with the kitchen" on them. `sending` is now its own stage there: it is
+  counted "N sending", and when nothing else is under way the headline is the family's word
+  ("Sending…" · ပို့နေပါတယ်…, `DINER_STAGE_WORD`). It also keeps `allServed` false.
+- **Checked, and does not reproduce:** a `fired` line with a null `fire_at` reads "Sent" (fired at
+  or before now; `kitchen-track.test.ts` pins it), never "Sending…" forever, and needs no re-read.
+  Such rows are reachable: before P2f (`20261001000000`), `mms_line_transition`'s draft → fired edge
+  stamped no `fire_at`, and older rows may keep that. Every current writer that fires a line stamps
+  one.
+
 **For the flip PR, and others.** These stay open:
 
 - the flip itself (D5's three conditions and the refunded Apple Pay sale);
@@ -1400,5 +1439,5 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
 
 **K15:** no Burmese string is authored. The new English-only lines are those this spec's COPY already
 lists: "Pay opens once everything’s served.", the unsent, hostless and to-go reasons, and "Ready to
-pay.". To these the build adds "Pay with card", "Removed", "In your basket", "On the house", and the
-stub's "Host" and "Sent".
+pay.". To these the build adds "Pay with card", "Removed", "In your basket", "On the house", the
+stub's "Host" and "Sent", and the dock counter's "Pay at the counter once the undo window closes.".

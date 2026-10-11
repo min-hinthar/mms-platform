@@ -247,6 +247,7 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
       splitContext={HOST}
       initialTableNumber={null}
       tables={TABLES}
+      initialDbNow={null}
       {...props}
     />,
   );

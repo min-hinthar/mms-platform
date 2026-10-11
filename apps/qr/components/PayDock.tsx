@@ -19,9 +19,16 @@ const TX = (k: DictKey) => t("en", k);
  * dimmed and `aria-disabled` — never native `disabled`, so it stays reachable and reads why through
  * `aria-describedby` — and every blocked tap re-says the reason through the view's one region.
  *
- * THE COUNTER IS NEVER GATED BY SERVED (D5): its own hold (`counter`) is the counter's — a
+ * THE COUNTER IS NEVER GATED BY SERVED (D5): its own hold (`counter.reason`) is the counter's — a
  * tablemate's lock, the Send still owed, the Send's undo window, the register mid-settle — never the
- * kitchen. It is quiet (44px, transparent), never a second filled hero.
+ * kitchen. It is quiet (44px, transparent), never a second filled hero. Held, it is `aria-disabled`
+ * and SAYS ITS OWN REASON (the capped blind pass on #346, C3): when that reason is the slot's own
+ * sentence (a lock, the register), the counter reads the slot; when it differs (the kitchen holds
+ * Pay while the undo window holds the counter), its sentence is drawn directly above it
+ * (`#pay-counter-line`) and the counter reads that. Each held control is described by its own reason,
+ * and Pay's kitchen line never stands alone as the counter's. The extra line shows only in that
+ * mixed state. It is always gone before the served door can open (a grace or an unsent dish holds
+ * the gate too), so the door opening still moves nothing.
  *
  * `popping` is the door moment's POP (0.96 → 1, 180 ms) on the whole button — the motion language's
  * "a control comes alive" (m10 B8), never the 1.18 numeral `mmsPop`. Reduced motion: the button is
@@ -59,15 +66,24 @@ export function PayDock({
   onPay: () => void;
   onRefusedPay: () => void;
   counter: {
-    held: boolean;
+    /** The counter's OWN held reason (`counterHoldCopy`, the register's sentence mid-settle), or
+     *  null when it is live. `my` is null where no Burmese is shipped. */
+    reason: { en: string; my: string | null } | null;
     busy: boolean;
     onClick: () => void;
     /** A blocked tap says the counter's own reason, never nothing. */
-    onRefusedTap: () => void;
+    onRefusedTap: (reason: string) => void;
   };
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useCtaDock(ref, !hidden);
+  // C3 — the counter's own line, drawn only when it says something the slot does not.
+  const counterLine = counter.reason && counter.reason.en !== line.en ? counter.reason : null;
+  const counterDescribedBy = counter.reason
+    ? counterLine
+      ? "pay-counter-line"
+      : "pay-line"
+    : undefined;
   return (
     <div ref={ref} className="counter-dock pay-dock" hidden={hidden}>
       {/* Static text, never a live region (the view keeps its one). */}
@@ -104,15 +120,27 @@ export function PayDock({
           {t("my", payKey)}
         </span>
       </button>
+      {/* Static text, like the slot: the counter's own reason when it is not the slot's. */}
+      {counterLine && (
+        <p id="pay-counter-line" className="pay-dock-counter-line">
+          {counterLine.en}
+          {counterLine.my && (
+            <span lang="my" className="pay-dock-counter-line-my">
+              {counterLine.my}
+            </span>
+          )}
+        </p>
+      )}
       <button
         type="button"
         className="pay-dock-counter"
-        aria-disabled={counter.held || undefined}
+        aria-disabled={counter.reason !== null || undefined}
+        aria-describedby={counterDescribedBy}
         aria-busy={counter.busy || undefined}
         onClick={() => {
           if (counter.busy) return;
-          if (counter.held) {
-            counter.onRefusedTap();
+          if (counter.reason) {
+            counter.onRefusedTap(counter.reason.en);
             return;
           }
           counter.onClick();

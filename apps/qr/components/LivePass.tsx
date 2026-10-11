@@ -26,7 +26,8 @@ import { passIdentity } from "@/lib/pass-identity";
  *    host's own phone; omitted at a hostless table) and Sent (the earliest fire time past its grace,
  *    on the restaurant's clock — `passSentAt`);
  *  - the BODY: the dishes in CART order (rows never re-sort under a thumb), each `qty × name`, the
- *    Burmese name, the price, then the track and its word — Sent to kitchen · ပို့ပြီး, Cooking ·
+ *    Burmese name, the price, the charged options and the diner's note (the receipt line's own
+ *    format, on the boarded pay step too), then the track and its word — Sent to kitchen · ပို့ပြီး, Cooking ·
  *    ချက်နေဆဲ, Served · ထုတ်ပြီး, the family's console words (`DINER_STAGE_WORD`) — and the owner on
  *    a group table. A draft is the hollow ring, never a track; a to-go draft keeps its shipped "goes
  *    to the kitchen when you pay"; a comped dish keeps its track (it still cooks); a voided one is
@@ -42,7 +43,7 @@ import { passIdentity } from "@/lib/pass-identity";
  * keeps its one live region). The pass hosts no controls.
  *
  * `boarded` is the pay step's variant (m10 screen 2): the rows the charge was minted from, compact —
- * no track, no word, no owner (the head already says where the kitchen is, and the payer pays the
+ * their options and notes kept, but no track, no word, no owner (the head already says where the kitchen is, and the payer pays the
  * whole order). Amounts are never computed here: prices are the server's line cents, the foot is
  * the caller's binding.
  */
@@ -205,6 +206,16 @@ function DishRow({
           ${((item.unitPriceCents * item.qty) / 100).toFixed(2)}
         </span>
       </span>
+      {/* Codex round 1 on #346 (N1) — the options the line was CHARGED for and the diner's note (an
+          allergy, "no peanuts"), exactly as the receipt line had them: on the full pass AND boarded,
+          so the payer can still check what they pay for, and the kitchen's note stays in sight. */}
+      {(item.modifiers.length > 0 || item.notes) && (
+        <span className="live-pass-dish-mods">
+          {item.modifiers.join(", ")}
+          {item.modifiers.length > 0 && item.notes ? " · " : ""}
+          {item.notes ? `“${item.notes}”` : ""}
+        </span>
+      )}
       {!boarded && (
         <span className="live-pass-dish-state">
           {item.lineState === "voided" ? (

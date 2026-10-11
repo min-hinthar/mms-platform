@@ -1,5 +1,6 @@
 import type { ServedHold } from "./checkout-stage";
 import { TABLE_STARTER } from "./confirm-copy";
+import { counterUnsentTapCopy } from "./counter-pay-state";
 import { t } from "./i18n";
 
 /**
@@ -28,8 +29,9 @@ import { t } from "./i18n";
  *    no counter ask stands; otherwise it is a door to a bill you can READ ("View bill"). The door
  *    never promises a verb the next screen refuses or does not offer.
  *
- * Imports only copy — `TABLE_STARTER` (the role sentence for a host the table cannot name) and the
- * dictionary — no React, no DOM, so `verify:slice` falsifies each arm with one input.
+ * Imports only copy — `TABLE_STARTER` (the role sentence for a host the table cannot name), the
+ * counter's unsent sentence (`counterUnsentTapCopy`) and the dictionary — no React, no DOM, so
+ * `verify:slice` falsifies each arm with one input.
  */
 
 export type OrderHero = "send" | "undo" | "wait" | "bill";
@@ -126,6 +128,35 @@ export function servedHoldCopy(
       return `Send your to-go dish to the kitchen first (More ⋯) — ${PAY_OPENS_SERVED}`;
     case "kitchen":
       return PAY_OPENS_SERVED;
+  }
+}
+
+/** The dock counter's own sentence while the Send's undo window holds it (English only; K15). */
+export const COUNTER_AFTER_UNDO = "Pay at the counter once the undo window closes.";
+
+/**
+ * PD10 · D5 (the capped blind pass on #346, C3) — the COUNTER's OWN held sentence on the served-gated
+ * Bill's dock. The counter is never gated by served, so its hold (`payBlock` with `servedHold: null`:
+ * a tablemate's lock, the Send still owed, the Send's undo window) is never Pay's. Pay's slot can say
+ * "Pay opens once everything’s served." while the counter waits on something else entirely. Read
+ * beside it, that line would claim the kitchen holds the counter, which D5 forbids. So the counter
+ * says its own reason, in words about the COUNTER: the unsent sentence names who sends and ends
+ * "then pay at the counter" (`counterUnsentTapCopy`), and the undo window gets its own counter
+ * sentence, never Pay's "Pay opens when the undo window closes.". A lock reads exactly as Pay's does
+ * (one fact, said once). The served arms cannot reach the counter; were one ever handed in, it reads
+ * as Pay's own reason, so the counter is held and SAYS so, never silently live.
+ */
+export function counterHoldCopy(
+  block: PayBlock,
+  ctx: { lockedByName: string | null; canSend: boolean; hostName: string | null },
+): string {
+  switch (block) {
+    case "unsent":
+      return counterUnsentTapCopy(ctx.canSend ? null : (ctx.hostName ?? TABLE_STARTER));
+    case "grace":
+      return COUNTER_AFTER_UNDO;
+    default:
+      return payBlockCopy(block, ctx);
   }
 }
 

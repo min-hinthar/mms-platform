@@ -66,9 +66,13 @@ export function unsentFoodQty(
  * (`joinOnly`) never claims it. Gating that table would leave nobody able to send and so nobody able
  * to pay. Without a host the pre-1b behaviour stands: pay, and the drafts fire when it lands.
  *
- * The same binding on both sides: `create-intent` (and `openSettlement`) refuse on it server-side,
- * and the Bill's Pay control reads it to say why before the diner taps. Pickup and scan-and-go have
- * no send step — paying IS ordering — so it never applies there.
+ * The same binding on both sides: the split doors (`openSettlement`, `create-share-intent`) still
+ * refuse on it server-side while the self-serve split is parked (wiring D5's verdict into them is on
+ * `selfServeSplit`'s reopen list, lib/surfaces), and the Bill reads it to say why before the diner
+ * taps — the counter's hold, and Pay's unsent reason. `create-intent` NO LONGER refuses on it: PD10
+ * replaced that refusal with D5's served gate (`servedGateDecision` below), which every unsent dine-in
+ * line also holds, and `check:phone-pay-door` (rule 7) refuses a live `payBlockedByUnsent(` there.
+ * Pickup and scan-and-go have no send step — paying IS ordering — so it never applies there.
  */
 export function payBlockedByUnsent(
   mode: string | null | undefined,

@@ -110,6 +110,11 @@ describe("settleRereadDelayMs — ONE re-read when the clock alone changes a sta
     expect(
       settleRereadDelayMs([item({ lineState: "served", bumpedAt: at(-1_000) })], null),
     ).toBeNull();
+    // A fired line with NO fire time (the KDS read's M2 reading: fired at or before now) is past any
+    // grace — it reads "Sent", never "Sending…" forever, so nothing waits on the clock for it (#346).
+    const noFireTime = item({ lineState: "fired", fireAt: null });
+    expect(passRowStage(noFireTime, NOW)).toBe("sent");
+    expect(settleRereadDelayMs([noFireTime], NOW_MS)).toBeNull();
     // A grocery line never fires and never settles.
     expect(
       settleRereadDelayMs(

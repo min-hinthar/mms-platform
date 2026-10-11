@@ -56,6 +56,9 @@ const h = vi.hoisted(() => ({
   requestCounterPay: vi.fn(),
   withdrawCounterPay: vi.fn(),
   push: vi.fn(),
+  /** PD10 (#346 C1) — the realtime self-heal the screen registered (`useCartRealtime`'s callback):
+   *  a case fires it to apply a view through `refresh`, the non-quiet path a real echo takes. */
+  echo: { current: null as null | (() => void) },
 }));
 
 vi.mock("@/lib/cart", () => ({
@@ -74,7 +77,11 @@ vi.mock("@/lib/counter-pay", () => ({
   requestCounterPay: h.requestCounterPay,
   withdrawCounterPay: h.withdrawCounterPay,
 }));
-vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+vi.mock("@/lib/realtime", () => ({
+  useCartRealtime: (_cartId: string, _token: string, onEcho: () => void) => {
+    h.echo.current = onEcho;
+  },
+}));
 // PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
 vi.mock("@/lib/send-nudge", () => ({ nudgeHost: (...a: unknown[]) => h.nudgeHost(...a) }));
 // `@mms/ui` stays REAL except for ONE export: `NumberFlow` re-exports `@number-flow/react`, which
@@ -1545,6 +1552,19 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     expect(document.getElementById("pay-line")?.textContent).toBe(
       "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
+    // …and the COUNTER says its OWN reason, tied to it (the capped blind pass on #346, C3): Pay's
+    // line ends "Pay opens once everything’s served.", which is never the counter's (D5).
+    // MUTATION (pay-dock/counter-reason-not-drawn): the counter's own line never drawn — the held
+    // counter's description points at nothing, and Pay's served line reads as the counter's; red.
+    // MUTATION (pay-dock/counter-described-by-nothing): the held counter carries no description; red.
+    const counterReason = counter.getAttribute("aria-describedby");
+    expect(counterReason).toBe("pay-counter-line");
+    expect(document.getElementById(counterReason!)?.textContent).toBe(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+    expect(screen.getByRole("button", { name: /^Pay · / }).getAttribute("aria-describedby")).toBe(
+      "pay-line",
+    );
     await act(async () => {
       fireEvent.click(counter);
     });
@@ -1580,9 +1600,12 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
       fireEvent.click(counter);
     });
     expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // MUTATION (checkout/dock-counter-guest-told-to-send): the host's sentence for every role on
-    // the PD10 dock — a guest is told to send what only Aye can; red. (The parked dock's twin is
-    // `checkout/unsent-counter-guest-told-to-send`, pinned in the PD2 describe.)
+    // The PD10 dock's counter says who sends (`counterHoldCopy`; its mutant
+    // `checkout/dock-counter-guest-told-to-send` is owned by lib/checkout-verb.test.ts). The parked
+    // dock's twin is `checkout/unsent-counter-guest-told-to-send`, pinned in the PD2 describe.
+    expect(document.getElementById("pay-counter-line")?.textContent).toBe(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
     expect(document.body.textContent).toContain(
       "Aye sends everything to the kitchen first — then pay at the counter.",
     );
@@ -1754,10 +1777,15 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
  * in-flow sibling index × 100px plus its parent's, so taking a row out of flow moves exactly the rows
  * after it, the way the real list does. Timing cases hold the clock (`vi.useFakeTimers`, the file's
  * pattern) and advance it by frames.
+ *
+ * The views say the mode the MOUNT means (#346 C2): these cases mount the classic, unstaged list with
+ * no split context, which only a pickup / scan-and-go cart draws. A split-less mount whose view says
+ * "dinein" is a TABLE whose split read missed, and the Bill now stages it (the cart view's mode is
+ * authoritative), so the default `view()` would quietly turn these into staged-table cases.
  */
-const truth = (items: CartItem[]) => {
-  h.setQty.mockResolvedValue(view({ items }));
-  h.getCartView.mockResolvedValue(view({ items }));
+const truth = (items: CartItem[], mode = "pickup") => {
+  h.setQty.mockResolvedValue(view({ items, mode }));
+  h.getCartView.mockResolvedValue(view({ items, mode }));
 };
 const lineLi = (id: string) =>
   Array.from(document.querySelectorAll<HTMLLIElement>(`li[data-line-id="${id}"]`));
@@ -1833,7 +1861,7 @@ describe("Phase 1c — a removed line leaves in place", () => {
     // "Send to kitchen now" sheet — so pressing every button in its ghost exercises every guard.
     const A = { ...ITEM, fulfillment: "togo" as const };
     const B = { ...ITEM_B, fulfillment: "togo" as const };
-    truth([B]);
+    truth([B], "dinein");
     mount({ splitContext: DINE_IN, initialItems: [A, B] });
     await press("Remove Mohinga");
     h.setQty.mockClear();
@@ -1915,7 +1943,7 @@ describe("Phase 1c — a removed line leaves in place", () => {
         refuse = reject;
       }),
     );
-    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B], mode: "pickup" }));
     mount({ initialItems: [ITEM, ITEM_B] });
     await press("Remove Mohinga");
     expect(ghosts()).toHaveLength(1);
@@ -1951,7 +1979,7 @@ describe("Phase 1c — a removed line leaves in place", () => {
         refuse = reject;
       }),
     );
-    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B], mode: "pickup" }));
     mount({ initialItems: [ITEM, ITEM_B] });
     await press("Remove Mohinga");
     await frames(400); // the ghost dropped at 350, and every hold from the tap has released
@@ -2029,7 +2057,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
     const mine = screen.getByRole("button", { name: `Add another ${ITEM.name}` });
     mine.focus();
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
-    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM], mode: "pickup" }));
     await syncFromServer();
     await frames();
     // MUTATION: land whenever ANY row is removed — the diner is yanked off their own control, red.
@@ -2041,7 +2069,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
     mount({ initialItems: [ITEM, ITEM_B] });
     expect(document.activeElement).toBe(document.body);
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
-    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM], mode: "pickup" }));
     await syncFromServer();
     await frames();
     // MUTATION: revert S2.2 to `draftCount < prev` — a REMOVED draft reads as fired, heading, red.
@@ -2054,7 +2082,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
     mount({ initialItems: [ITEM, ITEM_B] });
     screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
-    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM], mode: "pickup" }));
     await syncFromServer();
     await frames();
     // MUTATION: no server-driven landing — focus stays inside the inert ghost, red.
@@ -2065,7 +2093,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
   it("same-length interleaving: one refresh removes your row and adds another", async () => {
     mount({ initialItems: [ITEM, ITEM_B] });
     screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
-    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_C] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_C], mode: "pickup" }));
     await syncFromServer();
     await frames();
     // MUTATION: key the landing on a length DECREASE — two in, two out, nothing fires, red.
@@ -2075,7 +2103,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
   it("a section that empties under you (no ghost) still lands", async () => {
     mount({ initialItems: [ITEM, { ...ITEM_B, fulfillment: "togo" }] });
     screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
-    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    h.getCartView.mockResolvedValue(view({ items: [ITEM], mode: "pickup" }));
     await syncFromServer();
     await frames();
     // MUTATION: detect only by activeElement inside [inert] (drop the list's focus record) — the row
@@ -2085,7 +2113,9 @@ describe("Phase 1c — focus lands on the user's own place", () => {
 
   it("S2.2 kept: a line FIRED under a lost focus still parks focus on the heading", async () => {
     mount({ initialItems: [ITEM] });
-    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    h.getCartView.mockResolvedValue(
+      view({ items: [{ ...ITEM, lineState: "fired" }], mode: "pickup" }),
+    );
     await syncFromServer();
     await frames();
     // MUTATION: firedSince always false — a fired line's stepper unmounts and focus is left on
@@ -2102,8 +2132,8 @@ describe("Phase 1c — a Remove that was a “−” a moment ago ignores the ta
 
   it("swallows the second half of a double-tap, and takes the next tap after the window", async () => {
     const ONE: CartItem = { ...ITEM, qty: 1 };
-    h.setQty.mockResolvedValue(view({ items: [ONE] }));
-    h.getCartView.mockResolvedValue(view({ items: [ONE] }));
+    h.setQty.mockResolvedValue(view({ items: [ONE], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [ONE], mode: "pickup" }));
     const now = vi.spyOn(performance, "now").mockReturnValue(1000);
     mount({ initialItems: [{ ...ITEM, qty: 2 }] });
     await press(`Decrease ${ITEM.name} quantity`);
@@ -2263,6 +2293,12 @@ describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", ()
     // MUTATION (checkout-verb/peer-lock-dropped-from-pay): the peer arm deleted — Pay reads live
     // under a lock create-intent refuses with 409; red.
     expect(payReason()).toBe("Waiting for Tin to finish");
+    // The counter waits on the SAME fact (#346 C3): held, described by the slot itself — one fact,
+    // said once, with no second line repeating it.
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(counter.getAttribute("aria-describedby")).toBe("pay-line");
+    expect(document.getElementById("pay-counter-line")).toBeNull();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     await act(async () => {
       fireEvent.click(pay);
@@ -3273,6 +3309,23 @@ describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bi
     expect(p.querySelector(".ui-pass-stamp")).toBeNull();
   });
 
+  it("each dish keeps its charged options and the diner's note — the receipt line's own format (Codex round 1 on #346, N1)", () => {
+    // MUTATION (live-pass/options-and-note-dropped): the options-and-note line deleted — the Bill
+    // (and the boarded pay step) can no longer show what a line was charged for, or an allergy
+    // note the kitchen was given; red.
+    const DRESSED: CartItem = {
+      ...COOKING,
+      modifiers: ["Extra egg", "Large"],
+      notes: "no peanuts",
+    };
+    mount({ splitContext: TABLE, initialItems: [DRESSED, TEA] });
+    expect(rowOf("Mohinga").querySelector(".live-pass-dish-mods")!.textContent).toBe(
+      "Extra egg, Large · “no peanuts”",
+    );
+    // A dish with neither draws no empty line.
+    expect(rowOf("Burmese Milk Tea").querySelector(".live-pass-dish-mods")).toBeNull();
+  });
+
   it("a bump inside Mom's undo window reads COOKING on the DB clock — never this phone's", () => {
     // MUTATION (checkout/pass-reads-the-device-clock): the stages read against `Date.now()` — a
     // dish Mom bumped (and can still take back) reads Served on a phone whose clock runs ahead; red.
@@ -3528,6 +3581,55 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     flags.splitOpen = true;
   });
 
+  it("a self-heal re-reading the SAME view moves nothing — the Bill opened on the view's DB clock (#346 C1)", async () => {
+    // MUTATION (checkout/pass-seeds-an-unknown-clock): the first view's clock dropped — production's
+    // exact shape while `app/cart/page.tsx` omitted the prop: every settled bump reads "Cooking" on
+    // the unknown clock, and the first realtime self-heal replays FILL and TURN for every dish and
+    // POPs "Ready to pay." on every visit; red. (The prop is required now, so `tsc` refuses a call
+    // site that forgets it.)
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    mount({ splitContext: HOST, initialItems: [SERVED] });
+    expect(pay().getAttribute("aria-disabled")).toBeNull();
+    const moved = { fill: false, turn: false, pop: false };
+    const watch = new MutationObserver(() => {
+      if (document.querySelector("[data-filling]")) moved.fill = true;
+      if (document.querySelector("[data-turning]")) moved.turn = true;
+      if (document.querySelector(".checkout-door-pop")) moved.pop = true;
+    });
+    watch.observe(document.body, { subtree: true, childList: true, attributes: true });
+    const reads = h.getCartView.mock.calls.length;
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // The coalesced echo (≤600 ms), then every step a replay would play (FILL · TURN · POP), in
+    // short act() slices so React commits between them: one long act() batches the whole replay
+    // into its last frame, and a watcher would only ever see the first step.
+    for (let i = 0; i < 20; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+    }
+    watch.disconnect();
+    // The self-heal DID read and apply a view — the silence below is not a read that never ran.
+    expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads);
+    expect(moved).toEqual({ fill: false, turn: false, pop: false });
+    expect(regionText()).not.toContain("Ready to pay.");
+  });
+
+  it("a split-read miss is still a TABLE after the flip: the dock, its counter and the pass are drawn (#346 C2)", async () => {
+    // MUTATION (checkout/staged-ignores-the-view-mode): `staged` reads `isDineIn || phonePayOff`
+    // again — with the door open and the split read missed, the Bill is the unstaged review: Pay held
+    // by the served gate ("…or pay at the counter") with no counter to tap and no pass; red.
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [{ ...ITEM }] });
+    // No host is known, so the draft holds Pay with the hostless reason, which names the counter…
+    if (!document.getElementById("pay-line")) await press(/View bill/);
+    expect(payLine()).toBe("A server will send these to the kitchen — or pay at the counter.");
+    // …and the counter it names is on screen, live (never gated by served — D5).
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    expect(document.querySelector(".live-pass")).not.toBeNull();
+  });
+
   describe("the pay step's 'Pay at the counter' — leave Pay, then ask (m10 decision 7)", () => {
     const okIntent = () =>
       new Response(JSON.stringify({ clientSecret: "pi_x_secret", totals: TOTALS, attempt: "a1" }), {
@@ -3577,6 +3679,22 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
       );
       expect(counterCards()).toBe(0);
       expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+    });
+
+    it("the BOARDED pass keeps each dish's options and note — the payer checks what they pay for (Codex round 1 on #346, N1)", async () => {
+      const DRESSED: CartItem = { ...SERVED, modifiers: ["Extra egg"], notes: "no peanuts" };
+      window.history.replaceState(null, "", "/cart?cart=cart-1");
+      h.getCartView.mockResolvedValue(view({ items: [DRESSED] }));
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(okIntent());
+      mount({ splitContext: HOST, initialItems: [DRESSED] });
+      await press(/^Pay · \$/);
+      await waitFor(() =>
+        expect(document.querySelector(".live-pass-dishes[data-boarded]")).not.toBeNull(),
+      );
+      const boarded = document.querySelector(".live-pass-dishes[data-boarded]")!;
+      expect(boarded.querySelector(".live-pass-dish-mods")!.textContent).toBe(
+        "Extra egg · “no peanuts”",
+      );
     });
 
     it("a tablemate's lock landing between the two writes is SAID — never a silent refusal (open risk 7)", async () => {

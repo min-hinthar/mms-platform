@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { TABLE_STARTER } from "./confirm-copy";
 import {
   billDoorLabel,
+  COUNTER_AFTER_UNDO,
+  counterHoldCopy,
   orderStageHero,
   payBlock,
   payBlockCopy,
@@ -242,5 +244,41 @@ describe("servedHoldCopy — D5's sentences, one function for the dock and creat
     expect(servedHoldCopy("unsent", { canSend: true, hostName: null })).toBe(
       "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
+  });
+});
+
+describe("counterHoldCopy — the dock counter says ITS OWN reason, never the kitchen's (PD10 · D5; #346 C3)", () => {
+  const ctx = { lockedByName: "Tin", canSend: true, hostName: "Aye" };
+
+  it("the undo window: the COUNTER's sentence — never Pay's 'Pay opens when the undo window closes.'", () => {
+    // MUTATION (checkout-verb/counter-grace-says-pay-opens): the grace arm answers with Pay's own
+    // sentence — beside Pay's "Pay opens once everything’s served." the dock then says two contradictory
+    // things about Pay and nothing about the counter; red.
+    expect(counterHoldCopy("grace", ctx)).toBe("Pay at the counter once the undo window closes.");
+    expect(COUNTER_AFTER_UNDO).toBe("Pay at the counter once the undo window closes.");
+    expect(counterHoldCopy("grace", ctx)).not.toContain("Pay opens");
+  });
+
+  it("the Send still owed: the host is told to send; a guest is told WHO sends — then the counter", () => {
+    // MUTATION (checkout/dock-counter-guest-told-to-send): the host's sentence for every role — a
+    // guest's tap on the dock's counter tells them to send dishes only the host can; red.
+    expect(counterHoldCopy("unsent", ctx)).toBe(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+    expect(counterHoldCopy("unsent", { ...ctx, canSend: false })).toBe(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    // A table that cannot name its host says the role, never a name invented.
+    expect(counterHoldCopy("unsent", { ...ctx, canSend: false, hostName: null })).toBe(
+      `${TABLE_STARTER} sends everything to the kitchen first — then pay at the counter.`,
+    );
+  });
+
+  it("a tablemate's lock reads exactly as Pay's — one fact, said once", () => {
+    expect(counterHoldCopy("peer", ctx)).toBe(payBlockCopy("peer", ctx));
+  });
+
+  it("a served-gate reason handed in by mistake still HOLDS the counter and says so — never silently live", () => {
+    expect(counterHoldCopy("kitchen", ctx)).toBe("Pay opens once everything’s served.");
   });
 });

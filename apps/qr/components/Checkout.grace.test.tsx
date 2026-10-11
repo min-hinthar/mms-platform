@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   sendToKitchen: vi.fn(),
   undoFire: vi.fn(),
   counterPayOutcome: vi.fn(),
+  requestCounterPay: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -44,7 +45,7 @@ vi.mock("@/lib/cart", () => ({
 vi.mock("@/lib/bind-table", () => ({ bindTable: vi.fn() }));
 vi.mock("@/lib/counter-pay", () => ({
   counterPayOutcome: h.counterPayOutcome,
-  requestCounterPay: vi.fn(),
+  requestCounterPay: h.requestCounterPay,
   withdrawCounterPay: vi.fn(),
 }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
@@ -288,10 +289,29 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     expect(pay.hasAttribute("disabled")).toBe(false);
     expect(reason).toContain("Pay opens once everything’s served.");
+    // The counter is held too, but by the UNDO WINDOW, never the kitchen (D5) — so it says its own
+    // reason, tied to it, and Pay's kitchen line never stands alone as the counter's (the capped
+    // blind pass on #346, C3).
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const counterLineId = counter.getAttribute("aria-describedby");
+    expect(counterLineId).toBe("pay-counter-line");
+    expect(document.getElementById(counterLineId!)?.textContent).toBe(
+      "Pay at the counter once the undo window closes.",
+    );
     await act(async () => {
       fireEvent.click(pay);
     });
     expect(regionText()).toContain("Pay opens once everything’s served.");
+    // Each blocked tap re-says ITS control's reason.
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50)); // the refusal's frame
+    });
+    expect(regionText()).toContain("Pay at the counter once the undo window closes.");
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -469,6 +489,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
         initialMySeat={MY_SEAT}
         initialCounterRequestedAt={asked}
         splitContext={HOST}
+        initialDbNow={DB_NOW}
       />,
     );
     h.sendToKitchen.mockResolvedValue(SHORT_GRACE);

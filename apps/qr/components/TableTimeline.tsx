@@ -84,9 +84,15 @@ export function TimelineStrip({
   const at = (...stages: KitchenStage[]) =>
     tracked.filter((x) => stages.includes(x.stage)).map((x) => x.l);
   const cooking = at("cooking");
-  const sent = at("sent", "sending");
+  // Codex round 1 on #346 (N2) — SENT and SENDING are two stages, never one count: a line inside its
+  // Send's undo grace is "Sending…" (the detail below says so, and Undo can still pull it back), so
+  // counting it as "sent to kitchen" — or heading the strip "with the kitchen" on it — claims a
+  // handover that has not happened.
+  const sent = at("sent");
+  const sending = at("sending");
   const served = at("served");
-  const allServed = active.length > 0 && sent.length === 0 && cooking.length === 0;
+  const allServed =
+    active.length > 0 && sending.length === 0 && sent.length === 0 && cooking.length === 0;
   // The head's mark: the roll-up — the least-advanced stage on the strip (the pass's own rule).
   const roll = rollUp(active.map(trackLineOf), nowIso).stage;
   // Counts are PLATES (qty-weighted), not lines — "3 cooking" for one qty-3 line is what the diner
@@ -126,7 +132,8 @@ export function TimelineStrip({
 
   if (active.length === 0) return null;
 
-  // Headline priority: the kitchen's LIVE tap (cooking) > queued (sent) > done (all served).
+  // Headline priority: the kitchen's LIVE tap (cooking) > queued (sent) > still in the Send's undo
+  // grace (sending — the family's own word, never "with the kitchen") > done (all served).
   // J6 round framing: a REAL wave, not a coincidence of speed — "next round" only when every queued
   // line was FIRED after every served line's own send (mms_fire_cart stamps a batch with one
   // fire_at, so batch membership is recoverable from the stamps). A first send whose tea lands
@@ -146,9 +153,12 @@ export function TimelineStrip({
           ? isNextRound
             ? "Next round’s with the kitchen"
             : "Your order’s with the kitchen"
-          : "All served — enjoy!";
+          : sending.length > 0
+            ? DINER_STAGE_WORD.sending.en
+            : "All served — enjoy!";
 
   const counts = [
+    sending.length > 0 ? `${plates(sending)} sending` : null,
     sent.length > 0 ? `${plates(sent)} sent to kitchen` : null,
     cooking.length > 0 ? `${plates(cooking)} cooking` : null,
     served.length > 0 ? `${plates(served)} served` : null,
@@ -163,7 +173,9 @@ export function TimelineStrip({
         ? isNextRound
           ? "နောက်တစ်လှည့် မီးဖိုချောင်ထဲ ရောက်နေပါပြီ"
           : "မီးဖိုချောင်ထဲ ရောက်နေပါပြီနော်"
-        : "အားလုံး ရောက်ပါပြီ — သုံးဆောင်ပါနော်";
+        : sending.length > 0
+          ? DINER_STAGE_WORD.sending.my
+          : "အားလုံး ရောက်ပါပြီ — သုံးဆောင်ပါနော်";
 
   // W18 → PD10 — the per-dish rows behind the tap. The STAGE per group, in kitchen order (cooking
   // first — it's the live tap — then sent, then still sending, then done), each drawn as the track's
@@ -171,8 +183,8 @@ export function TimelineStrip({
   // reads it.
   const STAGE_ROWS: [stage: KitchenStage, lines: CartItem[]][] = [
     ["cooking", cooking],
-    ["sent", at("sent")],
-    ["sending", at("sending")],
+    ["sent", sent],
+    ["sending", sending],
     ["served", served],
   ];
 

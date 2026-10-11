@@ -127,7 +127,13 @@ import {
 } from "@/lib/live-pass";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
-import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "@/lib/checkout-verb";
+import {
+  billDoorLabel,
+  counterHoldCopy,
+  orderStageHero,
+  payBlock,
+  payBlockCopy,
+} from "@/lib/checkout-verb";
 import { bindTable, type BindTableResult } from "@/lib/bind-table";
 import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
@@ -295,7 +301,7 @@ export function Checkout({
   initialSendNudge = null,
   initialNudgeReady = false,
   initialServerNow = null,
-  initialDbNow = null,
+  initialDbNow,
   initialViewMode = null,
   initialTableNumber = null,
   tables = [],
@@ -333,8 +339,11 @@ export function Checkout({
   initialServerNow?: string | null;
   /** PD10 — the DATABASE clock (ISO) as the first view was made (`getCartView.dbNow`, read before
    *  its lines): the live pass reads every stage against it; null = unknown, which reads
-   *  conservatively (a line in its grace stays "Sending…", a bump stays unsettled, the door held). */
-  initialDbNow?: string | null;
+   *  conservatively (a line in its grace stays "Sending…", a bump stays unsettled, the door held).
+   *  REQUIRED, not defaulted (the capped blind pass on #346, C1): `app/cart/page.tsx` once omitted
+   *  it, so production opened every Bill on the unknown clock and the first self-heal replayed the
+   *  whole kitchen's FILL and TURN as news. A call site that forgets it now fails `tsc`. */
+  initialDbNow: string | null;
   /** Codex round 2 on #331 — the session's mode from the cart view (`getCartView.mode`, the
    *  fail-closed authorization read); the parked phone-pay door reads it before the split's. */
   initialViewMode?: string | null;
@@ -1445,10 +1454,15 @@ export function Checkout({
   // W12: dine-in review is STAGED (order | bill) — the stage joins the key so a flip animates the
   // step wrapper and lands focus on the heading exactly like review↔pay always has.
   const onPay = step === "pay" && clientSecret && payTotals;
-  // Codex round 2 on #331 — a dine-in table the SPLIT read missed is still a table: while the phone
-  // door is parked the cart view's (fail-closed) mode stages it too, so the Bill reaches the counter
-  // door and the pass instead of an unstaged review whose card controls are gone.
-  const staged = isDineIn || phonePayOff;
+  // Codex round 2 on #331 — a dine-in table the SPLIT read missed is still a table: the cart view's
+  // (fail-closed) mode stages it too, so the Bill reaches the counter door and the pass instead of an
+  // unstaged review whose card controls are gone. PD10 (the capped blind pass on #346, C2) — with the
+  // phone door OPEN as well, not only while it is parked: `isDineIn || phonePayOff` left a split-read
+  // miss after the flip on the unstaged review, its Pay held by the served gate ("…or pay at the
+  // counter") with no counter drawn and no pass. `gateMode` is that ONE authoritative mode (a
+  // superset of the old rule: parked implies a dine-in `gateMode`). Nothing on the staged path reads
+  // `splitContext` unguarded: `isGroup` gates its two `!` reads.
+  const staged = isDineIn || gateMode === "dinein";
   // The blind passes on #331 (guard 6) — the split board is the SELF-SERVE split's screen. While the
   // split door is parked (`openSettlement` refuses) every freeze is the REGISTER's cash settle, which
   // flipped a whole table to "splitting the bill" for the length of the counter's settle. The rule is
@@ -3219,15 +3233,21 @@ export function Checkout({
     : block && blockCopy
       ? { en: blockCopy, my: block === "grace" ? t("my", "payOpensAfterUndo") : null }
       : { en: "Ready to pay.", my: null };
-  // The counter's own refusal sentence (never the kitchen's — D5): the register mid-settle, the Send
-  // still owed (the host is told to send, a guest who does), a tablemate's lock, the undo window.
-  const counterRefusal: string | null = settling
-    ? T("registerSettling")
-    : counterBlock === "unsent"
-      ? counterUnsentTapCopy(canSendToKitchen ? null : (hostName ?? TABLE_STARTER))
-      : counterBlock
-        ? payBlockCopy(counterBlock, { lockedByName, canSend: canSendToKitchen, hostName })
-        : null;
+  // The counter's OWN held reason (never the kitchen's — D5), drawn and described on the dock (the
+  // capped blind pass on #346, C3): the register mid-settle, the Send still owed (the host is told to
+  // send, a guest who does), a tablemate's lock, the undo window — `counterHoldCopy`, lib's.
+  const counterReason: { en: string; my: string | null } | null = settling
+    ? { en: T("registerSettling"), my: t("my", "registerSettling") }
+    : counterBlock
+      ? {
+          en: counterHoldCopy(counterBlock, {
+            lockedByName,
+            canSend: canSendToKitchen,
+            hostName,
+          }),
+          my: null,
+        }
+      : null;
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -3418,12 +3438,15 @@ export function Checkout({
               // While a leave is releasing the pay-window lock, the charge must not start under it.
               hold={leavingPay}
               onPayingChange={setPaying}
-              counterDoor={isDineIn}
+              // The capped blind pass on #346 (C2) — a TABLE is `staged` (the authoritative mode),
+              // never the split's best-effort `isDineIn`: a split-read miss is still a table, with
+              // its counter one tap away.
+              counterDoor={staged}
               // PD10 (m10 decision 6) — at a table, a wallet present at the reveal leads and the card
               // form folds behind "Pay with card" (decided once, `cardFoldedAtReveal`); and the
               // counter stays one quiet tap away (decision 7: leave Pay, then ask — `payToCounter`).
-              fold={isDineIn}
-              onCounter={isDineIn ? payToCounter : undefined}
+              fold={staged}
+              onCounter={staged ? payToCounter : undefined}
               counterBusy={counterFromPay}
             />
           </>
@@ -4875,12 +4898,10 @@ export function Checkout({
                 onPay={() => void continueToPayment()}
                 onRefusedPay={() => sayRefusal(payLine.en)}
                 counter={{
-                  held: counterRefusal !== null,
+                  reason: counterReason,
                   busy: counterBusy,
                   onClick: () => void askCounter(),
-                  onRefusedTap: () => {
-                    if (counterRefusal) sayRefusal(counterRefusal);
-                  },
+                  onRefusedTap: (reason) => sayRefusal(reason),
                 }}
               />
             )}

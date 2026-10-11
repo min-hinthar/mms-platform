@@ -2457,6 +2457,23 @@ html[data-fx="off"] .pa-mid {
   line-height: var(--lh-my);
   color: var(--t3);
 }
+/* The capped blind pass on #346 (C3) — the counter's OWN held reason, drawn directly above it only
+   when it is not the slot's sentence (the kitchen holds Pay, the undo window holds the counter). */
+.pay-dock-counter-line {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--t2);
+  text-align: center;
+}
+.pay-dock-counter-line-my {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+}
 /* THE DOOR MOMENT's POP (m10 B8; the motion language's "a control comes alive"): 0.96 → 1 on the
    whole Pay button, once, when the served door opens on an observed view — never the 1.18 numeral
    `mmsPop`. Reduced motion: the button is simply there. */
@@ -2725,6 +2742,14 @@ html[data-fx="off"] .pa-mid {
 .live-pass-dish[data-voided] .live-pass-dish-name {
   text-decoration: line-through;
   color: var(--pass-ink-3);
+}
+/* Codex round 1 on #346 (N1) — the charged options and the diner's note, the receipt line's own
+   format ("Extra egg, Large · “no peanuts”") in the pass's quiet ink, full and boarded alike. */
+.live-pass-dish-mods {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+  color: var(--pass-ink-3);
+  overflow-wrap: anywhere;
 }
 .live-pass-dish-state {
   display: flex;

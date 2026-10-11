@@ -64,6 +64,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     `checkout/*`, `payment-section/*`) and 8 re-pointed.
   - No migration: `mms_now()` and `bumped_at` already exist.
   - New English-only lines are listed for K15 (m10 §I).
+- **After the capped blind pass on #346** (m10 §I):
+  - **C1, live today.** The cart page now passes the view's DB clock (`initialDbNow`, a REQUIRED
+    prop). Without it production opened every Bill on an unknown clock, so a served dish read
+    "Cooking", and the first realtime self-heal replayed every dish's FILL and TURN.
+  - **C2, behind the flag.** A dine-in table whose split read missed is still staged after the flip
+    (`staged` reads the authoritative mode), so its dock, its counter and the pass are drawn.
+  - **C3, behind the flag.** The dock's held counter says its own reason, tied to it by
+    `aria-describedby`. It never borrows Pay's "Pay opens once everything’s served." (D5).
+  - 5 mutants added, 3 re-pointed.
+- **After Codex round 1 on #346** (m10 §I):
+  - **N1, live today.** The One Pass's rows show each dish's charged options and the diner's note
+    again, in the receipt line's format, on the Bill and the boarded pay step.
+  - **N2.** The menu's kitchen strip counts a dish still inside the Send's undo window as "sending",
+    never "sent to kitchen", and never heads itself "with the kitchen" on it alone.
+  - 2 mutants added.
 
 ### T54 — a jsdom case lets Radix's close-restore fire before the next case or the teardown (2026-10-11, test infra, #343)
 
