@@ -301,6 +301,23 @@ describe("every way out is reported and closes", () => {
 });
 
 describe("DinerGuideDoor — Account's way back in", () => {
+  it("every open starts on page 1 and reports the page IT closed on", () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))));
+    render(<DinerGuideDoor />);
+    const row = screen.getByRole("button", { name: GUIDE_COPY.accountRow });
+    fireEvent.click(row);
+    goNext();
+    goNext();
+    fireEvent.keyDown(dialog(), { key: "Escape" });
+    expect(capture).toHaveBeenLastCalledWith("guide_closed", { page: 3, via: "close" });
+    fireEvent.click(row);
+    expect(heading().textContent).toContain("Mingalaba");
+    fireEvent.keyDown(dialog(), { key: "Escape" });
+    // MUTATION (pd11/guide/page-not-reset): the second open reports the first one's page; red.
+    expect(capture).toHaveBeenLastCalledWith("guide_closed", { page: 1, via: "close" });
+    vi.unstubAllGlobals();
+  });
+
   it("a 44px row button opens the guide at page 1, marks this phone seen, and its last primary is Close", async () => {
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal("fetch", fetch);

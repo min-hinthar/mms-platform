@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD11 — the diner's first-visit guide: five pages, once per phone, re-openable from Account (2026-10-11, `claude/feat/pd11-diner-guide`)
+
+- **"Your Pass, Explained"** (PATH_DESIGN decision 12; `docs/path-design-2026-10-07/m11-diner-guide.md`,
+  §H). ONE full-screen dialog (the Sheet's "Show a server" variant), five pages, each titled by a
+  shipped key whole — Mingalaba · Not sent yet · Your order’s with the kitchen. · Your bill · Your
+  order — with one picture of the real thing and one sentence.
+  - The pictures are the real components, inert: the guest's own `CounterPass` (page 1 prints their
+    table), and the Bill's own `LivePass` in a new `picture` mode (no price, no total, no stub) over
+    two sample catalog dishes on the "Your table" pass; page 3 carries the track's key in the guest's
+    own stage words; page 5 the tab bar's own cells.
+  - Page 4 follows the parked `dineInPhonePay`: today the counter only (no card word anywhere, every
+    string equality-pinned); after the flip D5's own sentence, then only the proven wallets.
+  - One motion per page, the product's own (RISE · FILL · TURN), once per open; reduced motion gets
+    the final frame. No money, no counts, no names, no times.
+- **Once per phone, decided once** (`lib/diner-guide.ts`, `dinerGuideAutoOpens`): only when the dine-in
+  session has joined and read its first view, with no error, pay lock, settling, reorder or other
+  dialog, and never for a diner the server knows (a named account or a card payer this month; an
+  unknown read may open). Marked when it opens through PD12's seen-key helper; a busy arrival marks
+  nothing; a refused store never opens it.
+  - **The mark outlives Safari:** `POST /api/guide-seen` sets it as a 400-day page-readable cookie
+    (a Route Handler, so the menu never re-renders), and the device store reads it back when iOS has
+    cleared script storage.
+- **The grammar is PD12's:** the dots are the ONE `GuideDots` (now shared with `StepGuide`), one dock
+  whose Back holds its slot on page 1, every guide control behind `guideActAccepted` (which now takes
+  the phone's 350 ms), focus staying on the pressed control while the dialog's one region says the
+  page. Every exit from the first run lands on the menu's heading.
+- **Mounted by one line in `ArrivalBeat`** (MenuBrowser untouched). **Account's Help & contact** leads
+  with "How it works at a table", which reopens it (seen on this phone from then on).
+- **Page 1's Invite line follows GuestList's own `atCap`** (Codex round 3), now one rule in
+  `lib/guest-list.ts` that GuestList reads too.
+- 52 `pd11/*` mutants, each CAUGHT with `--only=`; DESIGN-LANGUAGE §37; OPEN-ITEMS PD11 built and a
+  `K15 · diner-guide` row (no new Burmese — the English the guide adds is listed for the sitting).
+
 ### PD10 — the guest's live One Pass, with card and Apple Pay after served built behind the parked flag (2026-10-11, `claude/feat/pd10-live-pass`)
 
 - **The Bill's rows are the live One Pass** (PATH_DESIGN decision 10;

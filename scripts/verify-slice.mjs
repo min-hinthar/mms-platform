@@ -33057,6 +33057,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "pd11/guide/page-not-reset",
+    file: "apps/qr/components/DinerGuide.tsx",
+    suite: "components/DinerGuide.test.tsx",
+    why: "m11 decision 16 — every open starts on page 1: a reopened guide closed at once must not report the last open's page",
+    find: "      pageRef.current = 1;\n",
+    replace: "",
+  },
+  {
     id: "pd11/door/unmarked",
     file: "apps/qr/components/DinerGuide.tsx",
     suite: "components/DinerGuide.test.tsx",

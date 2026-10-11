@@ -112,7 +112,12 @@ export function DinerGuide({
   useEffect(() => {
     // Two cookieless events tell the owner whether guests read it or skip it (m11 decision 16):
     // no table number, no name, no person — the door and the page only.
-    if (open && !wasOpen.current) posthog.capture("guide_opened", { source });
+    if (open && !wasOpen.current) {
+      // Every open starts on page 1 (the body remounts with the sheet's content).
+      pageRef.current = 1;
+      viaRef.current = "close";
+      posthog.capture("guide_opened", { source });
+    }
     wasOpen.current = open;
   }, [open, source]);
   const change = (next: boolean) => {
@@ -162,9 +167,9 @@ function CloseName() {
 }
 
 /** Two tongues, English leading, the Burmese stacked beneath (a margin, never a whitespace node). */
-function Pair({ text, className }: { text: GuideText; className?: string }) {
+function Pair({ text }: { text: GuideText }) {
   return (
-    <span className={className ? `diner-guide-pair ${className}` : "diner-guide-pair"}>
+    <span className="diner-guide-pair">
       <span>{text.en}</span>
       {text.my && <span lang="my">{text.my}</span>}
     </span>
