@@ -59,7 +59,8 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
   to `main` and merge it in once #327 lands); `KitchenStage` is declared in both `@mms/ui` and
   `apps/qr/lib/kitchen-track.ts` until PD9's PR makes lib `import type` it.
 - **Migrations, each applied only on the owner's go (ruling #5):** written this wave — M184 + the
-  `close` arm (PD8). Planned, not written yet — PD1's nudge stamp (PD1's PR) and M182 (PD7's PR).
+  `close` arm (PD8). Planned, not written yet — PD1's nudge stamp (PD1's PR; since written and
+  applied, 2026-10-11 — the owner's item 4 below) and M182 (PD7's PR).
 - **Two quota stops, no work lost either time** (commits held, uncommitted trees intact): a rate limit
   ~13:20Z on 2026-10-08 (resumed 17:25Z); then the agents' usage credits ran out ~18:35Z, with Codex
   out of quota from 18:26Z, and the container restarted. Resumed 2026-10-09 03:10Z. Codex reviewed
@@ -87,9 +88,13 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp
-   (`20261008123000`, applied BEFORE #335 merges — the old build runs unchanged against it);
-   M184's, carrying the widened `close` arm (D2; holding that line moves the arm to its own file and
-   go); the other #5 files as their PRs go green (K30 with K34, M210 · M208 · M205, M182 · P2hf). M168
+   (`20261008123000`) is APPLIED — prod migration row `20261011045025` (04:50:25Z, before #335's merge
+   at 04:51:07Z, as ruled), verified 2026-10-11; its
+   follow-up's line lock (`20261011123000`, Codex's post-merge review of #335) is PENDING — applied
+   before #342 (`claude/fix/pd1-codex-post-merge`) merges; same signature, the deployed build runs
+   unchanged. PD1's file is never re-applied after it: its `create or replace` would put back the
+   nudge with no line lock. M184's, carrying the widened `close` arm (D2; holding that line moves the
+   arm to its own file and go); the other #5 files as their PRs go green (K30 with K34, M210 · M208 · M205, M182 · P2hf). M168
    (#21) and T4 (#22) each need their own go.
 5. **C25** (ruling #4): reload every staff screen once at a quiet moment. The trigger happened: #317's
    production deploy, 2026-10-07 09:43Z (rulings §D). Not reported done.
@@ -162,8 +167,8 @@ One bullet per stream; a stream edits only its own bullet.
   `claude/feat/pd-pass-primitives`, merged in), the create-intent
   refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
   money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
-  owner's go — apply it before or with PD1's merge (until then "Let {host} know" answers "That didn’t
-  go through"). Build notes: m2 / m1 specs' `### H`.
+  owner's go — apply it before or with PD1's merge (until then the build hides "Let {host} know": its
+  stamp read fails, `nudgeReady`; applied 2026-10-11 — the owner's item 4 below). Build notes: m2 / m1 specs' `### H`.
 
 ## Environment facts (measured 2026-10-08 unless cited)
 

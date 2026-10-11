@@ -147,6 +147,18 @@
  * --mutants` (M7 · M8 · M9: orders l, n and o). Twenty-three survivors in all (PD1's lock order
  * and M269's two included; PD5b and PD3's follow-up add none).
  *
+ * The PD1 follow-up (Codex's post-merge review of #335) adds suite `pd1n`: `mms_nudge_host` restated
+ * with its cart's dine-in drafts `for share` between the cart lock and the decision, so a fulfillment
+ * change it races commits first or waits for it. Its LAST definition moves there, so suite `pd1`'s
+ * nudge mutants patch THAT file now (`src: "pd1n"`, still judged by `pd1`; the cart-lock mutant's
+ * find is the lock alone, since the line lock now follows it). Four killed mutants, one per named
+ * `PD1N.<n> ·` case — the lock dropped (PD1N.1, the lock TAKEN, even on a refusal), widened to a
+ * to-go draft or to a sent line (PD1N.2), widened past an open cart (PD1N.3) — and THREE new
+ * documented survivors, all invisible to one session: the line lock taken BEFORE the cart (its
+ * order), `for key share` (its strength) and `order by ci.id desc` (its order among the lines). All three
+ * are KILLED by `scripts/verify-fire-cart-race.mjs --mutants` (orders k · i and j · l). Twenty-six
+ * survivors in all (M182's two, above, included).
+ *
  * USAGE
  * -----
  *   node scripts/verify-mode-authority.mjs                        # the local `supabase start` stack
@@ -270,6 +282,14 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261009120400_m182_table_clear.sql"),
     test: path.join(ROOT, "supabase/tests/m182_table_clear_test.sql"),
   },
+  // PD1 follow-up (Codex's post-merge review of #335) — `mms_nudge_host` restated with its dine-in
+  // drafts `for share` between the cart lock and the decision. Its LAST definition moves here, so
+  // suite `pd1`'s nudge mutants patch THIS text now (`src: "pd1n"`, still judged by the pd1 suite);
+  // `mms_fire_cart` stays PD1's.
+  pd1n: {
+    migration: path.join(ROOT, "supabase/migrations/20261011123000_pd1_nudge_line_lock.sql"),
+    test: path.join(ROOT, "supabase/tests/pd1_nudge_line_lock_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
 const CHAIN = [
@@ -287,6 +307,7 @@ const CHAIN = [
   "pd3s",
   "pd5b",
   "m182",
+  "pd1n",
 ];
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2557,16 +2578,18 @@ const MUTANTS = [
     {
       id: "pd1/nudge-cart-lock-dropped",
       expect: "PD1.17",
-      why: "the nudge decides from a snapshot older than a fire it only waits on when the fire WROTE the cart — a stamp lands on dishes already sent (the race itself: verify-fire-cart-race e)",
-      find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n  update public.qr_carts c\n    set send_nudge_seat = p_seat",
-      replace: "  update public.qr_carts c\n    set send_nudge_seat = p_seat",
+      why: "the nudge decides from a snapshot older than a fire it only waits on when the fire WROTE the cart — with the follow-up's line lock still in place the race harness reddens (k), a deadlock, not (e); (e)'s kill is pd1n/nudge-both-locks-dropped",
+      // The follow-up's line lock now sits between this lock and the UPDATE, so the find is the
+      // lock alone (it matches once in the follow-up's text).
+      find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n",
+      replace: "",
     },
-  ].map((m) => ({ fn: "mms_nudge_host", ...m, src: "pd1", suite: "pd1" })),
+  ].map((m) => ({ fn: "mms_nudge_host", ...m, src: "pd1n", suite: "pd1" })),
   ...[
     {
       id: "pd1/fire-cart-lock-dropped",
       expect: "PD1.16",
-      why: "the fire stops ordering itself against an add / qty change / nudge at the cart (verify-fire-cart-race a–f go red)",
+      why: "the fire stops ordering itself against an add / qty change / nudge at the cart (verify-fire-cart-race a, c and f go red)",
       find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;   -- PD1: the cart row first (cart → line)\n",
       replace: "",
     },
@@ -2609,6 +2632,70 @@ const MUTANTS = [
       replace: "",
     },
   ].map((m) => ({ fn: "mms_fire_cart", ...m, src: "pd1", suite: "pd1" })),
+
+  // ── PD1 follow-up — the nudge's line lock: TAKEN, on which lines (one session sees that); its
+  // order, strength and id order are three documented survivors here, killed by
+  // scripts/verify-fire-cart-race.mjs --mutants (orders k · i, j · l). ──
+  ...[
+    {
+      id: "pd1n/nudge-line-lock-dropped",
+      expect: "PD1N.1 · mms_nudge_host did not lock a dine-in draft",
+      why: "Codex's post-merge review of #335: the nudge decides from a plain read, so a switch of the last dine-in draft to to-go racing it is read from a snapshot older than its commit — `ok` over a stamp no view can show (verify-fire-cart-race i, j, l)",
+      find: "  perform 1 from public.qr_cart_items ci\n    where ci.cart_id = p_cart_id and ci.state = 'draft' and ci.fulfillment = 'dinein'\n      and exists (select 1 from public.qr_carts oc where oc.id = p_cart_id and oc.status = 'open')\n    order by ci.id\n    for share of ci;\n",
+      replace: "",
+    },
+    {
+      id: "pd1n/nudge-line-lock-takes-to-go",
+      expect: "PD1N.2 · a to-go draft was locked",
+      why: "the lock reaches a to-go draft the decision never reads — a guest's 'make it now' (`mms_fire_line`) on it waits for a nudge that has nothing to do with it",
+      find: "    where ci.cart_id = p_cart_id and ci.state = 'draft' and ci.fulfillment = 'dinein'\n",
+      replace: "    where ci.cart_id = p_cart_id and ci.state = 'draft'\n",
+    },
+    {
+      id: "pd1n/nudge-line-lock-takes-sent",
+      expect: "PD1N.2 · a sent line was locked",
+      why: "the lock reaches a line the kitchen already has — its bump and transitions wait for a nudge whose decision never reads it",
+      find: "    where ci.cart_id = p_cart_id and ci.state = 'draft' and ci.fulfillment = 'dinein'\n",
+      replace: "    where ci.cart_id = p_cart_id and ci.fulfillment = 'dinein'\n",
+    },
+    {
+      id: "pd1n/nudge-line-lock-ignores-the-cart",
+      expect: "PD1N.3",
+      why: "the lock reaches a PAID cart's drafts — a cart the nudge refuses anyway, where `mms_fire_pending_food`'s unordered multi-row UPDATE works and an id-ordered share lock can cross it",
+      find: "      and exists (select 1 from public.qr_carts oc where oc.id = p_cart_id and oc.status = 'open')\n",
+      replace: "",
+    },
+    {
+      id: "pd1n/nudge-line-lock-before-the-cart",
+      expect: null,
+      why: "the line lock taken BEFORE the cart: both are still taken (PD1N.1, PD1.17), so one session cannot see the ORDER — killed by verify-fire-cart-race.mjs --mutants as a deadlock against an add holding the cart (k)",
+      edits: [
+        {
+          find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n  -- PD1 follow-up",
+          replace: "  -- PD1 follow-up",
+        },
+        {
+          find: "    order by ci.id\n    for share of ci;\n",
+          replace:
+            "    order by ci.id\n    for share of ci;\n  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n",
+        },
+      ],
+    },
+    {
+      id: "pd1n/nudge-line-lock-key-share",
+      expect: null,
+      why: "`for key share` sets the same `xmax` as `for share`, so one session cannot see the STRENGTH — killed by verify-fire-cart-race.mjs --mutants: it conflicts with no line UPDATE, and the switch races the nudge (i, j)",
+      find: "    for share of ci;\n",
+      replace: "    for key share of ci;\n",
+    },
+    {
+      id: "pd1n/nudge-line-lock-against-id-order",
+      expect: null,
+      why: "the lines locked against id order (the deterministic form of no `order by`, whose order is the plan's): the same lines are locked either way — killed by verify-fire-cart-race.mjs --mutants as a deadlock against a bump that takes them in id order (l)",
+      find: "    order by ci.id\n    for share of ci;\n",
+      replace: "    order by ci.id desc\n    for share of ci;\n",
+    },
+  ].map((m) => ({ fn: "mms_nudge_host", ...m, src: "pd1n", suite: "pd1n" })),
 
   // ── PD5b — the settlement mark (PD5B.1) and the fold that keeps each Send whole (PD5B.4–.9) ──────
   // One killed mutant per rule, each red on its NAMED case. The mark's ORDER against a concurrent

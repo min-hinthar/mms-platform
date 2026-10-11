@@ -3906,6 +3906,18 @@ the second, so build each guard's fixture to answer short everywhere downstream.
 
 ## #256
 
+**A SECURITY INVOKER function's row locks need TABLE privileges from its caller — and CI's local
+stack does not grant them the way the hosted project does (#342, 2026-10-11).** `select … for share`
+(and `for no key update`) requires UPDATE on the table from the role that runs it; the PD1 nudge is
+invoker, so its one caller, service_role, must hold UPDATE on `qr_carts` and `qr_cart_items`. Prod
+held both through Supabase's default privileges, the throwaway PG16 harness granted them in its
+prereq layer, and every SQL test ran as `postgres` — so only a privilege ASSERT run on CI's fresh
+`supabase start` stack (PD1N.4) noticed that nothing in the migrations granted them. Grant what an
+invoker function relies on explicitly in its migration (idempotent; a no-op where it already stands),
+and assert it in the test; a throwaway whose prereq copies the hosted defaults cannot see this gap.
+
+## #257
+
 **"Errors 1 error" after every test passed is a timer that outlived its jsdom file — vitest yields NO
 macrotask between a case's hooks and the next case, or between a file's last hook and its environment
 teardown (2026-10-11, T54).** Measured: a `setTimeout(…, 0)` queued in a file's last `afterEach` had not

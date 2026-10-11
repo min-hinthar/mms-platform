@@ -3027,6 +3027,39 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(dialog.textContent).not.toContain("7C2E9A");
   });
 
+  it("a tablemate's dish that JOINS the open pass stays on it once sent — the pass shows the send, never closes on it (Codex's post-merge review of #335)", async () => {
+    mountPD1({
+      splitContext: GUEST,
+      initialItems: [DRAFT],
+      initialServerNow: "2026-10-08T10:00:00.000Z",
+    });
+    await press(/^Show a server/);
+    const dialog = await screen.findByRole("dialog");
+    const LATE: CartItem = { ...ITEM_B, qty: 1 };
+    // Thiri's dish lands while the pass is up: it joins the ticket.
+    h.getCartView.mockResolvedValue(view({ items: [DRAFT, LATE] }));
+    await syncFromServer();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("list").textContent).toContain(ITEM_B.name),
+    );
+    // The dish the pass opened on is removed, and the one that joined is sent — inside its grace.
+    h.getCartView.mockResolvedValue(
+      view({
+        items: [{ ...LATE, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
+        serverNow: "2026-10-08T10:00:00.000Z",
+      }),
+    );
+    await syncFromServer();
+    // MUTATION (checkout/pass-forgets-a-joined-dish): the join is never kept — the sent dish leaves
+    // the ticket, the rows are empty, and the pass closes instead of showing 'Sending…'; red.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("status").textContent).toContain("Sending…"),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    expect(within(dialog).getByRole("list").textContent).toContain(ITEM_B.name);
+    expect(within(dialog).getByRole("list").textContent).not.toContain(ITEM.name);
+  });
+
   it("every listed dish REMOVED closes the pass — a removal never reads as a send", async () => {
     mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
     await press(/^Show a server/);
