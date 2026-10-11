@@ -156,22 +156,19 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 ## Next tasks — after the wave
 
 1. **#348 (PD11) — in merge.**
-2. **Sweep the registry rows the wave left behind its merges.** Each is a stream's row: close or
-   restate it with its PR and its apply. These Status cells (measured 2026-10-11) predate a merge or
-   an apply:
-   - PD3: `open — built, in review` (#330, #339 merged).
-   - PD4: `built — PR open; …` (#329 merged).
-   - PD6 · P2do · K44: `built in PD6 — closes on merge` (#334 merged).
-   - PD7: `built · PD7 (… draft) …` (#341 and #347 merged; M182 applied).
-   - PD12: `… the kitchen guide ships with M270 (1) …` (#345 and #347 merged).
-   - M268: `built — #338` (merged and applied).
-   - M182: `… prod apply on the owner's go (#5)` (applied).
-   - M184 · M269: the rows' text still says "NOT applied" (both are applied). PD8's row says it
-     "Closes with the merge and M184's apply", and both have happened.
+2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
+   merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
+   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · K44 · PD3 ·
+   PD4 · PD5 · PD6 · PD7 · PD8 · PD12. The rows' now-false sentences were restated too ("NOT applied",
+   "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device sitting",
+   "Waits on PD7"), in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39. Every open follow-up stayed open, and
+   no row was moved. Left to the streams: M269, P2do, PD3 and PD8 say in their text that they close on
+   a merge (for PD8, also M184's apply) that has now happened. K44's and PD6's old status said "closes
+   on merge" too. Each of these can move to Closed.
 3. **What the delegated follow-ups still need** (their rows and spec notes):
-   - **M269** (#337, applied): the row says it closes on #337's merge, so it needs the sweep. Its text
-     notes the card doors' webhook fulfillment was not traced.
-   - **M268** (#338, applied): the sweep only.
+   - **M269** (#337, applied): its row says it closes on #337's merge (item 2). Its text notes the card
+     doors' webhook fulfillment was not traced.
+   - **M268** (#338, applied): nothing beyond its row's status.
    - **The pickup-join refusal** (#339, applied): it closes with PD3's row. m3 §H6 lists nothing left.
    - **PD5b** (#340, applied): batches fired before the migration carry no mark. A table live across
      the deploy that had earlier settlement food can read one round high until its session ends (m5
@@ -209,7 +206,7 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
    - **PD12:** the headless measurement at 1366 and in the 34rem sheet (m12 risk 9), and the K15-HIGH
      candidates (for staff-authority or the owner).
    - **PD13:** `gated`. It is not built, and its reopen trigger is unchanged.
-   - **PD3 · PD5 · PD8:** their rows name nothing left beyond the sweep (item 2).
+   - **PD3 · PD5 · PD8:** their rows name nothing left (item 2).
 8. **ROADMAP's open Phase 3 slices:** 3e and 3f. (3d · counter's cash-sheet re-host is ticked.)
 9. **Owner-gated:** the device sitting (#12), the native Burmese check (K15), live Stripe keys (C2) and
    branch protection (C28: none in effect, above).
