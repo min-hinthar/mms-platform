@@ -42,18 +42,46 @@
  *       are the blind pass's open question — "the merge as a second deadlock partner" — answered:
  *       both take a cart first, so they meet at the cart and never at a line.
  *
+ * The PD1 follow-up (Codex's post-merge review of #335; 20261011123000_pd1_nudge_line_lock.sql) adds
+ * the nudge against the writers that take a dine-in draft away WITHOUT the cart:
+ *
+ *   (i) switch-first — A switches Thiri's one dine-in draft to to-go (`mms_set_line_fulfillment`,
+ *       which locks the line and never the cart) inside an open transaction; B's nudge must BLOCK on
+ *       A and, once A commits, answer 'nothing_to_send' with no stamp written. Without the nudge's
+ *       line lock it waits for nothing, reads the line's pre-switch version and answers 'ok' — a
+ *       stamp no view can show, because no dine-in draft predates it (Codex's finding, reproduced).
+ *   (j) nudge-first — B nudges inside an open transaction ('ok'); A's switch must BLOCK on B and go
+ *       through once B commits: the stamp was live when written, and the switch came after it.
+ *   (k) add-first — B holds the cart `for share` as `mms_cart_item_inc_qty`'s first statement does;
+ *       A's nudge must BLOCK on B at the cart; B's add must finish WITHOUT waiting on A; once B
+ *       commits A's nudge lands. With the line lock taken BEFORE the cart (or the cart lock dropped)
+ *       A holds the line while it waits for the cart B holds, B's add waits for the line: 40P01.
+ *   (l) bump-in-the-way — three sessions. X holds the LOWER-id of two dine-in drafts `for update`;
+ *       K's `mms_bump_ticket` over both (its `p_lines`, which an undo can return to draft) blocks on
+ *       it, taking its lines in id order; B's nudge blocks too; X commits. Both must finish: B's
+ *       share locks queue behind K's in the same order. A nudge that takes the higher id first
+ *       holds it, waits for the lower one K then holds, and K waits for the higher one: 40P01. The
+ *       mutant states that order outright (`order by ci.id desc`) — with no `order by` at all the
+ *       order is the plan's (heap order, which a reused free slot reorders), so a fixture that
+ *       counted on it caught that mutant on some runs only (measured: its own precondition check
+ *       refused on the second run, 2026-10-11).
+ *
  * Every wait is read from `pg_blocking_pids`, never a sleep. Each RPC runs inside a `pg_temp`
  * wrapper that turns 40P01 (and P2dd's two P0001 refusals) into DATA, so a deadlock is a verdict and
  * never a crashed session.
  *
  * ── `--mutants` ─────────────────────────────────────────────────────────────────────────────────
  *
- * Each mutant patches THIS migration's text (the find must match exactly once), applies the whole
- * patched file (it is idempotent), asserts `md5(prosrc)` changed and that EXACTLY its expected orders
- * went red; the restore re-applies the original file and asserts every body is byte-identical. A
- * green baseline runs first, and before anything is written the live bodies are compared with what
- * the migration produces INSIDE A ROLLED-BACK TRANSACTION — if a later migration redefines one of
- * these functions, restoring from this file would revert it, so the battery refuses.
+ * The functions under test are defined by a CHAIN of migrations, in apply order: PD1's file (the
+ * fire, and the nudge's first body) and the follow-up's (the nudge restated with its line lock — its
+ * LAST definition). Each mutant names the file whose text it patches (`src`; the find must match
+ * exactly once there), the whole chain is re-applied with that file patched (every file is
+ * idempotent; replaying PD1's alone would put the nudge's first body back), and the battery asserts
+ * `md5(prosrc)` changed and that EXACTLY its expected orders went red; the restore re-applies the
+ * chain and asserts every body is byte-identical. A green baseline runs first, and before anything is
+ * written the live bodies are compared with what the chain produces INSIDE A ROLLED-BACK
+ * TRANSACTION — if a later migration redefines one of these functions, restoring from the chain
+ * would revert it, so the battery refuses.
  *
  * ── It COMMITS, so it refuses anything that is not local ────────────────────────────────────────
  *
@@ -71,12 +99,19 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRATION = path.join(ROOT, "supabase/migrations/20261008123000_pd1_send_nudge.sql");
+/** The migrations that define the functions under test, IN APPLY ORDER (a later one restates an
+ * earlier one's function, so the order is load-bearing). A mutant's `src` names the one it patches —
+ * which must be the LAST to define its function, or the next file overwrites the mutation. */
+const CHAIN = [
+  ["pd1", path.join(ROOT, "supabase/migrations/20261008123000_pd1_send_nudge.sql")],
+  ["pd1n", path.join(ROOT, "supabase/migrations/20261011123000_pd1_nudge_line_lock.sql")],
+];
 const TAG = "PD1R";
 const CODE_PREFIX = `${TAG}-`;
 /** The merge target: another dine-in table, tagged apart so the cleanup finds it. */
@@ -263,6 +298,16 @@ const HELPERS = `
   create function pg_temp.r_merge(src uuid, tgt uuid) returns text language plpgsql as $f$
   declare v integer;
   begin v := public.mms_merge_table_orders(src, tgt); return v::text;
+  exception when deadlock_detected then return 'deadlock'; end $f$;
+  create function pg_temp.r_ful(p uuid, f text) returns text language plpgsql as $f$
+  begin return public.mms_set_line_fulfillment(p, f);
+  exception when deadlock_detected then return 'deadlock'; end $f$;
+  create function pg_temp.r_bump(c uuid, ls uuid[]) returns text language plpgsql as $f$
+  declare v integer;
+  begin v := public.mms_bump_ticket(c, ls); return v::text;
+  exception when deadlock_detected then return 'deadlock'; end $f$;
+  create function pg_temp.r_hold(p uuid) returns text language plpgsql as $f$
+  begin perform 1 from public.qr_cart_items where id = p for update; return 'held';
   exception when deadlock_detected then return 'deadlock'; end $f$;`;
 
 /** A long-lived psql session; completion is a marker `\echo`ed after each statement. */
@@ -333,18 +378,23 @@ class Session {
 }
 
 /**
- * Wait until `s`'s fired statement is either blocked BY `peer` or finished — whichever is TRUE,
- * observed, never assumed. A timeout means neither happened: a broken fixture, not a verdict.
+ * Wait until `s`'s fired statement is either blocked BY `peer` (or by any of several — a row-lock
+ * waiter queued behind another waiter is reported blocked by whichever of them Postgres names) or
+ * finished — whichever is TRUE, observed, never assumed. A timeout means neither happened: a broken
+ * fixture, not a verdict.
  */
 async function blockedOrDone(s, peer) {
+  const peers = Array.isArray(peer) ? peer : [peer];
   const t0 = Date.now();
   for (;;) {
     if (s.done()) return "done";
     if (s.fatal) throw new Error(`${TAG} ${s.name} errored instead of blocking:\n${s.fatal}`);
-    const blockers = q(`select array_to_string(pg_blocking_pids(${s.pid}), ',');`);
-    if (blockers.split(",").includes(String(peer.pid))) return "blocked";
+    const blockers = q(`select array_to_string(pg_blocking_pids(${s.pid}), ',');`).split(",");
+    if (peers.some((p) => blockers.includes(String(p.pid)))) return "blocked";
     if (Date.now() - t0 > 15000) {
-      throw new Error(`${TAG} TIMEOUT — ${s.name} neither blocked on ${peer.name} nor finished`);
+      throw new Error(
+        `${TAG} TIMEOUT — ${s.name} neither blocked on ${peers.map((p) => p.name).join("/")} nor finished`,
+      );
     }
     await new Promise((r) => setTimeout(r, 10));
   }
@@ -405,6 +455,11 @@ function table(prefix, id, withLine) {
     lineNow: () =>
       q(`select i.state || '|' || i.qty || '|' || (i.cart_id = '${cart}')
            from public.qr_cart_items i where i.id = '${line}';`),
+    /** The line's routing: state · fulfillment. */
+    lineFul: () =>
+      q(
+        `select i.state || '|' || i.fulfillment from public.qr_cart_items i where i.id = '${line}';`,
+      ),
     /** The stamp: `none`, or the seat that nudged. */
     stamp: () =>
       q(
@@ -415,6 +470,24 @@ function table(prefix, id, withLine) {
 }
 const fixture = (id) => table(CODE_PREFIX, id, true);
 const target = (id) => table(TGT_PREFIX, id, false);
+/**
+ * (l)'s table: TWO dine-in drafts, `lo` and `hi` by id — the order `mms_bump_ticket` takes them in.
+ * Postgres orders uuids bytewise, which for these lowercase canonical strings is their string order;
+ * asserted in the database, not assumed.
+ */
+function pairFixture(id) {
+  const t = table(CODE_PREFIX, id, false);
+  const [lo, hi] = [randomUUID(), randomUUID()].sort();
+  for (const lid of [lo, hi]) {
+    q(`insert into public.qr_cart_items
+         (id, cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+       values ('${lid}', '${t.cart}', '${TAG}-dish', 'Mohinga', 1, 1400, 147, '${THIRI}', 'dinein');`);
+  }
+  if (q(`select '${lo}'::uuid < '${hi}'::uuid;`) !== "t") {
+    throw new Error(`${TAG} fixture ${id}: ${lo} does not sort before ${hi} in the database`);
+  }
+  return { ...t, lo, hi };
+}
 
 const fire = (f) => `select pg_temp.r_fire('${f.cart}'::uuid);`;
 const share = (f) => `select pg_temp.r_share('${f.cart}'::uuid);`;
@@ -422,6 +495,10 @@ const inc = (f) => `select pg_temp.r_inc('${f.line}'::uuid);`;
 const setQty = (f, n) => `select pg_temp.r_qty('${f.line}'::uuid, ${n});`;
 const nudge = (f) => `select pg_temp.r_nudge('${f.cart}'::uuid, '${THIRI}'::uuid);`;
 const merge = (f, t) => `select pg_temp.r_merge('${f.cart}'::uuid, '${t.cart}'::uuid);`;
+const toGo = (f) => `select pg_temp.r_ful('${f.line}'::uuid, 'togo');`;
+const bump = (f) =>
+  `select pg_temp.r_bump('${f.cart}'::uuid, array['${f.lo}', '${f.hi}']::uuid[]);`;
+const hold = (lineId) => `select pg_temp.r_hold('${lineId}'::uuid);`;
 
 /** Each order returns [label, got, want] triples; any mismatch reddens it. */
 const SCENARIOS = {
@@ -621,6 +698,113 @@ const SCENARIOS = {
       await m.close();
     }
   },
+  // (i) switch-first: the nudge waits on the LINE the switch holds, then decides from its commit.
+  async i() {
+    const f = fixture("i");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const switched = await a.run(toGo(f));
+      b.fire(nudge(f));
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const answer = await b.collect();
+      return [
+        ["A switched the last dine-in draft to to-go", switched, "ok"],
+        ["B's nudge waited for the switch", how, "blocked"],
+        ["B's nudge found nothing left to send", answer, "nothing_to_send"],
+        ["no stamp on a cart with no dine-in draft", f.stamp(), "none"],
+        ["the line is a to-go draft", f.lineFul(), "draft|togo"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  // (j) nudge-first: the switch waits on the nudge's share lock; the stamp came first.
+  async j() {
+    const f = fixture("j");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await b.run("begin;");
+      const answer = await b.run(nudge(f));
+      a.fire(toGo(f));
+      const how = await blockedOrDone(a, b);
+      await b.run("commit;");
+      const switched = await a.collect();
+      return [
+        ["B's nudge landed", answer, "ok"],
+        ["A's switch waited for the nudge", how, "blocked"],
+        ["A's switch went through once the nudge committed", switched, "ok"],
+        ["the stamp written before the switch stands", f.stamp(), THIRI],
+        ["the line is a to-go draft", f.lineFul(), "draft|togo"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  // (k) add-first: B holds the cart as `inc_qty`'s first statement does; A's nudge waits at the
+  // CART holding no line; B's add then finishes without waiting; A's nudge lands after it.
+  async k() {
+    const f = fixture("k");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await b.run("begin;");
+      const held = await b.run(share(f));
+      a.fire(nudge(f));
+      const how = await blockedOrDone(a, b);
+      const add = await runWatching(b, a, inc(f));
+      await b.run("commit;");
+      const answer = await a.collect();
+      return [
+        ["B holds the cart as the add's first statement does", held, "held"],
+        ["A's nudge waited for the add's cart lock", how, "blocked"],
+        ["B's add finished without waiting on A", add.how, "done"],
+        ["B's add went through", add.got, "ok"],
+        ["A's nudge landed (no deadlock)", answer, "ok"],
+        ["the stamp is Thiri's", f.stamp(), THIRI],
+        ["the dish still waits, with the add", f.lineNow(), "draft|2|true"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  // (l) bump-in-the-way: K's bump and B's nudge both queue behind X on the LOWER id; X commits;
+  // both finish, because both take their lines in id order.
+  async l() {
+    const f = pairFixture("l");
+    const x = await new Session("x").open();
+    const k = await new Session("k").open();
+    const b = await new Session("b").open();
+    try {
+      await x.run("begin;");
+      const held = await x.run(hold(f.lo));
+      k.fire(bump(f));
+      const kHow = await blockedOrDone(k, x);
+      b.fire(nudge(f));
+      const bHow = await blockedOrDone(b, [x, k]);
+      await x.run("commit;");
+      // Both are released by X's commit; collect K first — it is ahead of B on the lower id.
+      const bumped = await k.collect();
+      const answer = await b.collect();
+      return [
+        ["X holds the lower-id draft", held, "held"],
+        ["K's bump waited for X", kHow, "blocked"],
+        ["B's nudge waited behind them", bHow, "blocked"],
+        ["K's bump finished (no deadlock) — drafts are not its to serve", bumped, "0"],
+        ["B's nudge landed (no deadlock)", answer, "ok"],
+      ];
+    } finally {
+      await x.close();
+      await k.close();
+      await b.close();
+    }
+  },
 };
 const NAMES = {
   a: "add-first",
@@ -631,6 +815,10 @@ const NAMES = {
   f: "nudge-first",
   g: "merge-first",
   h: "fire-before-merge",
+  i: "switch-before-nudge",
+  j: "nudge-before-switch",
+  k: "add-before-nudge",
+  l: "bump-in-the-way",
 };
 
 /** Run every order; returns the ids that went red (printing when `loud`). */
@@ -667,8 +855,10 @@ function cleanup() {
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
-const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
-/** Every function this migration defines — the restore re-applies them all, so all are compared. */
+const SOURCES = Object.fromEntries(CHAIN.map(([k, file]) => [k, readFileSync(file, "utf8")]));
+/** The chain's SQL, in apply order, with at most one file replaced by its mutated text. */
+const chainSql = (patched = {}) => CHAIN.map(([k]) => patched[k] ?? SOURCES[k]).join("\n");
+/** Every function the chain defines — the restore re-applies them all, so all are compared. */
 const FNS = ["mms_fire_cart", "mms_nudge_host"];
 const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
@@ -677,22 +867,37 @@ const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
 
 const FIRE_LOCK =
   "  perform 1 from public.qr_carts where id = p_cart_id for no key update;   -- PD1: the cart row first (cart → line)\n";
+/** The nudge's cart lock, as the follow-up's restated body carries it (its LAST definition). */
+const NUDGE_CART_LOCK =
+  "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n";
+/** The follow-up's line lock, whole: its comment and its statement. */
+const NUDGE_LINE_LOCK =
+  "  -- PD1 follow-up (Codex's post-merge review of #335): the dine-in drafts the UPDATE's `exists`\n" +
+  "  -- reads, `for share`, AFTER the cart (cart → line) and BEFORE the decision — a fulfillment change\n" +
+  "  -- in flight commits first (and the UPDATE, a later statement, reads it) or waits for this one; in\n" +
+  "  -- id order, like `mms_bump_ticket`; only while the cart is open (the header).\n" +
+  "  perform 1 from public.qr_cart_items ci\n" +
+  "    where ci.cart_id = p_cart_id and ci.state = 'draft' and ci.fulfillment = 'dinein'\n" +
+  "      and exists (select 1 from public.qr_carts oc where oc.id = p_cart_id and oc.status = 'open')\n" +
+  "    order by ci.id\n" +
+  "    for share of ci;\n";
 const MUTANTS = [
   {
     id: "pd1/fire-cart-lock-dropped",
+    src: "pd1",
     edits: [{ find: FIRE_LOCK, replace: "" }],
     // (a)/(c): the fire takes no cart lock, so it never waits for the add holding the cart.
-    // (e): the nudge's cart lock no longer waits for the fire, so its UPDATE reads the fire's
-    // uncommitted lines as drafts and the stamp lands on a cart whose dishes then go.
-    // (f): the fire's statement no longer waits for the nudge, so its snapshot predates the stamp,
-    // the clear's `send_nudge_at is not null` matches nothing, and the stamp outlives the dishes.
-    // (Measured: the first run of this battery expected a/c/e and got a/c/e/f — the clear's
-    // stamp condition reads the statement's snapshot, so ORDER is what makes it see the nudge.)
-    expect: ["a", "c", "e", "f"],
+    // (f): the fire's statement no longer waits for the nudge AT THE CART — it waits at the line
+    // instead (the follow-up's share lock), but its snapshot predates the stamp, so the clear's
+    // `send_nudge_at is not null` matches nothing and the stamp outlives the dishes.
+    // (e) is green since the follow-up: the nudge's line lock waits for the fire's uncommitted lines
+    // even with no cart lock to meet (PD1's run measured a/c/e/f, before the line lock existed).
+    expect: ["a", "c", "f"],
     why: "the fire is ordered against nothing at the cart: an add's line and a nudge's decision race it",
   },
   {
     id: "pd1/fire-cart-lock-after-the-lines",
+    src: "pd1",
     edits: [
       { find: FIRE_LOCK, replace: "" },
       {
@@ -711,36 +916,79 @@ const MUTANTS = [
   },
   {
     id: "pd1/nudge-cart-lock-dropped",
+    // The nudge's LAST definition is the follow-up's, so this patches THAT text.
+    src: "pd1n",
+    edits: [{ find: NUDGE_CART_LOCK, replace: "" }],
+    // (k): with no cart lock first, the nudge takes the line `for share` and THEN wants the cart
+    // the add holds (its UPDATE) — line → cart against the add's cart → line: 40P01. (e) — PD1's
+    // only kill — is green since the follow-up: the line lock alone waits for the fire's lines.
+    expect: ["k"],
+    why: "a nudge with no cart lock first takes its lines before the cart — against an add holding the cart, a deadlock",
+  },
+  {
+    id: "pd1n/nudge-line-lock-dropped",
+    src: "pd1n",
+    edits: [{ find: NUDGE_LINE_LOCK, replace: "" }],
+    // (i): Codex's finding — the nudge waits for nothing, reads the pre-switch line, answers 'ok' and
+    // stamps a cart with no dine-in draft. (j): the switch waits for nothing; the stamp is decided
+    // before the switch and committed after it. (l): the nudge takes no line, so it never queues.
+    expect: ["i", "j", "l"],
+    why: "Codex's post-merge review of #335: a nudge racing a switch of the last dine-in draft to to-go answers 'ok' over a stamp no view can show",
+  },
+  {
+    id: "pd1n/nudge-line-lock-key-share",
+    src: "pd1n",
+    edits: [{ find: "    for share of ci;\n", replace: "    for key share of ci;\n" }],
+    // `for key share` does not conflict with a line UPDATE's `for no key update`: (i) and (j) as
+    // above. (l) stays green: it DOES conflict with X's and the bump's `for update`, so the nudge
+    // still queues behind them in id order (measured, 2026-10-11).
+    expect: ["i", "j"],
+    why: "a lock that conflicts with no line UPDATE orders nothing — the switch races the nudge as if no lock were taken",
+  },
+  {
+    id: "pd1n/nudge-line-lock-before-the-cart",
+    src: "pd1n",
+    edits: [
+      { find: NUDGE_CART_LOCK + NUDGE_LINE_LOCK, replace: NUDGE_LINE_LOCK + NUDGE_CART_LOCK },
+    ],
+    // (k): line → cart, against the add's cart → line: 40P01.
+    expect: ["k"],
+    why: "the line lock taken before the cart reverses the order every add, qty change, fire and merge takes — a deadlock",
+  },
+  {
+    id: "pd1n/nudge-line-lock-against-id-order",
+    src: "pd1n",
     edits: [
       {
-        find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n  update public.qr_carts c\n    set send_nudge_seat = p_seat",
-        replace: "  update public.qr_carts c\n    set send_nudge_seat = p_seat",
+        find: "    order by ci.id\n    for share of ci;\n",
+        replace: "    order by ci.id desc\n    for share of ci;\n",
       },
     ],
-    // (e): the nudge's UPDATE waits on the fire's row lock but, the row unmodified, decides from the
-    // snapshot it took BEFORE the fire committed — the dine-in draft it reads has already gone.
-    expect: ["e"],
-    why: "a nudge racing a Send lands a stamp on dishes that just went — 'Someone's waiting' with nothing to send",
+    // (l): the nudge takes the HIGHER id first, then waits for the lower one the bump takes from X;
+    // the bump then waits for the higher one: 40P01. The deterministic form of "no `order by`",
+    // whose order is the plan's (see the header's (l)).
+    expect: ["l"],
+    why: "two multi-row lockers taking the same drafts in different orders — the nudge against a bump, a deadlock",
   },
 ];
 
-function restoreMigration() {
-  q(MIGRATION_TEXT, "restore");
+function restoreChain() {
+  q(chainSql(), "restore");
 }
 
 async function runMutants() {
-  // Drift first, with NOTHING written: what would this migration produce, rolled back?
+  // Drift first, with NOTHING written: what would the chain produce, rolled back?
   const live = q(HASHES);
-  const expected = q(`begin;\n${MIGRATION_TEXT}\n${HASHES}\nrollback;`)
+  const expected = q(`begin;\n${chainSql()}\n${HASHES}\nrollback;`)
     .split("\n")
     .filter((l) => /^mms_\w+=/.test(l))
     .join("\n");
   if (live !== expected || live.split("\n").length !== FNS.length) {
     throw new Error(
       `${TAG} REFUSED — ` +
-        `the live bodies are not what ${path.basename(MIGRATION)} produces — a later migration ` +
-        `redefines one (or a mutant is live). Restoring from this file would revert it, so every ` +
-        `verdict would be about dead code.\n  live:\n${live}\n  migration:\n${expected}`,
+        `the live bodies are not what ${CHAIN.map(([, f]) => path.basename(f)).join(" + ")} ` +
+        `produce — a later migration redefines one (or a mutant is live). Restoring from the chain ` +
+        `would revert it, so every verdict would be about dead code.\n  live:\n${live}\n  chain:\n${expected}`,
     );
   }
   console.log(`\n${TAG} mutation battery — ${MUTANTS.length} mutants against the LIVE functions\n`);
@@ -756,25 +1004,27 @@ async function runMutants() {
 
   let bad = 0;
   for (const m of MUTANTS) {
-    const stale = m.edits.filter((e) => MIGRATION_TEXT.split(e.find).length - 1 !== 1);
+    const text = SOURCES[m.src];
+    if (text === undefined) throw new Error(`${TAG} ${m.id}: unknown src ${m.src}`);
+    const stale = m.edits.filter((e) => text.split(e.find).length - 1 !== 1);
     if (stale.length) {
       console.log(`  ${red("STALE")} ${m.id} — ${stale.length} edit(s) did not match exactly once`);
       bad++;
       continue;
     }
     // A function replacement, never a string: `$'`/`$&` in a replacement string are patterns.
-    const mutated = m.edits.reduce((t, e) => t.replace(e.find, () => e.replace), MIGRATION_TEXT);
+    const mutated = m.edits.reduce((t, e) => t.replace(e.find, () => e.replace), text);
     let live_ = true;
     const restoreNow = () => {
       if (!live_) return;
       live_ = false;
-      restoreMigration();
+      restoreChain();
     };
     process.once("exit", restoreNow);
     process.once("SIGINT", restoreNow);
     process.once("SIGTERM", restoreNow);
     try {
-      q(mutated, "mutate");
+      q(chainSql({ [m.src]: mutated }), "mutate");
       if (q(HASHES) === live) {
         console.log(`  ${red("INERT")} ${m.id} — applied, but no body changed`);
         bad++;
@@ -834,7 +1084,7 @@ async function main() {
       failed += await runMutants();
     } else {
       console.log(
-        `\n${TAG} — the diner Send against an add, a qty change, a nudge and a merge, two sessions\n`,
+        `\n${TAG} — the diner Send against an add, a qty change, a nudge and a merge; the nudge against a switch to to-go, an add and a bump\n`,
       );
       failed += (await battery(true)).length;
     }
