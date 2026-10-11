@@ -151,6 +151,18 @@ One bullet per stream; a stream edits only its own bullet.
 - **counter-floor:** PD6 on `claude/feat/pd6-till-tray`; PD7 next.
 - **table-door, money-rails (the rest):** not in this wave.
 
+- **staff-authority — PD8 built (2026-10-08, `claude/feat/pd8-manager-approval`, draft PR; CHANGELOG's
+  PD8 entry; the m8 spec's `### H · Build notes`).** A money path: waits on Codex's rounds or the capped
+  blind pass of its head, the owner's per-SHA line (ruling #1), and M184's apply — one file, the owner's
+  go, after the merge. The table-clear seam (a clear superseding its own requests) is left for M182
+  (counter-floor, PD7); the till tray (PD6) re-hosts the cash sheet the acknowledged-ids prop rides on.
+- **diner-cart (2026-10-08):** PD2 on `claude/feat/pd2-pd1-diner-cart` (base `claude/feat/pd-tokens-pass`,
+  #326) — the parked `SURFACES.dineInPhonePay`, the docked counter door, the pass (post-pay's `CounterPass` from
+  `claude/feat/pd-pass-primitives`, merged in), the create-intent
+  refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
+  money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
+  owner's go. Build notes: m2 / m1 specs' `### H`.
+
 ## Environment facts (measured 2026-10-08 unless cited)
 
 - **QR's own Supabase project is `fasnpdhtvqtzjlvruqcu`** (delivery's is `ukuzkhuppqwtrdkjqrkv`).

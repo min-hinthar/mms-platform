@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingFlag } from "./settle-approvals";
 
 /**
  * W6a — the staff add path's two new money/authority rules, asserted against the CALLS the module
@@ -115,6 +116,14 @@ vi.mock("./totals", () => ({ getCartTotals: () => Promise.resolve(null) }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
 vi.mock("./stripe", () => ({ getStripe: () => ({}) }));
 vi.mock("./tab-events", () => ({ logTabEvent: () => Promise.resolve() }));
+/** PD8 — the cart's pending requests as the settle doors read them (`null` = unreadable). */
+let pendingFlags: PendingFlag[] | null = [];
+vi.mock("./approvals-read", () => ({
+  readPendingApprovalFlags: () => Promise.resolve(pendingFlags),
+}));
+/** PD8 — the tab's shape per case, so `closeSecureTab` can reach its acknowledgement compare. */
+let tabType: "none" | "secure" = "none";
+let secureRow: { stripe_customer_id: string; stripe_payment_method_id: string } | null = null;
 
 // Per-test session mode (W16a): the mode now decides the PRICE fork, so both directions get a pin.
 let sessionMode = "pickup";
@@ -132,7 +141,9 @@ vi.mock("@mms/db/server", () => ({
                   Promise.resolve(
                     table === "table_sessions"
                       ? { data: { id: SESSION, status: "active", mode: sessionMode }, error: null }
-                      : { data: null, error: null },
+                      : table === "mms_tab_secure"
+                        ? { data: secureRow, error: null }
+                        : { data: null, error: null },
                   ),
                 eq: () => ({
                   maybeSingle: () =>
@@ -144,7 +155,7 @@ vi.mock("@mms/db/server", () => ({
                               locked: false,
                               locked_at: null,
                               settle_at: null,
-                              tab_type: "none",
+                              tab_type: tabType,
                             },
                             error: null,
                           }
@@ -159,7 +170,7 @@ vi.mock("@mms/db/server", () => ({
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
-const { staffAddItem, settleCash } = await import("./staff-cart");
+const { staffAddItem, settleCash, closeSecureTab } = await import("./staff-cart");
 
 beforeEach(() => {
   priceItemCalls.length = 0;
@@ -169,6 +180,107 @@ beforeEach(() => {
   insertThrows = false;
   payInFlight = null;
   sessionMode = "pickup";
+  pendingFlags = [];
+  tabType = "none";
+  secureRow = null;
+  acquireOwners.length = 0;
+  releaseOwners.length = 0;
+});
+
+/**
+ * PD8 (PATH_DESIGN decision 4 · Codex correction 13) — each door compares the cart's PENDING requests
+ * against the ids THIS tap displayed, under its freeze: a request the tap did not cover refuses
+ * `approval_pending` (a re-warning carrying every pending flag, never a block); an acknowledged one
+ * passes; an unreadable read refuses `approval_unreadable` (the staff doors fail closed, P2dc). Every
+ * refusal releases this attempt's freeze — the cash path through its `finally`, the tab close by hand.
+ */
+const FLAG: PendingFlag = {
+  id: "55555555-5555-4555-8555-555555555555",
+  kind: "void",
+  lineId: "l-1",
+  lineName: "Mohinga",
+  nameMy: null,
+  qty: 1,
+  amountCents: 1400,
+  cooked: true,
+  initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
+  createdAt: "2026-10-08T10:00:00Z",
+  lineNow: { qty: 1, unitPriceCents: 1400, offTheBill: false },
+};
+describe("settleCash — the acknowledged-ids compare (PD8)", () => {
+  it("a request the tap did not display refuses `approval_pending` with every pending flag, and releases the freeze", async () => {
+    pendingFlags = [FLAG];
+    const res = await settleCash({ sessionId: SESSION, tipCents: 0, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted refused above");
+    expect(res.code).toBe("approval_pending");
+    if (res.code !== "approval_pending") throw new Error("unreachable: asserted the code above");
+    expect(res.pending).toEqual([FLAG]);
+    expect(releaseOwners).toEqual(acquireOwners);
+  });
+  it("the ids the tap displayed pass — never blocked (the owner's decision 4)", async () => {
+    pendingFlags = [FLAG];
+    const res = await settleCash({
+      sessionId: SESSION,
+      tipCents: 0,
+      acknowledgedApprovalIds: [FLAG.id],
+    });
+    // The settle goes on to the totals (null here → the outage sentence): the gate did not refuse.
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).not.toBe("approval_pending");
+    expect(res.code).not.toBe("approval_unreadable");
+  });
+  it("an unreadable pending read refuses `approval_unreadable` — never 'nothing pending'", async () => {
+    pendingFlags = null;
+    const res = await settleCash({ sessionId: SESSION, tipCents: 0, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("approval_unreadable");
+    expect(releaseOwners).toEqual(acquireOwners);
+  });
+  it("more than the rail allows is refused at the schema, before any read", async () => {
+    pendingFlags = [FLAG];
+    const ids = Array.from({ length: 51 }, () => FLAG.id);
+    const res = await settleCash({ sessionId: SESSION, tipCents: 0, acknowledgedApprovalIds: ids });
+    expect(res).toEqual({ ok: false, error: "Invalid request." });
+    expect(acquireOwners).toHaveLength(0);
+  });
+});
+
+describe("closeSecureTab — the acknowledged-ids compare (PD8, its OWN snapshot)", () => {
+  beforeEach(() => {
+    tabType = "secure";
+    secureRow = { stripe_customer_id: "cus_1", stripe_payment_method_id: "pm_1" };
+  });
+  it("a request the tap did not display refuses `approval_pending` and releases THIS attempt's freeze", async () => {
+    pendingFlags = [FLAG];
+    const res = await closeSecureTab({ sessionId: SESSION, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("approval_pending");
+    if (res.code !== "approval_pending") throw new Error("unreachable");
+    expect(res.pending).toEqual([FLAG]);
+    expect(acquireOwners).toHaveLength(1);
+    expect(releaseOwners).toEqual(acquireOwners);
+  });
+  it("an unreadable pending read refuses `approval_unreadable` and releases", async () => {
+    pendingFlags = null;
+    const res = await closeSecureTab({ sessionId: SESSION, acknowledgedApprovalIds: [] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("approval_unreadable");
+    expect(releaseOwners).toEqual(acquireOwners);
+  });
+  it("the ids the tap displayed pass the gate", async () => {
+    pendingFlags = [FLAG];
+    const res = await closeSecureTab({ sessionId: SESSION, acknowledgedApprovalIds: [FLAG.id] });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).not.toBe("approval_pending");
+    expect(res.code).not.toBe("approval_unreadable");
+  });
 });
 
 describe("staffAddItem — cardinality + qty are money rules (W6a)", () => {

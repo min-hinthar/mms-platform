@@ -62,23 +62,37 @@ describe("payBlock — Pay's one reason, in precedence (D16)", () => {
 });
 
 describe("billDoorLabel — the door never promises a verb the next screen refuses (D14)", () => {
+  // The door as it stands after C2's flip: no ask, the phone-pay door open.
+  const open = { counterAsk: false, phonePayOpen: true };
+
   it("promises pay only when nothing blocks it", () => {
-    expect(billDoorLabel(null)).toBe("viewBillAndPay");
+    expect(billDoorLabel(null, open)).toBe("viewBillAndPay");
   });
 
   it("any block → 'View bill'", () => {
     // MUTATION (checkout-verb/door-promises-pay-while-held): billDoorLabel ignores the block —
     // "View bill & pay" over a Bill whose Pay is dimmed; red.
-    expect(billDoorLabel("peer")).toBe("viewBill");
-    expect(billDoorLabel("unsent")).toBe("viewBill");
-    expect(billDoorLabel("grace")).toBe("viewBill");
+    expect(billDoorLabel("peer", open)).toBe("viewBill");
+    expect(billDoorLabel("unsent", open)).toBe("viewBill");
+    expect(billDoorLabel("grace", open)).toBe("viewBill");
   });
   it("a standing counter ask hides Pay behind the counter card — the door may not promise '& pay' over it either (Codex round 3 on #313)", () => {
     // MUTATION (checkout-verb/door-promises-pay-under-a-counter-ask): the ask ignored — "View bill
     // & pay" leads to a Bill with no Pay on it; red.
-    expect(billDoorLabel(null, true)).toBe("viewBill");
-    expect(billDoorLabel(null, false)).toBe("viewBillAndPay");
-    expect(billDoorLabel("unsent", true)).toBe("viewBill");
+    expect(billDoorLabel(null, { ...open, counterAsk: true })).toBe("viewBill");
+    expect(billDoorLabel(null, open)).toBe("viewBillAndPay");
+    expect(billDoorLabel("unsent", { ...open, counterAsk: true })).toBe("viewBill");
+  });
+  it("PD2 — while the phone-pay door is PARKED the door reads 'View bill' in EVERY arm (m1 B9, reconciliation 3)", () => {
+    // MUTATION (checkout-verb/door-promises-pay-while-parked): the flag ignored — a hostless
+    // table, or a guest after the host's send, is led by "View bill & pay" to a Bill that has no
+    // Pay on it at all; red.
+    const parked = { counterAsk: false, phonePayOpen: false };
+    expect(billDoorLabel(null, parked)).toBe("viewBill");
+    expect(billDoorLabel("unsent", parked)).toBe("viewBill");
+    expect(billDoorLabel(null, { ...parked, counterAsk: true })).toBe("viewBill");
+    // …and the flip restores "& pay" with nothing else changed (the flag is the only input).
+    expect(billDoorLabel(null, { ...parked, phonePayOpen: true })).toBe("viewBillAndPay");
   });
 });
 

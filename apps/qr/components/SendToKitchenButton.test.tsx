@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { UndoGrace } from "./useUndoGrace";
 import type { SendHandle } from "./SendToKitchenButton";
+import { STAFF } from "@/lib/i18n/staff";
 
 /**
  * Phase 1b — Send to kitchen is ONE tap (the W16c confirm is retired; the server-clocked undo is the
@@ -241,7 +242,7 @@ describe("Phase 3c-ii (D27) — the table gate inside send()", () => {
       grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" }),
     });
     undoHandle.current!.focus();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Undo — 7s" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Undo/ }));
   });
 });
 
@@ -249,11 +250,17 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
   it("Undo is never the filled hero, counts down the grace's seconds, and targets the grace's batch", async () => {
     const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" });
     mount({ verb: "undo", grace: g });
-    const undo = screen.getByRole("button", { name: "Undo — 7s" });
+    // D3 (PD2 · PD1) — the NAME is the verb alone plus the console's own word for the act
+    // (`table.send.undo`, ပြန်ယူ); the seconds are an aria-hidden leaf, so the name never changes
+    // every second and a voice user says "Undo".
+    const undo = screen.getByRole("button", { name: "Undo ပြန်ယူ" });
+    expect(undo.textContent).toContain("— 7s");
     // MUTATION (send-button/undo-is-rendered-as-the-hero): Undo gets `.checkout-cta` — reversing
     // becomes the filled verb; red.
     expect(undo.classList.contains("checkout-cta")).toBe(false);
     expect(undo.classList.contains("checkout-outline-btn")).toBe(true);
+    // The one Undo form: `--sf` with the dashed accent edge, never filled (`.checkout-undo`).
+    expect(undo.classList.contains("checkout-undo")).toBe(true);
     // aria-disabled, never native: the window parks focus on this very button.
     expect(undo.hasAttribute("disabled")).toBe(false);
     await act(async () => {
@@ -266,7 +273,7 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
   it("a frozen Undo stays reachable (aria-disabled) and hands the freeze to the grace, which refuses", async () => {
     const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" });
     mount({ verb: "undo", grace: g, frozen: true });
-    const undo = screen.getByRole("button", { name: "Undo — 7s" });
+    const undo = screen.getByRole("button", { name: /^Undo/ });
     expect(undo.getAttribute("aria-disabled")).toBe("true");
     expect(undo.hasAttribute("disabled")).toBe(false);
     await act(async () => {
@@ -278,7 +285,7 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
   it("the Undo counts down ON ITS OWN — the host never re-renders it (J34)", () => {
     vi.useFakeTimers();
     mount({ verb: "undo", grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" }) });
-    expect(screen.getByRole("button", { name: "Undo — 7s" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Undo/ }).textContent).toContain("— 7s");
     // No rerender: the hook's host (Checkout) no longer re-renders per tick, so the label must move
     // by its own subscription.
     act(() => {
@@ -286,7 +293,51 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
     });
     // MUTATION (send-button/undo-label-reads-a-host-count): the count is computed in the button's
     // render, which nothing re-runs — frozen at 7s; red. (undo-grace/countdown-never-ticks: red too.)
-    expect(screen.getByRole("button", { name: "Undo — 5s" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Undo/ }).textContent).toContain("— 5s");
+  });
+
+  it("PD2 · PD1 (P2y, D3) — the Send→Undo relabel HOLDS taps for the same gesture, and the Undo is 'Undo · ပြန်ယူ' (the console's own word)", async () => {
+    vi.useFakeTimers();
+    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" });
+    const onMessage = vi.fn();
+    const { rerender } = render(
+      <SendToKitchenButton
+        cartId="cart-1"
+        verb="send"
+        grace={g}
+        frozen={false}
+        onMessage={onMessage}
+        onChanged={() => {}}
+      />,
+    );
+    // The send answers and the control relabels under the finger.
+    rerender(
+      <SendToKitchenButton
+        cartId="cart-1"
+        verb="undo"
+        grace={g}
+        frozen={false}
+        onMessage={onMessage}
+        onChanged={() => {}}
+      />,
+    );
+    const undo = screen.getByRole("button", { name: "Undo ပြန်ယူ" });
+    // MUTATION (send-button/undo-tap-not-held): the hold deleted — the double-tap's second half
+    // un-sends the round the host just sent; red.
+    await act(async () => {
+      fireEvent.click(undo);
+    });
+    expect(g.undo).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await act(async () => {
+      fireEvent.click(undo);
+    });
+    expect(g.undo).toHaveBeenCalledWith("cart-1", false);
+    // D3 — the Burmese is the staff dictionary's own word for the same act, verbatim.
+    expect(undo.querySelector('[lang="my"]')?.textContent).toBe(STAFF["table.send.undo"].my);
+    expect(STAFF["table.send.undo"].my).toBe("ပြန်ယူ");
   });
 
   it("an undo in flight reads 'Bringing it back…'", () => {
@@ -294,7 +345,7 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
       verb: "undo",
       grace: grace({ deadlineMs: Date.now() + 7_000, pending: true }),
     });
-    expect(screen.getByRole("button", { name: "Bringing it back…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Bringing it back…/ })).toBeTruthy();
   });
 
   it("verb 'bill' with nothing left to send is the quiet confirmation, never a button", () => {

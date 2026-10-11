@@ -25,6 +25,10 @@ export function checkoutSteps(s: {
   settle: boolean;
   /** The first step's name (`orderNoun`): "Order" at a table or to-go, "Basket" in the market. */
   noun?: "Order" | "Basket";
+  /** PD2 — the table has asked to pay at the counter and the Bill shows the counter pass: the ask
+   *  IS the paying step, and paying happens at the register, so Pay is current and Bill is done.
+   *  Only while the Bill is the stage: an Order-stage phone hears the ask but stays where it is. */
+  counterAsk?: boolean;
 }): CheckoutStep[] {
   if (s.settle) return [];
   const first = s.noun ?? "Order";
@@ -32,7 +36,11 @@ export function checkoutSteps(s: {
   // The pay step is the deepest: a table reaches it only through the Bill, so Bill is done there
   // whatever `stage` says (the stage is review-only state).
   const currentKey: CheckoutStep["key"] =
-    s.step === "pay" ? "pay" : s.staged && s.stage === "bill" ? "bill" : "order";
+    s.step === "pay" || (s.staged && s.stage === "bill" && s.counterAsk)
+      ? "pay"
+      : s.staged && s.stage === "bill"
+        ? "bill"
+        : "order";
   const at = keys.indexOf(currentKey);
   return keys.map((key, i) => ({
     key,

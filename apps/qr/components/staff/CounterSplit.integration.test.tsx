@@ -164,6 +164,7 @@ const detail = (sessionId: string, tableNumber: number) =>
   ({
     sessionId,
     settled: false,
+    pendingRequests: [] as TableDetail["pendingRequests"],
     cartId: `c-${tableNumber}`,
     label: String(tableNumber),
     tableNumber,

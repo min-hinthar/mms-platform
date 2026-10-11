@@ -51,6 +51,8 @@ import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
+import { readPendingApprovalFlags } from "./approvals-read";
+import type { PendingFlag } from "./settle-approvals";
 import type {
   ClearPreviewResult,
   ClearTableResult,
@@ -761,6 +763,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   }));
 
   let lines: TableLineView[] = [];
+  // PD8 — the open cart's pending requests, for the flag at Take payment; [] with no cart.
+  let pendingRequests: PendingFlag[] = [];
   let itemCount = 0;
   let runningSubtotalCents = 0;
   let lastLineAt: string | null = null;
@@ -816,17 +820,27 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       menu: "skip",
     });
     // Lines with an OPEN approval request (S2.4) — so the editor shows "approval requested" instead of a
-    // second Void/Comp button. One bounded read on the (non-hot) detail path.
+    // second Void/Comp button. One bounded read on the (non-hot) detail path. PD8: the SAME read now
+    // feeds the flag card at Take payment (`pendingRequests`), through `readPendingApprovalFlags` —
+    // the one read the three settle doors compare their acknowledged ids against.
     const pendingLineIds = new Set<string>();
     {
       // Deliberate degrade (parity with the sold-out read): a failed approvals read re-shows the
-      // Void/Comp buttons on a pending line — the SQL refuses a duplicate request regardless.
-      const { data: pend } = await db
-        .from("mms_approvals")
-        .select("line_id")
-        .eq("cart_id", cart.id)
-        .eq("status", "pending");
-      for (const p of pend ?? []) if (p.line_id) pendingLineIds.add(p.line_id);
+      // Void/Comp buttons on a pending line — the SQL refuses a duplicate request regardless — and
+      // draws no flag: the dish stays charged (the safe state), and the door's own server read
+      // re-warns if a request is really there.
+      const flags = await readPendingApprovalFlags(cart.id);
+      const nameMyByLine = new Map(
+        (items ?? []).map((i) => [
+          i.id,
+          catalogNameMy(i.menu_item_id ? nameMyById.get(i.menu_item_id) : null, i.name),
+        ]),
+      );
+      pendingRequests = (flags ?? []).map((f) => ({
+        ...f,
+        nameMy: f.lineId ? (nameMyByLine.get(f.lineId) ?? null) : null,
+      }));
+      for (const f of pendingRequests) if (f.lineId) pendingLineIds.add(f.lineId);
     }
     lines = (items ?? []).map((i) => ({
       id: i.id,
@@ -1101,6 +1115,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,
+    // PD8 — the flag card's requests; the doors acknowledge exactly these ids at their tap.
+    pendingRequests,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
     tab,
     tabOpenedAt: cart?.tab_opened_at ?? null,

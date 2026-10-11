@@ -116,6 +116,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
   ({
     sessionId,
     settled: false,
+    pendingRequests: [],
     cartId: `c-${tableNumber}`,
     label: `T${tableNumber}`,
     tableNumber,

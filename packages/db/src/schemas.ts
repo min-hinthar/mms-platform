@@ -655,6 +655,17 @@ export const settleCashInput = z.object({
   // belt — a negative tip would otherwise REDUCE the recorded total, a silent discount wearing a
   // tip's name. Deliberately no ceiling relative to the bill: a tip larger than the order is real.
   tipCents: z.number().int().min(0).max(100000).default(0),
+  // ── PD8 (PATH_DESIGN decision 4 · Codex correction 13) ──
+  /**
+   * The pending approval-request ids THIS door displayed at ITS tap — the acknowledgement. Tapping
+   * Take cash (or the reader, or the tab close) with a flag up IS the acknowledgement: the server
+   * compares these against the cart's pending requests under the freeze and refuses
+   * `approval_pending` ONLY for a request the tap did not display (a re-warning, never a block). Ids
+   * only, COMPARE-ONLY: nothing here is read into an amount or a decision. Bounded (a table never
+   * holds more than a handful of open requests; `.max(50)` is the transport rail), defaulted so a
+   * tablet on an older bundle still settles — it then meets the re-warning once if a request waits.
+   */
+  acknowledgedApprovalIds: z.array(uuid).max(50).default([]),
   // ── Phase 2c · register ──
   /**
    * COMPARE-ONLY. The pre-tip all-in total the cashier was SHOWN (`detail.settleTotalCents`, i.e.
@@ -843,7 +854,10 @@ export const requestApprovalInput = z.object({
  */
 export const resolveApprovalInput = z.object({
   approvalId: uuid,
-  decision: z.enum(["approve", "deny"]),
+  // PD8 · M184 (round 3 D2): `close` — a request whose table paid first (or whose cart was cleared,
+  // or whose line changed after the ask) is closed as `superseded`, never `denied`. The SQL admits
+  // it only once the cart has left `open` or the line changed (`still_open` otherwise).
+  decision: z.enum(["approve", "deny", "close"]),
   approverStaffId: uuid,
   pin: z.string().regex(/^\d{4,8}$/),
 });

@@ -2,7 +2,6 @@ import { type CSSProperties, type ReactNode } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { Icon } from "@mms/ui";
 import { requireStaffPage, roleAtLeast } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { getFloorView } from "@/lib/floor";
@@ -24,6 +23,7 @@ import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
 import { approvalsHref, moreTiles } from "@/lib/staff-more";
+import { ApprovalsCircle, ApprovalsCountProvider } from "@/components/staff/ApprovalsCount";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
 import { CounterSplit } from "@/components/staff/CounterSplit";
@@ -32,7 +32,6 @@ import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
-import { localizeCount } from "@/lib/i18n/fill";
 
 export const dynamic = "force-dynamic";
 
@@ -94,9 +93,11 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const [lang, { door, home }] = await Promise.all([readStaffLang(), staffHomeFor(searchParams)]);
   if ("redirect" in home) redirect(home.redirect);
 
+  // PD8 — the count is a VERDICT (`pendingCountVerdict`): a count, or unknown — never a false 0. A
+  // non-manager draws no circle, so its arm is never read.
   const [hasPin, pendingApprovals] = await Promise.all([
     staffHasPin(caller.staffId),
-    isManager ? countPendingApprovals() : Promise.resolve(0),
+    isManager ? countPendingApprovals() : Promise.resolve({ ok: false } as const),
   ]);
 
   // A4·5 — the More list is `moreTiles`, stated once for both branches: Menu · Tips · Sign-in
@@ -107,7 +108,6 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // screens now, reached through that screen; the bar's approvals circle below is the one that
   // still needs a count.
   const more = moreTiles({ view: home.view, role: caller.role, hasPin });
-  const approvalsVars = pendingApprovals > 0 ? { n: pendingApprovals } : undefined;
 
   // A4·2 — the approvals count rides the BAR (a manager's, in the trailing slot before Help): the
   // row of tiles it used to sit in is gone, and a manager should see a pending void or refund
@@ -124,22 +124,13 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // `/staff`, or the Screens circle) saw NO count at all and had no way to the queue except the
   // Counter DOOR, which re-doors the tablet. `approvalsHref` is the other half: the fragment here,
   // the non-committing `?floor=1#appr-h` there (blind pass CRITICAL 1).
+  //
+  // PD8 (m8 decisions 3 · 4) — the count is LIVE on the counter: `ApprovalsCircle` reads the
+  // approvals board's own 5 s snapshot through `ApprovalsCountProvider` (one poll, never two); a
+  // frozen queue draws a DASHED ring with the as-of sentence, an unreadable count a dashed ring with
+  // no number and "couldn't check" — never a false 0. The doors (no board) show the server's seed.
   const approvalsChip = isManager ? (
-    <a href={approvalsHref(home.view)} className="staff-circ staff-press staff-circ-count-host">
-      <Icon name="check" size={20} />
-      {pendingApprovals > 0 && (
-        <span className="staff-circ-count" aria-hidden>
-          {localizeCount(pendingApprovals, lang)}
-        </span>
-      )}
-      <span className="sr-only">
-        <Chrome
-          lang={lang}
-          k={pendingApprovals > 0 ? "floor.nav.approvalsCount" : "floor.nav.approvals"}
-          vars={approvalsVars}
-        />
-      </span>
-    </a>
+    <ApprovalsCircle lang={lang} href={approvalsHref(home.view)} />
   ) : undefined;
 
   // P7·1b — the bar names the page (Screens over the doors, Floor over the floor) and carries the
@@ -182,13 +173,15 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
 
   if (home.view === "doors") {
     return (
-      <main className="staff-main">
-        {header}
-        <div className="staff-col" style={wrapWide}>
-          {greeting}
-          <StaffDoors lang={lang} current={door} more={more} />
-        </div>
-      </main>
+      <ApprovalsCountProvider initial={pendingApprovals}>
+        <main className="staff-main">
+          {header}
+          <div className="staff-col" style={wrapWide}>
+            {greeting}
+            <StaffDoors lang={lang} current={door} more={more} />
+          </div>
+        </main>
+      </ApprovalsCountProvider>
     );
   }
 
@@ -246,71 +239,73 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   ];
 
   return (
-    <main className="staff-main">
-      {/* A4·2 — the two live boards report their feed to the bar's help door through this
+    <ApprovalsCountProvider initial={pendingApprovals}>
+      <main className="staff-main">
+        {/* A4·2 — the two live boards report their feed to the bar's help door through this
           provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
-      <CounterLive>
-        {header}
-        {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
+        <CounterLive>
+          {header}
+          {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
             thumb-zone Undo pill. Phase 2d · split — the column IS the split (`CounterSplit`): the
             zones in its main column, the selected table's pane beside them on a tablet. One tree
             around the boards (the bell's seam: no second provider, no remount on rotation). */}
-        <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
-          {greeting}
-          {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
-          <CounterZoneStrip lang={lang} zones={zones} />
-          {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
+          <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
+            {greeting}
+            {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
+            <CounterZoneStrip lang={lang} zones={zones} />
+            {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
               order in zone 1, every free table on the strip in zone 2 and (PD7) the pane's "Seat
               next party" — held by `CounterSplit`, around the zones and the pane (`CounterMint.tsx`). */}
-          {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
+            {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
               strip in zone 2. The zone's region is `RegisterStart`'s own, named by this heading. */}
-          <div className="staff-zone">
-            <h2 id="start-h" className="staff-zone-head" tabIndex={-1}>
-              <Chrome lang={lang} k="floor.zone.start" />
-            </h2>
-            <p style={sub}>
-              <Chrome lang={lang} k="reg.sub" echo="stack" />
-            </p>
-            <RegisterStart labelledBy="start-h" />
-          </div>
+            <div className="staff-zone">
+              <h2 id="start-h" className="staff-zone-head" tabIndex={-1}>
+                <Chrome lang={lang} k="floor.zone.start" />
+              </h2>
+              <p style={sub}>
+                <Chrome lang={lang} k="reg.sub" echo="stack" />
+              </p>
+              <RegisterStart labelledBy="start-h" />
+            </div>
 
-          {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
+            {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
               one list keyed by session; the board owns its heading. */}
-          <div id="floor-zone">
-            <ZoneFocus id="floor-zone" focus="floor-h" />
-            <FloorBoard initial={floor.snapshot} />
-          </div>
+            <div id="floor-zone">
+              <ZoneFocus id="floor-zone" focus="floor-h" />
+              <FloorBoard initial={floor.snapshot} />
+            </div>
 
-          {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
-          <ExpoBoard initial={lane} initialOutage={!expo.ok} />
+            {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
+            <ExpoBoard initial={lane} initialOutage={!expo.ok} />
 
-          {/* 4 · THE MANAGER RAILS (A4·3) — money taken with no order behind it, then the open
+            {/* 4 · THE MANAGER RAILS (A4·3) — money taken with no order behind it, then the open
               void/comp requests. Each read fails alone: a rejected queue starts the zone frozen
               (never all-clear), a rejected roster loads on the poll, a rejected ledger says so
               until the poll reads it. The board renders the strip so BOTH ride its 5 s poll. */}
-          {rails && (
-            <ApprovalsBoard
-              initial={settledValue(rails[0], [])}
-              approvers={settledValue(rails[1], null)}
-              initialRefunds={settledValue(rails[2], null)}
-              initialOutage={rails[0].status === "rejected"}
-            />
-          )}
+            {rails && (
+              <ApprovalsBoard
+                initial={settledValue(rails[0], [])}
+                approvers={settledValue(rails[1], null)}
+                initialRefunds={settledValue(rails[2], null)}
+                initialOutage={rails[0].status === "rejected"}
+              />
+            )}
 
-          {/* 5 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}
-          <DayCash lang={lang} day={day} />
+            {/* 5 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}
+            <DayCash lang={lang} day={day} />
 
-          {/* 6 · SETTLED TODAY — the refund console reading the receipt (M204); manager+. */}
-          {rails && (
-            <SettledToday initial={settledValue(rails[3], { ok: false, reason: "outage" })} />
-          )}
+            {/* 6 · SETTLED TODAY — the refund console reading the receipt (M204); manager+. */}
+            {rails && (
+              <SettledToday initial={settledValue(rails[3], { ok: false, reason: "outage" })} />
+            )}
 
-          <div style={{ marginTop: "var(--s6)" }}>
-            <MoreGrid lang={lang} more={more} />
-          </div>
-        </CounterSplit>
-      </CounterLive>
-    </main>
+            <div style={{ marginTop: "var(--s6)" }}>
+              <MoreGrid lang={lang} more={more} />
+            </div>
+          </CounterSplit>
+        </CounterLive>
+      </main>
+    </ApprovalsCountProvider>
   );
 }
 
