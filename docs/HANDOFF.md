@@ -88,7 +88,8 @@ Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requ
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp
-   (`20261008123000`) is APPLIED — prod migration row `20261011045025`, verified 2026-10-11; its
+   (`20261008123000`) is APPLIED — prod migration row `20261011045025` (04:50:25Z, before #335's merge
+   at 04:51:07Z, as ruled), verified 2026-10-11; its
    follow-up's line lock (`20261011123000`, Codex's post-merge review of #335) is PENDING — applied
    before #342 (`claude/fix/pd1-codex-post-merge`) merges; same signature, the deployed build runs
    unchanged. PD1's file is never re-applied after it: its `create or replace` would put back the
@@ -173,8 +174,8 @@ One bullet per stream; a stream edits only its own bullet.
   `claude/feat/pd-pass-primitives`, merged in), the create-intent
   refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
   money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
-  owner's go — apply it before or with PD1's merge (until then "Let {host} know" answers "That didn’t
-  go through"; applied 2026-10-11 — the owner's item 4 below). Build notes: m2 / m1 specs' `### H`.
+  owner's go — apply it before or with PD1's merge (until then the build hides "Let {host} know": its
+  stamp read fails, `nudgeReady`; applied 2026-10-11 — the owner's item 4 below). Build notes: m2 / m1 specs' `### H`.
 
 ## Environment facts (measured 2026-10-08 unless cited)
 

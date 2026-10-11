@@ -2543,7 +2543,7 @@ const MUTANTS = [
     {
       id: "pd1/nudge-cart-lock-dropped",
       expect: "PD1.17",
-      why: "the nudge decides from a snapshot older than a fire it only waits on when the fire WROTE the cart — a stamp lands on dishes already sent (the race itself: verify-fire-cart-race e)",
+      why: "the nudge decides from a snapshot older than a fire it only waits on when the fire WROTE the cart — with the follow-up's line lock still in place the race harness reddens (k), a deadlock, not (e); (e)'s kill is pd1n/nudge-both-locks-dropped",
       // The follow-up's line lock now sits between this lock and the UPDATE, so the find is the
       // lock alone (it matches once in the follow-up's text).
       find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;\n",
@@ -2554,7 +2554,7 @@ const MUTANTS = [
     {
       id: "pd1/fire-cart-lock-dropped",
       expect: "PD1.16",
-      why: "the fire stops ordering itself against an add / qty change / nudge at the cart (verify-fire-cart-race a–f go red)",
+      why: "the fire stops ordering itself against an add / qty change / nudge at the cart (verify-fire-cart-race a, c and f go red)",
       find: "  perform 1 from public.qr_carts where id = p_cart_id for no key update;   -- PD1: the cart row first (cart → line)\n",
       replace: "",
     },

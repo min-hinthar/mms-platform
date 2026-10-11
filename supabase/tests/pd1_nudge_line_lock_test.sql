@@ -4,7 +4,7 @@
 -- of #335) takes its cart's DINE-IN DRAFTS `for share` after the cart lock and before its decision,
 -- so a fulfillment change it races commits first or waits for it. One session cannot interleave
 -- anything, so this file proves what one session CAN see — that the lock is TAKEN, on which lines —
--- and leaves its ORDER, STRENGTH and id order to scripts/verify-fire-cart-race.mjs (orders i–l and
+-- and leaves its ORDER, STRENGTH and id order to scripts/verify-fire-cart-race.mjs (orders i–n and
 -- their `--mutants`). Every behaviour case of the nudge itself is pd1_send_nudge_test.sql's, which
 -- runs against this same body.
 --

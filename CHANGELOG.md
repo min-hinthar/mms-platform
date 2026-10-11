@@ -27,7 +27,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   (l), and BOTH nudge locks dropped (e, i, j, l, m, n) — the one kill left for fire-before-nudge (e),
   which either lock alone keeps green. Its battery now replays the migration CHAIN (PD1's file, then
   the follow-up's), so PD1's nudge cart-lock mutant patches the follow-up's text, caught by (k). All
-  8 mutants were caught on three consecutive runs, the same orders red each time.
+  8 mutants were caught on five consecutive runs (the last on the final tree), the same orders red each time.
   `supabase/tests/pd1_nudge_line_lock_test.sql` (CI's required list) pins the lock TAKEN, on which
   lines and only on an open cart (PD1N.1–3), red-first against PD1's body, and the grants (PD1N.4),
   with service_role's UPDATE on `qr_cart_items` — the nudge is SECURITY INVOKER, and `for share`

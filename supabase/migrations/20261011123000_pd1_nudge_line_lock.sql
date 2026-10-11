@@ -105,6 +105,10 @@
 --
 -- ## Deploy order: none — the app is unchanged by this file
 -- Same signature, same return shape, same grants: the deployed build calls it exactly as before.
+-- One privilege is newly RELIED ON, not granted: the line lock's `for share` needs UPDATE on
+-- `qr_cart_items` from service_role (PD1N.4 pins it on the CI stack). Prod holds it — measured
+-- 2026-10-11 before the apply: `has_table_privilege('service_role', 'public.qr_cart_items',
+-- 'update')` true (Supabase's default privileges; no migration grants or revokes it).
 -- Apply it on the owner's go before the PR merges (#342); the PR's app change (the "Show a server"
 -- pass) does not depend on it. PD1's file (`20261008123000`) is already applied (prod row
 -- `20261011045025`), and it must NEVER be re-applied after this one: its idempotent `create or
@@ -119,7 +123,9 @@
 -- neither. Then verify: ONE `mms_nudge_host` row in pg_proc, `pg_get_function_result` naming the
 -- same four columns, `md5(prosrc)` equal to this file's body (a local apply's), and
 -- `has_function_privilege('service_role', 'public.mms_nudge_host(uuid, uuid)', 'execute')` true and
--- false for `anon` / `authenticated`. Never `db push`, never the SQL editor.
+-- false for `anon` / `authenticated`, and `has_table_privilege('service_role',
+-- 'public.qr_cart_items', 'update')` still true (without it every nudge raises 42501). Never
+-- `db push`, never the SQL editor.
 --
 -- Guarded + idempotent: every statement re-applies cleanly.
 
