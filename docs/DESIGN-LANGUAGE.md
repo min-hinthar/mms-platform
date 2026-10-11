@@ -2661,7 +2661,9 @@ and `GuidePicture`. What a first-run guide may and may not be:
   that refuses never auto-shows. Close, the last step, a reload or work pushing it away all leave it
   seen — and so does a person opening it themselves from Help (the same per-person key), so it is
   never offered again; an explicit open always shows it. **Work always wins:** a table tap or a landing ticket replaces it for good, and focus that was
-  inside it goes to the work (the ticket list — never an All done).
+  inside it follows the screen's OWN focus rule — the board's heading, never an All done; a guide
+  never changes a shipped control to land its rescue (the blind pass on #345 refused a `tabIndex` on
+  the live ticket grid).
 - **A guide teaches only what ships.** Each station's guide is ONE revision, after every control it
   teaches (`STAFF_GUIDE_SHIPS`, refused by a parsed test while a control is missing); a guide whose
   steps change is a new revision, a new first morning.

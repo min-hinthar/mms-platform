@@ -145,7 +145,8 @@ pictures' motions are the board's own where it has one (the arrival flash, the r
    - **Kitchen:** the first ticket that lands replaces the guide, with its normal arrival flash and
      chime.
    - If focus was inside the guide, it moves to the ticket list (`ul.kds-grid` gets `tabIndex -1`),
-     never onto an All done button.
+     never onto an All done button. _(Superseded at build: the board's heading, by its own
+     catch-all — no `tabIndex` on the live grid; §H, the blind pass on #345.)_
 6. **Re-openable from Help, at any time.** The gold circle's first row, "How this screen works", keeps
    its shipped title and sub-line. The sub-line is now true of the guide: "5 things, with pictures —
    it opens itself the first time" (`help.row.how.sub`, `staff.ts:2484-2487`).
@@ -1141,7 +1142,8 @@ The backdrop never moves. Nothing loops: the pulse stops after 4.8 s. There is n
   - In the product, a step change moves focus to `h2#guide-h`.
   - Close and the last primary move focus to the empty state's title. Give that title `tabIndex -1`;
     kitchen-ops owns KdsBoard.
-  - When the first ticket replaces the guide, focus goes to `ul.kds-grid`, never a bump.
+  - When the first ticket replaces the guide, focus goes to `ul.kds-grid`, never a bump. _(Superseded
+    at build: the board's heading — §H, the blind pass on #345.)_
 - **Landmarks:**
   - The guide is `<section aria-labelledby="guide-h">`.
   - The KDS's h1 is the bar title, so the guide's title is an h2.
@@ -1527,7 +1529,8 @@ chose under the owner's delegation, the reason is below.
   and Got it land on the empty state's title. While it stands the pane's section is named by the Help
   title through a `hidden` label (one name, never the guide's). Kitchen (`KdsBoard`): where "Nothing
   to cook" stands, the board's truth still said above it; work, a freeze or an error replaces it for
-  good, focus that was inside it goes to `ul.kds-grid` (now `tabIndex -1`), never a bump.
+  good, and focus that was inside it follows the board's OWN catch-all to its heading (`#kds-h`),
+  never a bump — the live grid keeps no `tabIndex` (the blind pass on #345, below).
 - **The Help door** (`HelpButton`, the scoped unfreeze — the two rows and the guide host only): on a
   shipped station row 1 opens the guide in the sheet; NEW row 2 "More on this screen" keeps the shipped
   cards whole; the cards' device-keyed auto-open is retired there (B5: never this modal AND the guide
@@ -1547,7 +1550,18 @@ chose under the owner's delegation, the reason is below.
    shipped Help door exactly (cards, row, auto-open) until then, and the flip is ONE value in the PR
    that mounts the card. `staff-guide.test.ts` refuses the flip while `KdsBoard.tsx` renders no
    `<KdsStopCard>` (parsed, red-first). The kitchen host, pictures and keys are built and pinned
-   (KdsBoard's suite flips the gate in a mock), so the flip turns on a tested path.
+   (KdsBoard's suite flips the gate in a mock), so the flip turns on a tested path; the board's own
+   consult of the gate is pinned UNMOCKED by `KdsBoard.guide-gate.test.tsx`. **The flip's conditions**
+   (recorded on OPEN-ITEMS M270 (1)): (a) `KdsBoard` renders a LIVE `<KdsStopCard>` (the parsed
+   refusal); (b) a tap aimed at the guide's Next as the first ticket lands — the ticket takes the
+   guide's place under the finger, and a ticket's All done has no arm of its own (its recovery is
+   the Undo bar) — is decided at the flip: the Undo bar as the recovery, or an arm on the controls of
+   the ticket that replaced a guide (the guide's arm cannot hold a control that is not its own); (c) the kitchen's Help door changes
+   with the flip (row 1 opens the guide, row 2 keeps the cards, the device-keyed auto-open retires,
+   exactly as the counter's did) — `HelpButton.test`'s held-kitchen case inverts; (d) the kitchen
+   pictures are looked at in the 34rem sheet and at the board's text sizes (risk 9). The focus rescue
+   needs nothing at the flip: it follows the board's catch-all (a landing snapshot) and the guide's
+   own effect (a freeze, which changes no snapshot), with no reliance on a blur.
 2. **One finish word, "ရပြီ · Got it", on both stations** (the critic's C): "Back to the counter" is
    the seal's hero in the same pane, and one word would name two acts.
 3. **The arm draws nothing.** The spec asked for `aria-disabled` for the 400 ms; the build refuses in
@@ -1576,9 +1590,46 @@ chose under the owner's delegation, the reason is below.
 10. **Kitchen 1's title is the card's identity** ("Table 11", B7) rather than the spec's English-only
     "One Send, one card"; its sentence carries the lesson (A4's shared stage words).
 
-**Measured.** 28 `pd12/*` mutants in `scripts/verify-slice.mjs` (10 on the seen-key helper, 1 on the
-hook, 14 on the guide model, 2 on `StepGuide`'s arm wiring, 1 on `HelpButton`'s Help-path mark),
-each watched CAUGHT by its owning suite.
+**The blind pass on #345 (REJECT at `4b79b9a`), fixed in one push.** Each item was verified against
+source before the fix.
+
+1. **The live grid's catch-all is `main`'s again.** The first cut put `tabIndex={-1}` on the shipped
+   `ul.kds-grid` to land the guide's rescue there, which changed the board for every cook, guide or
+   not. Removed; the rescue follows the board's own rule (the heading, only when focus had been on a
+   real control and fell to `<body>`), and a freeze — which changes no snapshot, so the catch-all
+   never answers — is the guide's own effect, declared after the catch-all. Pinned unmocked.
+2. **The board's gate is no longer deletable.** `KdsBoard.test` mocks `staffGuideShips` file-wide, so
+   dropping `staffGuideShips("kitchen") ? …` in `KdsBoard.tsx` left it green. The NEW
+   `KdsBoard.guide-gate.test.tsx` mounts the REAL board, a signed-in person and the REAL gate: the
+   guide shows exactly when the station ships (`pd12/kds-board/kitchen-gate-dropped`).
+3. **The ships refusal counts only a LIVE render.** `{false && <KdsStopCard …/>}` satisfied the first
+   cut; the matcher now excludes the enumerated literal-dead shapes (`false`/`0`/`null`/`undefined`/
+   `""`/`!true` `&&`, `true ||`, a literal ternary or `if`), and 15 evasion rows are committed,
+   watched red under a liveness-off matcher (12) and a substring scan (15).
+4. **The rail-label guard parses.** `HelpPicture.test` finds every LIVE JSX element in `KdsBoard.tsx`
+   whose `className` is the literal `"kds-recall-label"`, requires one, and refuses a `style` or a
+   spread on it; five evasion rows (a style, a spread, a comment, a `false &&` copy, a string), red-
+   first (`pd12/kds-board/rail-label-inline`).
+5. **The counter pictures crop ONE floor** (`guideFloor("calm" | "ask")` in `lib/staff-guide.ts`):
+   step 1 had Table 5 seated while step 3 drew it free. The asking table is ordering on the calm floor
+   and the ONLY tile that changes at the ask; both pictures read the one map, pinned by a test that
+   compares the two rendered strips (`pd12/staff-guide/floor-drifts`).
+
+The open questions, answered: the hosts key through `staffGuideKeyFor` — no person, or an id that is
+no key segment, is no guide, never a render-time `RangeError` (`staff.user_id` is a uuid primary key,
+so the id always is one; `pd12/staff-guide/key-for-throws`); the arm's clock is `null` until the
+first commit stamps it and a tap then is refused (`pd12/staff-guide/arm-pending-armed`); the Help
+sheet's guide has a step 1 Back to the rows in Back's own slot (in place, still none —
+`pd12/step-guide/sheet-back-missing`, `pd12/help-guide/sheet-exit-dropped`); the page's
+`askingAtMount` is parsed off `app/staff/page.tsx` (`pd12/page/asking-hardcoded`); a PIN unlock is the
+SAME signed-in caller (`unlockConsole` → `verifyStaffPin(caller.staffId)`), so on a shared sign-in
+"once per person" is once per account — risk 5 stands as written; and the server/client boundary is
+clean (no `"use client"`, `client-only` or `server-only` anywhere in the guide's lib chain; the
+build passed).
+
+**Measured.** 37 `pd12/*` mutants in `scripts/verify-slice.mjs` (10 on the seen-key helper, 1 on the
+hook, 17 on the guide model, 3 on `StepGuide`, 2 on `HelpButton`, 1 on the counter page, 3 on
+`KdsBoard`), each watched CAUGHT by its owning suite.
 
 **Not measured (open risks).** The headless look at 1366×1024 and in the 34rem sheet (risk 9; the
 critic's C on the kitchen pictures in the sheet): no browser runs in the agent environment, so the

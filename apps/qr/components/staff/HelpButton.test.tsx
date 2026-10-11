@@ -646,6 +646,34 @@ describe("PD12 — the step guide behind Help's first row", () => {
     expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
   });
 
+  it("a staff id no key can carry never throws: the guide still opens and nothing is written", async () => {
+    // `staff.user_id` is a uuid primary key, so this never arrives — but the open must not depend on it.
+    render(<HelpButton lang="en" screen="counter" staffId="bad id:" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    expect(
+      await within(dialog()).findByRole("group", { name: STAFF["floor.strip.label"].en }),
+    ).not.toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
+  });
+
+  it("the guide's step 1 Back returns to the rows, like the cards' first Back — focus kept in the sheet", async () => {
+    let clock = 5_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    const guide = await within(dialog()).findByRole("group", {
+      name: STAFF["floor.strip.label"].en,
+    });
+    clock += 1000;
+    fireEvent.click(within(guide).getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(screen.queryByRole("group", { name: STAFF["floor.strip.label"].en })).toBeNull();
+    expect(dialog().closest(".mms-sheet")!.contains(document.activeElement)).toBe(true);
+    vi.restoreAllMocks();
+  });
+
   it("row 2 keeps every shipped card, whole", async () => {
     render(<HelpButton lang="en" screen="counter" />);
     fireEvent.click(circle());

@@ -7,11 +7,13 @@ import ts from "typescript";
 import { HELP_SCREENS, helpCardCount, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
 import { CLEAR_UNDO_MS } from "@/lib/clear-window";
-import { FLOOR_TONE_GLYPH } from "@/lib/floor-tone";
+import { FLOOR_TONE_GLYPH, floorTone } from "@/lib/floor-tone";
 import { quickCashTenders } from "@/lib/register-math";
 import {
+  GUIDE_FLOOR_TILES,
   GUIDE_SAMPLE,
   STAFF_GUIDE_STEPS,
+  guideFloor,
   type GuidePicture as GuidePictureId,
 } from "@/lib/staff-guide";
 import { GuidePicture, HelpPicture } from "./HelpPicture";
@@ -370,6 +372,80 @@ describe("help-1 — pictures are declarations, never drawings", () => {
   });
 });
 
+/** A literal's truthiness, or `undefined` when it is not a literal (the house's liveness reading). */
+function literalTruth(e: ts.Expression): boolean | undefined {
+  if (ts.isParenthesizedExpression(e)) return literalTruth(e.expression);
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return false;
+  if (ts.isIdentifier(e) && e.text === "undefined") return false;
+  if (ts.isNumericLiteral(e)) return Number(e.text) !== 0;
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text !== "";
+  if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) {
+    const t = literalTruth(e.operand);
+    return t === undefined ? undefined : !t;
+  }
+  return undefined;
+}
+/** Is `n` parked in one of the enumerated literal-dead shapes (liveness, not reachability)? */
+function isLiteralDead(n: ts.Node): boolean {
+  for (let child: ts.Node = n, p = n.parent; p; child = p, p = p.parent) {
+    if (ts.isBinaryExpression(p) && child === p.right) {
+      const left = literalTruth(p.left);
+      if (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left === false)
+        return true;
+      if (p.operatorToken.kind === ts.SyntaxKind.BarBarToken && left === true) return true;
+    }
+    if (ts.isConditionalExpression(p)) {
+      const c = literalTruth(p.condition);
+      if (c === true && child === p.whenFalse) return true;
+      if (c === false && child === p.whenTrue) return true;
+    }
+    if (ts.isIfStatement(p)) {
+      const c = literalTruth(p.expression);
+      if (c === false && child === p.thenStatement) return true;
+      if (c === true && child === p.elseStatement) return true;
+    }
+  }
+  return false;
+}
+/**
+ * PD12 — the rail's label (`.kds-recall-label`) is ONE rule, worn by the board and the guide's bump
+ * picture alike. Parsed off `src`'s JSX (a comment or a string is no node): every LIVE element whose
+ * `className` is that literal must carry no `style` and no spread (either is an inline copy of the
+ * look beside the rule), and the board must wear at least one.
+ */
+function railLabel(src: string): "held" | "styled" | "absent" {
+  const sf = ts.createSourceFile("x.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const live: ts.JsxAttributes[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
+      const cls = n.attributes.properties
+        .filter(ts.isJsxAttribute)
+        .find((a) => a.name.getText() === "className")?.initializer;
+      const lit =
+        cls && ts.isJsxExpression(cls) && cls.expression && ts.isStringLiteral(cls.expression)
+          ? cls.expression.text
+          : cls && ts.isStringLiteral(cls)
+            ? cls.text
+            : null;
+      if (lit === "kds-recall-label" && !isLiteralDead(ts.isJsxOpeningElement(n) ? n.parent : n))
+        live.push(n.attributes);
+    }
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  };
+  visit(sf);
+  if (live.length === 0) return "absent";
+  return live.some((a) =>
+    a.properties.some(
+      (p) => ts.isJsxSpreadAttribute(p) || (ts.isJsxAttribute(p) && p.name.getText() === "style"),
+    ),
+  )
+    ? "styled"
+    : "held";
+}
+
 /**
  * PD12 — the staff guides' pictures (m12): the real controls, inert, cropped. Bound the same way as
  * the cards above — the component the control is, or the class/rule it wears — and held to the
@@ -399,21 +475,31 @@ describe("GuidePicture — the real control, inert, cropped", () => {
     }
   });
 
-  it("counter 1 — the strip's own tiles and key: free tiles to start, Table 3 ordering, Table 5 seated", () => {
+  /** A strip tile as the picture drew it: its number → `free` or its tone. */
+  const drawn = (w: Element) =>
+    new Map(
+      [...w.querySelectorAll(".floor-strip > .floor-tile")].map((t) => [
+        Number(t.querySelector(".floor-tile-n")!.textContent),
+        t.hasAttribute("data-free") ? "free" : t.getAttribute("data-tone"),
+      ]),
+    );
+  /** The ONE sample floor, as tones. */
+  const sampled = (moment: "calm" | "ask", tiles: readonly number[]) =>
+    new Map(
+      tiles.map((n) => {
+        const st = guideFloor(moment).get(n) ?? null;
+        return [n, st === null ? "free" : floorTone(st, null)];
+      }),
+    );
+
+  it("counter 1 — the strip's own tiles and key: free tiles to start, Tables 3 and 4 ordering, Table 5 seated", () => {
     const w = gpic("counter.floor");
-    const tiles = [...w.querySelectorAll(".floor-strip > .floor-tile")];
-    expect(tiles.map((t) => t.querySelector(".floor-tile-n")!.textContent)).toEqual([
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-    ]);
-    expect(
-      tiles.map((t) => (t.hasAttribute("data-free") ? "free" : t.getAttribute("data-tone"))),
-    ).toEqual(["free", "free", "live", "free", "rest"]);
+    expect([...drawn(w).keys()]).toEqual([...GUIDE_FLOOR_TILES]);
+    expect(drawn(w)).toEqual(sampled("calm", GUIDE_FLOOR_TILES));
+    // The sample, in tones (computed off `guideFloor`, then read here so a drift is a visible diff).
+    expect([...drawn(w).values()]).toEqual(["free", "free", "live", "live", "rest"]);
     // A started table with nothing on it is SEATED (rest: people, no bar) — never "Ordering" (m12 change 7).
-    expect(tiles[GUIDE_SAMPLE.counter.seated - 1]!.getAttribute("data-tone")).toBe("rest");
+    expect(drawn(w).get(GUIDE_SAMPLE.counter.seated)).toBe("rest");
     expect(FLOOR_TONE_GLYPH.rest).toBe("people");
     expect([...w.querySelectorAll(".floor-key-item")].map((k) => k.textContent)).toEqual([
       STAFF["floor.status.ordering"].en,
@@ -421,6 +507,18 @@ describe("GuidePicture — the real control, inert, cropped", () => {
     ]);
     // Only the ask tile fills — and the calm floor has none.
     expect(w.querySelector('.floor-tile[data-tone="ask"]')).toBeNull();
+  });
+
+  it("counter 1 and 3 crop ONE floor: step 3's tiles are step 1's, but the asking table filled (the blind pass on #345)", () => {
+    const S = GUIDE_SAMPLE.counter;
+    const calm = drawn(gpic("counter.floor"));
+    cleanup();
+    const ask = drawn(gpic("counter.ask"));
+    const crop = [S.asking - 1, S.asking, S.asking + 1];
+    expect([...ask.keys()]).toEqual(crop);
+    expect(ask).toEqual(sampled("ask", crop));
+    for (const n of crop)
+      expect(ask.get(n), `Table ${n}`).toBe(n === S.asking ? "ask" : calm.get(n));
   });
 
   it("counter 2 — the hollow ring is the REAL kitchen row's mark and word; no filled Send competes", () => {
@@ -538,8 +636,46 @@ describe("GuidePicture — the real control, inert, cropped", () => {
     );
     // The rail's label is ONE rule, worn by the board too — never an inline copy beside it.
     expect(css.match(/(^|[\s,}])\.kds-recall-label\s*\{/gm)).toHaveLength(1);
-    const board = readFileSync(join(__dirname, "KdsBoard.tsx"), "utf8");
-    expect(board).toContain('className="kds-recall-label"');
+    expect(railLabel(readFileSync(join(__dirname, "KdsBoard.tsx"), "utf8"))).toBe("held");
+  });
+
+  // Red-first, each row an evasion that satisfied the first cut's substring scan (the blind pass on
+  // #345; LEARNINGS #60): the board's label carrying an inline style beside the class, or the class
+  // surviving only in a comment, a parked never-rendered copy, or a string.
+  const boardWith = (label: string) =>
+    `export function Rail() {\n  return (\n    <div className="kds-recall">\n      ${label}\n      <button className="kds-recall-btn">Table 9</button>\n    </div>\n  );\n}`;
+  it("the parsed guard holds the board's own label shape", () => {
+    expect(railLabel(boardWith('<span className="kds-recall-label">Recall</span>'))).toBe("held");
+    expect(railLabel(boardWith('<span className={"kds-recall-label"}>Recall</span>'))).toBe("held");
+  });
+  it.each([
+    [
+      "an inline style beside the class",
+      '<span className="kds-recall-label" style={{ fontWeight: 600 }}>Recall</span>',
+      "styled",
+    ],
+    [
+      "a spread that can carry a style",
+      '<span className="kds-recall-label" {...labelProps}>Recall</span>',
+      "styled",
+    ],
+    [
+      "the class only in a JSX comment",
+      '{/* <span className="kds-recall-label"> */}<span style={{ fontWeight: 600 }}>Recall</span>',
+      "absent",
+    ],
+    [
+      "the class only on a `false &&` copy",
+      '{false && <span className="kds-recall-label">Recall</span>}<span style={{ fontWeight: 600 }}>Recall</span>',
+      "absent",
+    ],
+    [
+      "the class only in a string",
+      "<span title={'className=\"kds-recall-label\"'} style={{ fontWeight: 600 }}>Recall</span>",
+      "absent",
+    ],
+  ])("the rail-label guard refuses %s", (_, label, verdict) => {
+    expect(railLabel(boardWith(label))).toBe(verdict);
   });
 
   it("kitchen 4 — three strips, still; only the red one says Late (the word, since nothing moves)", () => {

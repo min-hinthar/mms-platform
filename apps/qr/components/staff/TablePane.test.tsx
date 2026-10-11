@@ -3108,4 +3108,27 @@ describe("TablePane — PD12 · the counter guide in the idle pane", () => {
     expect(guideGroup()).toBeNull();
     expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
   });
+
+  it("a staff id no key can carry is no guide — never a throw in the render: the pane is 'Pick a table'", async () => {
+    // `staff.user_id` is a uuid primary key, so this never arrives — the pane must not depend on it.
+    wide = true;
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit
+              terminalReady={false}
+              guide={{ staffId: "bad id:", askingAtMount: false }}
+            >
+              <Floor />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
+  });
 });

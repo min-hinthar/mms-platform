@@ -98,6 +98,26 @@ describe("StepGuide — one card, five steps", () => {
     expect(screen.getByRole("button", { name: "Back" })).not.toBeNull();
   });
 
+  it("in the Help sheet, step 1's Back returns to the rows — armed like every control; in place, step 1 has none", () => {
+    const onExit = vi.fn();
+    const onDone = vi.fn();
+    const { container } = render(
+      <StepGuide screen="counter" host="sheet" lang="en" onDone={onDone} onExit={onExit} />,
+    );
+    const back = screen.getByRole("button", { name: "Back" });
+    expect(container.querySelector(".staff-guide-slot")).toBeNull(); // Back holds its own slot
+    fireEvent.click(back);
+    expect(onExit).not.toHaveBeenCalled(); // the arm
+    armed();
+    fireEvent.click(back);
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(haptic).toHaveBeenCalledWith("pick");
+    expect(onDone).not.toHaveBeenCalled();
+    cleanup();
+    render(<StepGuide screen="counter" host="inplace" lang="en" onDone={onDone} onExit={onExit} />);
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
   it("five dots, each a named 44px button; the current one is aria-current='step'", () => {
     render(<StepGuide screen="counter" host="inplace" lang="en" onDone={vi.fn()} />);
     const dots = within(screen.getByRole("group", { name: "Steps" })).getAllByRole("button");

@@ -6,14 +6,19 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { STAFF, ts } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { floorStatusKey } from "@/lib/staff-labels";
-import { FLOOR_TONE_GLYPH, floorTone } from "@/lib/floor-tone";
+import { FLOOR_TONES, FLOOR_TONE_GLYPH, floorTone } from "@/lib/floor-tone";
 import { DEFAULT_KDS_THRESHOLDS, kdsBadgeKeys, type KdsLevel } from "@/lib/kds-urgency";
 import { qtyStands } from "@/lib/kds-line";
 import { relativeAge } from "@/lib/relative-time";
 import { quickCashTenders } from "@/lib/register-math";
 import { noteLabel } from "@/lib/money-input";
 import { CLEAR_UNDO_MS } from "@/lib/clear-window";
-import { GUIDE_SAMPLE, type GuidePicture as GuidePictureId } from "@/lib/staff-guide";
+import {
+  GUIDE_FLOOR_TILES,
+  GUIDE_SAMPLE,
+  guideFloor,
+  type GuidePicture as GuidePictureId,
+} from "@/lib/staff-guide";
 import type { FloorStatus } from "@/lib/floor-types";
 import { Chrome } from "./Chrome";
 import { FloorKitchenLine } from "./FloorKitchenLine";
@@ -199,6 +204,13 @@ export function HelpPicture({
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
+/** Counter 3's crop of the strip: the asking table between its two neighbours. */
+const GUIDE_ASK_CROP = [
+  GUIDE_SAMPLE.counter.asking - 1,
+  GUIDE_SAMPLE.counter.asking,
+  GUIDE_SAMPLE.counter.asking + 1,
+];
+
 /** The catalog's own names for the kitchen pictures' dishes (`docs/data/MENU_REFERENCE.md`). */
 const DISH = {
   curry: { name: "Chicken Curry", nameMy: "ကြက်သားဟင်း" },
@@ -306,21 +318,24 @@ function StripKey({ statuses, lang }: { statuses: readonly FloorStatus[]; lang: 
   );
 }
 
-/** Counter 1 — CALM: the floor at a glance. Five tiles of the strip and its key: free tiles to start,
- *  Table 3 ordering, Table 5 just seated (a started table with nothing on it is `seated` — m12
- *  change 7). No motion: a tile's tone change is instant. */
+/** Counter 1 — CALM: the floor at a glance. Five tiles of the strip and its key, off the ONE sample
+ *  floor (`guideFloor`): free tiles to start, Tables 3 and 4 ordering, Table 5 just seated (a started
+ *  table with nothing on it is `seated` — m12 change 7). No motion: a tile's tone change is instant. */
 function CounterFloorPic({ lang }: { lang: StaffLang }) {
-  const S = GUIDE_SAMPLE.counter;
-  const status = (n: number): FloorStatus | null =>
-    n === S.ordering ? "ordering" : n === S.seated ? "seated" : null;
+  const floor = guideFloor("calm");
+  // The key names each status on the strip once, in the strip's own tone order (`stripKey`'s rule).
+  const statuses = [...new Set([...floor.values()].filter((st): st is FloorStatus => st !== null))]
+    .map((st) => ({ st, i: FLOOR_TONES.indexOf(floorTone(st, null)) }))
+    .sort((a, b) => a.i - b.i)
+    .map(({ st }) => st);
   return (
     <span className="guide-pic-column">
       <span className="floor-strip">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <StripTile key={n} n={n} status={status(n)} lang={lang} />
+        {GUIDE_FLOOR_TILES.map((n) => (
+          <StripTile key={n} n={n} status={floor.get(n) ?? null} lang={lang} />
         ))}
       </span>
-      <StripKey statuses={["ordering", "seated"]} lang={lang} />
+      <StripKey statuses={statuses} lang={lang} />
     </span>
   );
 }
@@ -366,12 +381,14 @@ function CounterRingPic({ lang }: { lang: StaffLang }) {
 function CounterAskPic({ lang }: { lang: StaffLang }) {
   const S = GUIDE_SAMPLE.counter;
   const asked = minsBefore(4);
+  // The SAME floor as step 1, minutes later: only the asking table changed (it filled).
+  const floor = guideFloor("ask");
   return (
     <span className="guide-pic-column">
       <span className="floor-strip">
-        <StripTile n={S.ordering} status="ordering" lang={lang} />
-        <StripTile n={S.asking} status="counter" lang={lang} />
-        <StripTile n={S.seated} status={null} lang={lang} />
+        {GUIDE_ASK_CROP.map((n) => (
+          <StripTile key={n} n={n} status={floor.get(n) ?? null} lang={lang} />
+        ))}
       </span>
       <CounterPass
         tier="counter"

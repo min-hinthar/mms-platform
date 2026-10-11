@@ -52,6 +52,7 @@ export function StepGuide({
   lang,
   size,
   onDone,
+  onExit,
 }: {
   screen: HelpDoorScreen;
   host: "inplace" | "sheet";
@@ -60,6 +61,9 @@ export function StepGuide({
   size?: KdsSize;
   /** Close (in place) or the last step's Got it. The host decides where focus lands next. */
   onDone: (via: "close" | "finish") => void;
+  /** The sheet host's way back to the Help rows: step 1's Back, in Back's own slot (every Help view
+   *  has one — the cards' first Back returns to the rows too). In place, step 1 has no Back. */
+  onExit?: () => void;
 }) {
   const steps = STAFF_GUIDE_STEPS[screen];
   const total = steps.length;
@@ -68,7 +72,8 @@ export function StepGuide({
   const [played, setPlayed] = useState<ReadonlySet<number>>(() => new Set());
   const titleRef = useRef<HTMLHeadingElement>(null);
   // The arm's clock: when the current step was shown, and when the pointer last went down.
-  const shownAt = useRef(0);
+  // null until the first commit stamps it: a tap before then is refused (arming, never "long armed").
+  const shownAt = useRef<number | null>(null);
   const downAt = useRef<number | null>(null);
   const titleId = useId();
   const stepId = useId();
@@ -180,6 +185,20 @@ export function StepGuide({
         <div className="staff-guide-pager">
           {step > 1 ? (
             <Button variant="secondary" size="xl" onClick={(e) => tap(e, () => go(step - 1))}>
+              <Chrome lang={lang} k="help.back" echo="stack" />
+            </Button>
+          ) : host === "sheet" && onExit ? (
+            // In the Help sheet, step 1's Back returns to the rows (the cards' first Back does too).
+            <Button
+              variant="secondary"
+              size="xl"
+              onClick={(e) =>
+                tap(e, () => {
+                  haptic("pick");
+                  onExit();
+                })
+              }
+            >
               <Chrome lang={lang} k="help.back" echo="stack" />
             </Button>
           ) : (

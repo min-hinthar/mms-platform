@@ -66,7 +66,9 @@ export const GUIDE_SAMPLE = {
     /** m7's floor: Table 3 ordering, Table 5 just seated, the strip's free tiles around them. */
     ordering: 3,
     seated: 5,
-    /** m2: Table 4 asks to pay at the counter; the pane's pass carries the total. */
+    /** m2: Table 4 — ordering on the calm floor (step 1), then asking to pay at the counter (step 3:
+     *  the one thing that changed, the tile that fills — m12's "face A, live"). The pane's pass
+     *  carries the total. */
     asking: 4,
     askTotalCents: 4641,
     /** m6: the guest hands over a $50 note → $3.59 change (5000 − 4641). */
@@ -90,6 +92,26 @@ export const GUIDE_SAMPLE = {
 } as const;
 
 const S = GUIDE_SAMPLE;
+
+/** The strip tiles the counter pictures crop from — tables 1–5. */
+export const GUIDE_FLOOR_TILES: readonly number[] = [1, 2, 3, 4, 5];
+
+/**
+ * The ONE floor every counter picture crops from, at its two moments (the blind pass on #345: the
+ * pictures had drifted — Table 5 seated on step 1 but free on step 3). `calm` is step 1's quiet
+ * evening: Table 3 and Table 4 ordering, Table 5 just seated, the rest free. `ask` is the same room
+ * minutes later, step 3's CALL: ONLY the asking table changed — it filled (`counter`, the ask tone).
+ * `null` is a free tile.
+ */
+export function guideFloor(moment: "calm" | "ask"): ReadonlyMap<number, FloorStatus | null> {
+  const S = GUIDE_SAMPLE.counter;
+  const floor = new Map<number, FloorStatus | null>(GUIDE_FLOOR_TILES.map((n) => [n, null]));
+  floor.set(S.ordering, "ordering");
+  floor.set(S.asking, "ordering");
+  floor.set(S.seated, "seated");
+  if (moment === "ask") floor.set(S.asking, "counter");
+  return floor;
+}
 
 /** The five steps per station, each walking one rung of the loudness ladder (m12 decision 1). */
 export const STAFF_GUIDE_STEPS: Readonly<Record<HelpDoorScreen, readonly GuideStep[]>> = {
@@ -180,6 +202,24 @@ export function staffGuideKey(screen: HelpDoorScreen, staffId: string): string {
 }
 
 /**
+ * The hosts' key: `staffGuideKey`, or null when there is no person or the id is not a key segment —
+ * then NO guide (and no mark), never a throw during render or in a Help tap (the blind pass on #345).
+ * `staffId` is `staff.user_id`, a uuid primary key, so a malformed one is a programming error the
+ * screen must survive, not one it should crash on.
+ */
+export function staffGuideKeyFor(
+  screen: HelpDoorScreen,
+  staffId: string | null | undefined,
+): string | null {
+  if (staffId === null || staffId === undefined) return null;
+  try {
+    return staffGuideKey(screen, staffId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The arm (m12 decision 10; Codex round 3 E1). After the guide mounts AND after every step change,
  * its controls hold for this long: the tap that loaded the screen never acts on the guide, and a
  * double-tap on step 4's Next never also fires step 5's Got it in the same slot (the guide is marked
@@ -189,16 +229,19 @@ export function staffGuideKey(screen: HelpDoorScreen, staffId: string): string {
 export const GUIDE_ARM_MS = 400;
 
 /**
- * Does a tap on a guide control count? `shownAt` is when the current step was shown; `downAt` is
- * when the pointer that produced this tap went down (null for a keyboard press). Refused while the
- * step's controls are not yet armed, and refused for a press that BEGAN before they armed — a slow
- * second half of a double-tap that is released after the arm is still the first gesture.
+ * Does a tap on a guide control count? `shownAt` is when the current step was shown — null until the
+ * guide's first commit has stamped it, and a tap then is refused (the blind pass on #345: a click
+ * handled before the mount's effect flushed read an unset clock as long armed); `downAt` is when the
+ * pointer that produced this tap went down (null for a keyboard press). Refused while the step's
+ * controls are not yet armed, and refused for a press that BEGAN before they armed — a slow second
+ * half of a double-tap that is released after the arm is still the first gesture.
  */
 export function guideActAccepted(t: {
   now: number;
-  shownAt: number;
+  shownAt: number | null;
   downAt: number | null;
 }): boolean {
+  if (t.shownAt === null) return false; // not yet shown: arming
   if (t.now - t.shownAt < GUIDE_ARM_MS) return false;
   if (t.downAt !== null && t.downAt - t.shownAt < GUIDE_ARM_MS) return false;
   return true;

@@ -59,7 +59,7 @@ import { al, chromeVisible, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { servedMoreKey } from "@/lib/kitchen-stats";
 import { KDS_UNDO_MS } from "@/lib/kds-undo";
-import { kitchenGuideQuiet, staffGuideKey, staffGuideShips } from "@/lib/staff-guide";
+import { kitchenGuideQuiet, staffGuideKeyFor, staffGuideShips } from "@/lib/staff-guide";
 import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 import {
   cardTags,
@@ -401,11 +401,13 @@ export function KdsBoard({
   // ── PD12 · the kitchen's step guide (m12) ── offered ONCE per person, per station, per tablet, on
   // the EMPTY board (no ticket of any station, updating, no error) as it stands at MOUNT, in place of
   // the empty state — never a modal. Work always wins: the first ticket that lands (or a freeze, or
-  // an error) takes its place for good, and focus that was inside it moves to the ticket list, never
-  // onto an All done. Held behind `staffGuideShips("kitchen")` until the board draws the stop card
-  // its fifth step teaches (OPEN-ITEMS M270 (1)); the shipped Help cards stand until then.
+  // an error) takes its place for good, and focus follows the board's OWN catch-all rule (its
+  // heading — never a bump, and no `tabIndex` on the live grid: the blind pass on #345). Held behind
+  // `staffGuideShips("kitchen")` until the board draws the stop card its fifth step teaches
+  // (OPEN-ITEMS M270 (1)); the shipped Help cards stand until then. No person, or an id that is not a
+  // key segment, is no guide (`staffGuideKeyFor`) — never a throw during render.
   const guide = useGuideFirstRun(
-    staffId !== null && staffGuideShips("kitchen") ? staffGuideKey("kitchen", staffId) : null,
+    staffGuideShips("kitchen") ? staffGuideKeyFor("kitchen", staffId) : null,
     () =>
       kitchenGuideQuiet({ tickets: snap.tickets.length, degraded: false, failed: err !== null }),
   );
@@ -414,27 +416,12 @@ export function KdsBoard({
     degraded: degraded !== null,
     failed: err !== null,
   });
-  const guideHadFocus = useRef(false);
-  // Where focus goes once the guide leaves: the empty state's title after Close / Got it, the ticket
-  // list (or the empty state, when a freeze pushed it away) after work did — only if it was inside.
+  // How the guide left, for where focus goes (the effect sits after the focus catch-all, below).
   const [guideLeft, setGuideLeft] = useState<"user" | "work" | null>(null);
   if (guide.shown && !guideQuiet) {
     guide.dismiss();
     setGuideLeft("work");
   }
-  const gridRef = useRef<HTMLUListElement>(null);
-  useEffect(() => {
-    if (guideLeft === null) return;
-    const had = guideHadFocus.current;
-    guideHadFocus.current = false;
-    // Close / Got it were tapped inside it; work moves focus only if it was there to lose.
-    if (guideLeft === "user" || had) {
-      const empty = document.getElementById("kds-empty-h");
-      (guideLeft === "work" ? (gridRef.current ?? empty) : empty)?.focus();
-    }
-    // Settled on a microtask, never a synchronous setState in the effect body.
-    void Promise.resolve().then(() => setGuideLeft(null));
-  }, [guideLeft]);
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
@@ -1089,6 +1076,18 @@ export function KdsBoard({
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
+  // PD12 — the guide left. Close / Got it land on the empty state's title (the person was in it to
+  // tap them). Work (a ticket, a freeze, an error) follows the catch-all's own rule: the heading,
+  // only when focus had been on a real control and fell to <body> — declared after it, so a landing
+  // ticket's snapshot is the catch-all's to answer, and a freeze (which changes no snapshot) is ours.
+  useEffect(() => {
+    if (guideLeft === null) return;
+    if (guideLeft === "user") document.getElementById("kds-empty-h")?.focus();
+    else if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    // Settled on a microtask, never a synchronous setState in the effect body.
+    void Promise.resolve().then(() => setGuideLeft(null));
+  }, [guideLeft]);
 
   const openMenu = (line: KitchenLine) => {
     // A dish whose 86 is in flight refuses its ⋯ (aria-disabled says so); a sold-out or grocery line
@@ -1507,16 +1506,7 @@ export function KdsBoard({
               // PD12 — the guide where "Nothing to cook" stands, the board's own truth still said
               // above it (a <p>: the guide's title is the heading). Inside the board's region, a
               // labelled group — never a second region.
-              <div
-                className="kds-guide"
-                onFocusCapture={() => {
-                  guideHadFocus.current = true;
-                }}
-                onBlurCapture={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                    guideHadFocus.current = false;
-                }}
-              >
+              <div className="kds-guide">
                 <p className="kds-guide-empty">
                   <Chrome lang={lang} k="kds.empty" />
                 </p>
@@ -1545,14 +1535,7 @@ export function KdsBoard({
             )}
           </div>
         ) : (
-          <ul
-            ref={gridRef}
-            className="kds-grid"
-            role="list"
-            aria-label={sx(lang, "kds.a11y.tickets")}
-            // PD12 — a focus target when a landing ticket replaces the guide (never an All done).
-            tabIndex={-1}
-          >
+          <ul className="kds-grid" role="list" aria-label={sx(lang, "kds.a11y.tickets")}>
             {visible.map((t) => (
               <TicketCard
                 key={t.key}

@@ -18,7 +18,7 @@ import {
 import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
 import {
   STAFF_GUIDE_STEPS,
-  staffGuideKey,
+  staffGuideKeyFor,
   staffGuideOpensItself,
   staffGuideShips,
 } from "@/lib/staff-guide";
@@ -558,8 +558,9 @@ export function HelpButton(props: HelpProps) {
                     // Codex r1 on #345 — a guide shown from Help is SEEN for this person, at this
                     // station, on this tablet (the first run's own key): a later quiet open never
                     // offers it again. The open itself never waits on the store.
-                    if (guided && staffId !== null)
-                      markGuideSeen(() => window.localStorage, staffGuideKey(screen, staffId));
+                    // A malformed id is no key (`staffGuideKeyFor`): the guide still opens, unmarked.
+                    const seenKey = guided ? staffGuideKeyFor(screen, staffId) : null;
+                    if (seenKey !== null) markGuideSeen(() => window.localStorage, seenKey);
                     setView(guided ? "guide" : "how");
                   }}
                 >
@@ -715,6 +716,8 @@ export function HelpButton(props: HelpProps) {
             lang={lang}
             size={size?.value}
             onDone={() => show(false)}
+            // Step 1's Back returns to the rows, as the cards' first Back does.
+            onExit={() => setView("menu")}
           />
         )}
 

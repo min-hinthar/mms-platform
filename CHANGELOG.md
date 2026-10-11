@@ -29,7 +29,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   device-keyed auto-open retires there. The kitchen's Help door is unchanged. A guide opened from Help
   is recorded as seen under the person's own key (Codex round 1 on #345), so a later quiet open never
   offers it again after a busy or narrow first open.
-- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 28
+- **The blind pass on #345 (REJECT), fixed in one push.** The live board's grid keeps the catch-all
+  `main` shipped (no `tabIndex`; focus that was in the guide goes to the heading, a freeze included);
+  a NEW suite, `KdsBoard.guide-gate.test.tsx`, mounts the board with the REAL gate, so dropping the
+  board's consult of it reddens; the ships refusal and the rail-label guard count only a LIVE parsed
+  element (the literal-dead shapes, comments and strings refused, red-first rows committed); the
+  counter pictures crop ONE floor (`guideFloor`). The hosts key through `staffGuideKeyFor` (an id that
+  is no key segment is no guide, never a render-time throw); a tap before the first commit stamps the
+  arm's clock is refused; the Help sheet's guide has a step 1 Back to the rows; the page's
+  `askingAtMount` wiring is parsed.
+- 11 new staff keys (10 Claude-authored Burmese drafts, 1 grounded) joining `K15 · kitchen-ops`; 37
   `pd12/*` mutants; DESIGN-LANGUAGE §36 (the step guide).
 
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)

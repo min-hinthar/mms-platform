@@ -44,7 +44,7 @@ import { handoffRefunded, type Handoff } from "@/lib/register-ui";
 import type { RefundState } from "@/lib/refund-view";
 import { ReaderShown } from "./ReaderCollectContext";
 import { StepGuide } from "./StepGuide";
-import { counterGuideQuiet, staffGuideKey, staffGuideShips } from "@/lib/staff-guide";
+import { counterGuideQuiet, staffGuideKeyFor, staffGuideShips } from "@/lib/staff-guide";
 import { useGuideFirstRun } from "@/lib/hooks/useGuideFirstRun";
 
 /** PD12 — what the page hands the pane for the counter guide's first run. */
@@ -157,7 +157,10 @@ export function TablePane({
   const headingRef = useRef<HTMLHeadingElement>(null);
   // ── PD12 · the counter guide (see the docblock) ──
   const counterGuide = useGuideFirstRun(
-    guide !== null && staffGuideShips("counter") ? staffGuideKey("counter", guide.staffId) : null,
+    // A malformed id is no key (`staffGuideKeyFor`): no guide, never a throw during render.
+    guide !== null && staffGuideShips("counter")
+      ? staffGuideKeyFor("counter", guide.staffId)
+      : null,
     () =>
       counterGuideQuiet({
         wide: typeof window.matchMedia === "function" && window.matchMedia(PANE_IDLE_QUERY).matches,
