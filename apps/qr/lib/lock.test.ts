@@ -148,6 +148,7 @@ const {
   claimStaleSettlement,
   releaseStaleSettlement,
   settlementHeldBy,
+  readLiveIntentUnderFreeze,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -365,9 +366,23 @@ describe("releasePromoGrantFor — M268: a SETTLEMENT holder, proved by its free
     expect(rpcCalls).toEqual([
       {
         fn: "mms_release_promo_grant_for_settlement",
-        args: { p_cart_id: "cart-1", p_owner: "owner-A" },
+        args: { p_cart_id: "cart-1", p_owner: "owner-A", p_fresh_after: expect.any(String) },
       },
     ]);
+  });
+
+  it("passes the freshness cutoff on the APP clock — `acquireCartLock`'s own `now - SETTLE_TTL_MS` (the blind pass on 5d19601)", async () => {
+    // `settle_at` is stamped by the app and `acquireCartLock` admits a diner by this same cutoff, so
+    // the release must judge freshness on that clock and that TTL, never the database's own.
+    // MUTATION: any other TTL (the pay lock's 5 minutes) → the release clears a pin in a window
+    // where `acquireCartLock` already admitted a successor, or refuses a freeze still ours; red.
+    rpcData = 1;
+    const before = Date.now() - SETTLE_TTL_MS;
+    await releasePromoGrantFor("cart-1", { settlement: "owner-A" });
+    const after = Date.now() - SETTLE_TTL_MS;
+    const cutoff = Date.parse(String(rpcCalls[0]!.args.p_fresh_after));
+    expect(cutoff).toBeGreaterThanOrEqual(before);
+    expect(cutoff).toBeLessThanOrEqual(after);
   });
 
   it("a BLOCKED write is a refusal, never ok — the settle would price from the pin it failed to clear", async () => {
@@ -812,6 +827,57 @@ describe("settlementHeldBy — a READ of ownership, never an acquire arm (Codex 
     expect(await settlementHeldBy("cart-1", "attempt-1")).toEqual({
       held: false,
       error: { message: "connection reset" },
+    });
+  });
+});
+
+describe("readLiveIntentUnderFreeze — M268: the link, ONLY while this request's fresh freeze holds the open cart", () => {
+  const fresh = () => new Date().toISOString();
+  it("returns the link when the row names THIS owner, the freeze is fresh and the cart is open", async () => {
+    statusRow = {
+      status: "open",
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_dead",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBe("pi_dead");
+  });
+  it("null under ANOTHER owner's freeze — a colleague's settle, or a successor's (the blind pass on 5d19601)", async () => {
+    // MUTATION: drop the owner term → this request cancels a link it never held the cart for; red.
+    statusRow = {
+      status: "open",
+      settle_at: fresh(),
+      settle_by: "owner-B",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("null when THIS owner's freeze has gone STALE — a stalled settle reads nothing to cancel (the blind pass on 5d19601)", async () => {
+    // `acquireCartLock` admits a diner under a stale `settle_at` and leaves `settle_by`, so after a
+    // stall the row still names this owner while the link is the SUCCESSOR's live checkout.
+    // MUTATION: drop the freshness term → that successor's PaymentIntent is cancelled at Stripe; red.
+    statusRow = {
+      status: "open",
+      settle_at: new Date(Date.now() - SETTLE_TTL_MS - 1000).toISOString(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_successor",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("null on a cart that is no longer open", async () => {
+    // MUTATION: drop the status term → a paid cart's link is handed to a supersede; red.
+    statusRow = {
+      status: "paid",
+      settle_at: fresh(),
+      settle_by: "owner-A",
+      live_payment_intent_id: "pi_paid",
+    };
+    expect(await readLiveIntentUnderFreeze("cart-1", "owner-A")).toBeNull();
+  });
+  it("a failed read THROWS — the caller's catch stands down; it is never an empty link", async () => {
+    statusError = { message: "connection reset" };
+    await expect(readLiveIntentUnderFreeze("cart-1", "owner-A")).rejects.toEqual({
+      message: "connection reset",
     });
   });
 });

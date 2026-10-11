@@ -13,6 +13,7 @@ import {
   acquireSettlement,
   claimStaleSettlement,
   readLiveIntent,
+  readLiveIntentUnderFreeze,
   releaseByIntent,
   releaseSettlementFor,
   readLiveIntentFor,
@@ -531,6 +532,20 @@ export async function acquireSettlementSuperseding(
  * cancel that diner's payment and then answer `acquired` on a freeze this request lost. Every
  * non-`linked` refusal gives the freeze back and answers `unavailable` — never `acquired` over a pin
  * we failed to clear (the `pin-clear-failed` rule above).
+ *
+ * ⚠️ A `linked` ANSWER IS ONE MOMENT, AND NOTHING AFTER IT TRUSTS IT (the blind pass on #338 @
+ * 5d19601). The same stall, one statement later, reopened the hole: the link read, the Stripe
+ * cancel and the `acquired` answer each came after the RPC's snapshot. So:
+ *   · the link is read UNDER the freeze (`readLiveIntentUnderFreeze`) — the link and the proof that
+ *     this request may act on it come from one row; a freeze that lapsed reads null and stands down;
+ *   · after the supersede and `releaseByIntent`, the release runs AGAIN and only ITS answer of 1
+ *     (this fresh freeze holds the open, unlinked cart and the pin is null now) answers `acquired`.
+ *     That re-proof is also what `releaseByIntent`'s `released: false` needs: a link a webhook or
+ *     a successor already dropped leaves the pin behind, and the second release clears it — or,
+ *     when the freeze is gone, refuses.
+ * What remains is an intent that was linked under THIS fresh freeze being cancelled after the freeze
+ * lapsed — a dead predecessor whose cancel every later attempt would also make (create-intent
+ * supersedes it first), never a successor's checkout.
  */
 async function releaseStalePin(
   cartId: string,
@@ -543,7 +558,7 @@ async function releaseStalePin(
     const refused = await releasePromoGrantFor(cartId, { settlement: owner });
     if (!refused) return "acquired";
     // Only a `linked` refusal holds the cart; any other must never reach the supersede (docblock).
-    const linked = "linked" in refused ? await readLiveIntent(cartId) : null;
+    const linked = "linked" in refused ? await readLiveIntentUnderFreeze(cartId, owner) : null;
     if (!linked) {
       console.error("[settle] stale promo pin not released — refusing to settle", {
         cartId,
@@ -569,6 +584,17 @@ async function releaseStalePin(
         error: clearErr.message,
       });
       await releaseOwn(cartId, owner, "pin-clear-failed");
+      return "unavailable";
+    }
+    // The postcondition, re-proved under this freeze — never inferred from the snapshot (docblock).
+    const reproved = await releasePromoGrantFor(cartId, { settlement: owner });
+    if (reproved) {
+      console.error("[settle] promo pin not re-proved after the supersede — refusing to settle", {
+        cartId,
+        intentId: linked,
+        error: reproved.message,
+      });
+      await releaseOwn(cartId, owner, "pin-not-reproved");
       return "unavailable";
     }
     return "acquired";
@@ -638,7 +664,8 @@ async function releaseOwn(
     | "ambiguous-claim"
     | "pin-clear-failed"
     | "post-claim-throw"
-    | "stale-pin-not-released",
+    | "stale-pin-not-released"
+    | "pin-not-reproved",
 ): Promise<void> {
   try {
     const { error } = await releaseSettlementFor(cartId, owner);

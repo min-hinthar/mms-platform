@@ -21,14 +21,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **The freeze must be FRESH (Codex on #338 @ 56a4fd1, P2):** `acquireCartLock` takes a cart under a
   stale `settle_at` and leaves `settle_by`, so a settle stalled past the 10-minute TTL still matched
   `settle_by` alone and could clear a successor diner's freshly pinned grant. The release now also
-  requires `settle_at > now() - interval '10 minutes'`, and answers which refusal it was: 0 when this
-  fresh freeze holds the cart and a live link is in the way (the one answer that may supersede), -1
-  when the request does not hold the cart. A stalled settle stands down instead of cancelling the
-  successor's checkout.
+  requires `settle_at > p_fresh_after`, where the cutoff is the app's own `now - SETTLE_TTL_MS` — the
+  clock `settle_at` is stamped on and the one `acquireCartLock` admits by (the blind pass on
+  5d19601: a DB-side `now() - interval` left a clock skew between them). It answers which refusal
+  it was: 0 when this fresh freeze holds the cart and a live link is in the way (the one answer that
+  may supersede), -1 when the request does not hold the cart.
+- **A `linked` answer is one moment (the blind pass on 5d19601):** the link is read UNDER the freeze
+  (`readLiveIntentUnderFreeze` — one row: the link and the proof this request may act on it), and
+  after the supersede the release runs AGAIN; only its 1 answers `acquired`. A stalled settle stands
+  down instead of cancelling a successor's checkout, and a link someone else dropped (leaving the
+  pin) is cleared by the re-proof instead of priced. Apply `20261009120000` before deploying the
+  code: until then every counter settle refuses as `unavailable` (fail closed).
 - **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
   the legitimate promo, five refusals including the stale freeze at, past and one second inside the
   TTL, privileges, a mutant per guard and per probe guard built from the live definition);
-  `lib/settle-stale-pin.test.ts` on the real `settleCash`; eleven `m268/…` mutants.
+  `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
+  `m268/…` mutants.
 
 ### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
 

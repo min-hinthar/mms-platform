@@ -19,14 +19,21 @@
 -- ── Every guard is in the WHERE ───────────────────────────────────────────────────────────────
 --   · `status = 'open'`        — a paid or cancelled cart's pin is its order's history, not ours;
 --   · `settle_by = p_owner`    — the freeze on the row is THIS request's;
---   · `settle_at > now() - interval '10 minutes'` — and it is still FRESH (SETTLE_TTL_MS,
---                                lib/lock-ttl.ts; the interval every `mms_split_*` guard uses). Only a
---                                fresh freeze excludes pay attempts: `acquireCartLock` accepts a STALE
---                                `settle_at` and writes only the pay-lock columns, leaving `settle_by`
---                                in place. So `settle_by` alone is not ownership — a settle request
---                                stalled past the TTL would still match it, and in a successor
---                                diner's pin-before-link window clear that diner's freshly pinned
---                                grant (Codex on #338 @ 56a4fd1, P2);
+--   · `settle_at > p_fresh_after` — and it is still FRESH. Only a fresh freeze excludes pay
+--                                attempts: `acquireCartLock` accepts a STALE `settle_at` and writes
+--                                only the pay-lock columns, leaving `settle_by` in place. So
+--                                `settle_by` alone is not ownership — a settle request stalled past
+--                                the TTL would still match it, and in a successor diner's
+--                                pin-before-link window clear that diner's freshly pinned grant
+--                                (Codex on #338 @ 56a4fd1, P2).
+--                                ⚠️ THE CUTOFF IS A PARAMETER, ON THE APP CLOCK (the blind pass on
+--                                #338 @ 5d19601). `settle_at` is stamped by the app, and
+--                                `acquireCartLock` admits by an app-clock cutoff
+--                                (`now - SETTLE_TTL_MS`); a DB-side `now() - interval` left the two a
+--                                clock skew apart, and in that window a late release cleared a
+--                                successor's fresh pin. The caller passes the very expression
+--                                `acquireCartLock` uses (lib/lock.ts), so the TTL is named once
+--                                (lib/lock-ttl.ts). A NULL cutoff matches nothing: fail closed;
 --   · `live_payment_intent_id is null` — M151's rule, unchanged: a pin a live intent still
 --                                reconciles against is not this caller's to clear. The settle
 --                                supersedes that intent first (cancel at Stripe, `releaseByIntent`).
@@ -49,13 +56,20 @@
 -- `mms_promo_discount` once the pin is gone.
 --
 -- Guarded + idempotent (create or replace; re-running releases nothing new). SECURITY DEFINER,
--- revoked from public / anon / authenticated, granted to service_role only.
+-- revoked from public / anon / authenticated, granted to service_role only. No DROP, no DELETE.
+--
+-- This file was revised before it was applied anywhere but throwaway local stacks (prod migrations
+-- are owner-gated, one file at a time): the 56a4fd1 body took (uuid, uuid); this one takes
+-- (uuid, uuid, timestamptz). A database still carrying the old body has no three-argument function,
+-- so the app's call errors and every settle refuses as `unavailable` — fail closed, never a
+-- misread answer. Apply this file BEFORE deploying the code that calls it, for the same reason.
 --
 -- Test: supabase/tests/m268_settlement_releases_stale_pin_test.sql (registered in ci.yml).
 
 create or replace function public.mms_release_promo_grant_for_settlement(
   p_cart_id uuid,
-  p_owner uuid
+  p_owner uuid,
+  p_fresh_after timestamptz
 ) returns integer
 language plpgsql security definer set search_path = '' as $$
 declare v_rows integer;
@@ -65,7 +79,7 @@ begin
    where id = p_cart_id
      and status = 'open'
      and settle_by = p_owner
-     and settle_at > now() - interval '10 minutes'
+     and settle_at > p_fresh_after
      and live_payment_intent_id is null;
   get diagnostics v_rows = row_count;
   if v_rows = 1 then
@@ -77,7 +91,7 @@ begin
     where c.id = p_cart_id
       and c.status = 'open'
       and c.settle_by = p_owner
-      and c.settle_at > now() - interval '10 minutes';
+      and c.settle_at > p_fresh_after;
   if found then
     return 0;
   end if;
@@ -85,13 +99,13 @@ begin
 end;
 $$;
 
-revoke all on function public.mms_release_promo_grant_for_settlement(uuid, uuid)
+revoke all on function public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)
   from public, anon, authenticated;
-grant execute on function public.mms_release_promo_grant_for_settlement(uuid, uuid)
+grant execute on function public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)
   to service_role;
 
-comment on function public.mms_release_promo_grant_for_settlement(uuid, uuid) is
+comment on function public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz) is
   'M268 — the settlement doors'' release of a stale promo pin, under THIS request''s FRESH freeze '
-  '(settle_by = p_owner, settle_at inside the 10-minute settle TTL) on an OPEN cart naming NO live '
-  'intent. Returns 1 for the release; 0 when that freeze still holds the cart but a live intent is '
+  '(settle_by = p_owner, settle_at after p_fresh_after — the app-clock settle-TTL cutoff) on an '
+  'OPEN cart naming NO live intent. Returns 1 for the release; 0 when that freeze still holds the cart but a live intent is '
   'linked; -1 when this request does not hold the cart. Anything but 1 is a refusal.';

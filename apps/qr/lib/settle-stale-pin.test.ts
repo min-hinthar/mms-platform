@@ -80,8 +80,17 @@ vi.mock("./lock", () => ({
     return Promise.resolve(null);
   },
   readLiveIntent: () => Promise.resolve(row.linked),
+  // Held whenever the release's fake says so (THIS owner); the link and the proof from one row.
+  readLiveIntentUnderFreeze: (_cart: string, owner: string) =>
+    Promise.resolve(!releaseBlocked && owner === row.settleBy ? row.linked : null),
   claimStaleSettlement: () => Promise.resolve({ claimed: false, error: null }),
-  releaseByIntent: () => Promise.resolve({ released: true, error: null }),
+  // Pin AND link, keyed on the intent — a link someone else already dropped matches nothing.
+  releaseByIntent: (_cart: string, intentId: string) => {
+    if (row.linked !== intentId) return Promise.resolve({ released: false, error: null });
+    row.linked = null;
+    row.pin = null;
+    return Promise.resolve({ released: true, error: null });
+  },
   readLiveIntentFor: () => Promise.resolve(null),
   releasePayAttempt: () => Promise.resolve({ released: false, error: null }),
   unlinkPaymentIntent: () => Promise.resolve(null),
@@ -99,7 +108,27 @@ vi.mock("./order-lines", () => ({
 vi.mock("./posthog-server", () => ({
   getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
 }));
-vi.mock("./stripe", () => ({ getStripe: () => null }));
+/** The linked attempt as Stripe reports it; `onRetrieve` lands a write between the read and the clear. */
+let stripeStatus: string | null = null;
+let onRetrieve: (() => void) | null = null;
+vi.mock("./stripe", () => ({
+  getStripe: () =>
+    stripeStatus === null
+      ? null
+      : {
+          paymentIntents: {
+            retrieve: (id: string) => {
+              onRetrieve?.();
+              return Promise.resolve({
+                id,
+                status: stripeStatus,
+                capture_method: "automatic",
+                metadata: {},
+              });
+            },
+          },
+        },
+}));
 vi.mock("./tab-events", () => ({ logTabEvent: () => Promise.resolve() }));
 
 const SUBTOTAL = 2400;
@@ -168,6 +197,8 @@ beforeEach(() => {
   releaseBlocked = false;
   events.length = 0;
   fulfilled = null;
+  stripeStatus = null;
+  onRetrieve = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -203,6 +234,37 @@ describe("M268 — the register's cash settle never charges a dead attempt's pin
     const r = await settleCash({ sessionId: SESSION, tipCents: 0 });
     expect(r.ok).toBe(true);
     expect(fulfilled?.p_discount_cents).toBe(800);
+  });
+
+  it("a dead attempt still LINKED: superseded at Stripe, unlinked with its pin, re-proved — and the counter charges the UN-discounted total", async () => {
+    // The `linked` refusal, end to end through the real `settleCash`: the link is read under the
+    // freeze, Stripe reports the attempt dead, `releaseByIntent` clears pin and link together, and
+    // the release runs AGAIN before any total is read.
+    row.pin = 1000;
+    row.linked = "pi_dead";
+    stripeStatus = "canceled";
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0 });
+    expect(r.ok).toBe(true);
+    expect(fulfilled?.p_discount_cents).toBe(0);
+    expect(events.filter((e) => e === "pin-release")).toHaveLength(2);
+    expect(events.lastIndexOf("pin-release")).toBeLessThan(events.indexOf("totals"));
+  });
+
+  it("a link dropped by another write between the read and the clear leaves the pin — the re-proof clears it before any total is read (the blind pass on 5d19601)", async () => {
+    // `unlinkPaymentIntent` (a successor's supersede) and a late webhook drop the LINK, and the
+    // first of them leaves the pin; `releaseByIntent` then matches nothing (`released: false`).
+    // MUTATION: answer `acquired` straight after `releaseByIntent` (`m268/linked-path-skips-the-
+    // re-proof`) → the cash order records the dead attempt's $10 discount; red.
+    row.pin = 1000;
+    row.linked = "pi_dead";
+    stripeStatus = "canceled";
+    onRetrieve = () => {
+      row.linked = null; // unlinked, pin left behind
+    };
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0 });
+    expect(r.ok).toBe(true);
+    expect(fulfilled?.p_discount_cents).toBe(0);
+    if (r.ok) expect(r.totalCents).toBe(SUBTOTAL);
   });
 
   it("a release the database refuses records NOTHING — no total is read over the pin, and the freeze goes back", async () => {

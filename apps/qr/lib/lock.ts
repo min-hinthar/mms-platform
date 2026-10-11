@@ -461,7 +461,11 @@ export async function releaseStaleSettlement(
  */
 export type PromoPinRefusal =
   | ReleaseError
-  /** The settlement's fresh freeze holds the cart; a live intent is linked. Supersede, then retry. */
+  /**
+   * The settlement's fresh freeze held the cart and a live intent was linked — at the RPC's moment
+   * only. The caller re-reads the link under its freeze (`readLiveIntentUnderFreeze`), supersedes,
+   * then releases AGAIN and proceeds only on that answer (lib/supersede.ts, `releaseStalePin`).
+   */
   | { message: string; linked: true };
 
 export type PromoGrantHolder =
@@ -482,6 +486,12 @@ export async function releasePromoGrantFor(
     const { data, error } = await serviceClient().rpc("mms_release_promo_grant_for_settlement", {
       p_cart_id: cartId,
       p_owner: holder.settlement,
+      // ⚠️ FRESHNESS ON THE APP CLOCK (the blind pass on #338 @ 5d19601). `settle_at` is stamped
+      // here, and `acquireCartLock` admits a pay attempt by `settleCutoff` — this same expression —
+      // so the release and the takeover it must never overlap read ONE clock. A DB-side
+      // `now() - interval` left them a skew apart, and in that window a late release cleared a
+      // successor's fresh pin. The TTL is named once, in lib/lock-ttl.ts.
+      p_fresh_after: new Date(Date.now() - SETTLE_TTL_MS).toISOString(),
     });
     if (error) return error;
     if (data === 1) return null;
@@ -743,6 +753,33 @@ export async function claimStaleSettlement(
  * Every helper here is a query SHAPE — one predicate, one payload — and each is pinned by
  * `lock.test.ts` and a `verify:slice` mutant, because the predicate IS the rule.
  */
+
+/**
+ * M268 — the intent the cart names, read ONLY while THIS request's settlement freeze still holds the
+ * open cart (fresh on the app clock, like `settlementHeldBy`); null otherwise, link or not.
+ *
+ * ⚠️ WHY NOT `readLiveIntent` (the blind pass on #338 @ 5d19601). The settle reads the link after
+ * the release RPC said "your fresh freeze holds the cart, a live intent is linked" — but that
+ * answer is one moment. A request stalled past the TTL between the two finds the cart taken by a
+ * successor (`acquireCartLock` admits under a stale `settle_at` and leaves `settle_by`), and an
+ * unscoped read hands it the SUCCESSOR's link to cancel at Stripe. One row, one snapshot: the link
+ * and the proof that we may act on it come from the same read.
+ */
+export async function readLiveIntentUnderFreeze(
+  cartId: string,
+  owner: string,
+): Promise<string | null> {
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("status,settle_at,settle_by,live_payment_intent_id")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || data.status !== "open" || data.settle_by !== owner) return null;
+  const fresh = data.settle_at != null && Date.parse(data.settle_at) > Date.now() - SETTLE_TTL_MS;
+  return fresh ? (data.live_payment_intent_id ?? null) : null;
+}
 
 /** The intent the cart currently names, or null. Read under the caller's own lock. */
 export async function readLiveIntent(cartId: string): Promise<string | null> {

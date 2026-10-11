@@ -20,8 +20,10 @@
 --      (M151's rule) — the one answer under which the caller may supersede that intent.
 --      6 is Codex's case on #338 @ 56a4fd1: a settle stalled past the 10-minute TTL while a diner
 --      took the cart (`acquireCartLock` accepts a stale `settle_at` and leaves `settle_by`) and
---      pinned a grant it has not linked yet. Plus the TTL's edge (stale AT 10 minutes, matching
---      `acquireCartLock`'s `lte`) and one second inside it (still ours — the TTL, not a tighter one).
+--      pinned a grant it has not linked yet. Plus the cutoff's edge (stale AT it, matching
+--      `acquireCartLock`'s `lte`), one second inside it (still ours), a freeze fresh on the DB clock
+--      but stale by the caller's cutoff (the function reads the CALLER's clock — the app's, the one
+--      `settle_at` is stamped on and `acquireCartLock` admits by), and a NULL cutoff (fail closed).
 --   9. PRIVILEGES — service_role only; anon and authenticated cannot execute it.
 --  10. A MUTANT PER GUARD, built from the LIVE definition (`pg_get_functiondef`, one guard removed
 --      by an exact find that must match once — a stale find fails the file): on its own refusal
@@ -47,6 +49,10 @@ declare
   other uuid := gen_random_uuid();   -- a colleague's request
   sess uuid; cart uuid;
   n integer; d integer; pin integer; applied text;
+  -- The app's cutoff (`now - SETTLE_TTL_MS`, lib/lock.ts): the caller's clock, passed in. Here it is
+  -- taken from the DB clock only so the fixtures have one reference; case 6 shows the function
+  -- reads THIS value and never its own clock.
+  fresh timestamptz := now() - interval '10 minutes';
   def text; mutated text; guard record;
 begin
   -- $10 off, needs a $25 basket.
@@ -76,7 +82,7 @@ begin
            '(the defect) — got %s. If this is 0 the case cannot tell the fix from nothing.', d);
   -- The counter takes the freeze (acquireSettlement's write), then releases under it.
   update public.qr_carts set settle_at = now(), settle_by = mine where id = cart;
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   assert n = 1, format('M268.1 the release under THIS freeze must write one row, got %s', n);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert pin is null, format('M268.1 the stale pin survived the release: %s', pin);
@@ -94,7 +100,7 @@ begin
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish, 'Mohinga', 1, 4000, 0, null, 'dinein');
   assert public.mms_promo_discount(cart) = 500, 'M268.2 fixture drift: the stale pin should read $5';
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   assert n = 1, format('M268.2 the release must write one row, got %s', n);
   select promo_code into applied from public.qr_carts where id = cart;
   assert applied = 'M268TEN', format('M268.2 the release touched the APPLIED code: %s', applied);
@@ -111,7 +117,7 @@ begin
     values (cart, sess, 'M268TEN', now(), mine);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'dinein');
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   assert n = 1,
     format('M268.3 an unpinned cart under THIS freeze is the postcondition already — want 1, got %s '
            '(0 would refuse every ordinary settle)', n);
@@ -124,7 +130,7 @@ begin
     values (sess, 'M268C4', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by)
     values (cart, sess, 'M268TEN', 1000, now(), other);
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = -1 and pin = 1000,
     format('M268.4 a release under a COLLEAGUE''s freeze must refuse as not-ours (-1) and leave the '
@@ -136,7 +142,7 @@ begin
     values (sess, 'M268C5', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents)
     values (cart, sess, 'M268TEN', 1000);
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = -1 and pin = 1000,
     format('M268.5 a release with NO freeze on the cart must refuse as not-ours (-1) — rows %s, pin %s',
@@ -154,7 +160,7 @@ begin
   -- stays ours), then its pin, and the link not yet written.
   update public.qr_carts set locked = true, locked_at = now(), locked_by = ana where id = cart;
   assert public.mms_pin_promo_grant(cart) = 1000, 'M268.6 fixture drift: the successor should pin $10';
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = -1 and pin = 1000,
     format('M268.6 a settle stalled past the TTL cleared the SUCCESSOR''s fresh pin (or was told the '
@@ -164,23 +170,42 @@ begin
   insert into public.table_sessions (id, qr_code, mode, status, host_seat)
     values (sess, 'M268C6E', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by)
-    values (cart, sess, 'M268TEN', 1000, now() - interval '10 minutes', mine);
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+    values (cart, sess, 'M268TEN', 1000, fresh, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = -1 and pin = 1000,
-    format('M268.6 AT the 10-minute edge a diner may already hold the cart — want -1, got rows %s, '
+    format('M268.6 AT the cutoff a diner may already hold the cart — want -1, got rows %s, '
            'pin %s', n, pin);
   -- …and one second inside it the freeze is still ours: the TTL is the settle TTL, not a tighter one.
   sess := gen_random_uuid(); cart := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat)
     values (sess, 'M268C6I', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by)
-    values (cart, sess, 'M268TEN', 1000, now() - interval '9 minutes 59 seconds', mine);
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+    values (cart, sess, 'M268TEN', 1000, fresh + interval '1 second', mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = 1 and pin is null,
     format('M268.6 a freeze one second inside the TTL is still THIS request''s — want 1, got rows %s, '
            'pin %s', n, pin);
+
+  -- …the CALLER's clock decides, never the database's (the blind pass on #338 @ 5d19601): a freeze
+  -- stamped NOW on the DB clock, against an app whose clock runs a minute ahead of the TTL's end,
+  -- is stale — `acquireCartLock` on that app would already admit a diner.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M268C6K', 'dinein', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by)
+    values (cart, sess, 'M268TEN', 1000, now(), mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, now() + interval '1 minute');
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = -1 and pin = 1000,
+    format('M268.6 the release read its OWN clock, not the caller''s cutoff — rows %s, pin %s; '
+           'want -1 and 1000', n, pin);
+  -- …and no cutoff at all is no proof of freshness: fail closed.
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, null);
+  select promo_granted_cents into pin from public.qr_carts where id = cart;
+  assert n = -1 and pin = 1000,
+    format('M268.6 a NULL cutoff released the pin — rows %s, pin %s', n, pin);
 
   -- 7. a live intent still named (M151: its pin is not this caller's to clear) — under OUR fresh
   -- freeze, so the answer is 0: the caller holds the cart and may supersede that intent.
@@ -190,7 +215,7 @@ begin
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by,
                                live_payment_intent_id)
     values (cart, sess, 'M268TEN', 1000, now(), mine, 'pi_m268_live');
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = 0 and pin = 1000,
     format('M268.7 a pin a LIVE intent reconciles against must stay, answered 0 (ours, linked) — '
@@ -202,7 +227,7 @@ begin
     values (sess, 'M268C8', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id, promo_code, promo_granted_cents, settle_at, settle_by, status)
     values (cart, sess, 'M268TEN', 1000, now(), mine, 'paid');
-  n := public.mms_release_promo_grant_for_settlement(cart, mine);
+  n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
   select promo_granted_cents into pin from public.qr_carts where id = cart;
   assert n = -1 and pin = 1000,
     format('M268.8 a PAID cart''s pin (its order''s history) must stay, refused as not-ours (-1) — '
@@ -210,22 +235,22 @@ begin
 
   -- ══ 9. PRIVILEGES ════════════════════════════════════════════════════════════════════════════
   assert not has_function_privilege('anon',
-           'public.mms_release_promo_grant_for_settlement(uuid, uuid)', 'execute'),
+           'public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)', 'execute'),
     'M268.9 anon can execute the settlement release';
   assert not has_function_privilege('authenticated',
-           'public.mms_release_promo_grant_for_settlement(uuid, uuid)', 'execute'),
+           'public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)', 'execute'),
     'M268.9 authenticated can execute the settlement release';
   assert has_function_privilege('service_role',
-           'public.mms_release_promo_grant_for_settlement(uuid, uuid)', 'execute'),
+           'public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)', 'execute'),
     'M268.9 service_role cannot execute the settlement release — the settle would always refuse';
 
   -- ══ 10. A MUTANT PER GUARD, from the LIVE definition ═════════════════════════════════════════
-  def := pg_get_functiondef('public.mms_release_promo_grant_for_settlement(uuid, uuid)'::regprocedure);
+  def := pg_get_functiondef('public.mms_release_promo_grant_for_settlement(uuid, uuid, timestamptz)'::regprocedure);
   -- The UPDATE's guards: without one, its own refusal fixture is WRITTEN.
   for guard in
     select * from (values
       ('owner',  'and settle_by = p_owner',                           4, -1),
-      ('fresh',  'and settle_at > now() - interval ''10 minutes''',   6, -1),
+      ('fresh',  'and settle_at > p_fresh_after',                     6, -1),
       ('link',   'and live_payment_intent_id is null',                7,  0),
       ('status', 'and status = ''open''',                             8, -1)
     ) as g(name, find, refusal_case, refusal)
@@ -246,17 +271,17 @@ begin
               case when guard.refusal_case = 4 then other else mine end,
               case when guard.refusal_case = 7 then 'pi_m268_live' end,
               case when guard.refusal_case = 8 then 'paid' else 'open' end);
-    n := pg_temp.m268_mutant(cart, mine);
+    n := pg_temp.m268_mutant(cart, mine, fresh);
     assert n = 1,
       format('M268.10 DEGENERATE FIXTURE for the %s guard: without it the release still answered %s, '
              'so case %s''s refusal is not that guard''s doing', guard.name, n, guard.refusal_case);
     -- …and the REAL function refuses the very same row, with that case's answer.
     update public.qr_carts set promo_granted_cents = 1000 where id = cart;
-    n := public.mms_release_promo_grant_for_settlement(cart, mine);
+    n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
     assert n = guard.refusal,
       format('M268.10 the real %s guard did not refuse its fixture as %s (answered %s)',
              guard.name, guard.refusal, n);
-    drop function pg_temp.m268_mutant(uuid, uuid);
+    drop function pg_temp.m268_mutant(uuid, uuid, timestamptz);
   end loop;
 
   -- The PROBE's guards: it names the refusal, and 0 licenses the caller to supersede a live intent.
@@ -265,7 +290,7 @@ begin
   for guard in
     select * from (values
       ('held-owner',  'and c.settle_by = p_owner'),
-      ('held-fresh',  'and c.settle_at > now() - interval ''10 minutes'''),
+      ('held-fresh',  'and c.settle_at > p_fresh_after'),
       ('held-status', 'and c.status = ''open''')
     ) as g(name, find)
   loop
@@ -284,16 +309,16 @@ begin
               case when guard.name = 'held-owner' then other else mine end,
               'pi_m268_successor',
               case when guard.name = 'held-status' then 'paid' else 'open' end);
-    n := pg_temp.m268_mutant(cart, mine);
+    n := pg_temp.m268_mutant(cart, mine, fresh);
     assert n = 0,
       format('M268.10 DEGENERATE FIXTURE for the %s probe guard: without it the probe still answered '
              '%s, so the real -1 below is not that guard''s doing', guard.name, n);
-    n := public.mms_release_promo_grant_for_settlement(cart, mine);
+    n := public.mms_release_promo_grant_for_settlement(cart, mine, fresh);
     select promo_granted_cents into pin from public.qr_carts where id = cart;
     assert n = -1 and pin = 1000,
       format('M268.10 the real %s probe guard told a request that does not hold the cart it may '
              'supersede the intent (answered %s, pin %s)', guard.name, n, pin);
-    drop function pg_temp.m268_mutant(uuid, uuid);
+    drop function pg_temp.m268_mutant(uuid, uuid, timestamptz);
   end loop;
 
   -- …and the legitimate-promo half: a release that ALSO dropped the applied code would lose the
@@ -313,12 +338,12 @@ begin
     values (cart, sess, 'M268TEN', 500, now(), mine);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish, 'Mohinga', 1, 4000, 0, null, 'dinein');
-  n := pg_temp.m268_mutant(cart, mine);
+  n := pg_temp.m268_mutant(cart, mine, fresh);
   d := public.mms_promo_discount(cart);
   assert n = 1 and d = 0,
     format('M268.10 DEGENERATE FIXTURE for the applied code: a release that drops it still discounted '
            '%s (rows %s), so case 2 cannot tell the untouched code from a cleared one', d, n);
-  drop function pg_temp.m268_mutant(uuid, uuid);
+  drop function pg_temp.m268_mutant(uuid, uuid, timestamptz);
 
   raise notice 'M268 settlement promo-pin release: all 10 cases passed';
 end $$;

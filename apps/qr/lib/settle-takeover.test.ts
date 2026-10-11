@@ -58,13 +58,25 @@ let stalePinRefused: { message: string; linked?: true } | null = null;
 let stalePinThrows = false;
 let stalePinGate: Promise<void> | null = null;
 let stalePinReleases: { cartId: string; holder: unknown }[] = [];
+/** M268 — the SECOND release, run after a `linked` refusal's supersede: the re-proof. */
+let stalePinReproved: { message: string; linked?: true } | null = null;
+/** M268 — what the link read UNDER the freeze returns; `undefined` follows `liveIntent` (a freeze
+ *  still held), and a case sets it to null for a freeze that lapsed before the read. */
+let scopedIntent: string | null | undefined = undefined;
+let scopedReads: { cartId: string; owner: string }[] = [];
 
 vi.mock("./lock", () => ({
   releasePromoGrantFor: async (cartId: string, holder: unknown) => {
     if (stalePinGate) await stalePinGate;
     if (stalePinThrows) throw new Error("postgrest down");
+    const first = stalePinReleases.length === 0;
     stalePinReleases.push({ cartId, holder });
-    return stalePinRefused;
+    return first ? stalePinRefused : stalePinReproved;
+  },
+  readLiveIntentUnderFreeze: (cartId: string, owner: string) => {
+    scopedReads.push({ cartId, owner });
+    if (liveIntentThrows) return Promise.reject(new Error("postgrest down"));
+    return Promise.resolve(scopedIntent === undefined ? liveIntent : scopedIntent);
   },
   acquireSettlement: (_cartId: string, owner: string) => {
     // Indexed, so a test can make ONLY the stand-down probe throw and leave the first
@@ -152,6 +164,9 @@ beforeEach(() => {
   stalePinThrows = false;
   stalePinGate = null;
   stalePinReleases = [];
+  stalePinReproved = null;
+  scopedIntent = undefined;
+  scopedReads = [];
 });
 
 describe("acquireSettlementSuperseding — M197", () => {
@@ -662,9 +677,47 @@ describe("acquireSettlementSuperseding — M268: the ordinary path releases a de
     liveIntent = "pi_linked";
     supersedeResult = "cleared";
     expect(await takeover("c", "u")).toBe("acquired");
+    expect(scopedReads).toEqual([{ cartId: "c", owner: "u" }]); // read UNDER this freeze
     expect(supersedeArgs).toEqual([{ cartId: "c", intentId: "pi_linked" }]);
     expect(pinCleared).toEqual([{ cartId: "c", intentId: "pi_linked" }]);
+    // …and `acquired` only after the release ran AGAIN and answered ok (the re-proof).
+    expect(stalePinReleases).toEqual([
+      { cartId: "c", holder: { settlement: "u" } },
+      { cartId: "c", holder: { settlement: "u" } },
+    ]);
     expect(probeReleases).toEqual([]); // the freeze is kept for the settle
+  });
+
+  it("a `linked` answer whose freeze LAPSED before the link read never supersedes — the link it would read is a successor's (the blind pass on 5d19601)", async () => {
+    // The RPC answered 0 under a fresh freeze; the request then stalled past the TTL, a diner took
+    // the cart (`acquireCartLock` admits under a stale `settle_at`) and linked a live checkout.
+    // MUTATION: read the link unscoped (`readLiveIntent`) → the successor's intent is cancelled at
+    // Stripe and this request answers `acquired` on a freeze it lost; red.
+    acquireResults = ["acquired"];
+    stalePinRefused = LINKED;
+    scopedIntent = null; // under THIS freeze: nothing — it lapsed
+    liveIntent = "pi_successor"; // what the cart names now
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(supersedeCalls).toBe(0);
+    expect(pinCleared).toEqual([]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+  });
+
+  it("after the supersede the postcondition is RE-PROVED — a release that no longer holds the cart answers `unavailable`, never `acquired` (the blind pass on 5d19601)", async () => {
+    // The stall fell after the link read: the dead attempt is cancelled (or Stripe already had it
+    // `canceled`), `releaseByIntent` matches whatever it matches — and the freeze is gone, a
+    // successor's pin on the row. Only the second release can tell.
+    // MUTATION: answer `acquired` straight after `releaseByIntent` → the settle prices from a pin
+    // this request no longer has any claim over, on a freeze it lost; red.
+    acquireResults = ["acquired"];
+    stalePinRefused = LINKED;
+    liveIntent = "pi_linked";
+    supersedeResult = "cleared";
+    stalePinReproved = NOT_HELD;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(stalePinReleases).toHaveLength(2);
+    // The predecessor is dead, so the freeze goes back rather than being held.
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
   });
 
   it("a linked intent that is CHARGING answers `paying`, and the freeze is HELD — the cart is unlocked, so it is the only mutex left", async () => {
