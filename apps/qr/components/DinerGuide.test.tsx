@@ -302,7 +302,10 @@ describe("every way out is reported and closes", () => {
 
 describe("DinerGuideDoor — Account's way back in", () => {
   it("every open starts on page 1 and reports the page IT closed on", () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+    );
     render(<DinerGuideDoor />);
     const row = screen.getByRole("button", { name: GUIDE_COPY.accountRow });
     fireEvent.click(row);
