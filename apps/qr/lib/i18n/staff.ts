@@ -4133,8 +4133,9 @@ export const STAFF = {
   "settle.clear.loss.total": { en: "Their menu price", my: "မီနူး ဈေးနှုန်း" }, // K15-HIGH — the ledger's figure (pre-tax), never the bill
   "settle.clear.ask": { en: "Did Table {id} pay?", my: "စားပွဲ {id} ငွေရှင်းပြီးပြီလား?" }, // K15-HIGH — the question before any loss
   "settle.clear.walkout": { en: "No — they left without paying", my: "မရှင်းဘဲ ထွက်သွားကြတယ်" }, // K15-HIGH
-  // "Tells the kitchen to stop" is NOT said: it ships only with kitchen-ops' stop card (m7 B4,
-  // Codex correction 12) — the stop RECORD is written now, the card that reads it is not.
+  // "Tells the kitchen to stop" is said only by `.bodyStop.*` below — when the clear will stop a dish
+  // the kitchen still holds (`clearStopsKitchen`); these two are the slip for a table whose sent food
+  // is all served (m7 B4, Codex correction 12).
   "settle.clear.loss.body.one": {
     en: "Clearing puts {n} dish on the owner’s loss list as not approved.",
     my: "ရှင်းလိုက်ရင် ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
@@ -4143,6 +4144,17 @@ export const STAFF = {
     en: "Clearing puts {n} dishes on the owner’s loss list as not approved.",
     my: "ရှင်းလိုက်ရင် ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
   }, // K15-HIGH — what the commit records, before it is tapped
+  // M270 (1) — the kitchen's stop card ships (it reads the stop record the clear writes, until "Got
+  // it"), so the slip may say what m7 drew: m7's own English, and the Burmese draft its spec carries
+  // (မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး "tells the kitchen to stop" — K15 · kitchen-ops).
+  "settle.clear.loss.bodyStop.one": {
+    en: "Clearing tells the kitchen to stop and puts {n} dish on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+  }, // K15-HIGH — what the commit records and stops, before it is tapped
+  "settle.clear.loss.bodyStop.many": {
+    en: "Clearing tells the kitchen to stop and puts {n} dishes on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် မီးဖိုချောင်ကို ရပ်ခိုင်းပြီး ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+  }, // K15-HIGH — what the commit records and stops, before it is tapped
   "settle.clear.loss.tail": {
     en: "Nothing is charged and nothing is refunded.",
     my: "ငွေ မယူ၊ ပြန်လည်း မအမ်းပါ။",
@@ -4477,6 +4489,7 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   // ── PD7 · counter-floor ──
   ["settle.clear.freeLoss.one", "settle.clear.freeLoss.many"],
   ["settle.clear.loss.body.one", "settle.clear.loss.body.many"],
+  ["settle.clear.loss.bodyStop.one", "settle.clear.loss.bodyStop.many"],
   ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
   // ── Phase 2f review ──
   ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
@@ -4798,6 +4811,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.clear.walkout",
   "settle.clear.loss.body.one",
   "settle.clear.loss.body.many",
+  // ── M270 (1) · kitchen-ops — the slip's stop clause ships with the KDS stop card ──
+  "settle.clear.loss.bodyStop.one",
+  "settle.clear.loss.bodyStop.many",
   "settle.clear.loss.tail",
   "settle.clear.loss.commit",
 ]);

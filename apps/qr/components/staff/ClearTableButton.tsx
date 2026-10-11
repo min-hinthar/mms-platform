@@ -17,7 +17,12 @@ import { plural, tf } from "@/lib/i18n/fill";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── PD7 · M182 ──
-import { clearIsLoss, clearRefusalSays, type ClearPreview } from "@/lib/clear-table";
+import {
+  clearIsLoss,
+  clearRefusalSays,
+  clearStopsKitchen,
+  type ClearPreview,
+} from "@/lib/clear-table";
 import {
   CLEAR_ARM_MS,
   clearWindowLeftMs,
@@ -631,13 +636,24 @@ export function ClearTableButton({
       {slip.walkout && (
         <div className="clear-slip-commit">
           <p id={slipBodyId}>
+            {/* M270 (1) — "tells the kitchen to stop" only when the clear will stop a dish the
+                kitchen still holds (`clearStopsKitchen`): the KDS then draws its stop card until
+                "Got it" (Codex correction 12). All served, the slip says nothing of the kitchen. */}
             <Chrome
               lang={lang}
-              k={plural(
-                slip.look.units,
-                "settle.clear.loss.body.one",
-                "settle.clear.loss.body.many",
-              )}
+              k={
+                clearStopsKitchen(slip.look)
+                  ? plural(
+                      slip.look.units,
+                      "settle.clear.loss.bodyStop.one",
+                      "settle.clear.loss.bodyStop.many",
+                    )
+                  : plural(
+                      slip.look.units,
+                      "settle.clear.loss.body.one",
+                      "settle.clear.loss.body.many",
+                    )
+              }
               vars={{ n: slip.look.units }}
               echo="stack"
             />{" "}

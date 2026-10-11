@@ -129,6 +129,19 @@ export function clearPaidUnserved(
   return paidLines.some((l) => PAID_UNSERVED_STATES.has(l.state) && l.fulfillment !== "grocery");
 }
 
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — may the slip say "tells the kitchen to stop"? Only when the
+ * clear WILL stop something the kitchen holds: a SENT dish still fired or cooking (never served —
+ * nothing left to stop). That is a subset of `mms_clear_table`'s own stop set (fired · in progress,
+ * past the grace, never grocery — SENT already is all three), so whenever this says yes the clear
+ * writes a non-empty stop record and the kitchen board draws its "Table N left — stop cooking" card
+ * until "Got it". It may under-say (a comped dish still cooking is stopped too, and is never on the
+ * slip), never over-say: a table whose food is all served hears nothing about the kitchen.
+ */
+export function clearStopsKitchen(p: ClearPreview): boolean {
+  return p.sent.some((l) => l.state === "fired" || l.state === "in_progress");
+}
+
 /** Whether the clear is a LOSS (the slip and its "Did Table N pay?" fork), or free (straight into
  *  the Undo window — §22's undo over confirm). Only the server's SENT set decides it. */
 export function clearIsLoss(p: ClearPreview): boolean {

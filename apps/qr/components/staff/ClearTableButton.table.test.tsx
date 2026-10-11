@@ -429,6 +429,23 @@ describe("PAID food the kitchen has not finished — serve it or bag it first (C
 describe("food SENT and unpaid — the loss slip, only after Clear was reached for", () => {
   const slipHead = () => screen.getByRole("heading", { name: ts("en", "settle.clear.loss.head") });
 
+  it("M270 (1) — 'tells the kitchen to stop' only when the clear will stop a dish: all served, the slip says nothing of the kitchen", async () => {
+    const served: ClearPreview = {
+      ...LOSS,
+      sent: LOSS.sent.map((l) => ({ ...l, state: "served" as const })),
+    };
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: served });
+    mount();
+    await tap(trigger());
+    await tap(screen.getByRole("button", { name: ts("en", "settle.clear.walkout") }));
+    const commit = screen.getByRole("button", { name: /Clear · \$41\.00 loss/ });
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    // MUTATION m270/clear-slip/stop-said-always: a promise the kitchen board never keeps — nothing
+    // on it is still cooking, so the clear stops nothing and no stop card is drawn.
+    expect(body).toContain(tf("en", "settle.clear.loss.body.many", { n: 3 }));
+    expect(body).not.toContain("tells the kitchen to stop");
+  });
+
   it("the dishes, their menu price, 'Did Table 4 pay?' — and nothing commits until 'No' is taken and armed", async () => {
     getClearPreview.mockResolvedValue({ kind: "preview", preview: LOSS });
     clearTable.mockResolvedValue({ ok: true, dishes: 3, lossCents: 4100 });
@@ -453,9 +470,11 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     // MUTATION clear-ui/commit-armed-at-once → red.
     expect(commit.getAttribute("aria-disabled")).toBe("true");
     expect(commit.getAttribute("aria-describedby")).toBeTruthy();
+    // M270 (1) — Mohinga is still cooking, so the clear will stop it and the kitchen's stop card
+    // shows until "Got it": the slip says so (Codex correction 12).
     expect(
       document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent,
-    ).toContain(tf("en", "settle.clear.loss.body.many", { n: 3 }));
+    ).toContain(tf("en", "settle.clear.loss.bodyStop.many", { n: 3 }));
     await tap(commit);
     expect(windowGroup()).toBeNull();
     await flush(CLEAR_ARM_MS);
