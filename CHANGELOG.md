@@ -40,6 +40,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   over no pay lock or a stale one, and a successor stamps `locked_at` only once `settle_at` is a TTL
   old, so stored values order the two with no clock involved. A successor holding the cart answers
   -1, linked or not (never the 0 that licenses a supersede); the freshness cutoff stays.
+- **The read under the freeze carries the same term (Codex on #338 @ 134ae08, P2):**
+  `readLiveIntentUnderFreeze` judged freshness on its own server's clock, so a server trailing the
+  one that ran `acquireCartLock` could hand the supersede a successor's link between the two release
+  calls. It now refuses a cart a pay attempt took after this freeze (`locked_at` before `settle_at`,
+  or unlocked; a dateless lock reads as taken), the release's own rule on the same row
+  (`lib/lock.test.ts`; mutants `m268/scoped-read-ignores-the-pay-lock`,
+  `-refuses-every-lock`, `-admits-a-dateless-lock`).
 - **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
   the legitimate promo, five refusals including the stale freeze at, past and one second inside the
   TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
