@@ -105,8 +105,12 @@ begin
   update public.table_sessions set mode = 'pickup' where id = psess;
   insert into public.qr_carts (id, session_id) values
     (cart, sess), (hcart, hsess), (tcart, tsess), (pcart, psess), (ecart, esess), (ncart, nsess);
+  -- The table's dish was added ten minutes ago, so every stamp written below is LIVE (a draft added
+  -- at or before it still waits — PD1.19's rule), and PD1.5's two-minute-old stamp is decided by the
+  -- cadence term, not the liveness term.
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment, created_at) values
+    (cart,  dish, 'Mohinga', 2, 1400, 147, thiri, 'dinein', now() - interval '10 minutes');
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment) values
-    (cart,  dish, 'Mohinga', 2, 1400, 147, thiri, 'dinein'),
     (hcart, dish, 'Mohinga', 1, 1400, 147, thiri, 'dinein'),
     (tcart, dish, 'Mohinga', 1, 1400, 147, thiri, 'togo'),
     (pcart, dish, 'Mohinga', 1, 1400, 147, thiri, 'dinein');

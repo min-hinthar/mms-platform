@@ -2488,7 +2488,7 @@ const MUTANTS = [
       id: "pd1/nudge-stale-stamp-blocks",
       expect: "PD1.19 · a stale stamp",
       why: "the last blind pass on #335: a stamp whose dish has gone still blocks the next nudge and is answered `taken` for a guest who no longer waits",
-      find: "\n           or not exists (select 1 from public.qr_cart_items w\n                            where w.cart_id = c.id and w.state = 'draft' and w.fulfillment = 'dinein'\n                              and w.created_at <= c.send_nudge_at))",
+      find: "\n           -- a STALE stamp (no dine-in draft that predates it) blocks nothing — see the header\n           or not exists (select 1 from public.qr_cart_items w\n                            where w.cart_id = c.id and w.state = 'draft' and w.fulfillment = 'dinein'\n                              and w.created_at <= c.send_nudge_at))",
       replace: ")",
     },
     {
