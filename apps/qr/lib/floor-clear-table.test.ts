@@ -34,9 +34,12 @@ vi.mock("./staff", () => ({
   STAFF_WRITE_OUTAGE: "outage",
 }));
 vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
+// The money guard, CONTROLLABLE (the blind pass on #341): the RPC re-reads shares under its lock,
+// but this read is the first refusal, and a mock that always passes proves nothing about it.
+const pay = vi.hoisted(() => ({ reason: null as string | null }));
 vi.mock("./pay-guard", () => ({
   isFresh: () => false,
-  paymentInFlightReason: () => Promise.resolve(null),
+  paymentInFlightReason: () => Promise.resolve(pay.reason),
 }));
 vi.mock("./line-names", () => ({
   loadLineNames: () =>
@@ -72,8 +75,18 @@ let rpcCalls: { fn: string; args?: Record<string, unknown> }[] = [];
 function tableApi(name: string) {
   const eqs: Record<string, unknown> = {};
   let patch = false;
+  // The columns a read ASKED for: a row answers only those (a fixture that ignored the select would
+  // let a dropped column report clean).
+  let cols: string[] | null = null;
+  const only = (r: Row | null): Row | null =>
+    r === null || cols === null
+      ? r
+      : Object.fromEntries(Object.entries(r).filter(([k]) => cols!.includes(k)));
   const api: Record<string, unknown> = {
-    select: () => api,
+    select(c?: string) {
+      cols = typeof c === "string" ? c.split(",").map((x) => x.trim()) : null;
+      return api;
+    },
     update() {
       patch = true;
       return api;
@@ -95,7 +108,7 @@ function tableApi(name: string) {
         return Promise.resolve(
           cartError
             ? { data: null, error: cartError }
-            : { data: carts[eqs.session_id as string] ?? null, error: null },
+            : { data: only(carts[eqs.session_id as string] ?? null), error: null },
         );
       return Promise.resolve({ data: null, error: null });
     },
@@ -156,7 +169,10 @@ beforeEach(() => {
     [REG]: session(REG, "reg-ab12", "pickup"),
   };
   sessionError = null;
-  carts = { [TABLE]: { id: "cart-t", locked: false, locked_at: null, settle_at: null } };
+  carts = {
+    [TABLE]: { id: "cart-t", locked: false, locked_at: null, settle_at: null, tab_type: "none" },
+  };
+  pay.reason = null;
   cartError = null;
   items = [line({})];
   itemsError = null;
@@ -214,6 +230,22 @@ describe("getClearPreview — the fresh look, on the database clock; unknown is 
     // caller; red.
     expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "unknown" });
     expect(rpcCalls).toEqual([]);
+  });
+
+  it("a SECURED tab with a dish sent answers `secure` — its card pays, no slip; nothing sent is free", async () => {
+    carts[TABLE] = { ...carts[TABLE]!, tab_type: "secure" };
+    // MUTATION clear-floor/preview-secure-slipped → the loss slip and its walkout over a card that
+    // can still be charged (the blind pass on #341); red.
+    // MUTATION clear-floor/preview-secure-unread → the tab never read, the same slip; red.
+    expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "secure" });
+    // Nothing sent, nothing to charge: the free look, like any table.
+    items = [line({ state: "draft", fire_at: null })];
+    const free = await getClearPreview({ sessionId: TABLE });
+    expect(free.kind).toBe("preview");
+    // A trust tab holds no card: its loss look is the slip.
+    items = [line({})];
+    carts[TABLE] = { ...carts[TABLE]!, tab_type: "trust" };
+    expect((await getClearPreview({ sessionId: TABLE })).kind).toBe("preview");
   });
 
   it("a counter order answers `counter`; a closed or missing table `closed`", async () => {
@@ -275,6 +307,13 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
       error: STAFF["settle.clear.joined"].en.replace("{id}", "7"),
       code: "joined",
     });
+    // The secured tab's refusal names the card door, with this table's number.
+    answer = { data: { status: "secure_tab" }, error: null };
+    expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toEqual({
+      ok: false,
+      error: STAFF["settle.clear.secureTab"].en.replace("{id}", "7"),
+      code: "secure_tab",
+    });
     for (const status of ["changed", "in_flight", "card_live", "closed", "needs_approval"]) {
       answer = { data: { status }, error: null };
       expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toMatchObject({
@@ -283,6 +322,30 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
       });
     }
     expect(updates).toEqual([]);
+  });
+
+  it("money moving refuses BEFORE the RPC: a fresh pay, a split, an unreadable share read", async () => {
+    pay.reason = "mid_payment";
+    // MUTATION clear-floor/pay-guard-skipped → the clear reaches mms_clear_table over a payment
+    // the TS read saw (the RPC re-reads shares, but this is the first refusal); red.
+    // MUTATION clear-floor/mid-payment-says-split → a guest paying on their phone is told a split
+    // is in progress; red.
+    expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toEqual({
+      ok: false,
+      error: "This table is mid-payment — clear it once they’ve finished.",
+    });
+    for (const reason of ["split_in_progress", "split_unreadable"]) {
+      pay.reason = reason;
+      expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toEqual({
+        ok: false,
+        error: "This table has a split payment in progress — settle it first.",
+      });
+    }
+    expect(rpcCalls.some((c) => c.fn === "mms_clear_table")).toBe(false);
+    expect(updates).toEqual([]);
+    // The legitimate half: no money moving, the clear goes through.
+    pay.reason = null;
+    expect((await clearTable({ sessionId: TABLE, expect: LOOK })).ok).toBe(true);
   });
 
   it("an unreadable answer is never 'cleared'; an RPC error is the outage line", async () => {

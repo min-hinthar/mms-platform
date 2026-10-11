@@ -7,6 +7,7 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import type { ClearPreview } from "@/lib/clear-table";
 import { CLEAR_ARM_MS, CLEAR_UNDO_MS, type ClearWatch } from "@/lib/clear-window";
 import { PICKED_HOLD_CAP_MS, PICKED_HOLD_WARN_MS } from "@/lib/undo-hold";
+import { STAFF_HANG_MS, resetWriteSignalsForTests } from "@/lib/bounded-write";
 
 /**
  * PD7 · M182 (m7 "Turn Signals") — a TABLE's clear: the fresh look, the loss slip and its fork, the
@@ -52,6 +53,7 @@ afterEach(() => {
   getClearPreview.mockReset();
   replace.mockReset();
   refresh.mockReset();
+  resetWriteSignalsForTests();
 });
 const flush = (ms = 0) =>
   act(async () => {
@@ -250,6 +252,41 @@ describe("a free table — straight into the six-second window, nothing written 
     expect(clearTable).not.toHaveBeenCalled();
   });
 
+  it("…and the floor SAYS the table is still open — never a silent drop (the blind pass on #341)", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
+    // The pane leaves; the floor (the provider, the board's line) stays.
+    const tree = (pane: boolean) => (
+      <StaffLangProvider lang="en">
+        <TurnoverNewsProvider>
+          {pane && (
+            <ClearTableButton
+              sessionId="s4"
+              label="4"
+              paymentInFlight={false}
+              tableNumber={4}
+              watch={WATCH}
+            />
+          )}
+          <FloorLine />
+        </TurnoverNewsProvider>
+      </StaffLangProvider>
+    );
+    const v = render(tree(true));
+    await tap(trigger());
+    expect(windowGroup()).not.toBeNull();
+    v.rerender(tree(false));
+    // MUTATION clear-ui/window-left-unsaid → the window vanishes with the pane and nobody is told
+    // the table was never cleared; red.
+    expect(floorLine()).toBe(tf("en", "settle.clear.windowLeft", { id: "4" }));
+    await flush(CLEAR_UNDO_MS * 2);
+    expect(clearTable).not.toHaveBeenCalled();
+    // The legitimate half: a pane leaving at REST (no window) says nothing.
+    cleanup();
+    const w = render(tree(true));
+    w.rerender(tree(false));
+    expect(floorLine()).toBe("");
+  });
+
   it("a KEYBOARD focus on Undo holds the window, warns five seconds before the cap, then lets it run", async () => {
     getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
     clearTable.mockResolvedValue({ ok: true });
@@ -313,6 +350,27 @@ describe("an unknown look is never a no-loss clear (Codex correction 11)", () =>
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.clear.checkFailed"));
     await flush(CLEAR_UNDO_MS * 2);
     expect(clearTable).not.toHaveBeenCalled();
+  });
+});
+
+describe("a SECURED tab with food sent — its card pays; no slip, no walkout (the blind pass on #341)", () => {
+  it("the look says to close the bill on the card on file; nothing is sent and no slip is drawn", async () => {
+    getClearPreview.mockResolvedValue({ kind: "secure" });
+    const onSlip = vi.fn();
+    mount({ onSlip, onTakeCash: () => {} });
+    await tap(trigger());
+    // MUTATION clear-ui/secure-look-unsaid (the `secure` look not handled) → the pane never says
+    // why nothing happened, or falls into the slip; red.
+    expect(screen.getByRole("alert").textContent).toBe(
+      tf("en", "settle.clear.secureTab", { id: "4" }),
+    );
+    expect(screen.queryByRole("heading", { name: ts("en", "settle.clear.loss.head") })).toBeNull();
+    expect(onSlip).not.toHaveBeenCalledWith(true);
+    expect(windowGroup()).toBeNull();
+    await flush(CLEAR_UNDO_MS * 2);
+    expect(clearTable).not.toHaveBeenCalled();
+    // The trigger is the way forward again (after the card closes the bill, or a fresh look).
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
   });
 });
 
@@ -459,6 +517,32 @@ describe("Seat next party — under the screen's ONE mint lock (Codex correction
     await flush(CLEAR_ARM_MS);
     await tap(seat());
     // MUTATION clear-ui/seat-failure-unsaid → the party waits on a start nobody made; red.
+    expect(floorLine()).toBe(tf("en", "settle.clear.seatFailed", { id: "4" }));
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
+  it("a clear still out at the bound gives the lock back THEN; its late ok starts nobody and says so", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
+    let answer!: (v: unknown) => void;
+    clearTable.mockReturnValue(new Promise((r) => (answer = r)));
+    const mint = fakeMint();
+    mount({ mint });
+    await tap(trigger());
+    await flush(CLEAR_ARM_MS);
+    await tap(seat());
+    expect(mint.release).not.toHaveBeenCalled();
+    await flush(STAFF_HANG_MS);
+    // MUTATION clear-ui/hung-clear-holds-the-mint → every Walk-up, Phone order and table start on
+    // the screen stays refused, with no reason shown, until the hung action settles; red.
+    expect(mint.release).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.clear.waiting"));
+    await act(async () => {
+      answer({ ok: true });
+    });
+    // The table IS clear; the party it was meant for was never started — said, with the way.
+    expect(mint.go).not.toHaveBeenCalled();
+    // MUTATION clear-ui/late-seat-unsaid → "Table 4 is free." and the waiting party is forgotten;
+    // red.
     expect(floorLine()).toBe(tf("en", "settle.clear.seatFailed", { id: "4" }));
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });

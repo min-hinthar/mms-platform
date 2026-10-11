@@ -5,7 +5,8 @@
 -- (M125). Verify after: ONE definition each of `public.mms_clear_table(uuid, uuid, timestamptz,
 -- uuid[], integer, uuid)` and `public.mms_ack_table_clear_stop(uuid, uuid)`; for both,
 -- `has_function_privilege('service_role', …, 'execute')` true and anon / authenticated false; the
--- table `public.qr_table_clears` with RLS on and no anon / authenticated privilege; the column
+-- table `public.qr_table_clears` with RLS on, no anon / authenticated privilege, and its
+-- `session_id` foreign key NO ACTION (`pg_constraint.confdeltype = 'a'`, never a cascade); the column
 -- `mms_loss_config.clear_requires_pin` (default false). Deploy order: migration first, app second —
 -- until the app calls `mms_clear_table`, nothing calls it, and the old app's plain cancel keeps working.
 --
@@ -68,13 +69,15 @@
 -- ## Lock order: cart → session → approvals → lines (the code below, in that order). The open cart
 -- FOR UPDATE first (one open cart per session, `qr_carts_one_open_per_session`); then the session FOR
 -- UPDATE (the fire takes cart → session FOR SHARE, the same direction; the sweeper takes sessions
--- SKIP LOCKED and no cart); then the cart's PENDING approvals FOR UPDATE, in id order (so a manager
--- resolving one waits here and then reads 'superseded' — `mms_resolve_approval` takes approval →
--- line); then its LINES FOR UPDATE, in id order (the kitchen's `mms_line_transition` /
--- `mms_bump_ticket` lock only the line). The no-show and the merge take cart → approvals → lines and
--- no session; this is their order with the session taken right after the cart. A table with no open
--- cart (paid, or seated with nothing) locks the session alone. No two-session harness drives this
--- order yet (M270 (5)): it is reasoned from the statements, not measured.
+-- SKIP LOCKED and no cart); then the cart's PENDING approvals FOR UPDATE, in id order; then its
+-- LINES FOR UPDATE, in id order (the kitchen's `mms_line_transition` / `mms_bump_ticket` lock only
+-- the line). A manager resolving a request meanwhile waits and then reads 'superseded': an approve
+-- takes the line's cart FOR SHARE first (M269, 20261009120100 — cart → request → line), so it waits
+-- on this function's cart lock; a deny or a close takes request → line and waits at the approvals.
+-- The no-show, the counter clear and the merge take cart → approvals → lines and no session; this is
+-- their order with the session taken right after the cart. A table with no open cart (paid, or
+-- seated with nothing) locks the session alone. No two-session harness drives this order yet
+-- (M270 (5)): it is reasoned from the statements, not measured.
 --
 -- ## What a clear writes (only after every refusal above)
 --   1. the cart's pending approval requests → 'superseded' (D2: m8 reads them "Table was cleared
@@ -114,7 +117,10 @@ comment on column public.mms_loss_config.clear_requires_pin is
 -- ── 1. the clear record: the audit row, and the durable stop record ─────────────────────────────
 create table if not exists public.qr_table_clears (
   id                   uuid primary key default gen_random_uuid(),
-  session_id           uuid not null references public.table_sessions(id) on delete cascade,
+  -- NO cascade (the blind pass on #341): a durable audit row never leaves with its session — the same
+  -- NO ACTION `qr_orders.session_id` carries. No code path deletes a session; a hand-run delete of a
+  -- cleared one is refused rather than taking its clear record with it.
+  session_id           uuid not null references public.table_sessions(id),
   cart_id              uuid references public.qr_carts(id) on delete set null,
   cleared_by           uuid not null,
   approver_staff_id    uuid,

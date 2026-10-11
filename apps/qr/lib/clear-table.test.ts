@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearAnswerOf,
   clearIsLoss,
+  clearNeedsTheCard,
   clearPreviewOf,
   clearRefusalSays,
   clearSentLine,
@@ -104,6 +105,9 @@ describe("clearAnswerOf — the RPC's jsonb, read defensively", () => {
   it("every refusal by name; anything else is unreadable, never 'cleared'", () => {
     for (const r of ["joined", "changed", "in_flight", "card_live", "closed", "needs_approval"])
       expect(clearAnswerOf({ status: r }).status).toBe(r);
+    // MUTATION clear/secure-refusal-unread → the secured-tab refusal reads as "couldn't confirm"
+    // (and the pane offers a retry the server will refuse again); red.
+    expect(clearAnswerOf({ status: "secure_tab" }).status).toBe("secure_tab");
     // MUTATION clear/answer-trusts-any-ok (the count unchecked) → red.
     expect(clearAnswerOf({ status: "ok", dishes: "3", loss_cents: 100 }).status).toBe("unreadable");
     expect(clearAnswerOf({ status: "ok", dishes: -1, loss_cents: 0 }).status).toBe("unreadable");
@@ -122,6 +126,32 @@ describe("clearRefusalSays — the dictionary's words, and when to look again", 
     expect(clearRefusalSays("in_flight")).toEqual({ k: "settle.clear.midPayment", relook: false });
     expect(clearRefusalSays("card_live")).toEqual({ k: "settle.clear.cardLive", relook: false });
     expect(clearRefusalSays("needs_approval").k).toBe("settle.clear.needsManager");
+    // MUTATION clear/secure-refusal-says-manager → a card-on-file table is told it needs a manager,
+    // never that the saved card is the way out; red.
+    expect(clearRefusalSays("secure_tab")).toEqual({ k: "settle.clear.secureTab", relook: false });
+  });
+});
+
+describe("clearNeedsTheCard — a secured tab's SENT food is the card's, never a walkout", () => {
+  const sent = clearPreviewOf([row({ id: "a" })], NOW, "2026-10-09T18:00:00.000Z");
+  const nothingSent = clearPreviewOf(
+    [row({ id: "b", state: "draft", fire_at: null })],
+    NOW,
+    "2026-10-09T18:00:00.000Z",
+  );
+  it("a secured tab with a dish SENT: no slip — close the bill on the card", () => {
+    // MUTATION clear/secure-look-ignored → the slip and its walkout over a card that can pay; red.
+    expect(clearNeedsTheCard("secure", sent)).toBe(true);
+  });
+  it("…but nothing sent is nothing to charge, and only a SECURED tab holds a card", () => {
+    // MUTATION clear/secure-look-ignores-the-loss → a secured table with nothing sent can never be
+    // cleared from the pane; red.
+    expect(clearNeedsTheCard("secure", nothingSent)).toBe(false);
+    // MUTATION clear/secure-look-every-tab → a trust tab (no card saved) is sent to a card door it
+    // does not have; red.
+    expect(clearNeedsTheCard("trust", sent)).toBe(false);
+    expect(clearNeedsTheCard("none", sent)).toBe(false);
+    expect(clearNeedsTheCard(null, sent)).toBe(false);
   });
 });
 

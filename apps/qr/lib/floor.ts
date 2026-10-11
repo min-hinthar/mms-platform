@@ -8,7 +8,7 @@ import {
   counterOlderInput,
   mergeTablesInput,
 } from "@mms/db/schemas";
-import { clearAnswerOf, clearPreviewOf, clearRefusalSays } from "./clear-table";
+import { clearAnswerOf, clearNeedsTheCard, clearPreviewOf, clearRefusalSays } from "./clear-table";
 import { STAFF } from "./i18n/staff";
 import { fill } from "./i18n/fill";
 import { AuthzError } from "./authz";
@@ -1152,7 +1152,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
  * price, what is dropped) and the clock the clear then carries as `seenAt`. Any failed read is
  * `unknown`: the pane clears NOTHING on an unknown kitchen read — never a no-loss clear over food
  * nobody could see. A counter order answers `counter` (its exits are its own); a closed table
- * `closed`. Advisory only: `mms_clear_table` re-derives every figure under its locks.
+ * `closed`; a secured tab with SENT food `secure` (its card pays — `clearNeedsTheCard`). Advisory
+ * only: `mms_clear_table` re-derives every figure under its locks.
  */
 export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult> {
   const gate = await staffGate();
@@ -1174,7 +1175,7 @@ export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult>
   if (seenAt === null || !Number.isFinite(nowMs)) return { kind: "unknown" };
   const { data: cart, error: cartError } = await db
     .from("qr_carts")
-    .select("id")
+    .select("id,tab_type")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
@@ -1192,6 +1193,8 @@ export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult>
     const r = rows.find((x) => x.menu_item_id === id);
     return catalogNameMy(nameMyByRef.get(id), r?.name ?? "");
   });
+  // A secured tab's SENT food is the card's to pay (the blind pass on #341): no slip, no walkout.
+  if (clearNeedsTheCard(cart.tab_type, preview)) return { kind: "secure" };
   return { kind: "preview", preview };
 }
 

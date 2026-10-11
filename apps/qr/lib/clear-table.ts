@@ -95,6 +95,17 @@ export function clearIsLoss(p: ClearPreview): boolean {
   return p.sent.length > 0;
 }
 
+/**
+ * A SECURED tab's loss look (the blind pass on #341): the saved card can still pay for the SENT
+ * food (`closeSecureTab`), and a cleared cart takes that door away for good — so the pane offers no
+ * walkout slip and says to close the bill on the card first. `mms_clear_table` refuses the same
+ * (`secure_tab`) under its locks; this is the look's half, so the slip is never drawn over a card.
+ * Nothing sent, nothing to charge: a secured tab with no loss clears like any free table.
+ */
+export function clearNeedsTheCard(tabType: string | null | undefined, p: ClearPreview): boolean {
+  return tabType === "secure" && clearIsLoss(p);
+}
+
 // ── the RPC's answer ──────────────────────────────────────────────────────────────────────────
 
 /** `mms_clear_table`'s refusals, each before any write. */
@@ -106,6 +117,7 @@ export type ClearRefusal =
   | "card_live"
   | "joined"
   | "changed"
+  | "secure_tab"
   | "needs_approval"
   | "self_approve"
   | "bad_approver";
@@ -123,6 +135,7 @@ const REFUSALS: ReadonlySet<string> = new Set<ClearRefusal>([
   "card_live",
   "joined",
   "changed",
+  "secure_tab",
   "needs_approval",
   "self_approve",
   "bad_approver",
@@ -171,6 +184,9 @@ export function clearRefusalSays(r: ClearRefusal): { k: StaffKey; relook: boolea
       return { k: "settle.clear.gone", relook: false };
     case "counter":
       return { k: "settle.clear.counterSent", relook: false };
+    case "secure_tab":
+      // A card on file can still pay for what was sent: the way out is that card, not a write-off.
+      return { k: "settle.clear.secureTab", relook: false };
     case "needs_approval":
     case "self_approve":
     case "bad_approver":

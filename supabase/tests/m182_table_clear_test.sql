@@ -551,6 +551,18 @@ begin
   -- …and the legitimate shape still inserts.
   insert into public.qr_table_clears (session_id, cleared_by, dishes, loss_cents)
     values (s, '00000000-0000-0000-0000-000000182b00', 2, 2800);
+  -- The record is durable: deleting its session is refused, never a cascade that takes it along.
+  ok := false;
+  begin
+    delete from public.table_sessions where id = s;
+  exception when foreign_key_violation then ok := true;
+  end;
+  assert ok, 'M182.10 · a cleared session cannot be deleted out from under its clear record';
+  assert exists (select 1 from public.qr_table_clears where session_id = s),
+    'M182.10 · the clear record is still there';
+  -- A session with no clear record is not held by this table.
+  s := pg_temp.m182_table('M182-10-NOCLEAR', false);
+  delete from public.table_sessions where id = s;
 end $$;
 
 rollback;

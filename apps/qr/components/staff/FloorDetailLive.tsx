@@ -1607,7 +1607,10 @@ export function FloorDetailLive({
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
-                variant="primary"
+                // PD7 (m7 B12) — one hero per state: the clear's danger commit, while its slip is
+                // armed. A secured tab's loss look never opens the slip (`clearNeedsTheCard`), so
+                // this stands down only for a tab secured while the slip was already open.
+                variant={clearSlip ? "secondary" : "primary"}
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
                 onApprovalPending={onApprovalPending}

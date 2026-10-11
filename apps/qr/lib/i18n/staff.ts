@@ -4020,6 +4020,10 @@ export const STAFF = {
     en: "Table {id} is clear — tap {id} on the strip to seat them.",
     my: "စားပွဲ {id} ရှင်းပြီးပါပြီ — ထိုင်ခိုင်းဖို့ အပေါ်က {id} ကို နှိပ်ပါ။",
   },
+  "settle.clear.windowLeft": {
+    en: "Table {id} is still open — the clear stopped when you left it.",
+    my: "စားပွဲ {id} မရှင်းရသေးပါ — ထွက်လိုက်လို့ ရှင်းတာ ရပ်သွားပါတယ်။",
+  }, // K15-HIGH — misread as cleared, the next party is seated onto the old party's open table (draft)
   // The refusals of `mms_clear_table`, each writing nothing.
   "settle.clear.joined": {
     en: "Someone just joined Table {id}, so it stayed open — check who’s sitting there before you clear it.",
@@ -4030,6 +4034,10 @@ export const STAFF = {
     my: "ဒီမှာ ကတ်နဲ့ ငွေချေတာ စပြီး မပြီးသေးပါ — မရှင်းခင် အကူအညီ ကနေ မေးပါ။",
   }, // K15-HIGH — never "went through" before the server-side retrieve (m7 graft 8)
   "settle.clear.gone": { en: "That table is already cleared.", my: "ဒီစားပွဲ ရှင်းပြီးသားပါ။" },
+  "settle.clear.secureTab": {
+    en: "Table {id} has a card on file — close the bill on that card before you clear it.",
+    my: "စားပွဲ {id} မှာ သိမ်းထားကတ် ရှိပါတယ် — မရှင်းခင် အဲဒီကတ်နဲ့ စာရင်းပိတ်ပါ။",
+  }, // K15-HIGH — misread, food a saved card would pay for goes on the loss list (draft; grounded: settle.card.trigger's သိမ်းထားကတ် · စာရင်းပိတ်)
   "settle.clear.needsManager": {
     en: "Clearing this table needs a manager’s approval.",
     my: "ဒီစားပွဲ ရှင်းဖို့ မန်နေဂျာ ခွင့်ပြုချက် လိုပါတယ်။",
@@ -4694,6 +4702,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.clear.freeLoss.many",
   "settle.clear.joined",
   "settle.clear.cardLive",
+  "settle.clear.secureTab",
+  "settle.clear.windowLeft",
   "settle.clear.loss.head",
   "settle.clear.loss.total",
   "settle.clear.ask",

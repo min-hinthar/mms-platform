@@ -212,7 +212,6 @@ export function ClearTableButton({
     setSentRefused(false);
     setUnanswered(null);
     if (look) setPhase({ k: "committing" });
-    const answer = (res: ClearTableResult) => (look ? landTable(res, seat) : land(res));
     let left = false;
     // Still out at the bound: the guard stays spent until the late answer lands (docblock, D3).
     let outstanding = false;
@@ -223,7 +222,8 @@ export function ClearTableButton({
       );
       if (out.kind === "answer") {
         left = out.value.ok; // a cleared table is leaving: stay busy until the swap
-        answer(out.value);
+        if (look) landTable(out.value, seat);
+        else land(out.value);
         return;
       }
       setConfirming(false); // the effect returns focus to the trigger, beside the line
@@ -236,20 +236,20 @@ export function ClearTableButton({
       }
       setUnanswered("waiting");
       outstanding = true;
+      // The bound passed with the clear still out: the next party's mint goes back NOW (the blind
+      // pass on #341). Held until the late answer, a hung clear kept every Walk-up, Phone order and
+      // table start on this screen refused with no reason shown — for as long as the action took,
+      // or until a reload. So a late answer never starts that party; a late ok says so on the floor.
+      const seatDropped = seat !== null;
+      seat?.release();
       void out.late.then((late) => {
-        // A detail that is gone has nothing to leave or say (a late clear is seen on the floor),
-        // and starts no next party over wherever the person went.
-        if (!alive.current) {
-          seat?.release();
-          return;
-        }
+        // A detail that is gone has nothing to leave or say (a late clear is seen on the floor).
+        if (!alive.current) return;
         // The answer is in: a refusal or a lost answer frees the guard; a clear leaves the table.
         if (late.kind !== "answer" || !late.value.ok) inFlight.current = false;
-        if (late.kind === "answer") answer(late.value);
-        else {
-          seat?.release();
-          setUnanswered("unknown");
-        }
+        if (late.kind !== "answer") setUnanswered("unknown");
+        else if (look) landTable(late.value, null, seatDropped);
+        else land(late.value);
       });
     } finally {
       // Busy frees AT THE BOUND (fact 3) — unless the table is leaving under this control; the
@@ -299,6 +299,14 @@ export function ClearTableButton({
       setConfirming(true);
       return;
     }
+    if (r.kind === "secure") {
+      // A secured tab's SENT food is its saved card's to pay (the blind pass on #341): no slip and
+      // no walkout — the pane's card door ("Close bill · card on file") is the way out.
+      setPhase({ k: "rest" });
+      setNotice({ k: "settle.clear.secureTab", vars: { id: label } });
+      resay();
+      return;
+    }
     if (clearIsLoss(r.preview)) {
       setPhase({ k: "slip", look: r.preview, walkout: false, at: Date.now() });
       return;
@@ -341,8 +349,10 @@ export function ClearTableButton({
     void confirm(p, seat);
   }
 
-  /** The clear's answer: a refusal in the dictionary's words, or the turn — said on the FLOOR. */
-  function landTable(res: ClearTableResult, seat: MintReservation | null) {
+  /** The clear's answer: a refusal in the dictionary's words, or the turn — said on the FLOOR.
+   *  `seatDropped`: "Seat next party" was asked, but the answer came after the bound, which gave the
+   *  mint back — the table is clear, the party was not started (said, with the way to start it). */
+  function landTable(res: ClearTableResult, seat: MintReservation | null, seatDropped = false) {
     if (!res.ok) {
       seat?.release();
       setPhase({ k: "rest" });
@@ -360,6 +370,11 @@ export function ClearTableButton({
       return;
     }
     dropHandoffStash(sessionId);
+    if (seatDropped && tableNumber !== null) {
+      news?.say({ k: "settle.clear.seatFailed", vars: { id: label } }, "warn");
+      nav.toFloor("cleared");
+      return;
+    }
     const dishes = res.dishes ?? 0;
     news?.say(
       dishes > 0
@@ -418,10 +433,26 @@ export function ClearTableButton({
   const win = phase.k === "window" ? phase : null;
   const holdRef = useRef(hold);
   const commitRef = useRef(confirm);
+  // Whether a window is open and unsent, and the floor's channel — read when this control LEAVES.
+  const windowOpenRef = useRef(false);
+  const leaveSayRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     holdRef.current = hold;
     commitRef.current = confirm;
+    windowOpenRef.current = phase.k === "window";
+    leaveSayRef.current = news
+      ? () => news.say({ k: "settle.clear.windowLeft", vars: { id: label } }, "warn")
+      : null;
   });
+  // The window leaving with its pane (another table picked, the pane closed) sends nothing — the
+  // safe direction (m7 B9's alternative) — and it is SAID on the floor, so nobody walks away from
+  // "Clearing Table N" believing it finished (the blind pass on #341): the table is still open.
+  useEffect(
+    () => () => {
+      if (windowOpenRef.current && !windowSent.current) leaveSayRef.current?.();
+    },
+    [],
+  );
   useEffect(() => {
     if (!win) return;
     // The controls arm at exactly the lane's 400 ms (never a tick late).
