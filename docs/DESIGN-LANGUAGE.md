@@ -2581,7 +2581,9 @@ food in the kitchen is shown, dish by dish. What that may and may not look like:
 - **What rots goes, what does not stays.** Frozen (two missed polls): codes and dish names stay, drawn as
   a dashed outline in the page's own inks; every stage, roll-up and arrival goes; and a table's presence
   rots on the linger clock, so past it the kitchen half keeps only its sentence. An unreadable kitchen
-  says so in place of the key — never "All clear" over a full wok.
+  says so in place of the key — never "All clear" over a full wok: "All clear" is said only when the
+  server read no food of ANY channel on the wok (the tables are dine-in only), and never on a frozen
+  snapshot.
 - **Privacy is the payload's shape.** A table number and dish names only: no guest name, count, price,
   clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. The pickup
   column shows the code alone — no name, no wait — and a collected bag leaves at once.

@@ -77,4 +77,8 @@ export type PulseSessionRow = {
    * owns table state, has always filtered it; the wall does too (`lib/board-tables.ts`).
    */
   expires_at: string;
+  /** PD9 (the blind pass on #336) — read only to tell a staff COUNTER order (`reg-` on a pickup
+   *  session, `isCounterOrder`), which cooks before it is paid, so "All clear" is never said over it.
+   *  Never published. */
+  qr_code: string;
 };

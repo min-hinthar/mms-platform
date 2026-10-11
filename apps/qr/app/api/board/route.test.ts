@@ -51,6 +51,7 @@ type SessionRow = {
   status: string;
   table_number: number | null;
   expires_at: string | null;
+  qr_code: string;
 };
 
 // A FIXED instant, deliberately not "around now": several assertions prove the kitchen windows are
@@ -292,6 +293,7 @@ type Body = {
         }[];
       }[]
     | null;
+  kitchenIdle?: boolean | null;
   reason?: string;
 };
 
@@ -300,8 +302,22 @@ beforeEach(() => {
   orders = [order(TOGO, "sess-togo"), order(DINEIN, "sess-dinein")];
   ordersError = null;
   sessions = [
-    { id: "sess-togo", mode: "pickup", status: "active", table_number: null, expires_at: LIVE },
-    { id: "sess-dinein", mode: "dinein", status: "active", table_number: 4, expires_at: LIVE },
+    {
+      id: "sess-togo",
+      mode: "pickup",
+      status: "active",
+      table_number: null,
+      expires_at: LIVE,
+      qr_code: "SESS-TOGO",
+    },
+    {
+      id: "sess-dinein",
+      mode: "dinein",
+      status: "active",
+      table_number: 4,
+      expires_at: LIVE,
+      qr_code: "SESS-DINEIN",
+    },
   ];
   sessionsError = null;
   lines = [];
@@ -369,7 +385,14 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
   it("publishes scan-and-go as well as pickup — both are board modes", async () => {
     orders = [order(TOGO, "sess-togo")];
     sessions = [
-      { id: "sess-togo", mode: "scango", status: "active", table_number: null, expires_at: LIVE },
+      {
+        id: "sess-togo",
+        mode: "scango",
+        status: "active",
+        table_number: null,
+        expires_at: LIVE,
+        qr_code: "SESS-TOGO",
+      },
     ];
     const body = (await (await GET(req())).json()) as Body;
     expect(body.orders!.map((o) => o.code)).toEqual(["AA0001"]);
@@ -384,6 +407,7 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
         status: "active",
         table_number: null,
         expires_at: LIVE,
+        qr_code: "SESS-TOGO",
       },
     ];
     const body = (await (await GET(req())).json()) as Body;
@@ -392,7 +416,14 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
 
   it("a session whose row is MISSING from a successful read is not published", async () => {
     sessions = [
-      { id: "sess-togo", mode: "pickup", status: "active", table_number: null, expires_at: LIVE },
+      {
+        id: "sess-togo",
+        mode: "pickup",
+        status: "active",
+        table_number: null,
+        expires_at: LIVE,
+        qr_code: "SESS-TOGO",
+      },
     ];
     orders = [order(DINEIN, "sess-dinein")];
     const body = (await (await GET(req())).json()) as Body;
@@ -555,6 +586,15 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
     const body = (await (await GET(req())).json()) as Body;
     expect(roundSessions).toEqual([]);
     expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(true);
+  });
+
+  it('"All clear" is the WHOLE kitchen: a paid pickup bag on the wok draws no table and is NOT idle (the blind pass on #336; `board/idle-read-ignored`)', async () => {
+    seedCookingTable({ cart_id: "cart-togo", fulfillment: "togo" });
+    carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(false);
   });
 
   it("a failed KITCHEN read is null, never an empty kitchen — and the code column still publishes (`board/tables-on-a-failed-kitchen-read`)", async () => {
@@ -567,6 +607,8 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
       expect(res.status).toBe(200);
       const body = (await res.json()) as Body;
       expect(body.tables, fail).toBeNull();
+      // …and so is "All clear": a kitchen that cannot be read is never idle (`board/idle-on-a-failed-read`).
+      expect(body.kitchenIdle, fail).toBeNull();
       expect(body.orders!.map((o) => o.code)).toEqual(["AA0001"]);
     }
   });

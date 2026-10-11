@@ -11,6 +11,7 @@ import {
 import { BRAND_NAME } from "@/lib/brand";
 import {
   boardColumnFit,
+  distinctNames,
   stepDownTables,
   tablesFitStart,
   viewTables,
@@ -29,7 +30,6 @@ import {
 import {
   MOTION_STEP_MS,
   planBoardMotion,
-  rowKey,
   type MotionMemory,
   type MotionStep,
 } from "@/lib/board-motion";
@@ -96,6 +96,9 @@ type BoardState =
       kind: "live";
       orders: BoardOrder[];
       tables: BoardTable[] | null;
+      /** True only when the server read NO food of any channel on the wok — the one fact "All clear"
+       *  may say (the blind pass on #336). `null`: not known (an older server, or `tables` is null). */
+      kitchenIdle: boolean | null;
       stale: boolean;
       lastGoodAt?: number;
       frozenExpired?: boolean;
@@ -197,9 +200,16 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       // `tables` is read DEFENSIVELY (`?? null`): a TV is the longest-lived client in the building
       // and can be served an older deploy mid-rollout, which sends no `tables` — and an `undefined`
       // there must read "can't read the kitchen", never throw inside render.
-      const data = (await res.json()) as { orders?: BoardOrder[]; tables?: BoardTable[] | null };
+      const data = (await res.json()) as {
+        orders?: BoardOrder[];
+        tables?: BoardTable[] | null;
+        kitchenIdle?: boolean | null;
+      };
       const orders = (data.orders ?? []).map((o) => ({ code: o.code, status: o.status }));
       const tables = data.tables ?? null;
+      // Read STRICTLY: only a literal `true` lets the wall say "All clear" (an older server sends none).
+      const kitchenIdle =
+        data.kitchenIdle === true ? true : data.kitchenIdle === false ? false : null;
       fails.current = 0;
       const plan = planBoardMotion(
         memory.current,
@@ -213,7 +223,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         chime.current?.play("pickup");
       // The next poll lands any backlog as final frames: a new plan replaces the queue.
       setMotion((m) => ({ steps: plan.steps, i: 0, nonce: m.nonce + 1 }));
-      setState({ kind: "live", orders, tables, stale: false, lastGoodAt: Date.now() });
+      setState({ kind: "live", orders, tables, kitchenIdle, stale: false, lastGoodAt: Date.now() });
     } catch {
       fails.current += 1;
       // A stale wall re-seeds its motion on recovery: what went out while it was blind is drawn at
@@ -370,6 +380,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           lang={lang}
           known={state.kind === "live"}
           tables={tables}
+          kitchenIdle={state.kind === "live" ? state.kitchenIdle : null}
           frozen={stale}
           active={active}
         />
@@ -517,6 +528,7 @@ function KitchenSection({
   lang,
   known,
   tables,
+  kitchenIdle,
   frozen,
   active,
 }: {
@@ -524,6 +536,7 @@ function KitchenSection({
   /** False before the first answer (loading): neither the key's promise nor an outage is said. */
   known: boolean;
   tables: BoardTable[] | null;
+  kitchenIdle: boolean | null;
   frozen: boolean;
   active: MotionStep | null;
 }) {
@@ -541,13 +554,16 @@ function KitchenSection({
           <TrackKey lang={lang} />
         )}
       </div>
-      {!known || tables === null ? null : tables.length === 0 ? (
+      {!known || tables === null ? null : tables.length > 0 ? (
+        <TablePasses lang={lang} tables={tables} frozen={frozen} active={active} />
+      ) : !frozen && kitchenIdle === true ? (
+        // "All clear" is a claim about the WHOLE kitchen (the blind pass on #336): never over a pickup
+        // bag or a counter order on the wok (the tables are dine-in only), and never on a frozen
+        // snapshot — the head already says the kitchen cannot be read. Otherwise the body says nothing.
         <p className="orb-empty" lang={my ? "my" : undefined}>
           {ts(lang, "kds.allclear")}
         </p>
-      ) : (
-        <TablePasses lang={lang} tables={tables} frozen={frozen} active={active} />
-      )}
+      ) : null}
     </section>
   );
 }
@@ -599,8 +615,16 @@ function useTablesFit(tables: BoardTable[]): {
   useEffect(() => {
     const ul = ref.current;
     if (!ul || typeof ResizeObserver === "undefined") return;
-    // A TV that changes zoom re-fits from the top.
+    // A TV that changes zoom re-fits from the top. The FIRST notification is `observe()` itself, on
+    // a box the render-time reset and the layout effect above have just fitted — answered, it ran the
+    // whole step-down a second time on every 5 s poll, each pass forcing a layout on a weak TV browser
+    // (the blind pass on #336). Only a later resize re-fits.
+    let first = true;
     const ro = new ResizeObserver(() => {
+      if (first) {
+        first = false;
+        return;
+      }
       setFit(tablesFitStart(tables.length));
       setResized((n) => n + 1);
     });
@@ -668,6 +692,25 @@ function TablePass({
   const id = `${t.table}`;
   const name = tf(lang, "kds.table", { id });
   const showStages = !frozen && !t.out;
+  // Every dish list on the pass gets its OWN accessible name (the blind pass on #336): the folded
+  // served row says it is the served row, a round with a stub says its round, and any name that would
+  // still repeat (two unnumbered Sends; "next round" twice under a failed round read) takes its
+  // occurrence (`distinctNames`) — never two sibling lists a screen reader cannot tell apart.
+  const stubs = t.rounds.map((r) =>
+    r.n !== null && r.n >= 2
+      ? { kind: "n" as const, n: r.n }
+      : r.next
+        ? { kind: "next" as const }
+        : null,
+  );
+  const listNames = distinctNames([
+    ...(t.folded ? [`${name} · ${ts(lang, STAGE_KEY.served)}`] : []),
+    ...stubs.map((stub) =>
+      stub === null
+        ? name
+        : `${name} · ${stub.kind === "n" ? tf(lang, "kds.round", { id: stub.n }) : ts(lang, "kds.round.next")}`,
+    ),
+  ]);
   return (
     <CounterPass
       as="li"
@@ -698,7 +741,7 @@ function TablePass({
             <ul
               role="list"
               className="orb-dishes"
-              aria-label={tf(lang, "kds.a11y.lines", { x: name })}
+              aria-label={tf(lang, "kds.a11y.lines", { x: listNames[0]! })}
             >
               <DishRow
                 lang={lang}
@@ -710,16 +753,8 @@ function TablePass({
             </ul>
           )}
           {t.rounds.map((r, i) => {
-            const stub =
-              r.n !== null && r.n >= 2
-                ? { kind: "n" as const, n: r.n }
-                : r.next
-                  ? { kind: "next" as const }
-                  : null;
-            const listName =
-              stub === null
-                ? name
-                : `${name} · ${stub.kind === "n" ? tf(lang, "kds.round", { id: stub.n }) : ts(lang, "kds.round.next")}`;
+            const stub = stubs[i]!;
+            const listName = listNames[i + (t.folded ? 1 : 0)]!;
             return (
               <Fragment key={`${r.n ?? "u"}-${i}`}>
                 {/* THE ROUND STUB (m5's, at the wall's scale): a label, never a control; round 1 never
@@ -741,10 +776,8 @@ function TablePass({
                 >
                   {r.rows.map((row) => {
                     const dish = row.kind === "dish" ? row.dish : null;
-                    const key =
-                      dish === null
-                        ? null
-                        : rowKey(t.table, i, { n: r.n, next: r.next, dishes: [] }, dish);
+                    // The fit's key — the planner's own `rowKey`, from the round's ORIGINAL index.
+                    const key = row.kind === "dish" ? row.key : null;
                     return (
                       <DishRow
                         key={key ?? "folded"}

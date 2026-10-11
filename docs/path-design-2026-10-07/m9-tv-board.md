@@ -1138,3 +1138,29 @@ accepted. Risk 14 — a poll now makes up to four more queries per TV than the p
 Send-completion read and the round read's three); p95 on `pdx1` is unmeasured. Risk 2 — **old TV builds need ONE reload after the deploy**: the old client reads no
 `pulse` and no `name`, so until reloaded it shows its "can't read the kitchen" band and code-only
 cards. Risk 1 — the privacy reversal is real and has no per-table switch; the merge line names it.
+
+#### G.1 · After the blind pass on #336 (2026-10-11)
+
+REJECT on two CRITICALs. I checked each finding's mechanism against the source before fixing it, watched every fix go red on the old code first, and gave every rule a mutant.
+
+- **"All clear" means the whole kitchen.** The wall's tables are dine-in only, so an empty table list is not an empty wok. Before this fix the wall said "All clear" in three cases where food was cooking:
+  - pickup or scan-and-go bags on the wok;
+  - a counter order sent before it was paid;
+  - a table the wall does not draw (an unnumbered sticker, or a session past its TTL).
+
+  The route now publishes `kitchenIdle`, a boolean that is never a count. It comes from `kitchenIdle()` in `lib/board-tables.ts`, which applies the KDS's own gate: a fired or in-progress line the kitchen board shows, and not HELD. That means the wall and Mom's board agree on "nothing to cook". The flag is `null` whenever `tables` is. The wall says "All clear" only on a literal `true`. If no table is drawn and the flag is anything else, the body says nothing.
+
+- **A frozen snapshot of an empty kitchen never says "All clear".** The head already says the kitchen cannot be read, so the body says nothing.
+- **One key per dish row.** The fit now mints each dish row's motion key with the planner's own `rowKey`, using the round's ORIGINAL index. Before this, a fold that dropped an emptied round shifted the key of an unnumbered round's row, so its FILL missed.
+- **Distinct list names.** Every dish list on a pass now has its own accessible name. The folded row is named as the served row. Any name that would still repeat gets its occurrence number (`distinctNames`).
+- **One fit per poll.** The ResizeObserver's first notification is `observe()` itself. Answering it ran the whole step-down a second time on every poll, so it is now skipped.
+- **Justified, not changed:**
+  - Old TV builds need one reload after the deploy. This is in the merge line.
+  - A `tables: null` answer drops the last good passes instead of freezing them. That is the safe direction: the wall says it cannot read the kitchen.
+  - The ghost rule (a session past its TTL leaves the wall) is kept from the shipped band, and "All clear" no longer lies about such a table.
+  - `kdsLineGate`'s counter and comp inputs are never read on the dine-in branch.
+  - TURN and FILL are reduced-motion-escorted in `pass.css`.
+  - `--t3` on `--pg` is an asserted pair.
+- **Owner questions recorded, not decided here:**
+  - "Served" (`table.line.state.served`) on a guest wall. A1 chose it; the native sitting can re-word it on every surface at once.
+  - Walk-up guests need their code. The card reader speaks it today; the cash seal shows it with PD6.

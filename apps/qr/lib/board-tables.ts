@@ -1,9 +1,10 @@
-import { kdsLineGate } from "./counter-order";
+import { isCounterOrder, kdsLineGate } from "./counter-order";
 import type { KitchenRound } from "./kitchen-types";
 import { cardStamp, ticketKey } from "./kitchen-rounds";
 import { groupStage, rollUp, trackStage, type KitchenStage } from "./kitchen-track";
 import { catalogNameMy } from "./ticket-names";
 import {
+  PULSE_COOKING_STATES,
   PULSE_PASS_LINGER_MS,
   PULSE_TABLE_MODES,
   type PulseCartRow,
@@ -236,3 +237,45 @@ function shapeDishes(
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * PD9 (the blind pass on #336) — whether the kitchen has NO food on the wok, of ANY channel: the one
+ * fact behind the wall's "All clear". The tables are dine-in only, so an empty table list is not an
+ * empty kitchen — a pickup or scan-and-go bag cooking, a counter order sent before it was paid, or a
+ * table the wall does not draw (an unnumbered sticker, a session past its TTL) all mean the wok is
+ * busy, and "All clear" over them is the lie the route refuses (`tables: null`, never all-clear).
+ *
+ * The rule is the KDS's own (`kdsLineGate`, with the counter predicate): a fired or in-progress line
+ * the kitchen board shows, not HELD (a scheduled pickup is not on the wok yet) — so the wall and Mom's
+ * board agree on "nothing to cook". A served line is out of the wok. A line whose cart is absent was
+ * cancelled or cleared (the read keeps only open and paid carts). A line whose SESSION is absent cannot
+ * be judged, and the answer is "not idle": silence is the safe failure of an "All clear".
+ */
+export function kitchenIdle(input: {
+  lines: readonly BoardLineRow[];
+  cartById: ReadonlyMap<string, PulseCartRow>;
+  sessionById: ReadonlyMap<string, PulseSessionRow>;
+  nowIso: string;
+}): boolean {
+  const nowMs = Date.parse(input.nowIso);
+  for (const l of input.lines) {
+    if (!PULSE_COOKING_STATES.has(l.state)) continue;
+    const cart = input.cartById.get(l.cart_id);
+    if (!cart) continue;
+    const sess = input.sessionById.get(cart.session_id);
+    if (!sess) return false;
+    const gate = kdsLineGate({
+      mode: sess.mode,
+      counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
+      sessionStatus: sess.status,
+      cartStatus: cart.status,
+      // A paid counter cart's in-grace line is hidden or held either way — neither is on the wok.
+      slotted: false,
+      line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment ?? "dinein" },
+      cartOwes: false,
+      nowMs,
+    });
+    if (gate.show && !gate.held) return false;
+  }
+  return true;
+}

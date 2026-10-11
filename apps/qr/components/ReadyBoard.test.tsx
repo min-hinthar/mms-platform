@@ -10,6 +10,19 @@ const chime = vi.hoisted(() => ({
   /** A promise the arm waits on, so a case can tap again INSIDE the arm. */
   armGate: null as Promise<void> | null,
 }));
+// The fit's start is SPIED, never changed: how many times a snapshot re-fits from the top is the
+// measure of the step-down's cost on a TV (the blind pass on #336).
+const fitStarts = vi.hoisted(() => ({ n: 0 }));
+vi.mock("@/lib/board-fit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/board-fit")>();
+  return {
+    ...actual,
+    tablesFitStart: (n: number) => {
+      fitStarts.n += 1;
+      return actual.tablesFitStart(n);
+    },
+  };
+});
 vi.mock("@/lib/kds-sound", () => ({
   KdsChime: class {
     async arm() {
@@ -78,7 +91,12 @@ const READY_MY = "ယူသွားနိုင်ပါပြီ";
 async function renderBoard(
   lang: "en" | "my",
   refusal?: { status: number; body: unknown },
-  body?: { orders?: unknown[]; tables?: BoardTable[] | null; serverNow?: string },
+  body?: {
+    orders?: unknown[];
+    tables?: BoardTable[] | null;
+    kitchenIdle?: boolean | null;
+    serverNow?: string;
+  },
 ) {
   if (refusal)
     vi.stubGlobal(
@@ -103,11 +121,22 @@ async function renderBoard(
 }
 
 /** Render a live board with tables, and wait for the FIRST POLL to land (a pass, or a sentence). */
-async function renderTables(lang: "en" | "my", tables: BoardTable[] | null) {
-  const out = await renderBoard(lang, undefined, { tables });
+async function renderTables(
+  lang: "en" | "my",
+  tables: BoardTable[] | null,
+  extra: { kitchenIdle?: boolean | null; orders?: unknown[] } = {},
+) {
+  // The route's answer: an empty read is an idle kitchen unless the case says otherwise.
+  const out = await renderBoard(lang, undefined, {
+    tables,
+    kitchenIdle: tables !== null && tables.length === 0 ? true : null,
+    ...extra,
+  });
   await waitFor(() =>
     expect(
-      out.container.querySelector(".orb-passes, .orb-kitchen-note, .orb-kitchen .orb-empty"),
+      out.container.querySelector(
+        ".orb-passes, .orb-kitchen-note, .orb-kitchen .orb-empty, .orb-col li",
+      ),
     ).not.toBeNull(),
   );
   return out;
@@ -376,6 +405,45 @@ describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
     expect(blind.container.textContent).not.toContain(STAFF["kds.allclear"].en);
   });
 
+  it("every dish list on a pass has its OWN accessible name — two unnumbered Sends are never two lists named alike (the blind pass on #336; `board-wall/list-names-repeat`)", async () => {
+    // Round 1, then two Sends the round read numbered `none` (a to-go-only batch, settlement food).
+    const { container } = await renderTables("en", [
+      tableOf(4, [], {
+        out: false,
+        rounds: [
+          { n: 1, next: false, dishes: [dish({ name: "Mohinga" })] },
+          { n: null, next: false, dishes: [dish({ name: "Tea", togo: true })] },
+          { n: null, next: false, dishes: [dish({ name: "Rice" })] },
+        ],
+      }),
+    ]);
+    const names = [...container.querySelectorAll(".orb-passes .orb-dishes")].map((l) =>
+      l.getAttribute("aria-label"),
+    );
+    expect(names).toHaveLength(3);
+    expect(new Set(names).size).toBe(3);
+    expect(names[0]).toBe(tf("en", "kds.a11y.lines", { x: tf("en", "kds.table", { id: "4" }) }));
+  });
+
+  it("NEVER 'All clear' over a busy kitchen: no table on the wall, but a pickup bag on the wok — the body says nothing, the key stays (the blind pass on #336; `board-wall/all-clear-over-a-busy-kitchen`)", async () => {
+    const busy = await renderTables("en", [], {
+      kitchenIdle: false,
+      orders: [order("4C1A9E", "preparing")],
+    });
+    expect(busy.container.querySelector(".orb-key")).not.toBeNull();
+    expect(busy.container.querySelector(".orb-kitchen .orb-empty")).toBeNull();
+    expect(busy.container.querySelector(".orb-kitchen")!.textContent).not.toContain(
+      STAFF["kds.allclear"].en,
+    );
+    cleanup();
+    // An older server sends no `kitchenIdle` at all: unknown is never idle.
+    const old = await renderTables("en", [], {
+      kitchenIdle: undefined,
+      orders: [order("4C1A9E", "preparing")],
+    });
+    expect(old.container.querySelector(".orb-kitchen .orb-empty")).toBeNull();
+  });
+
   it("an OLDER server that sends no `tables` reads as unreadable — and a `name` it still sends is never drawn", async () => {
     vi.stubGlobal(
       "fetch",
@@ -492,9 +560,71 @@ describe("PD9 — the wall moves only when food changes state, one thing at a ti
   });
 });
 
+describe("PD9 — the passes fit ONCE per snapshot (the blind pass on #336)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a poll re-fits from the top once — the ResizeObserver's own first notification is not a second step-down (`board-wall/fit-twice-per-poll`)", async () => {
+    // As a browser does: the first notification arrives for `observe()` itself.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          queueMicrotask(() => this.cb());
+        }
+        disconnect() {}
+      },
+    );
+    vi.useFakeTimers();
+    pollSequence([
+      { tables: [tableOf(4, [dish()])] },
+      { tables: [tableOf(4, [dish({ stage: "cooking" })])] },
+    ]);
+    render(<ReadyBoard token="t" lang="en" />);
+    fitStarts.n = 0;
+    await tick(1); // the first answer: the passes mount and fit
+    expect(fitStarts.n).toBe(1);
+    await tick(5_000); // the second answer: a new snapshot starts full again — once
+    expect(fitStarts.n).toBe(2);
+  });
+});
+
 describe("PD9 — a frozen wall drops what rots and keeps what does not", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("a FROZEN snapshot of an empty kitchen never says 'All clear' — the head says it cannot read the kitchen, and the body says nothing (the blind pass on #336; `board-wall/all-clear-over-a-frozen-snapshot`)", async () => {
+    vi.useFakeTimers();
+    let answering = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!answering) throw new Error("network");
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({ orders: [], tables: [], kitchenIdle: true }),
+        };
+      }),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelector(".orb-kitchen .orb-empty")!.textContent).toBe(
+      STAFF["kds.allclear"].en,
+    );
+    answering = false;
+    for (let i = 0; i < BOARD_FAIL_THRESHOLD; i++) await tick(5_000);
+    expect(container.querySelector(".orb-root[data-stale]")).not.toBeNull();
+    expect(container.querySelector(".orb-kitchen-note")!.textContent).toBe(
+      STAFF["board.pulse.unavailable"].en,
+    );
+    expect(container.querySelector(".orb-kitchen .orb-empty")).toBeNull();
+    expect(container.querySelector(".orb-kitchen")!.textContent).not.toContain(
+      STAFF["kds.allclear"].en,
+    );
   });
 
   it("past the fail threshold the passes keep their numbers and names but drop every stage and the roll-up; the sentence replaces the key (`board-wall/frozen-keeps-stages`)", async () => {

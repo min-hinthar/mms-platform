@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { shapeBoardTables, type BoardLineRow, type ShapeTablesInput } from "./board-tables";
+import {
+  kitchenIdle,
+  shapeBoardTables,
+  type BoardLineRow,
+  type ShapeTablesInput,
+} from "./board-tables";
 import { PULSE_PASS_LINGER_MS, type PulseCartRow, type PulseSessionRow } from "./board-pulse";
 import { KDS_UNDO_MS } from "./kds-undo";
 import type { KitchenRound } from "./kitchen-types";
@@ -39,11 +44,18 @@ const carts: PulseCartRow[] = [
   { id: "cp", session_id: "sp", status: "paid" },
 ];
 const sessions: PulseSessionRow[] = [
-  { id: "s4", mode: "dinein", status: "active", table_number: 4, expires_at: LIVE },
-  { id: "s4b", mode: "dinein", status: "active", table_number: 4, expires_at: LIVE },
-  { id: "s7", mode: "dinein", status: "active", table_number: 7, expires_at: LIVE },
+  { id: "s4", mode: "dinein", status: "active", table_number: 4, expires_at: LIVE, qr_code: "T4" },
+  {
+    id: "s4b",
+    mode: "dinein",
+    status: "active",
+    table_number: 4,
+    expires_at: LIVE,
+    qr_code: "T4B",
+  },
+  { id: "s7", mode: "dinein", status: "active", table_number: 7, expires_at: LIVE, qr_code: "T7" },
   // A pickup minted at a numbered sticker: only the mode keeps its food off the wall.
-  { id: "sp", mode: "pickup", status: "active", table_number: 9, expires_at: LIVE },
+  { id: "sp", mode: "pickup", status: "active", table_number: 9, expires_at: LIVE, qr_code: "PK9" },
 ];
 
 const input = (
@@ -280,5 +292,69 @@ describe("shapeBoardTables — the shape is the boundary", () => {
     const flat = JSON.stringify(t);
     for (const leak of ["c4", "s4", B1, B2, "m-mohinga", NOW.slice(0, 10)])
       expect(flat).not.toContain(leak);
+  });
+});
+
+describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the blind pass on #336)', () => {
+  // The tables are dine-in only, so an empty wall of passes is not an empty wok.
+  const counter: PulseSessionRow = {
+    id: "sc",
+    mode: "pickup",
+    status: "active",
+    table_number: null,
+    expires_at: LIVE,
+    qr_code: "reg-ab12",
+  };
+  const idle = (
+    lines: BoardLineRow[],
+    over: { carts?: PulseCartRow[]; sessions?: PulseSessionRow[] } = {},
+  ) =>
+    kitchenIdle({
+      lines,
+      cartById: new Map([...carts, ...(over.carts ?? [])].map((c) => [c.id, c])),
+      sessionById: new Map([...sessions, counter, ...(over.sessions ?? [])].map((s) => [s.id, s])),
+      nowIso: NOW,
+    });
+
+  it("an empty read is an idle kitchen", () => {
+    expect(idle([])).toBe(true);
+  });
+
+  it("a PAID pickup bag on the wok keeps the kitchen busy — no table on the wall, and still not all clear (`board-tables/idle-counts-tables-only`)", () => {
+    const bag = line({ cart_id: "cp", fulfillment: "togo", fire_batch: B2 });
+    expect(shapeBoardTables(input([bag]))).toEqual([]);
+    expect(idle([bag])).toBe(false);
+  });
+
+  it("a COUNTER order sent before it was paid cooks on an open cart, and keeps the kitchen busy (`board-tables/idle-misses-counter-orders`)", () => {
+    const sent = line({ cart_id: "cc", fulfillment: "togo", fire_batch: B2 });
+    expect(idle([sent], { carts: [{ id: "cc", session_id: "sc", status: "open" }] })).toBe(false);
+  });
+
+  it("a table the wall does not draw — a session past its TTL — still has food on the wok", () => {
+    const ghost = sessions.map((s) => (s.id === "s4" ? { ...s, expires_at: at(-1) } : s));
+    const l = line();
+    expect(shape([l], { sessions: ghost })).toEqual([]);
+    expect(kitchenIdle({ ...input([l], { sessions: ghost }) })).toBe(false);
+  });
+
+  it("food OUT of the wok, or not on it yet, is idle: a served dish, a HELD scheduled pickup, a Send in its grace (`board-tables/idle-counts-served`, `board-tables/idle-counts-held`)", () => {
+    expect(idle([line({ state: "served", bumped_at: at(-60) })])).toBe(true);
+    // A paid pickup scheduled for later: the KDS draws it HELD, dimmed — nothing is cooking yet.
+    expect(idle([line({ cart_id: "cp", fulfillment: "togo", fire_at: at(1800) })])).toBe(true);
+    // A dine-in Send inside its 10 s grace is not on the KDS yet.
+    expect(idle([line({ fire_at: at(5) })])).toBe(true);
+  });
+
+  it("a line on a cleared or cancelled cart is not cooking (the read keeps only open and paid carts)", () => {
+    expect(idle([line({ cart_id: "gone" })])).toBe(true);
+  });
+
+  it('a line whose SESSION cannot be read is never called idle — silence is the safe failure of "All clear" (`board-tables/idle-unknown-session-is-idle`)', () => {
+    expect(
+      idle([line({ cart_id: "cx" })], {
+        carts: [{ id: "cx", session_id: "s-missing", status: "open" }],
+      }),
+    ).toBe(false);
   });
 });

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { boardColumnFit, stepDownTables, tablesFitStart, viewTables } from "./board-fit";
+import {
+  boardColumnFit,
+  distinctNames,
+  stepDownTables,
+  tablesFitStart,
+  viewTables,
+} from "./board-fit";
 import type { BoardDish, BoardTable } from "./board-tables";
+import { planBoardMotion } from "./board-motion";
 
 describe("board-1 — the rush cut is a value: rows shown, rows hidden, the last slot for `+N more`", () => {
   it("shows everything that fits, and says nothing is hidden", () => {
@@ -71,9 +78,35 @@ describe("PD9 — the passes step down in a fixed order: (a) collapse the served
       kind: "folded",
       dishes: [dish("D4.0", "served"), dish("D4.2", "served")],
     });
-    expect(v!.rounds[0]!.rows).toEqual([{ kind: "dish", dish: dish("D4.1", "cooking") }]);
+    expect(v!.rounds[0]!.rows).toEqual([
+      { kind: "dish", dish: dish("D4.1", "cooking"), key: "4|1|d|D4.1" },
+    ]);
     // Level 1 does not fold.
     expect(viewTables([t], { level: 1, shown: 1 }).columns[0][0]!.folded).toBeNull();
+  });
+
+  it("a row keeps the motion key the PLANNER mints, from its round's ORIGINAL index — even after the fold drops an emptied round (the blind pass on #336; `board-fit/fold-keys-by-the-shifted-index`)", () => {
+    // Table 4: round 1 all served (it drops at the fold), round 2 UNNUMBERED (the round read did not
+    // answer), its Tea advancing to Cooking. The planner keys the Tea by its round's position, @1.
+    const before: BoardTable = {
+      table: 4,
+      out: false,
+      rounds: [
+        { n: null, next: false, dishes: [dish("Mohinga", "served"), dish("Rice", "served")] },
+        { n: null, next: true, dishes: [dish("Tea", "sent")] },
+      ],
+    };
+    const after: BoardTable = {
+      ...before,
+      rounds: [before.rounds[0]!, { ...before.rounds[1]!, dishes: [dish("Tea", "cooking")] }],
+    };
+    const seeded = planBoardMotion(null, [before], []).memory;
+    const fill = planBoardMotion(seeded, [after], []).steps;
+    expect(fill).toEqual([{ kind: "fill", row: "4|@1|d|Tea" }]);
+    const [v] = viewTables([after], { level: 2, shown: 1 }).columns[0];
+    expect(v!.rounds).toHaveLength(1); // round 1 folded away
+    const row = v!.rounds[0]!.rows[0]!;
+    expect(row.kind === "dish" ? row.key : null).toBe("4|@1|d|Tea");
   });
 
   it("(c) the cut takes the HIGHEST numbers and '+N more' counts the TABLES cut (`board-fit/cut-the-lowest`, `board-fit/more-counts-dishes`)", () => {
@@ -90,5 +123,17 @@ describe("PD9 — the passes step down in a fixed order: (a) collapse the served
       [2, 3, 4],
       [5, 7],
     ]);
+  });
+});
+
+describe("distinctNames — sibling lists a screen reader can tell apart (the blind pass on #336)", () => {
+  it("keeps a unique name as is, and numbers each repeat after its first (`board-fit/distinct-names-repeat`)", () => {
+    expect(distinctNames(["Table 4", "Table 4 · Round 2", "Table 4", "Table 4"])).toEqual([
+      "Table 4",
+      "Table 4 · Round 2",
+      "Table 4 (2)",
+      "Table 4 (3)",
+    ]);
+    expect(distinctNames([])).toEqual([]);
   });
 });

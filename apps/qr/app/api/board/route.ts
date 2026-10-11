@@ -9,7 +9,12 @@ import {
   type PulseCartRow,
   type PulseSessionRow,
 } from "@/lib/board-pulse";
-import { shapeBoardTables, type BoardLineRow, type BoardTable } from "@/lib/board-tables";
+import {
+  kitchenIdle,
+  shapeBoardTables,
+  type BoardLineRow,
+  type BoardTable,
+} from "@/lib/board-tables";
 import { readRounds, roundFor } from "@/lib/kitchen-round-read";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
@@ -63,6 +68,8 @@ const SEND_LINE_CAP = 500;
  *    output type: no name, id, quantity, modifier, note, seat, comp, void, amount, time or age.
  *    THIS IS THE REVERSAL: the room now reads what each table ordered while it cooks (OPEN-ITEMS
  *    K32(b), P6a; `lib/board-pulse.ts` keeps the record of the rule it replaces).
+ *  · `kitchenIdle` — true only when no food of ANY channel is on the wok (`kitchenIdle`, the KDS's own
+ *    gate), the one fact behind "All clear"; `null` whenever `tables` is (the blind pass on #336).
  *
  * ⚠️ TWO READ POSTURES, and the difference between them is the point:
  *  · the SESSION-MODE read is fail-CLOSED (503, nothing published). Its failure would let a dine-in
@@ -221,7 +228,7 @@ export async function GET(req: NextRequest) {
   const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db
         .from("table_sessions")
-        .select("id,mode,status,table_number,expires_at")
+        .select("id,mode,status,table_number,expires_at,qr_code")
         .in("id", sessionIds)
     : { data: [] as PulseSessionRow[], error: null };
   // M108-adjacent: this read is the ONLY thing keeping a dine-in session's bag off the code column,
@@ -314,6 +321,15 @@ export async function GET(req: NextRequest) {
     ? await loadLineNames(db, allLines, { tag: "board" })
     : { nameMyByRef: new Map<string, string | null>() };
 
+  // PD9 (the blind pass on #336) — "All clear" is a claim about the WHOLE kitchen, and the tables are
+  // dine-in only: a pickup bag on the wok, a counter order sent before it was paid, or a table the wall
+  // does not draw keeps the kitchen busy over an empty table list. Asked of the same bounded line read
+  // the tables came from, so it answers only when they do (`null` otherwise: the wall says it cannot
+  // read the kitchen). A boolean, never a count — nothing about any order is published by it.
+  const idle: boolean | null = tablesReadable
+    ? kitchenIdle({ lines: allLines, cartById, sessionById, nowIso: dbNowIso })
+    : null;
+
   const tables: BoardTable[] | null = tablesReadable
     ? shapeBoardTables({
         lines: allLines,
@@ -326,7 +342,7 @@ export async function GET(req: NextRequest) {
     : null;
 
   return NextResponse.json(
-    { orders: published, tables, serverNow: new Date().toISOString() },
+    { orders: published, tables, kitchenIdle: idle, serverNow: new Date().toISOString() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

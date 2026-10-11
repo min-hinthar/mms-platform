@@ -37,6 +37,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   read the kitchen right now." — never all-clear over a full wok; a frozen wall keeps codes and dish
   names, drops every stage, and drops the tables too once the linger has passed.
 - **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
+- **After the blind pass on #336:**
+  - "All clear" now means the whole kitchen: the route publishes `kitchenIdle`, using the KDS's own gate across every channel, so no "All clear" over a pickup bag or a counter order on the wok.
+  - It is also never shown on a frozen snapshot.
+  - A dish row's motion key is minted once, from its round's original index.
+  - Every dish list on a pass has its own accessible name.
+  - The passes fit once per poll.
+  - 14 mutants added.
 - **Proof:** 43 mutants added (`board-tables/*`, `board/*`, `board-wall/*`, `board-fit/*`,
   `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
   read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
