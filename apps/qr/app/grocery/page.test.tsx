@@ -462,8 +462,8 @@ describe("…and a record never outlives the line it stands for (the reviews of 
       await shown(/added 1 saved scan/);
       await settle();
       expect(pendingFor(CART)).toEqual([]);
-      // MUTANT grocery-page/a-replay-raises-no-view-floor — the older view replaces the honest
-      // "Couldn’t check" with an empty basket that is not the truth.
+      // MUTANT grocery-page/a-live-add-raises-no-view-floor (the Browse add is the NEWER charge here)
+      // — the older view replaces the honest "Couldn’t check" with an empty basket that is not true.
       expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
       // MUTANT scan-billed/an-older-view-drops-a-newer-charge — the list is empty, the queue is
       // empty and the record was dropped: the jar in frame charges a THIRD unit.
@@ -489,6 +489,29 @@ describe("…and a record never outlives the line it stands for (the reviews of 
       });
       await settle();
       // MUTANT grocery-page/a-live-add-raises-no-view-floor — an empty basket the add just disproved.
+      expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
+      await sight(JAR);
+      expect(chargesOf(JAR)).toBe(1);
+    },
+    ROW_MS,
+  );
+
+  it(
+    "a basket read issued BEFORE a replay lands after it: it never replaces what the replay's failed re-read said",
+    async () => {
+      // The mount read is slow; the drain's replay (issued after it) lands first, with no view.
+      const mount = deferred<GroceryLinesResult>();
+      h.read = (i) => (i === 0 ? mount.promise : readFails());
+      enqueueScan(CART, JAR, "00000000-0000-4000-8000-0000000000a8");
+      render(<GroceryPage />);
+      await shown(/added 1 saved scan/);
+      await shown(/Couldn’t check your basket\./); // the replay's re-read failed — said
+      // The mount read — issued before the replay left, read before it committed — lands last.
+      await act(async () => {
+        mount.resolve(linesOk([]));
+      });
+      await settle();
+      // MUTANT grocery-page/a-replay-raises-no-view-floor — an empty basket the replay just disproved.
       expect(screen.getByText(/Couldn’t check your basket\./)).toBeTruthy();
       await sight(JAR);
       expect(chargesOf(JAR)).toBe(1);

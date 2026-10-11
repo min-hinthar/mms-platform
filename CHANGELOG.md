@@ -28,13 +28,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   click's effects already closed that window, and the page no longer depends on it. The blind pass's
   open question: a charge no view shows (`lines: null`, or crossed) re-reads the basket through the
   ticketed `syncNow` — after a live add, once per drain — so the list and its total include it.
+- **Codex's second round (P1).** A Browse add asks neither the classifier nor the queue, so the
+  shopper can add the jar while an idempotent replay's empty view is still in flight: the newer
+  view-less add landed first and recorded the code, then the older view dropped that record and —
+  because a view-less charge advances `appliedSeq` nothing — replaced the honest "Couldn’t check your
+  basket" with an empty list; the next sighting charged a third unit. The dispatch mark now also
+  carries how many charges of the code had landed (every ok landing counts, crossed ones too), and an
+  absent view drops the record only when no newer charge landed since its dispatch; every ok charge
+  raises a view floor to its own issue ticket, below which `markCartAlive` applies nothing.
 - **Pinned.** `apps/qr/app/grocery/page.test.tsx` (new) renders the real page with the server
   modelled (its lines, `setQty`, every read), the session and the camera stubbed, and sights the jar
-  through the page's own `onScan`: eight rows — a live add and a replay with no view (refused, and
+  through the page's own `onScan`: eleven rows — a live add and a replay with no view (refused, and
   re-read), the re-read bringing the line onto the list, a refused replay, a removal crossing a
-  replay and a live add, a replay whose view lacks the code, and a cart swap mid-replay. Red-first:
-  the delivered-replay row charged twice on main; the crossing, view and re-read rows failed on the
-  first head of this PR. `lib/scan-billed.test.ts` (new) falsifies each rule by a value.
+  replay and a live add, a replay whose view lacks the code, a cart swap mid-replay, Codex's P1
+  interleaving through a Browse add, and a basket read issued before a live add or a replay landing
+  after it. Red-first: the delivered-replay row charged twice on main; the crossing, view and
+  re-read rows failed on the first head of this PR, the P1 and floor rows on the second. `lib/scan-billed.test.ts` (new) falsifies each rule by a value.
   `check:scan-repeat` proposition 8 parses the page: for every live `scanAdd`, the dispatch mark
   before it, an era check after it, the record — `afterCharge(…, <its code>, <its mark>,
 <its result>.lines)` stored in `billedRef` — in a top-level `if (R.ok)` after that era check, no ok
@@ -42,7 +51,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   every other write is `afterRemoval` or a `NO_BILLED` reset that follows the era's end, and the
   classifier reads `billed: [...billedRef.current.billed]`. Twenty-two committed evasion rows, and
   the matcher's own seven weakenings committed beside them — each lets exactly its evasion through.
-  Seventeen mutants (nine `grocery-page/`, eight `scan-billed/`), all CAUGHT.
+  Twenty-four mutants (twelve `grocery-page/`, twelve `scan-billed/`), all CAUGHT.
 
 ### PD1 follow-up — Codex's post-merge review of #335: a nudge waits for a switch to to-go; a dish that joins the pass stays on it (2026-10-11)
 
