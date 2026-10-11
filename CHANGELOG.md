@@ -13,7 +13,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   approvals, writes every SENT dish to the owner's loss list as `void` / `table_cleared` at
   `unapproved` (ruling #6, behind the `clear_requires_pin` seam), voids the kitchen's lines, closes
   the table and writes `qr_table_clears` — the audit and the durable STOP record ("Got it":
-  `mms_ack_table_clear_stop`). Pinned by `m182_table_clear_test.sql` and 31 SQL mutants (`m182`).
+  `mms_ack_table_clear_stop`). Pinned by `m182_table_clear_test.sql` and the `m182` SQL mutants.
 - **The pane's Clear takes a fresh look** (`getClearPreview`, on the database clock): an unknown read
   clears nothing (Codex correction 11); nothing sent → straight into "Clearing Table N" (§22, the
   lane's six seconds, armed at 400 ms, held by a keyboard focus with its warning); food sent and
@@ -26,6 +26,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   6). The outcome is said on the floor (`TurnoverNews`, the board's one region); the mint lock and
   the line now live in `CounterSplit`. A paid, finished card says "Clear when they leave"
   (`clearHint`) — words, never a control.
+- **The blind pass on #341:** a secured (card-on-file) tab's SENT food is never written off as a
+  walkout — the RPC refuses `secure_tab` without a verified manager and the look answers `secure`
+  (no slip; "close the bill on that card"); a post-dated `p_seen_at` is refused; a split share
+  holding money is re-read under the cart lock; "Seat next party" gives the mint back at the bound;
+  a window that leaves with its pane says the table is still open; `qr_table_clears` no longer
+  cascades away with its session. 43 SQL mutants (`m182`).
 - **Mutants:** `clear/*`, `clear-hint/*`, `clear-floor/*`, `clear-ui/*`, `clear-window/*`,
   `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
   anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.

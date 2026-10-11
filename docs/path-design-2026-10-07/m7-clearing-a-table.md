@@ -1078,8 +1078,9 @@ owner's delegation, the reason is below.
 **What was built.**
 
 - **M182 · `mms_clear_table`** (`supabase/migrations/20261009120400_m182_table_clear.sql`; prod apply
-  waits for the owner's go, ruling #5). ONE transaction, the merge's lock order (the open cart, the
-  session, the pending approvals, the lines — each `FOR UPDATE` in id order). It refuses, writing
+  waits for the owner's go, ruling #5). ONE transaction, locking the open cart, the session, the
+  pending approvals, the lines — in that order, each `FOR UPDATE` in id order (the merge's and the
+  no-show's order with the session taken right after the cart). It refuses, writing
   nothing: `not_found` · `closed` · `counter` (a counter order keeps `mms_clear_counter_cart`) ·
   `in_flight` (a fresh single-pay lock or split freeze) · `card_live` · `joined` (a member who sat
   down after `p_seen_at`) · `changed` (a line added after the look, or the SENT set or its figure not
@@ -1129,6 +1130,31 @@ owner's delegation, the reason is below.
 - **The slip's Merge door** is not drawn: the pane's own Merge stays above it.
 - **A RPC error** says the outage line with the retry: a lost response may hide a commit, but a
   retry is safe — a cleared table answers `closed`, a moved one `changed`.
+
+**The blind pass on #341 (REJECT, fixed).**
+
+- **A secured tab is never written off as a walkout.** The RPC reads `tab_type` and refuses
+  `secure_tab` when a card-on-file tab has SENT food and no verified manager — a cancelled cart takes
+  the card-on-file close away for good, which is why the merge refuses a secure tab outright. The look
+  answers `secure` (`clearNeedsTheCard`), so the slip and its walkout are never drawn; the pane says
+  "Table N has a card on file — close the bill on that card before you clear it." Nothing sent, nothing
+  to charge: a secured tab with no loss clears free. A manager named in `p_approver` may write it off
+  (recorded as theirs) — the seam a declined card after a walkout needs; the app sends none today
+  (M270 (6)). The card door also stands down while the slip is armed (B12).
+- **A post-dated look is refused.** `p_seen_at` later than the transaction's own clock answers
+  `changed` before any lock — the request carries it, and a future value defeated `joined` and the
+  added-dish test. A past one only makes both stricter.
+- **A split share holding money is re-read under the cart lock** (`in_flight`), narrowing the window
+  the caller's `paymentInFlightReason` read leaves open; a share write takes no cart lock, so it is
+  narrowed, not closed.
+- **The hung clear gives the mint back at the bound.** "Seat next party" releases its reserved lock
+  when the clear is still out at `STAFF_HANG_MS`; a late ok then starts nobody and says
+  `settle.clear.seatFailed` on the floor.
+- **The window says it stopped.** A window that leaves with its pane sends nothing (B9's alternative,
+  unchanged) and the floor now says "Table N is still open — the clear stopped when you left it."
+- **The clear record is durable:** `qr_table_clears.session_id` is NO ACTION (as `qr_orders`), never a
+  cascade. The header's lock order and file name now match the code; the stamp's `ceiling` gate (at
+  and past the bound) and the 2000 default are pinned (M182.11–14, 12 more SQL mutants).
 
 **Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
 → `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause; the floor
