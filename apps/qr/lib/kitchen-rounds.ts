@@ -28,16 +28,16 @@ export type RawCardKey = { cart_id: string; fire_batch: string | null; fire_at: 
 /**
  * One Send is one card. A batched line keys by its `fire_batch` ALONE: every Send stamps one
  * (`gen_random_uuid()` or the call's own uuid), so the batch is already unique across carts. A
- * merge (`mms_merge_table_orders`, `p2f_counter_cook_before_paid.sql`) moves each source line one of
- * two ways. When no target line matches it, it RE-PARENTS the line (`cart_id` rewritten, batch and
- * state kept), and a batch-only key keeps that card, its clock and its decided round — keyed on the
- * cart too, it would land as a NEW arrival (a flash, a chime, "N new") for food cooking for minutes
- * (the blind pass on #328). When a target line matches it (the same dish, modifiers, state, price,
- * fulfillment and adder, no note, no seat — the batch is NOT compared), it FOLDS the source line into
- * that line (the source row deleted, its qty added), fired and in-progress lines included: that
- * portion then cooks on the card of the TARGET line's Send, and the source card shrinks, or leaves
- * the board, with no bump. That is a known limit of "one Send, one card" (m5 §H.3); the kitchen
- * cannot see a fold after it happens. A batchless line (the pre-batch legacy edge) keys by its cart
+ * merge (`mms_merge_table_orders`, restated last in `pd5b_settlement_batch_and_fold.sql`) moves each
+ * source line one of two ways. When no target line matches it, it RE-PARENTS the line (`cart_id`
+ * rewritten, batch and state kept), and a batch-only key keeps that card, its clock and its decided
+ * round — keyed on the cart too, it would land as a NEW arrival (a flash, a chime, "N new") for food
+ * cooking for minutes (the blind pass on #328). When a target line matches it (the same dish,
+ * modifiers, state, price, fulfillment and adder, no note, no seat), it FOLDS the source line into
+ * that line (the source row deleted, its qty added). Since PD5b a FIRED or IN-PROGRESS line folds only
+ * into a line of the SAME batch (m5 §H.4), so a cooking portion never moves onto another Send's card;
+ * two carts never share a batch, so in practice it re-parents and its card follows it. Drafts and
+ * served lines fold as before — no card is cooking them. A batchless line (the pre-batch legacy edge) keys by its cart
  * and raw fire time; a line with neither keys to ONE bucket per cart, so its card never remounts,
  * flashes or chimes on a poll (correction 3). The three kinds never collide: the marker names the
  * kind.
@@ -71,22 +71,38 @@ export type RoundLine = {
 };
 
 /**
+ * PD5b — settlement food, told apart by its BATCH. `mms_fire_pending_food` (the drain that fires a
+ * paid cart's unsent drafts) mints its batch as a version-8 UUID; every Send path mints
+ * `gen_random_uuid()`, version 4 (`20261009120300_pd5b_settlement_batch_and_fold.sql` says why the
+ * mark is the batch and not a column). The classification is the version character `8` TOGETHER
+ * with the RFC variant (`8`–`b`): the mint (`overlay(gen_random_uuid()::text placing '8' from 15 for 1)`)
+ * rewrites only character 15 and leaves character 20, the variant `gen_random_uuid()` sets, alone —
+ * so every batch the drain mints has both, and no Send (version 4) can wear the mark (Codex on #340).
+ * The SQL half is pinned by `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1 asserts
+ * both characters), this half by `kitchen-rounds.test.ts` — two mirrors of one rule, as `tax.ts` and
+ * `mms_line_tax` are. A string that is not a canonical UUID of that shape is not a settlement batch.
+ */
+const SETTLEMENT_BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isSettlementBatch(batch: string): boolean {
+  return SETTLEMENT_BATCH.test(batch);
+}
+
+/**
  * The session's round numbers: the rank, by first fire time, of each `fire_batch` among the
  * session's Sends that have cleared the grace (`fire_at <= now`) AND carry a dine-in line (round 3
  * D4 — a make-it-now to-go batch gets its own card with its channel tag and no ordinal, so the room
- * never reads "Round 3" for a table's second order). Settlement food is excluded by WHEN it fired:
- * `mms_fire_pending_food` stamps a dine-in table's unsent drafts at the settlement, on a cart that
- * is already paid, and a Send can never fire on a paid cart — so a batch whose first fire is at or
- * after its cart's order (`paidAtByCart`, the order's `created_at`) is settlement food, never a
- * numbered round (Codex on #328: a hostless table paid at the counter with drafts would otherwise
- * shift its next Send to "Round 3"). An undone Send has no batch and never counts; a Send still
- * inside its grace is not counted yet, so a drawn number can only ever be joined by a higher one.
- * Two batches fired in one instant rank by batch id, so the order is the same on every poll.
+ * never reads "Round 3" for a table's second order). Settlement food is never a numbered round
+ * (Codex on #328: a hostless table paid at the counter with drafts would otherwise shift its next
+ * Send to "Round 3"), and since PD5b it is excluded by its MARK (`isSettlementBatch`), never by when
+ * it fired — a Send that lands inside the 10 s before a guest's payment, or a staff secure-tab close,
+ * is recorded, keeps its number. An undone Send has no batch and never counts; a Send still inside its
+ * grace is not counted yet, so a drawn number can only ever be joined by a higher one. Two batches
+ * fired in one instant rank by batch id, so the order is the same on every poll.
  */
 export function roundOrdinals(
   lines: readonly RoundLine[],
   nowIso: string,
-  paidAtByCart: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyMap<string, number> {
   const nowMs = Date.parse(nowIso);
   const firstFire = new Map<string, number>();
@@ -95,11 +111,10 @@ export function roundOrdinals(
   for (const l of lines) {
     if (l.fire_batch === null) continue;
     if ((l.fulfillment ?? "dinein") === "dinein") carriesDinein.add(l.fire_batch);
+    if (isSettlementBatch(l.fire_batch)) settlement.add(l.fire_batch);
     if (l.fire_at === null) continue;
     const ms = Date.parse(l.fire_at);
     if (!Number.isFinite(ms)) continue;
-    const paidAt = paidAtByCart.get(l.cart_id);
-    if (paidAt !== undefined && ms >= Date.parse(paidAt)) settlement.add(l.fire_batch);
     const prev = firstFire.get(l.fire_batch);
     if (prev === undefined || ms < prev) firstFire.set(l.fire_batch, ms);
   }

@@ -18,17 +18,63 @@ import {
 } from "@/lib/grocery";
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
+import { GroceryNameSheet } from "@/components/grocery/GroceryNameSheet";
+import { GroceryResultRow } from "@/components/grocery/GroceryResultRow";
 import { ScanStage } from "@/components/grocery/ScanStage";
 import { DoorSheet } from "@/components/DoorSheet";
-import { ScanResult } from "@/components/grocery/ScanResult";
+import { ScanResult, type ScanHandoff } from "@/components/grocery/ScanResult";
 import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
-import { fromCamera, slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
+import {
+  fromCamera,
+  offlineSavedToast,
+  queuedChipName,
+  scanNoticeFor,
+  slotAfter,
+  type ScanOutcome,
+  type ScanSlot,
+} from "@/lib/scan-notice";
+import {
+  judgedBarcode,
+  pairMiss,
+  pairingAfterRemoval,
+  pairingAfterUndo,
+  pairingAfterVerdict,
+  type ScanPairing,
+} from "@/lib/scan-pairing";
+import { replayForSheet, sheetTapWaits } from "@/lib/sheet-replay";
+import { useStageCover } from "@/lib/hooks/useStageCover";
+import { freshBasketLanding, nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
+import { usePendingFocus } from "@/lib/hooks/usePendingFocus";
+import { nextRefusal, type SheetRefusal } from "@/lib/sheet-refusal";
+import { useNameSearch } from "@/lib/hooks/useNameSearch";
+import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
+import {
+  chipArmed,
+  NO_WRITES,
+  undoAfterWrite,
+  undoFromAdd,
+  undoMayMint,
+  writeLanded,
+  writeMark,
+  writeStarted,
+  type WriteLedger,
+  undoOpen,
+  undoOutcome,
+  undoSecondsLeft,
+  undoSentence,
+  undoTargetQty,
+  type AddUndo,
+} from "@/lib/scan-undo";
+import { heldFor, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
+import { ADDED_MY } from "@/lib/add-feedback";
+import { SAME_GESTURE_MS } from "@mms/ui";
 import { t as kioskT } from "@/lib/kiosk/strings";
-import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
+import { saleInfo } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { menuHref } from "@/lib/menu-href";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
+  classifyReplay,
   drainCart,
   drainSummary,
   enqueueScan,
@@ -59,6 +105,11 @@ import { scanBasketReady } from "@/lib/camera-state";
 // refresh can never hide items the cart will charge. Every path (scan / search / browse card) adds
 // through the same server-priced scanAdd; steppers ride the existing setQty. No new money surface.
 
+/** PD4 — one opening of the Name sheet: `miss` is the shelf code whose tag opened it (null when a
+ *  camera panel or the chip did), `openedAt` feeds `since_miss_ms`. Each open mints a new object, so
+ *  identity tells the sheet that asked from a later one. */
+type NameSheetOpen = { miss: string | null; openedAt: number };
+
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
   const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
@@ -84,7 +135,12 @@ export default function Grocery() {
   const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
   // Keyed by a monotonic sequence, never the text (Codex round 1): two misses in a row say the SAME
   // sentence, and a text key changed no DOM, so the second was never announced.
-  const [toast, setToast] = useState<{ key: number; text: string } | null>(null);
+  const [toast, setToast] = useState<{
+    key: number;
+    text: string;
+    my?: string;
+    quiet?: boolean;
+  } | null>(null);
   const toastSeq = useRef(0);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
   // M186 — what this basket has already been CHARGED for, read by the scan classifier. REFS, not
@@ -97,7 +153,11 @@ export default function Grocery() {
   const billedRef = useRef<Set<string>>(new Set());
   // The barcode the chip under the viewfinder is about. Set on every scan that lands OR is refused
   // as a repeat, so the "Add another" path is on screen BEFORE the shopper presents a second copy.
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
+  // `viaPairing`: the chip was reached by judging a missed shelf code as the item the shopper added
+  // for it — such a chip never offers "Add another" (lib/scan-chip.ts).
+  const [lastScanned, setLastScanned] = useState<{ code: string; viaPairing: boolean } | null>(
+    null,
+  );
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
   // Phase 1c — the Scan door's result bar (chip or notice), written at EVERY outcome in `add()`
   // through the pure `slotAfter` (lib/scan-notice.ts): a miss persists where the eye is, and a
@@ -105,7 +165,7 @@ export default function Grocery() {
   const [slot, setSlot] = useState<ScanSlot>(null);
   const slotSeq = useRef(0);
   // Carries focus across the result bar's per-outcome re-key (see ScanResult's docblock).
-  const resultFocusRef = useRef(false);
+  const resultFocusRef = useRef<ScanHandoff>(false);
   const noteOutcome = useCallback(
     (outcome: ScanOutcome, via: "scan" | "rescan" | "search" | "browse", barcode: string) => {
       const key = ++slotSeq.current; // taken OUTSIDE the updater (StrictMode re-runs updaters)
@@ -116,6 +176,84 @@ export default function Grocery() {
   // `grocery_scan_miss` fires once per barcode per page life — the 1.5s re-announce cannot inflate
   // it. It harvests the real shelf codes shoppers try (C6: the catalog's codes are synthetic).
   const missedRef = useRef<Set<string>>(new Set());
+  // PD4 — the slot, readable from `add()` (memoized): the SAME jar re-read while its tag shows is
+  // never re-spoken (the slot keeps its key through `slotAfter`; the Toast must keep quiet too).
+  const slotRef = useRef<ScanSlot>(null);
+  useEffect(() => {
+    slotRef.current = slot;
+  }, [slot]);
+  // PD4 (m4 graft 3) — the miss→item PAIRING: the shelf code that missed, mapped to the item the
+  // shopper then added from the sheet that miss opened. A page ref for the page's life, never stored
+  // or sent; it may only ever produce a REPEAT verdict (lib/scan-pairing.ts).
+  const pairingRef = useRef<ScanPairing | null>(null);
+  // PD4 (m4 screen 2) — the Name sheet over the live lens: `miss` is the barcode whose tag opened it
+  // (null when a camera panel did), `openedAt` feeds `since_miss_ms`. Mirrored in a ref so the
+  // memoized `add()` can read which sheet an add came from without a dependency on the state.
+  const [nameSheet, setNameSheet] = useState<NameSheetOpen | null>(null);
+  const nameSheetRef = useRef(nameSheet);
+  useEffect(() => {
+    nameSheetRef.current = nameSheet;
+  }, [nameSheet]);
+  // The element that opened the sheet (the tag's "Search by name", or a panel's): the close-restore
+  // target while it is still mounted. After an add the tag is gone, so focus goes to the chip.
+  const nameSheetOpenerRef = useRef<HTMLElement | null>(null);
+  const closedByAddRef = useRef(false);
+  // A locked / settling refusal while the sheet is open replaces its state line (a bottom toast
+  // would sit behind the keyboard); cleared on the next keystroke and on close.
+  // Keyed (lib/sheet-refusal.ts): an identical refusal still arrives as a new node in the sheet's
+  // live region, and its Burmese half rides with it.
+  const [sheetRefusal, setSheetRefusal] = useState<SheetRefusal | null>(null);
+  // PD4 (B2 · B3 · D3) — the add-Undo: its window (lib/scan-undo.ts), the write's phase, and the
+  // keyboard hold that pauses the window (lib/undo-hold.ts, WCAG 2.2.1). `tick` re-renders the
+  // seconds leaf and expires the window; the write itself is NEVER optimistic.
+  const [undo, setUndo] = useState<AddUndo | null>(null);
+  // PD4 (Codex on #329's head ff29547) — every write of an item, tallied per barcode: a sheet add
+  // mints its Undo only when no other write of the item started or landed inside its own window and
+  // none is still in flight (`undoMayMint`, lib/scan-undo.ts). A ref: the handlers read it at the
+  // instant they decide, never through a render.
+  const writesRef = useRef<WriteLedger>(NO_WRITES);
+  // Mirrors `undo` for `add()`'s repeat toast (a memoized handler; render reads the state).
+  const undoRef = useRef<AddUndo | null>(null);
+  useEffect(() => {
+    undoRef.current = undo;
+  }, [undo]);
+  const [undoRemoving, setUndoRemoving] = useState(false);
+  const holdRef = useRef<Hold>(NO_HOLD);
+  // The seconds leaf, as STATE: render never reads the clock or the hold ref (react purity); the
+  // window's interval below writes it from the pure rules.
+  const [undoLeft, setUndoLeft] = useState(0);
+  // The Undo pill unmounts under focus when the window ends (a tap, or expiry): the handoff to the
+  // chip's next action runs AFTER React commits `setUndo(null)` (Codex r1 on #329, 4222536451 — a
+  // query before the commit found the Undo button itself, and focus fell to <body> as it left).
+  const undoFocusRef = useRef(false);
+  useEffect(() => {
+    if (undo !== null || !undoFocusRef.current) return;
+    undoFocusRef.current = false;
+    (
+      document.querySelector<HTMLElement>("#scan-stage .scan-result button") ??
+      document.getElementById("scan-stage")
+    )?.focus({ preventScroll: true });
+  }, [undo]);
+  // PD4 (Codex correction 15) — when the Name sheet closed on a server ok: whatever sits in the
+  // chip's action slot refuses taps for `SAME_GESTURE_MS` after it. `chipArmed` (lib/scan-undo.ts)
+  // decides in the handler at the close; a timer of that same constant arms it — never in render.
+  const [sheetClosedAt, setSheetClosedAt] = useState<number | null>(null);
+  const [chipLive, setChipLive] = useState(true);
+  // PD4 — the asking sheet closes on the server's ok ONLY (decision 20), and the arm (correction 15)
+  // and the close-restore onto the chip ride that close. ONE routine for a live ok and a replayed
+  // one (Codex r4 on #329, 4240341719): the replay's close comes under a finger as surely as the
+  // live one's, and the row it takes away is the one a second tap would charge again.
+  const closeSheetOnOk = useCallback((now: number) => {
+    setSheetClosedAt(now);
+    setChipLive(chipArmed(now, now));
+    closedByAddRef.current = true;
+    setSheetRefusal(null);
+    setNameSheet(null);
+  }, []);
+  // PD4 (Codex r4 on #329, 4240341719) — a Name-sheet add the radio QUEUED, keyed by its scan id:
+  // the sheet that asked, owed the replay's answer (lib/sheet-replay.ts). A page ref for the page's
+  // life, never stored or sent — the queue entry itself carries nothing but the scan.
+  const queuedAsksRef = useRef<Map<string, NameSheetOpen>>(new Map());
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
   // radio can resolve AFTER a scan that was issued later — the stale snapshot would make the just-
@@ -169,11 +307,48 @@ export default function Grocery() {
     };
   }, []);
 
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<GroceryHit[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
+  // PD4 — the ONE name search behind Browse and the Name sheet (lib/hooks/useNameSearch.ts): the
+  // query, its rows, the radio, and a query the radio HELD (typed offline, sent when it returns).
+  const {
+    query,
+    hits,
+    searching,
+    searchFailed,
+    held: searchHeld,
+    online,
+    changeQuery,
+    retry: retrySearch,
+    reset: resetSearch,
+  } = useNameSearch(searchGroceryItems);
   const searchRef = useRef<HTMLInputElement>(null);
+  // PD4 — the ONE focus-parking fallback. The Browse door's field is the stable element it always
+  // was; on the Scan door that field is GONE (the Name sheet is its only search), so a removed row,
+  // a fresh basket or an emptied basket sheet parks on the stage box — or, with a camera panel up,
+  // the panel's own title — never on <body> (WCAG 2.4.3; m4 OPEN RISK 2 and the fourth site, addHit).
+  const parkFocus = useCallback(() => {
+    // `fresh` — a FINISHED basket unmounts the stage, so its "Start a fresh basket" is the place
+    // (lib/grocery-focus.ts; Codex r2 on #329, 4226434706 — the Scan door has no field to fall to).
+    parkTarget({
+      field: searchRef.current,
+      fresh: freshBtnRef.current,
+      stage: document.getElementById("scan-stage"),
+      panelTitle: document.getElementById("scan-panel-title"),
+    })?.focus({ preventScroll: true });
+  }, []);
+  // PD4 (Codex on #329's head ff29547) — "Start a fresh basket" parks NOT through `parkFocus`: the
+  // pressed button is its `fresh` candidate and leaves with the banner, and on the Scan door the
+  // stage it should land on mounts a render later. `usePendingFocus` waits for it.
+  const pickFreshLanding = useCallback(
+    () =>
+      freshBasketLanding({
+        field: searchRef.current,
+        stage: document.getElementById("scan-stage"),
+        panelTitle: document.getElementById("scan-panel-title"),
+        retry: document.getElementById("grocery-session-retry"),
+      }),
+    [],
+  );
+  const landFresh = usePendingFocus(pickFreshLanding);
 
   // W4b — the Browse|Scan tab. Browse is the DEFAULT door (lib/grocery-landing.ts says why and what
   // switching it would owe); the camera ask waits until the shopper chooses Scan. Phase 1c — the
@@ -262,15 +437,30 @@ export default function Grocery() {
   // does, so `ScanStage`'s `sheetOpen` reads it too: `decodeHold` treats ANY sheet over the camera
   // as a hold, and a sighting through the scrim must not charge.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  // PD4 (Codex r2 on #329, 4226434718) — each page-owned sheet COVERS the stage from its open until
+  // its exit has finished (lib/hooks/useStageCover.ts): `open` turns false as the exit STARTS, while
+  // the sheet and its scrim are still on screen, and a camera told "no sheet" then would announce —
+  // and `add()` charge — a different jar in frame behind them. Each exit end arrives through that
+  // sheet's `onCloseAutoFocus` (the primitive fires it at unmount, after the exit). The DoorSheet
+  // owns its Sheet and reports only its open state, so it has no exit end: its cover is lifted by
+  // the hook's fail-safe, which outlasts the exit (blind pass 2 on #329 — the exemption that stood
+  // here left its exit uncovered; check:scan-repeat proposition 5).
+  const { covering: nameCovering, exitEnd: nameExitEnd } = useStageCover(nameSheet !== null);
+  const { covering: basketCovering, exitEnd: basketExitEnd } = useStageCover(
+    basketOpen && !cartGone,
+  );
+  const { covering: doorCovering } = useStageCover(doorSheetOpen);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
   // Mirrors TableCartProvider's flash discipline (the grocery page predated it).
   const toastTimer = useRef<number | null>(null);
-  const flash = useCallback((msg: string) => {
+  // PD4 — `my` rides the Padauk half on the pill ("Added … · ထည့်ပြီးပါပြီ"); `quiet` SPEAKS the line
+  // through the one region and draws nothing (a miss already says it where the eye is: the tag).
+  const flash = useCallback((msg: string, opts: { my?: string; quiet?: boolean } = {}) => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     toastSeq.current += 1;
-    setToast({ key: toastSeq.current, text: msg });
+    setToast({ key: toastSeq.current, text: msg, ...opts });
     toastTimer.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
   // Codex round 1 on #313 (P1) — the drain a navigation awaits, bounded, with its deadline's meaning
@@ -342,6 +532,8 @@ export default function Grocery() {
       setSyncFailed(false);
       setCartGone(reason);
       setBasketOpen(false);
+      setNameSheet(null); // PD4 — a finished basket closes the Name sheet too (blind pass on #329)
+      setSheetRefusal(null);
       // Direction-neutral copy — the recovery banner sits at the top of the page, the toast at the
       // bottom; "below"/"above" would point one of them the wrong way.
       flash(
@@ -410,26 +602,38 @@ export default function Grocery() {
       // M186 — removing a line is the shopper saying they don't want it, so its barcode is a new
       // item again. `lines` stays the primary source, so a rolled-back removal is covered by the
       // line reappearing there.
+      // PD4 (Codex r1 on #329, 4222536380) — ANY manual step on the line the Undo is about retires
+      // the Undo: a "−" inside the window already reversed the add, and a live Undo would then write
+      // one fewer again — removing a unit the basket held BEFORE the add.
+      setUndo((prev) => undoAfterWrite(prev, line.barcode));
       if (nextQty <= 0) billedRef.current.delete(line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
+      // PD4 (Codex r4 on #329, 4240341727) — the pairing as the removal found it: a re-read of the
+      // rescued jar while the line is flipped away is judged against a basket without it and SPENDS
+      // the pairing; a refused write must bring it back with the line (`pairingAfterRemoval`).
+      const pairedAtFlip = pairingRef.current;
       setLines((cur) =>
         nextQty <= 0
           ? cur.filter((l) => l.lineId !== line.lineId)
           : cur.map((l) => (l.lineId === line.lineId ? { ...l, qty: nextQty } : l)),
       );
-      // A removed row unmounts under the finger/focus — park focus on the stable search input
-      // (the addHit pattern) so keyboard/SR diners aren't dropped to <body>. BUT not while the W5d
-      // detail sheet is open: its Radix FocusScope owns focus and swaps the sheet's stepper→Add in
-      // place, so yanking focus to the (inert, background) search input would fight the trap.
-      if (nextQty <= 0 && !document.querySelector(".mms-sheet")) searchRef.current?.focus();
+      // A removed row unmounts under the finger/focus — park focus on a stable element (the Browse
+      // field, or the stage box on the Scan door, whose field is gone — PD4) so keyboard/SR diners
+      // aren't dropped to <body>. BUT not while the W5d detail sheet is open: its Radix FocusScope
+      // owns focus and swaps the sheet's stepper→Add in place, so yanking focus to the (inert,
+      // background) page would fight the trap.
+      if (nextQty <= 0 && !document.querySelector(".mms-sheet")) parkFocus();
       flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
       let wrote = false;
+      writesRef.current = writeStarted(writesRef.current, line.barcode);
       try {
         await ledger.track(setQty(line.lineId, nextQty));
         wrote = true;
       } catch {
         flash("Couldn’t update that — try again.");
+      } finally {
+        writesRef.current = writeLanded(writesRef.current, line.barcode);
       }
       // The reconcile ticket is allocated AFTER the write await — so the recovery handler's
       // ticket fast-forward cannot void it. If the shopper swapped carts while the write was in
@@ -458,9 +662,21 @@ export default function Grocery() {
         // optimistic view; the next scan/focus re-syncs. Deliberate read-only swallow.
         if (!wrote && appliedSeq.current === appliedAtFlip) setLines(snapshot);
       }
+      // PD4 — a removed item un-pairs the jar it rescued, but only once the removal LANDED: a
+      // refused write rolls the line back, and the jar must still repeat (Codex r2 on #329,
+      // 4226434713) — RESTORED if a re-read spent it while the line was flipped away (Codex r4,
+      // 4240341727). Settled here, after the reconcile, so a re-read during that read is covered
+      // too; and only for this cart (a fresh basket mid-read reset the pairing on purpose).
+      if (nextQty <= 0 && cartIdRef.current === cartId)
+        pairingRef.current = pairingAfterRemoval(
+          pairingRef.current,
+          line.barcode,
+          wrote,
+          pairedAtFlip,
+        );
       setBusyLine(null);
     },
-    [cartId, busyLine, lines, flash, markCartAlive, markCartGone, ledger],
+    [cartId, busyLine, lines, flash, markCartAlive, markCartGone, ledger, parkFocus],
   );
 
   // W7b — the offline scan queue's page state: what's WAITING to sync for this cart. Queued scans
@@ -483,25 +699,34 @@ export default function Grocery() {
   // is the attempt's identity minted by add() — the SAME id the live attempt carried (or would
   // have), so a lost-response live add and its queued retry dedupe to one write (review HIGH).
   const queueOffline = useCallback(
-    (barcode: string, scanId: string, via: "scan" | "rescan" | "search" | "browse") => {
+    (
+      barcode: string,
+      scanId: string,
+      via: "scan" | "rescan" | "search" | "browse",
+      // PD4 — where the words go: the page toast, or the Name sheet's own state line (`add()`'s
+      // `say`, which knows which sheet the tap came from).
+      say: (text: string, opts?: { my?: string }) => void = flash,
+      // PD4 (Codex r4 on #329) — the Name sheet the tap came from, or null: once the scan is truly
+      // queued, its replay owes that sheet the answer (`drainNow`, lib/sheet-replay.ts).
+      asker: NameSheetOpen | null = null,
+    ) => {
       if (!cartId) return false;
       if (!storageWorks()) {
-        flash("You look offline — scanning needs a connection on this device.");
+        say("You look offline — scanning needs a connection on this device.");
         return true; // handled (honestly): private-mode storage can't hold a queue
       }
       const next = enqueueScan(cartId, barcode, scanId);
       if (next === null) {
-        flash("Too many scans waiting — get back online before adding more.");
+        say("Too many scans waiting — get back online before adding more.");
         return true;
       }
-      const cached = lookupCachedItem(barcode);
-      flash(
-        cached
-          ? `Saved ${cached.name} ≈$${(cached.priceCents / 100).toFixed(2)} — adds when you’re back online.`
-          : "Saved — adds when you’re back online.",
-      );
+      if (asker) queuedAsksRef.current.set(scanId, asker);
+      // PD4 (B4/B5) — "we’ll CHECK it", never "adds": the cache cannot promise the server's verdict,
+      // and a code it does not know is UNKNOWN, never "not in the app" (lib/scan-notice.ts).
+      const saved = offlineSavedToast(lookupCachedItem(barcode));
+      say(saved.text, saved.my ? { my: saved.my } : {});
       syncPending();
-      setLastScanned(barcode); // the chip's "Add another" is the offline second copy too
+      setLastScanned({ code: barcode, viaPairing: false }); // the offline second copy rides it too
       noteOutcome("queued", via, barcode);
       return true;
     },
@@ -512,35 +737,80 @@ export default function Grocery() {
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
     async (barcode: string, via: "scan" | "rescan" | "search" | "browse") => {
+      // PD4 (blind pass on #329) — the Name sheet this tap came from, captured BEFORE any await: a
+      // ✕ mid-write must not lose the pairing or the Undo the server's ok then owes. Inside that
+      // sheet EVERY refusal is said in its own state line (the bottom toast sits behind the raised
+      // keyboard — `--kb-inset` lifts the sheet, not the toast region); outside it, the toast.
+      const sheet = via === "search" ? nameSheetRef.current : null;
+      // The sheet that ASKED is still the open one — compared by identity (each open mints a new
+      // object), so a sheet dismissed mid-write, or replaced by a NEW miss's sheet, never receives
+      // this add's words or its close (Codex r1 on #329, 4222536467, the second case).
+      const askerOpen = () => sheet !== null && nameSheetRef.current === sheet;
+      const say = (text: string, opts: { my?: string; quiet?: boolean } = {}) => {
+        if (askerOpen()) setSheetRefusal((prev) => nextRefusal(prev, text, opts.my));
+        else flash(text, opts);
+      };
       // M186 — a CAMERA scan of a barcode this basket already pays for is NEVER charged again. The
       // decode stream cannot tell a jar resting in frame from a second identical jar, so every
       // purely temporal rule gets one direction wrong (see `lib/scan-gate.ts`); the basket can tell,
       // and it is never a guess. A second copy is the chip's "Add another" — `via: "rescan"`, a
       // deliberate tap, which is also why Browse and search taps skip this entirely.
       if (via === "scan") {
+        // PD4 (graft 3) — a shelf code paired to a rescued item is JUDGED as that item, so the
+        // re-read jar gets M186's repeat verdict and its shipped sentence. The judged code is never
+        // the code charged: `scanAdd` below always takes `barcode` itself (check:scan-repeat
+        // proposition 4), and a pairing whose item has left the basket is SPENT here — the sighting
+        // falls through to the unknown tag, never to a charge of the guess (lib/scan-pairing.ts).
+        const judged = judgedBarcode(pairingRef.current, barcode);
         const verdict = classifyScan(
           {
             lines: linesRef.current,
             queued: pendingRef.current.map((q) => q.barcode),
             billed: [...billedRef.current],
           },
-          barcode,
+          judged,
         );
         if (verdict.kind === "repeat") {
           // Never silent: the toast says what happened and the chip below the viewfinder carries
           // the one-tap path. A refusal the shopper can't see is a wrong number on the receipt.
-          setLastScanned(barcode);
-          noteOutcome("repeat", via, barcode);
-          flash(
-            verdict.where === "basket"
-              ? `${verdict.name} is already in your basket (×${verdict.qty}) — tap “Add another” for a second.`
-              : verdict.where === "queued"
-                ? "Already saved — it adds when you’re back online. Tap “Add another” for a second."
-                : "Already added — your list is out of date. Tap “Add another” for a second.",
+          // The toast's "Add another" clause reads the SAME predicate the chip draws from
+          // (`chipAction`, lib/scan-chip.ts) over the same facts (these refs mirror the chip's
+          // state): never an instruction for a control the slot does not hold (blind pass 2 on
+          // #329) — the Undo's window, an unknown saved scan, a code the view does not show, or a
+          // chip reached through a pairing.
+          const viaPairing = judged !== barcode;
+          setLastScanned({ code: judged, viaPairing });
+          noteOutcome("repeat", via, judged);
+          const action = chipAction(
+            chipFactsFor(judged, viaPairing, {
+              lines: linesRef.current,
+              queued: pendingRef.current.map((q) => q.barcode),
+              undoBarcode: undoRef.current?.barcode ?? null,
+              cached: (code) => lookupCachedItem(code) !== null,
+            }),
           );
+          flash(repeatSentence(verdict, action, viaPairing));
           return;
         }
+        pairingRef.current = pairingAfterVerdict(pairingRef.current, judged, verdict);
       }
+      // PD4 (blind pass on #329; Codex r4 on #329, 4240341719) — a sheet row whose code already waits
+      // in the offline queue is refused, and nothing is written, WHATEVER the radio says: each tap
+      // mints a fresh scanId, so a second queued tap would land twice at replay, and a tap after the
+      // radio returns — before the replay answers — would charge live with the replay landing a
+      // second unit behind it (lib/sheet-replay.ts; check:scan-repeat proposition 7). The camera's
+      // `classifyScan` refuses a queued code the same way; a second unit is "Add another".
+      if (sheet && sheetTapWaits(pendingRef.current, barcode)) {
+        say("Already saved — we’ll check it when you’re back online.");
+        return;
+      }
+      // PD4 — from here this barcode is WRITTEN (live, or queued for a replay): an open Undo for it
+      // would write the add's confirmed qty minus one ABSOLUTELY and take this unit too, so it is
+      // retired (`undoAfterWrite`, check:scan-repeat proposition 6). A sheet add that lands mints
+      // its own. Its pill unmounting under focus parks through the effect above.
+      if (undoRef.current?.barcode === barcode)
+        undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
+      setUndo((prev) => undoAfterWrite(prev, barcode));
       // W7b — ONE identity per physical scan, minted at the top: the live attempt SENDS it and any
       // queued retry REUSES it, so the server's scan-event ledger dedupes a lost-response live add
       // against its own replay (review HIGH: a fresh id minted at enqueue time crosses idempotency
@@ -551,13 +821,13 @@ export default function Grocery() {
       // honest refusal — scan verdicts (unknown/weighed/terminal) can only come from the server,
       // and a queued scan later refused is a lie about money.
       if (typeof navigator !== "undefined" && !navigator.onLine && cartId) {
-        queueOffline(barcode, scanId, via);
+        queueOffline(barcode, scanId, via, say, sheet);
         return;
       }
       if (!cartId) {
         // The market renders before the basket exists (W4b) — a scan/tap here must SAY why nothing
         // happened, never silently no-op (adversarial HIGH-1).
-        flash(
+        say(
           sessionError
             ? "Basket unavailable — use Retry above, then add again."
             : "Still starting your basket — try again in a moment.",
@@ -565,6 +835,10 @@ export default function Grocery() {
         return;
       }
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
+      // The write joins the item's ledger; `mark` is taken right after its OWN start, so the mint
+      // below can tell whether any other write of the item crossed it (lib/scan-undo.ts).
+      writesRef.current = writeStarted(writesRef.current, barcode);
+      const mark = writeMark(writesRef.current, barcode);
       let r;
       try {
         r = await ledger.track(scanAdd(cartId, barcode, scanId));
@@ -577,18 +851,20 @@ export default function Grocery() {
           if (
             typeof navigator !== "undefined" &&
             !navigator.onLine &&
-            queueOffline(barcode, scanId, via)
+            queueOffline(barcode, scanId, via, say, sheet)
           )
             return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
           // the second failure in an outage is already attributed). The probe runs fire-and-forget
           // to warm that cache — deliberately NOT awaited: a re-flash after the 1800ms toast timer
           // would announce twice for one failure and pop a toast seconds after the tap.
-          noteOutcome("transport", via, barcode); // leaves the bar as it was — the toast speaks
-          flash(failureCopy(truth, "add that"));
+          noteOutcome("transport", via, barcode); // leaves the bar as it was — the words speak
+          say(failureCopy(truth, "add that"));
           void diagnose();
         }
         return;
+      } finally {
+        writesRef.current = writeLanded(writesRef.current, barcode);
       }
       // An abandoned cart's response fires NOTHING — not the toast, not the counter, not the
       // analytics event, not a state transition. The seq guard alone couldn't stop these side
@@ -610,7 +886,7 @@ export default function Grocery() {
         // the only one left when `r.lines` is null (the post-write read failed), and that is
         // precisely when a second sighting would otherwise bill again.
         billedRef.current.add(barcode);
-        setLastScanned(barcode);
+        setLastScanned({ code: barcode, viaPairing: false });
         noteOutcome("ok", via, barcode);
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
@@ -622,7 +898,33 @@ export default function Grocery() {
         // view to apply and no ordering ticket to trust, so no state transition either — the next
         // sync settles it.
         if (r.lines) markCartAlive(seq, r.lines);
-        flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
+        // PD4 — the Toast only SPEAKS the add (B3); the Undo lives in the chip's slot.
+        flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`, { my: ADDED_MY });
+        // PD4 — an add from the Name sheet: the sheet closes on the server's ok ONLY (decision
+        // 20); the tag becomes the disc chip; a miss-opened sheet pairs its shelf code to this item
+        // (graft 3); the Undo is offered only when the server's lines came back; and the chip arms
+        // after the same-gesture window (correction 15). The analytics event carries the
+        // real-code → item pair C6 asks for (graft 2) — properties, never auto-applied.
+        const now = performance.now();
+        if (sheet) {
+          if (sheet.miss) pairingRef.current = pairMiss(sheet.miss, barcode);
+          // Built from the add's OWN confirmed view (`r.lines`), keeping its qty: the Undo writes
+          // exactly one fewer — never a qty from the client view (lib/scan-undo.ts). Minted ONLY
+          // when no other write of the item crossed this add (`undoMayMint`): a replay that started
+          // first and landed after this add's read would leave that view a unit short, and "one
+          // fewer" of it removes both (Codex on #329's head ff29547). No Undo then; the stepper is.
+          const u = undoMayMint(writesRef.current, barcode, mark)
+            ? undoFromAdd({ barcode, lines: r.lines, openedAt: now, miss: sheet.miss })
+            : null;
+          setUndo(u);
+          setUndoLeft(u ? undoSecondsLeft(u, now) : 0);
+          holdRef.current = NO_HOLD;
+          setUndoRemoving(false);
+          // The pairing and the Undo belong to the asking sheet even if it was dismissed mid-write;
+          // the CLOSE (and the arm and the close-restore that ride it) only to that sheet while it
+          // is still the open one — never to a later miss's sheet the shopper is now using.
+          if (askerOpen()) closeSheetOnOk(now);
+        }
         posthog.capture("grocery_item_scanned", {
           barcode,
           item_name: r.name,
@@ -631,6 +933,9 @@ export default function Grocery() {
           cart_id: cartId,
           cart_size: addedRef.current,
           via,
+          ...(sheet?.miss
+            ? { miss_barcode: sheet.miss, since_miss_ms: Math.round(now - sheet.openedAt) }
+            : {}),
         });
       } else if (
         r.reason === "weighed_item" ||
@@ -640,15 +945,38 @@ export default function Grocery() {
         // Phase 1c — a catalog miss persists in the stage's result bar (a camera miss only — see
         // the `noteOutcome` above the chain); the toast says the same words once, as the view's
         // announcement. The weighed / unavailable wording is the kiosk's shipped copy, named once.
+        // PD4 (m4 decisions 11 · 12) — the miss is SPOKEN, never drawn: the tag already says it
+        // where the eye is. The SAME jar re-read while its tag shows is never re-spoken (the slot
+        // keeps its key through `slotAfter`; the server call still ran).
+        // The key is the barcode AND the verdict (blind pass on #329): the same code answering
+        // weighed after unknown is a NEW tag, re-keyed by `slotAfter`, and is spoken again.
+        const prev = slotRef.current;
+        const notice = scanNoticeFor(r.reason, barcode);
+        const sameTag =
+          fromCamera(via) &&
+          prev?.kind === "notice" &&
+          prev.notice.barcode === barcode &&
+          prev.notice.kind === notice?.kind;
+        // Only a CAMERA miss has a tag to be quiet for: a stale Browse card or sheet row is a
+        // tapped name with no tag, so its refusal is drawn (or said in the sheet's own line).
+        const quiet = fromCamera(via);
         if (r.reason === "unknown_barcode") {
-          flash("We couldn’t find that item — search by name.");
+          if (!sameTag)
+            say(
+              quiet
+                ? "This code isn’t in the app yet — search by name, or ask at the counter."
+                : "We couldn’t add that one — it’s no longer in the app. Please ask at the counter.",
+              { quiet },
+            );
           // A SHELF miss only: a stale Browse card or search result is not a shelf code (G22).
           if (fromCamera(via) && !missedRef.current.has(barcode)) {
             missedRef.current.add(barcode);
             posthog.capture("grocery_scan_miss", { barcode });
           }
-        } else {
-          flash(kioskT("en", r.reason === "weighed_item" ? "scanWeighed" : "scanUnavailable"));
+        } else if (!sameTag) {
+          say(kioskT("en", r.reason === "weighed_item" ? "scanWeighed" : "scanUnavailable"), {
+            quiet,
+          });
         }
       } else if (isTerminal(r.reason)) {
         // W9d — the add failed because the BASKET is finished, not because of the radio: the
@@ -659,16 +987,20 @@ export default function Grocery() {
         // recovered onto a fresh basket would blank the fresh list and resurrect the dead banner
         // over it (pre-merge review HIGH; the guard exists for exactly that response).
         markCartGone(seq, r.reason);
-      } else if (r.reason === "locked") {
-        flash("Hang on — this basket’s being checked out.");
-      } else if (r.reason === "settling") {
-        flash("Hang on — this basket’s being paid for.");
+      } else if (r.reason === "locked" || r.reason === "settling") {
+        const line =
+          r.reason === "locked"
+            ? "Hang on — this basket’s being checked out."
+            : "Hang on — this basket’s being paid for.";
+        // PD4 — inside the Name sheet the sentence replaces its state line (a bottom toast would
+        // sit behind the keyboard) and the sheet stays open; elsewhere the toast says it.
+        say(line);
       } else {
         // `unreadable` — we couldn't establish why. Same honest transient copy as a thrown error;
         // NEVER the fresh-basket offer (a re-mint against a merely-unreadable cart abandons lines).
         // W10a — one toast from the truth we hold; the probe warms the cache for the next failure
         // (see the transport catch above for why this is not awaited).
-        flash(failureCopy(truth, "add that"));
+        say(failureCopy(truth, "add that"));
         void diagnose();
       }
     },
@@ -682,6 +1014,7 @@ export default function Grocery() {
       queueOffline,
       noteOutcome,
       ledger,
+      closeSheetOnOk,
     ],
   );
 
@@ -699,11 +1032,45 @@ export default function Grocery() {
     drainingRef.current = true;
     try {
       let delivered = 0;
+      // PD4 (Codex r4 on #329) — the sheet a rejected replay owes its words, and the sheets a
+      // delivered replay closed (the ref that mirrors `nameSheet` catches up only after a render).
+      // (An assertion, not an annotation: TS would narrow an annotated `null` past the callback.)
+      let speakIn = null as NameSheetOpen | null;
+      const closed = new Set<NameSheetOpen>();
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
+        setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too
+        writesRef.current = writeStarted(writesRef.current, entry.barcode);
         const seq = ++reqSeq.current;
-        const r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
+        let r: Awaited<ReturnType<typeof scanAdd>>;
+        try {
+          r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
+        } finally {
+          writesRef.current = writeLanded(writesRef.current, entry.barcode);
+        }
+        // …and again once it LANDS: an Undo minted while it was in flight would take its unit too.
+        if (r.ok) setUndo((prev) => undoAfterWrite(prev, entry.barcode));
         if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;
+        // PD4 (Codex r4 on #329, 4240341719) — a Name-sheet add the radio queued: its replay is that
+        // sheet's answer (lib/sheet-replay.ts). Delivered = the server's ok: pair the miss, and close
+        // the sheet if it is still the open one, with the live ok's own routine — the row a second
+        // tap would charge again leaves with it. A rejection speaks in its line; a retry still owes.
+        const ask = queuedAsksRef.current.get(entry.scanId);
+        if (ask) {
+          const answer = replayForSheet(
+            classifyReplay(r),
+            { miss: ask.miss, open: nameSheetRef.current === ask && !closed.has(ask) },
+            entry.barcode,
+            pairingRef.current,
+          );
+          pairingRef.current = answer.pairing;
+          if (answer.close) {
+            closeSheetOnOk(performance.now());
+            closed.add(ask);
+          }
+          if (answer.speak) speakIn = ask;
+          if (answer.settled) queuedAsksRef.current.delete(entry.scanId);
+        }
         if (r.ok) {
           delivered += 1;
           if (r.lines) markCartAlive(seq, r.lines);
@@ -725,14 +1092,21 @@ export default function Grocery() {
       // (review MED). drainSummary is the pure, unit-pinned sequencing rule.
       const summary = drainSummary(
         delivered,
-        outcomes.filter((o) => o.verdict === "rejected").map((o) => o.entry.barcode),
+        outcomes.filter((o) => o.verdict === "rejected").map((o) => o.reason ?? "unknown_barcode"),
       );
-      if (summary) flash(summary);
+      if (summary) {
+        // A rejected sheet add's words go to that sheet's own line while it is still the open one —
+        // the "Saved…" there is no longer true, and the toast sits behind the keyboard.
+        const sheet = speakIn;
+        if (sheet !== null && !closed.has(sheet) && nameSheetRef.current === sheet)
+          setSheetRefusal((prev) => nextRefusal(prev, summary));
+        else flash(summary);
+      }
     } finally {
       drainingRef.current = false;
       syncPending();
     }
-  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger]);
+  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger, closeSheetOnOk]);
 
   useEffect(() => {
     const onOnline = () => void drainNow();
@@ -749,21 +1123,6 @@ export default function Grocery() {
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
 
-  // M186 — the ONE deliberate way to buy a second of something the basket already holds. `rescan`
-  // skips the repeat classification (that is the whole point: the shopper chose it) and otherwise
-  // travels the same authorized scanAdd path, so the server's "a repeat barcode deliberately
-  // counts" is reached by a tap instead of by a timing guess. Serialized like the browse adder so
-  // a double-tap can't buy two.
-  const addAnother = useCallback(async () => {
-    if (!lastScanned || addingBarcode || busyLine) return;
-    setAddingBarcode(lastScanned);
-    try {
-      await add(lastScanned, "rescan");
-    } finally {
-      setAddingBarcode(null);
-    }
-  }, [lastScanned, addingBarcode, busyLine, add]);
-
   // Named ONCE from the basket (falling back to the cached catalog while the line is still in
   // flight) — never a copy of what the scan returned, so the chip can never drift from the list
   // beside it or from what the shopper is actually being charged.
@@ -773,32 +1132,94 @@ export default function Grocery() {
   // basket" about something the basket no longer holds (and `billedRef` has already dropped, so a
   // re-scan correctly charges again): the chip would be the only thing on screen disagreeing with
   // the list under it.
-  const lastScannedLine = lastScanned ? lines.find((l) => l.barcode === lastScanned) : undefined;
-  const lastScannedQueued = lastScanned
-    ? pendingScans.some((q) => q.barcode === lastScanned)
-    : false;
-  const lastScannedName =
-    lastScannedLine?.name ??
-    (lastScanned ? lookupCachedItem(lastScanned)?.name : undefined) ??
-    null;
-  const showRescanChip = Boolean(lastScanned) && (Boolean(lastScannedLine) || lastScannedQueued);
+  const lastScannedLine = lastScanned
+    ? lines.find((l) => l.barcode === lastScanned.code)
+    : undefined;
+  // PD4 (B4) — a QUEUED code is named by the cache or as "A saved scan", never by its digits.
+  const lastScannedCached =
+    lastScanned && !lastScannedLine ? lookupCachedItem(lastScanned.code) : null;
+  const chipName = lastScannedLine
+    ? { name: lastScannedLine.name, my: lastScannedLine.nameMy }
+    : lastScanned
+      ? queuedChipName(lastScanned.code, lastScannedCached)
+      : null;
+  // PD4 (blind pass 2 on #329) — the chip's action slot: ONE predicate (`chipAction`), read here for
+  // the chip and in `add()`'s repeat toast for its "Add another" clause, over the same facts.
+  const chipFacts = lastScanned
+    ? chipFactsFor(lastScanned.code, lastScanned.viaPairing, {
+        lines,
+        queued: pendingScans.map((q) => q.barcode),
+        undoBarcode: undo?.barcode ?? null,
+        cached: (code) => lookupCachedItem(code) !== null,
+      })
+    : null;
+  const chipNow = chipFacts ? chipAction(chipFacts) : "none";
+  const showRescanChip = chipFacts !== null && chipDrawn(chipFacts);
 
-  // Phase 1c — "Search by name" from any stage panel or the unknown-barcode notice: the one field,
-  // centred (instant under reduced motion), focused without a second scroll.
-  const focusSearch = useCallback(() => {
-    const el = searchRef.current;
-    if (!el) return;
-    const reduce =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ block: "center", behavior: reduce ? "instant" : "smooth" });
-    el.focus({ preventScroll: true });
+  // M186 — the ONE deliberate way to buy a second of something the basket already holds. `rescan`
+  // skips the repeat classification (that is the whole point: the shopper chose it) and otherwise
+  // travels the same authorized scanAdd path, so the server's "a repeat barcode deliberately
+  // counts" is reached by a tap instead of by a timing guess. Serialized like the browse adder so
+  // a double-tap can't buy two. PD4 — it charges ONLY what the chip draws "Add another" for
+  // (`chipNow`): never a code reached through a pairing (check:scan-repeat proposition 4).
+  const addAnother = useCallback(async () => {
+    if (!lastScanned || chipNow !== "add-another" || addingBarcode || busyLine) return;
+    const code = lastScanned.code;
+    setAddingBarcode(code);
+    try {
+      await add(code, "rescan");
+    } finally {
+      setAddingBarcode(null);
+    }
+  }, [lastScanned, chipNow, addingBarcode, busyLine, add]);
+
+  // PD4 (m4 decisions 4 · 5) — every "Search by name" on the Scan door (the tag's, the paper
+  // panels') opens the ONE Name sheet over the still-streaming lens. `miss` is the shelf code whose
+  // tag opened it: only that sheet may draw the tag for the counter (B6). The opener is captured for
+  // the close-restore; the field is cleared so a new miss starts clean.
+  const openNameSheet = useCallback(
+    (miss: string | null) => {
+      // iOS Safari leaves `activeElement` on <body> after a touch tap (blind pass on #329): a body
+      // "opener" would park the close-restore nowhere, so it is refused and the chain falls through
+      // to the chip's action, then the stage.
+      const ae = document.activeElement;
+      nameSheetOpenerRef.current = ae instanceof HTMLElement && ae !== document.body ? ae : null;
+      closedByAddRef.current = false;
+      resetSearch();
+      setSheetRefusal(null);
+      setNameSheet({ miss, openedAt: performance.now() });
+    },
+    [resetSearch],
+  );
+  const closeNameSheet = useCallback(() => {
+    setSheetRefusal(null);
+    setNameSheet(null);
   }, []);
-  // Dismiss clears the bar and hands focus back to the stage box (the ✕ that held it unmounts).
-  const dismissSlot = useCallback(() => {
-    setSlot(null);
-    document.getElementById("scan-stage")?.focus();
-  }, []);
+  // Close-restore for the Name sheet (WCAG 2.4.3): after an add the opener (the tag) has unmounted
+  // with the tag, so focus lands on the chip itself (its name and what the basket holds, read
+  // first; the Undo is one Tab on — landing ON the Undo would carry the sheet input's
+  // `:focus-visible` onto it and hold its window for a touch shopper); otherwise the opener while
+  // it is still mounted; then the stage box; then a camera panel's own title (B6's fallback chain).
+  const nameSheetCloseFocus = useCallback(
+    (e: Event) => {
+      e.preventDefault();
+      // The exit has FINISHED (this fires at unmount): the stage may announce sightings again.
+      nameExitEnd();
+      const target = nameSheetCloseTarget({
+        closedByAdd: closedByAddRef.current,
+        chip: document.querySelector<HTMLElement>("#scan-stage .scan-chip"),
+        chipAction: document.querySelector<HTMLElement>("#scan-stage .scan-result button"),
+        opener: nameSheetOpenerRef.current,
+        // A finished basket unmounts the stage, the tag and the chip (lib/grocery-focus.ts).
+        fresh: freshBtnRef.current,
+        stage: document.getElementById("scan-stage"),
+        panelTitle: document.getElementById("scan-panel-title"),
+      });
+      closedByAddRef.current = false;
+      target?.focus({ preventScroll: true });
+    },
+    [nameExitEnd],
+  );
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
   // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
@@ -829,40 +1250,6 @@ export default function Grocery() {
     [add, addingBarcode, busyLine, cartId, cartGone, syncFailed, hydrated, flash],
   );
 
-  // Debounced name search. All setState lives in the async timeout callback — never synchronously in
-  // the effect body (cascading-render lint). A query under 2 chars clears results without a round-trip;
-  // otherwise we fetch 220 ms after the last keystroke.
-  useEffect(() => {
-    const q = query.trim();
-    let active = true;
-    const t = window.setTimeout(() => {
-      if (!active) return;
-      if (q.length < 2) {
-        setHits(null);
-        setSearchFailed(false);
-        setSearching(false);
-        return;
-      }
-      setSearching(true);
-      searchGroceryItems(q)
-        .then((res) => {
-          if (!active) return;
-          setHits(res);
-          setSearchFailed(false);
-        })
-        .catch(() => {
-          if (!active) return;
-          setHits([]);
-          setSearchFailed(true); // distinguish a lookup failure from a genuine zero-result search
-        })
-        .finally(() => active && setSearching(false));
-    }, 220);
-    return () => {
-      active = false;
-      window.clearTimeout(t);
-    };
-  }, [query]);
-
   // Search-hit add — same serialization as the browse cards (adversarial MED-3: an unguarded
   // double-tap on a result row was two server adds). Pre-basket, `add` flashes the honest notice
   // and the results STAY (clearing them would read as success).
@@ -872,16 +1259,19 @@ export default function Grocery() {
       return;
     }
     if (addingBarcode || busyLine) return;
+    // PD4 — inside the Name sheet a refusal is said in its own state line (blind pass on #329).
+    const say = (text: string) =>
+      nameSheetRef.current ? setSheetRefusal((prev) => nextRefusal(prev, text)) : flash(text);
     // A finished basket refuses locally — the browse cards' rule, applied to hits too.
     if (cartGone) {
-      flash("This basket is finished — use “Start a fresh basket” to keep shopping.");
+      say("This basket is finished — use “Start a fresh basket” to keep shopping.");
       return;
     }
     // Same invisible-basket refusal as the browse cards (pre-merge review) — an add against a
     // basket whose truth failed to load could double a qty the shopper can't see. Direction-neutral
     // copy: the truth strip's Retry renders below the results list.
     if (syncFailed && !hydrated) {
-      flash("Couldn’t check your basket — tap Retry, then add again.");
+      say("Couldn’t check your basket — tap Retry, then add again.");
       return;
     }
     setAddingBarcode(h.barcode);
@@ -890,12 +1280,102 @@ export default function Grocery() {
     } finally {
       setAddingBarcode(null);
     }
-    setQuery("");
-    setHits(null);
+    // PD4 — inside the Name sheet the field keeps its words (retyping stays one tap away) and the
+    // sheet's own close-restore owns focus after an ok (`nameSheetCloseFocus`); a refused add left
+    // the sheet open with the rows still there. On the Browse door the field clears and takes focus
+    // back from the unmounted row, as before.
+    if (nameSheetRef.current) return;
+    resetSearch();
     // Tapping a hit unmounts the result button that held focus — return focus to the search input
     // (the natural place to keep going) so a keyboard / screen-reader diner isn't dropped to <body>.
     searchRef.current?.focus();
   }
+
+  // PD4 (B2 · D3) — the add-Undo, NEVER optimistic: the line and both figures hold until `setQty`'s
+  // write resolves and the confirmed read lands; "Removing…" rides the pill while it is in flight,
+  // and "Removed {name}" is said only after. A refused write says so and leaves the window open.
+  const undoAdd = useCallback(async () => {
+    const u = undo;
+    if (!u || !cartId || busyLine || undoRemoving) return;
+    // The target is the add's OWN confirmed qty minus one (lib/scan-undo.ts) — never a qty from the
+    // client view, which a read issued after the add can leave a unit short (blind pass 2 on #329).
+    const target = undoTargetQty(u);
+    setUndoRemoving(true);
+    setBusyLine(u.lineId);
+    let wrote = false;
+    try {
+      await ledger.track(setQty(u.lineId, target));
+      wrote = true;
+    } catch {
+      flash("Couldn’t undo that — try again.");
+    }
+    if (cartIdRef.current !== cartId) {
+      setBusyLine(null);
+      setUndoRemoving(false);
+      return;
+    }
+    if (wrote) {
+      // M186 — the barcode is a new item again only once its line is gone.
+      if (target === 0) billedRef.current.delete(u.barcode);
+      // PD4 (Codex r4 on #329, 4240341730) — the Undo reversed the add, so the pairing the add MADE
+      // goes with it whatever qty was written (an add that stepped ×1 → ×2, undone to ×1, must not
+      // leave "you added {item} for this code"); an emptied line spends any pairing to the item.
+      pairingRef.current = pairingAfterUndo(pairingRef.current, u, target === 0);
+      // The words follow what the FOLLOW-UP read confirms, from that read's own lines
+      // (`undoOutcome`): "Removed" only when the line is absent there, "{name} × {qty}" only when it
+      // shows exactly the target, the checking sentence otherwise — never the intended target.
+      const seq = ++reqSeq.current; // the confirmed read — the figures move only on it
+      let read: GroceryLine[] | null = null;
+      let gone = false; // markCartGone spoke — nothing to add
+      try {
+        const r = await getGroceryLines(cartId);
+        if (r.ok) {
+          markCartAlive(seq, r.lines);
+          read = r.lines;
+        } else if (isTerminal(r.reason)) {
+          markCartGone(seq, r.reason);
+          gone = true;
+        } else syncNow(); // a transient refusal: the write landed; the next ticketed read shows it
+      } catch {
+        syncNow(); // deliberate: the write is confirmed; the view follows on the next read
+      }
+      if (!gone && cartIdRef.current === cartId) flash(undoSentence(undoOutcome(u, read), u.name));
+      // The pill unmounts under focus — the post-commit effect above parks it (never <body>).
+      undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
+      setUndo(null);
+    }
+    setBusyLine(null);
+    setUndoRemoving(false);
+  }, [undo, cartId, busyLine, undoRemoving, ledger, flash, markCartAlive, markCartGone, syncNow]);
+  // The window's clock: every 250 ms the leaf re-renders and an expired window closes. A keyboard
+  // hold (`holdRef`, lib/undo-hold.ts) slides the start; a tap's focus never holds.
+  useEffect(() => {
+    if (!undo) return;
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const held = heldFor(holdRef.current, now);
+      // A write in flight never expires under the pill (`undoOpen`'s `removing`).
+      if (undoOpen(undo, now, held, undoRemoving)) setUndoLeft(undoSecondsLeft(undo, now, held));
+      else {
+        undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
+        setUndo(null);
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [undo, undoRemoving]);
+  const holdUndo = useCallback((held: boolean) => {
+    holdRef.current = setHeld(holdRef.current, "slot", held, performance.now());
+  }, []);
+  // The arm (correction 15): at the window's end the chip's action comes alive (the handler set it
+  // refused at the close, from `chipArmed`). UNCONDITIONALLY: `setTimeout` never fires early, and
+  // re-asking the clock here could answer "not yet" under a coarsened `performance.now()` (Firefox
+  // resistFingerprinting rounds it) — a one-shot timer that answered no would never arm the chip
+  // (blind pass 2 on #329).
+  useEffect(() => {
+    if (sheetClosedAt === null) return;
+    const id = window.setTimeout(() => setChipLive(true), SAME_GESTURE_MS);
+    return () => window.clearTimeout(id);
+  }, [sheetClosedAt]);
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
@@ -974,7 +1454,12 @@ export default function Grocery() {
             Couldn’t start your grocery basket — this one’s usually on our end, and adding needs it
             working. Browsing may be spotty too.
           </p>
-          <button type="button" onClick={() => window.location.reload()} className="grocery-retry">
+          <button
+            id="grocery-session-retry"
+            type="button"
+            onClick={() => window.location.reload()}
+            className="grocery-retry"
+          >
             Retry
           </button>
         </div>
@@ -1009,10 +1494,11 @@ export default function Grocery() {
             className="grocery-retry"
             onClick={() => {
               // This very button unmounts on the next render (the banner is gated on cartGone) —
-              // park focus on the always-mounted search input FIRST, and let the toast (the one
-              // live region) say the re-mint is underway; "Starting your basket…" below is
-              // deliberately not live (Codex P2, WCAG 2.4.3).
-              searchRef.current?.focus();
+              // focus goes to a stable element: the Browse field at once, or on the Scan door the
+              // stage once it mounts (`landFresh` waits — never this leaving button; Codex on #329's
+              // head ff29547). The toast (the one live region) says the re-mint is underway;
+              // "Starting your basket…" below is deliberately not live (Codex P2, WCAG 2.4.3).
+              landFresh();
               flash("Starting a fresh basket…");
               // Switching carts: VOID every outstanding ticket (fast-forward appliedSeq past them)
               // and zero the per-cart analytics counter. The seq guard alone only ORDERS responses
@@ -1030,6 +1516,10 @@ export default function Grocery() {
               billedRef.current = new Set();
               setLastScanned(null);
               setSlot(null); // Phase 1c — the dead basket's result bar goes with it
+              pairingRef.current = null; // PD4 — and its pairing, its Undo and its sheet
+              setUndo(null);
+              setNameSheet(null);
+              queuedAsksRef.current.clear(); // …and the sheet adds its queue held (flushed below)
               // W7b — the dead basket's queued scans die with it: replaying them into the fresh
               // cart would charge it for the abandoned basket's scans (the queue's terminal rule).
               if (cartId) flushCart(cartId);
@@ -1085,105 +1575,50 @@ export default function Grocery() {
           </button>
         </div>
 
-        <div className="grocery-search" role="search">
-          <Icon name="search" size={18} />
-          <input
-            ref={searchRef}
-            id="grocery-search"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search grocery items by name"
-            placeholder="Search in English or မြန်မာ…"
-            maxLength={40}
-          />
-        </div>
+        {/* PD4 (m4 decision 4) — the field lives on BROWSE only. The Scan door lost it: it sat
+            above the stage and pushed the camera down, and its only search is now the Name sheet
+            laid over the still-running lens (the tag's and the panels' "Search by name"). */}
+        {tab === "browse" && (
+          <div className="grocery-search" role="search">
+            <Icon name="search" size={18} />
+            <input
+              ref={searchRef}
+              id="grocery-search"
+              type="search"
+              value={query}
+              onChange={(e) => changeQuery(e.target.value)}
+              aria-label="Search grocery items by name"
+              placeholder="Search in English or မြန်မာ…"
+              maxLength={40}
+            />
+          </div>
+        )}
       </div>
 
       {/* Phase 1c — the EBT/SNAP note moved INTO the Browse panel, where the card EBT tags it
           explains live; on Scan the EBT-eligible subtotal line under the figure says it. */}
 
-      {hits !== null && (
+      {hits !== null && tab === "browse" && (
         <ul role="list" aria-label="Search results" className="grocery-results">
           {searching && hits.length === 0 ? (
             <li className="grocery-hint">Searching…</li>
-          ) : searchFailed ? (
+          ) : searchFailed || searchHeld ? (
+            // Held = typed with the radio down, never sent: still "unavailable" here (Browse's
+            // shipped line); the moment the radio is back it reads as Searching… and is sent.
             <li className="grocery-hint">Search unavailable — please try again.</li>
           ) : hits.length === 0 ? (
             <li className="grocery-hint">No matches — try fewer letters.</li>
           ) : (
+            // PD4 — the ONE shared result row (the Name sheet renders the same component), so
+            // Browse and the sheet cannot drift; busy keeps full ink (B10).
             hits.map((h) => (
-              <li key={h.barcode}>
-                <button
-                  type="button"
-                  className="grocery-result"
-                  aria-disabled={addingBarcode !== null || busyLine !== null}
-                  onClick={() => void addHit(h)}
-                  style={addingBarcode === h.barcode ? { opacity: 0.55 } : undefined}
-                >
-                  <span style={{ minWidth: 0 }}>
-                    {h.name}{" "}
-                    {h.ebt && (
-                      <small style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>
-                        EBT
-                      </small>
-                    )}
-                    <small
-                      style={{
-                        display: "block",
-                        color: "var(--t3)",
-                        fontWeight: "var(--fw-medium)",
-                      }}
-                    >
-                      {/* Burmese name carries lang="my" so a screen reader picks the right voice;
-                          the roman meta (brand · size) is appended outside the tag. */}
-                      {h.nameMy && <span lang="my">{h.nameMy}</span>}
-                      {h.nameMy && (h.brand || h.sizeQty) ? " · " : ""}
-                      {[h.brand, sizeLabel(h.sizeQty, h.sizeUnit)].filter(Boolean).join(" · ")}
-                    </small>
-                  </span>
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-end",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <b style={{ fontVariantNumeric: "tabular-nums" }}>
-                      ${(h.unitPriceCents / 100).toFixed(2)}
-                    </b>
-                    {(() => {
-                      const s = saleInfo(h.unitPriceCents, h.compareAtCents);
-                      if (!s) return null;
-                      // Visible "Compare at" (market-comparison framing, not a bare struck number)
-                      // + an sr-only companion so the sale reaches screen readers too. W9d: the
-                      // "−N%" shout is GONE here — search hits are the QUIET surface, like the
-                      // cards' inline strike (the loud percentage now belongs only to featured
-                      // deals, and `mms_grocery_search` doesn't carry the flag; 313 of 396 SKUs
-                      // carry a genuine discount, so ~79% of results would otherwise shout — the
-                      // wallpaper this slice removed).
-                      return (
-                        <>
-                          <small
-                            aria-hidden
-                            style={{ color: "var(--ac-strong)", fontWeight: "var(--fw-bold)" }}
-                          >
-                            Compare at{" "}
-                            <s style={{ color: "var(--t3)", fontWeight: "var(--fw-medium)" }}>
-                              ${(s.compareAtCents / 100).toFixed(2)}
-                            </s>
-                          </small>
-                          <span className="sr-only">
-                            {" "}
-                            compare at ${(s.compareAtCents / 100).toFixed(2)}
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </span>
-                </button>
-              </li>
+              <GroceryResultRow
+                key={h.barcode}
+                hit={h}
+                busy={addingBarcode === h.barcode}
+                disabled={addingBarcode !== null || busyLine !== null}
+                onAdd={() => void addHit(h)}
+              />
             ))
           )}
         </ul>
@@ -1231,34 +1666,55 @@ export default function Grocery() {
             <ScanStage
               onScan={onScan}
               cartReady={scanBasketReady({ cartId, hydrated })}
-              sheetOpen={(basketOpen && !cartGone) || doorSheetOpen}
-              onSearch={focusSearch}
+              // PD4 — the Name sheet joins the camera hold: a sighting through its scrim must not
+              // charge, and closing it never announces the jar in frame (swallow→none keeps the
+              // throttle; check:scan-repeat proposition 3 reads every sheet's own `open`).
+              sheetOpen={
+                (basketOpen && !cartGone) ||
+                doorSheetOpen ||
+                nameSheet !== null ||
+                basketCovering ||
+                nameCovering ||
+                doorCovering
+              }
+              onSearch={() => openNameSheet(null)}
               result={
                 slot?.kind === "notice" ? (
                   <ScanResult
                     key={slot.key}
                     slot={slot}
                     chip={null}
-                    onSearch={focusSearch}
-                    onDismiss={dismissSlot}
+                    onSearch={() => openNameSheet(slot.notice.barcode)}
                     focusHandoffRef={resultFocusRef}
                   />
-                ) : slot?.kind === "chip" && showRescanChip && lastScanned ? (
+                ) : slot?.kind === "chip" && showRescanChip && lastScanned && chipName ? (
                   // M186 — the second-copy path, where the eye is, from the moment the FIRST scan
-                  // lands. Named from the basket (see lastScannedName), never from the response.
+                  // lands. Named from the basket (see chipName), never from the response.
                   <ScanResult
                     key={slot.key}
                     slot={slot}
                     chip={{
-                      name: lastScannedName ?? lastScanned,
+                      name: chipName.name,
+                      nameMy: chipName.my,
                       meta: lastScannedLine
                         ? `In your basket ×${lastScannedLine.qty}`
                         : "Waiting for a connection",
-                      busy: addingBarcode === lastScanned || !!busyLine,
+                      queued: !lastScannedLine,
+                      action: chipNow,
+                      busy: addingBarcode === lastScanned.code || !!busyLine,
+                      armed: chipLive,
                       onAddAnother: () => void addAnother(),
+                      undo:
+                        chipNow === "undo" && undo
+                          ? {
+                              secondsLeft: undoLeft,
+                              removing: undoRemoving,
+                              onUndo: () => void undoAdd(),
+                              onHold: holdUndo,
+                            }
+                          : null,
                     }}
-                    onSearch={focusSearch}
-                    onDismiss={dismissSlot}
+                    onSearch={() => openNameSheet(null)}
                     focusHandoffRef={resultFocusRef}
                   />
                 ) : null
@@ -1302,14 +1758,17 @@ export default function Grocery() {
         >
           <Icon name="offline" size={14} />
           <span>
-            {pendingScans.length} {pendingScans.length === 1 ? "scan" : "scans"} waiting for a
+            {/* PD4 (B4) — "we’ll check", never "they’ll add"; a code the cache does not know is "a
+                saved scan", never its digits. */}
+            {pendingScans.length} saved {pendingScans.length === 1 ? "scan" : "scans"} waiting for a
             connection —{" "}
             {pendingScans
               .slice(0, 3)
-              .map((p) => lookupCachedItem(p.barcode)?.name ?? p.barcode)
+              .map((p) => queuedChipName(p.barcode, lookupCachedItem(p.barcode)).name)
               .join(", ")}
-            {pendingScans.length > 3 ? "…" : ""}. They’ll add when you’re back online; prices
-            confirm then.
+            {pendingScans.length > 3 ? "…" : ""}. We’ll check{" "}
+            {pendingScans.length === 1 ? "it" : "them"} when you’re back online; prices confirm
+            then.
           </span>
         </p>
       )}
@@ -1405,6 +1864,12 @@ export default function Grocery() {
               <span style={{ fontWeight: "var(--fw-bold)" }}>{l.name}</span>{" "}
               {l.ebt && (
                 <small style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>EBT</small>
+              )}
+              {/* G20 (ruling #19) — the catalog's Burmese name under the English, as a block. */}
+              {l.nameMy && (
+                <small className="grocery-line-my" lang="my">
+                  {l.nameMy}
+                </small>
               )}
               <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
                 {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
@@ -1530,11 +1995,39 @@ export default function Grocery() {
             // silently no-ops to <body>. Park on the basket button while it exists; on the
             // stable search input otherwise (the page's remove-row pattern, WCAG 2.4.3).
             e.preventDefault();
-            if (lines.length === 0) searchRef.current?.focus();
+            basketExitEnd(); // the exit has FINISHED — the stage may announce again
+            if (lines.length === 0) parkFocus();
             else basketBtnRef.current?.focus();
           }}
         />
       )}
+
+      {/* PD4 — the Name sheet over the live lens: the Scan door's only search. Opened by the miss
+          tag's "Search by name" (`miss` set: the tag for the counter may show) or a camera panel's
+          (`miss` null: it may not). Closed by the page on the server's ok, or by any of the four
+          exits and "Back to the camera". Its `open` is a `sheetOpen` disjunct above. */}
+      <GroceryNameSheet
+        open={nameSheet !== null}
+        onClose={closeNameSheet}
+        query={query}
+        onQueryChange={(q) => {
+          setSheetRefusal(null);
+          changeQuery(q);
+        }}
+        hits={hits}
+        searching={searching}
+        searchFailed={searchFailed}
+        online={online}
+        miss={nameSheet?.miss ?? null}
+        addingBarcode={addingBarcode}
+        busyLineId={busyLine}
+        refusal={sheetRefusal}
+        onAddHit={(h) => void addHit(h)}
+        // The hero must not swap to "Back to the camera" under the finger while the debounce waits
+        // (blind pass on #329): `retry` turns `searching` on in the SAME render.
+        onRetry={retrySearch}
+        onCloseAutoFocus={nameSheetCloseFocus}
+      />
     </main>
   );
 }

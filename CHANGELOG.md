@@ -47,6 +47,292 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
   anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.
 
+### M268 — the register's settle releases a dead card attempt's promo pin before it reads a total (2026-10-09, #338)
+
+- **The hole (filed by the blind pass on #331):** `mms_promo_discount` honours any non-null pin
+  outright (m70), and only create-intent released a predecessor's. A pin an abandoned card attempt
+  left — both client exits failed, or an attempt from before the cart→intent link — reached the
+  register, whose settle charged a discount a different basket earned. With phone pay parked (PD2)
+  the counter is a dine-in table's only door.
+- **The fix:** the settlement doors (cash, the Terminal, the secure-tab close) run create-intent's
+  sequence on their ordinary path. `acquireSettlementSuperseding` releases the pin under the freeze
+  it just took, awaited, before it answers `acquired`, through the ONE binding
+  (`releasePromoGrantFor`, now holder-aware) and `mms_release_promo_grant_for_settlement` (migration
+  `20261009120000`: every guard in the WHERE, the answer checked, service_role only). A live link
+  is superseded first under the settlement rules; any other refusal answers `unavailable`. A promo
+  applied at the register still discounts, re-derived live.
+- **The freeze must be FRESH (Codex on #338 @ 56a4fd1, P2):** `acquireCartLock` takes a cart under a
+  stale `settle_at` and leaves `settle_by`, so a settle stalled past the 10-minute TTL still matched
+  `settle_by` alone and could clear a successor diner's freshly pinned grant. The release now also
+  requires `settle_at > p_fresh_after`, where the cutoff is the app's own `now - SETTLE_TTL_MS` — the
+  clock `settle_at` is stamped on and the one `acquireCartLock` admits by (the blind pass on
+  5d19601: a DB-side `now() - interval` left a clock skew between them). It answers which refusal
+  it was: 0 when this fresh freeze holds the cart and a live link is in the way (the one answer that
+  may supersede), -1 when the request does not hold the cart.
+- **A `linked` answer is one moment (the blind pass on 5d19601):** the link is read UNDER the freeze
+  (`readLiveIntentUnderFreeze` — one row: the link and the proof this request may act on it), and
+  after the supersede the release runs AGAIN; only its 1 answers `acquired`. A stalled settle stands
+  down instead of cancelling a successor's checkout, and a link someone else dropped (leaving the
+  pin) is cleared by the re-proof instead of priced. Apply `20261009120000` before deploying the
+  code: until then every counter settle refuses as `unavailable` (fail closed).
+- **Freshness alone is not the proof (Codex on #338 @ 688bc1d, P2):** the cutoff is computed before
+  the awaited RPC, so a call delayed past the TTL (a wait on a row lock, say) still read its freeze as
+  fresh while a successor's `acquireCartLock` took the stale freeze and pinned, and cleared that pin
+  before the successor linked — a captured payment that cannot reconcile. The release and its
+  refusal probe now also require `not locked or locked_at < settle_at`: a freeze is only written
+  over no pay lock or a stale one, and a successor stamps `locked_at` only once `settle_at` is a TTL
+  old, so stored values order the two with no clock involved. A successor holding the cart answers
+  -1, linked or not (never the 0 that licenses a supersede); the freshness cutoff stays.
+- **The read under the freeze carries the same term (Codex on #338 @ 134ae08, P2):**
+  `readLiveIntentUnderFreeze` judged freshness on its own server's clock, so a server trailing the
+  one that ran `acquireCartLock` could hand the supersede a successor's link between the two release
+  calls. It now refuses a cart a pay attempt took after this freeze (`locked_at` before `settle_at`,
+  or unlocked; a dateless lock reads as taken), the release's own rule on the same row
+  (`lib/lock.test.ts`; mutants `m268/scoped-read-ignores-the-pay-lock`,
+  `-refuses-every-lock`, `-admits-a-dateless-lock`).
+- **A settlement takeover ends the stale attempt's era (Codex on #338 @ 90732bc, P1):**
+  `acquireSettlement` takes over a stale, unlinked pay lock as an abandoned attempt, but a
+  create-intent that minted its PaymentIntent and stalled before `linkPaymentIntent` is alive under
+  exactly that shape — its era still matched the link's keys, so it could resume, link, and hand the
+  diner a payable intent on a cart the counter was collecting, priced from the pin the release had
+  just cleared. The freeze now clears `locked` / `locked_at` / `locked_by` in the same UPDATE that
+  admits it, so the old era can never link again (`lib/lock.test.ts`; mutant
+  `m268/takeover-keeps-the-stale-era`).
+- **Proof:** `supabase/tests/m268_settlement_releases_stale_pin_test.sql` (the defect then the fix,
+  the legitimate promo, five refusals including the stale freeze at, past and one second inside the
+  TTL, a release delayed past the TTL over a successor's lock — unlinked and linked — beside a pay
+  lock older than the freeze that still releases and a lock with no era that fails closed,
+  privileges, a mutant per guard and per probe guard built from the live definition);
+  `lib/settle-stale-pin.test.ts` on the real `settleCash`, its linked path included; seventeen
+  `m268/…` mutants.
+
+### PD5b — settlement food carries its own mark, and a merge keeps each Send whole (2026-10-09, `claude/fix/pd5b-settlement-batch-and-fold`)
+
+- **PD5's three owner items, decided under the owner's delegation and built** (m5 §H.4).
+  - One migration, `20261009120300_pd5b_settlement_batch_and_fold.sql`. Its prod apply waits on the
+    owner's go: one file, through the Supabase MCP.
+- **The settlement batch is marked.**
+  - `mms_fire_pending_food` (the drain that fires a paid cart's unsent drafts) mints its batch as a
+    version-8 UUID; every Send mints a version-4 one.
+  - The KDS round read classifies settlement food by that mark (`isSettlementBatch`) instead of by
+    when it fired, and no longer reads orders.
+  - A Send that lands in the 10 s before a guest's own card payment is recorded now keeps its round
+    number, and so does one before a staff secure-tab close. Before this, it read as settlement food
+    and the visit's later Sends counted one fewer.
+  - `settled_by` is unchanged: it drives /staff/tips.
+- **The fold keeps each Send whole.**
+  - `mms_merge_table_orders` folds a fired or in-progress line only into a line of the same batch, so
+    a cooking portion never moves onto another Send's card with no bump.
+  - Drafts and served lines fold exactly as before.
+- **Proof:**
+  - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9), registered in CI. It went
+    red on the old drain and on the old merge.
+  - `verify-mode-authority` gains suite `pd5b` with 8 killed mutants. The merge's 18 earlier mutants
+    now patch the pd5b file, and all 241 are accounted for.
+  - `verify-counter-fire-race` gains the grace race as orders s and s2, with 2 mutants. The drain
+    and the merge join its `LATER` map, so every restore reads them from the pd5b file.
+  - `verify-merge-race` and the M96/M97/M98/M109 fold tests are green and unchanged.
+  - `kitchen-rounds/*` gains 4 mark mutants (the version, its position, the anchors and — Codex on
+    #340 — the RFC variant) and retargets 1. Two `kitchen/*` mutants retire with the orders leg.
+- **Known effect:** batches fired before the migration carry no mark, so a table live across the
+  deploy that had settlement food can read one round high until its session ends.
+
+### PD4 — the grocery miss: the guided tag inside the lens (2026-10-08, `claude/feat/pd4-grocery-miss`)
+
+- **The miss is a paper tag INSIDE the live lens** (m4 spec, round 3): "This code isn’t in the app yet."
+  — one primary, "Search by name" (an ink pill whose accessible name is its visible bilingual text),
+  and the quiet, non-interactive "Or ask at the counter" (PATH*DESIGN decision 6). No ✕, no step
+  rail, no drawn toast: the miss is \_spoken* (Toast `quiet`), and the same jar re-read while its tag
+  shows keeps its key — no re-rise, no second announcement (`slotAfter`, mutant-pinned). The tag's
+  punched hole shows the camera through it (clip-path + mask, the drop-shadow on the wrapper so it
+  follows the cut); constant cream with ink in both themes. Weighed and unavailable keep the kiosk's
+  shipped sentences; unavailable gains the quiet line (B8). **The camera never scrolls away:** the
+  Scan door loses the search field that pushed the stage down; Browse keeps it.
+- **The Name sheet over the still-streaming lens is the Scan door's only search**
+  (`GroceryNameSheet`): "It’s not you — most shelf codes aren’t in the app yet." in its just-opened and
+  no-match states, "laphet" as the one-word example (appendix C), the NOW → NEXT → hero → fallback
+  order of the diner register (B9: "Keep scanning — this one can wait for the counter." above "Back
+  to the camera"), "Try again" as the failed state's one hero, an honest offline line, package 2's
+  "That looks like a barcode" line, and a locked/settling refusal that replaces the state line instead
+  of a toast behind the keyboard. **The tag for the counter shows only in a sheet a miss opened** (B6),
+  led by the receipt glyph (A1), carrying the lens tag's own words, the Burmese at the counter's
+  reading size and the query the shopper tried — never a code, a price or a sale. The sheet joins the
+  camera hold (`check:scan-repeat` reads its `open`), closes on the server's ok only, and opens with
+  the field focused (`initialFocus`).
+- **Never a charge from a guess.** `lib/scan-pairing.ts` (4 mutants): a shelf code rescued by name is
+  _judged_ as the item it became, so a re-read gets M186's repeat verdict and the disc chip — and the
+  pairing is spent the moment that item leaves the basket by any path (B1). `check:scan-repeat`
+  proposition 4 parses that `scanAdd`'s barcode argument is `add()`'s own parameter, never the
+  judged code (red-first: the argument swapped, a const copy). **The add-Undo waits for the confirmed
+  write** (`lib/scan-undo.ts`, 4 mutants; B2 · D3): it sits in the chip's action slot as the one
+  Undo form (dashed `--sf`, "Undo · ပြန်ဖျက်", an aria-hidden seconds leaf, held by keyboard focus
+  through `lib/undo-hold.ts`), reads "Removing…" in flight and "Removed {name}" only after `setQty`
+  resolves and the confirmed read lands; amounts never move optimistically. **The chip arms 350 ms
+  after the sheet closes** (Codex correction 15) through `chipArmed` reading `@mms/ui`'s
+  `SAME_GESTURE_MS` — never a second constant — with full ink while refused.
+- **Offline honesty (B4 · B5).** A code absent from the cache is UNKNOWN, never "not in the app" (the
+  cache omits weighed and unavailable items): `offlineClaim` / `queuedChipName` / `offlineSavedToast`
+  (3 mutants) name a queued unknown code "A saved scan", never its digits, promise only the check
+  ("Saved — we’ll check this code when you’re back online."), and `drainSummary` reports a rejection by
+  count with its honest causes, no digits (1 mutant). The lens hint reads "saved and checked".
+- **Busy rows keep full ink** (B10): the ONE shared `GroceryResultRow` (Browse and the sheet) marks
+  busy with `aria-busy` and the word "Adding…", never opacity. **G20 (ruling #19):** basket lines and
+  the chip carry the catalog's Burmese name (`GroceryLine.nameMy`).
+- **guards-style's piece, its own commit:** `@mms/ui` `Sheet` gains an opt-in `initialFocus` (a ref or
+  selector; `sheet-focus.ts` refuses a target outside the sheet and falls back to the container, never
+  the ✕), documented beside the J21 note and pinned by the ui package's own suite — `verify:slice`
+  cannot mutate `packages/ui` (M77, left open with a note). Grocery opts in with one prop from
+  `GroceryNameSheet.tsx`; `lib/sheet-initial-focus-callers.test.ts` PARSES every `<Sheet>` under
+  `components/` and `app/` so the prop never reaches a money sheet (a fake cash caller, a dead parked
+  copy and an aliased import are each refused on fixtures).
+- **Left for the device sitting (#12):** whether iPhone Safari raises the keyboard when the sheet
+  opens with `initialFocus`; the tag's height in Padauk at 375px. **Parked by ruling #20:** the
+  flashlight, the decoder, the device scan check. Every new Burmese string is a `K15 · grocery` draft.
+- **The blind pass on #329 (REJECT) and Codex round 1, fixed in one commit** (the spec's §H.2, every
+  finding verified against source): the Undo's words follow the confirmed read ("Removed" only when the
+  line is gone, "{name} × {qty}" when it stepped down, nothing past-tense when the read did not land)
+  and any manual step on that line retires the Undo; off-camera refusals are drawn and, inside the Name
+  sheet, every refusal is said in the sheet's own `role="status"` line (the toast sits behind the
+  keyboard) with the sheet context captured before the await; a sheet row tapped twice offline no
+  longer queues twice; a weighed replay gets its own honest drain sentence (reasons ride
+  `DrainOutcome`, mutant `grocery-queue/a-weighed-replay-blamed-on-the-catalog`); `sameTag` keys on
+  the verdict too; a sheet no code opened withholds "It’s not you" and the camera hero; stale rows leave
+  with the query and "Searching…" is synchronous; the Undo's focus handoff runs post-commit; the
+  paper tag's ring is `:focus-visible`; `check:scan-repeat` proposition 4 binds to the parameter's
+  DECLARATION (an assignment or a shadowing `const barcode` reddens it); the allowlist's money sheets
+  are the M82 GUARDED set, each proven to render a `<Sheet>`, with spreads refused and namespace
+  imports read.
+- **Codex round 2 on #329, fixed in one commit** (the spec's §H.3): the camera's hold now lasts
+  through a sheet's EXIT, not only while it is open (`lib/hooks/useStageCover.ts`, lifted by the
+  Sheet's `onCloseAutoFocus` at unmount or a fail-safe; five mutants), so a different jar in frame is
+  never charged behind a closing scrim — pinned in the page by `check:scan-repeat` proposition 5, with
+  the shared DoorSheet named as the one exempt sheet and filed (`PD4 · door`); a refused removal no
+  longer spends the miss→item pairing (`pairingAfterRemoval`); and a finished basket hands focus to
+  "Start a fresh basket" from the Name sheet and the basket sheet (`lib/grocery-focus.ts`).
+- **The second capped blind pass on #329 (REJECT), fixed in nine commits** (the spec's §H.4): the
+  add-Undo writes one fewer than the add's OWN confirmed qty, is retired by any other write of the
+  same item, and speaks only what the follow-up read shows (`undoFromAdd` · `undoAfterWrite` ·
+  `undoOutcome`, proposition 6); the chip's action slot and the repeat toast's
+  "Add another" clause read ONE predicate (`lib/scan-chip.ts`), and a chip reached through a pairing
+  offers no "Add another" — a re-read is announced as the shopper's own act ("You added X for this
+  code"), so no charge ever takes a judged code (proposition 4 now proves every caller's provenance);
+  the Name sheet re-announces an identical refusal and keeps its Burmese half (`lib/sheet-refusal.ts`);
+  the DoorSheet's exit is covered by `useStageCover`'s fail-safe (`PD4 · door` closed; proposition 5
+  has no exemption and refuses ambiguity); the chip arms unconditionally at the same-gesture window and
+  focus never lands on the Undo programmatically; a malformed `initialFocus` selector falls back to the
+  container; and the `initialFocus` allowlist reads every app and `@mms/ui` source, refusing aliases,
+  `createElement`, re-exports and deep imports it cannot read. Every `check:scan-repeat` evasion is a
+  committed fixture run in CI (`lib/check-scan-repeat.test.ts`).
+- **Codex on #329's merge head `ff29547`, three P2s, fixed in one commit** (the spec's §H.5): a sheet
+  add mints its Undo only when no other write of the item started or landed inside its window and
+  none is in flight — a per-barcode write ledger every write (live adds, replays, the stepper) is
+  routed through (`undoMayMint`, proposition 6 f), and a replay's landing retires the Undo too, so a
+  replay that crossed the add can no longer leave an Undo that removes both units; with the radio
+  known down the Name sheet says "Search needs a connection" at once and no request is sent
+  (`lib/name-search.ts`; the query re-runs when the radio returns); and "Start a fresh basket" hands
+  focus to the new stage once it mounts, never to the leaving button (`usePendingFocus`).
+- **The last capped blind pass on `f0d013f` (REJECT), fixed** (the spec's §H.6): the name search moves
+  into `lib/hooks/useNameSearch.ts`, driven by its own suite through real `online` / `offline` events.
+  A query typed offline is HELD — no request, nothing marked failed — and reads as Searching… the
+  moment the radio returns, then is sent once; the reconnect no longer announces "Search
+  unavailable" about a search nobody sent, nor keeps "Try again" up through the real fetch. The radio
+  dropping no longer re-runs the search, so rows still on screen stay tappable (queued offline) and
+  Browse keeps a focused row. Proposition 6 f now requires each write's `writeStarted` right above
+  the `try` that lands it (no return, throw or await between); "Start a fresh basket" falls back to
+  the session banner's Retry when the new basket fails to start, and `usePendingFocus` keeps waiting
+  while the pressed button still holds focus.
+- **Codex round 4 on `dc85e80` (one P1, three P2s), fixed or filed** (the spec's §H.7): a Name-sheet
+  tap whose code waits in the offline queue is refused whatever the radio says, so a tap after
+  reconnect can no longer charge live while the queued add replays behind it; the replay now answers
+  the sheet that queued the add (`lib/sheet-replay.ts`) — delivered closes it with the live ok's own
+  routine (arm and close-restore included) and pairs its miss, a rejection replaces its stale
+  "Saved…" line — and `check:scan-repeat` proposition 7 pins both wirings (nine committed
+  fixtures). A refused removal restores a pairing a re-read spent while the line was flipped away,
+  and a landed Undo takes back the pairing its own add made whatever qty it wrote
+  (`pairingAfterRemoval` · `pairingAfterUndo`). Twelve new mutants. The Undo minted after an add
+  from a sheet a camera panel opened is never drawn (the result slot lives in the live lens) — filed
+  as a nice-to-do under PD4; a replay's missing `billedRef` record is filed as G25.
+
+### PD1 — a tablemate's dish waits on the host's Send: told who sends, "Show a server", "Let Aye know" (2026-10-09)
+
+- **The guest WAITS (m1 "Next Stop: Kitchen"; amends PHASE3C D13 and DESIGN-LANGUAGE §32):**
+  `orderStageHero` gains a fourth arm, `"wait"` — a guest with dine-in drafts at a host table. Its
+  block says the state in the console's own words ("Not sent yet · မပို့ရသေး", the hollow ring), the
+  next step and who takes it (the shipped `hostSendsCopy`, the host named only as the table named them
+  — `chosenName`, so the default "Guest" is never read as a person), then two ways forward: the quiet
+  "Let {host} know" and "If {host} is away, our staff can send it too." The one filled verb is "Show
+  a server"; the Total door goes quiet beside it. Under a tablemate's pay lock both ways forward hide.
+  A hostless table keeps the bill door. No count anywhere on a shared cart before the Send: the door's
+  "N items not sent yet" note is gone and the Send's label is count-free (`sentCopy` still reports
+  the server's fired count after).
+- **"Show a server" (m1 screen 2):** a full-screen dialog on the Sheet primitive holding post-pay's
+  `CounterPass` — "Table 7" printed once (a numberless table: "Aye’s table" / "Your table", never
+  the join code — below), the
+  waiting dishes in the catalog's words with the kitchen's qty token in the pass's own inks, no
+  prices, no total, no names. The status is the kitchen track in the pass head and the dialog's one
+  live region: the hollow ring and "Not sent yet", the dashed segment and "Sending…" inside the grace,
+  and — the moment's one delight — segment 1 FILLs with "Sent to kitchen · ပို့ပြီး" only when an
+  applied server view shows the dishes past their grace (`serverNow` rides the cart view; one re-read
+  at the grace's end). A removal of every listed dish closes it. Rules: `lib/show-server.ts`.
+- **"Let Aye know" is a DURABLE STAMP (Codex round 3):** `20261008123000_pd1_send_nudge.sql` adds
+  `qr_carts.send_nudge_seat` / `send_nudge_at`, `mms_nudge_host` (every rule IN the WHERE — cart open,
+  session active, a host, the nudger a member and not the host, at most once a minute; a read-only
+  diagnosis on a miss) and restates `mms_fire_cart` whole so the fire clears the stamp in the same
+  transaction, under the cart lock. `supabase/tests/pd1_send_nudge_test.sql` (named in CI's required list) pins each guard
+  beside the legitimate write — run red-first on LEARNINGS #95's throwaway Postgres 16 (all 108
+  migrations + seed; the other 30 SQL tests green beside it), every guard dropped in turn going red. `lib/send-nudge.ts` is the member-authorized action (`recent` is a
+  success carrying the standing stamp; a pay lock or settle freeze refuses it before the RPC — nobody
+  can send under one, and `check-freeze-parity` now counts it among 17 lock-bearing mutations);
+  `getCartView` reads the stamp ADVISORY, beside the sold-out
+  lookups, so an unmigrated project renders every order as before. **Applied by the owner, not here.**
+- **The host's half (m1 screen 3):** the waiting guest's avatar and "Thiri is waiting on this send."
+  above Send (or "Someone’s waiting"), carried in Send's description; the caption "The kitchen sees it
+  when the countdown ends." under Send and Undo, the same node across the relabel. The /menu order bar
+  on a shared cart drops its count capsule and count-bearing name and reads "Not sent yet" — or, on
+  the host's phone while a stamp stands, "Someone’s waiting" (`lib/cart-bar-state.ts`).
+- **Guards:** 53 verify:slice mutants, measured on this branch with
+  `git diff "$(git merge-base origin/main HEAD)" HEAD -- scripts/verify-slice.mjs | grep -cE '^\+    id: "'`
+  (an earlier draft of this line said 28 — transcribed, never measured; it was 30 then) — checkout-verb's wait arm,
+  send-nudge's rules and action, show-server, cart-bar, the stamp read, the copy, the pass identity
+  and the Checkout wiring); the pass's dish rows are in-pass for `check-pass-inks`. Every new Burmese
+  string is a K15 draft (`K15 · diner-cart`).
+- **The capped blind pass on #335 (REJECT) — every finding fixed, red-first:**
+  - **The Send no longer deadlocks a tablemate's "+".** The restated `mms_fire_cart` locked the LINES
+    (`UPDATE … FROM qr_carts` locks its target) and then the cart (the stamp's clear), against the
+    line RPCs' cart-then-line (P2cy): a wait cycle, 40P01. Both functions now take the cart row
+    `for no key update` FIRST — cart → line, the order m261 records; the merge, both undos and the
+    line RPCs re-checked against it. Proven with two sessions by the new
+    `scripts/verify-fire-cart-race.mjs` (eight orders: add · qty · nudge · merge, each both ways) and
+    its `--mutants` (the lock dropped, the lock moved after the lines — the first draft — and the
+    nudge's lock dropped), in ci.yml's sql lane. The clear runs only when a stamp stands, so a Send
+    writes no `qr_carts` row (and raises no realtime event) for nothing.
+  - **A tablemate's nudge is never claimed.** `mms_nudge_host` returns the stamp's SEAT; another
+    seat inside the minute is `taken` ("Mya already let Aye know — they can see the table’s
+    waiting."), and the Bill records the server's seat, never its own.
+  - **A stamp needs a dish to send.** The nudge's WHERE requires a dine-in draft on an active dine-in
+    table and no fresh pay lock or split freeze (the freeze now IN the statement, beside the
+    authz-time refusal); the host's bar says "Someone’s waiting" only while a dine-in draft stands.
+  - **"Already paid" is gone:** a closed cart reads "This order has moved or closed — there’s nothing
+    to send."
+  - **No pass prints the join code** (owner-delegated, widened to #331's counter pass): a
+    numberless table holds up "Aye’s table" or "Your table" (`lib/pass-identity.ts`) — the code is the
+    session's bearer join secret and RLS key, and a pass is held up in the dining room.
+  - **Deploy order:** apply `20261008123000` FIRST, then merge; the Bill offers "Let {host} know" only
+    when the stamp read succeeds (`nudgeReady`), and `/cart` now passes the first view's stamp and
+    clock to `Checkout` (there is no mount-time read, so the host's waiting line waited for one).
+  - **The last capped pass on #335 (REJECT), fixed red-first:** a stamp is a wait only while a
+    dine-in draft that PREDATES it still waits (`nudgeLive` in the view; the same rule in
+    `mms_nudge_host`, PD1.19) — a stale stamp no longer revives over a later, unrelated dish; an
+    `ok` naming another seat is refused like a foreign `recent`; the migration carries no `drop`
+    (the prod apply path stalls on one, and no database has had `mms_nudge_host`); the lock-order
+    claim is narrowed to what is proven (two sessions: add · qty · nudge · merge) and what is
+    measured (a statement-order scan of all 88 functions: the 13 that lock both tables take the
+    cart first; the rest lock one table).
+  - **Replayable, not prose:** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
+    `scripts/verify-mode-authority.mjs` (suite `pd1`, 23 mutants, one documented survivor — the
+    lock's ORDER, killed by the race harness); the decorative `NUDGE_COOLDOWN_MS` and its
+    literal-against-literal test are deleted.
+
 ### PD6 — the walk-up cash sale: the crowned till tray and the seal; PD2's pane twin; PD1's ring (2026-10-09)
 
 - **One money verb, one cash sheet** (`docs/path-design-2026-10-07/m6-walk-up-cash.md`; build notes
@@ -223,7 +509,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ("Your table asked to pay at the counter."), focus moving to the heading only if it was lost; this
   phone's own ask lands focus there and plays the one RISE. The pass paper is post-pay's
   `CounterPass` primitive (PATH_DESIGN "ONE PASS", #327), rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
-  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier.
+  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier
+  (reversed by PD1's fix round on #335: no pass prints the join code — "Aye’s table" / "Your table").
 - **create-intent:** the parked refusal (410, like the other parked doors) sits AFTER
   `supersedeCartIntent` and its captured / unknown exits (#257's CRITICAL, M151) and before the
   shipped unsent refusal, freeing the lock under its era. New `scripts/check-phone-pay-door.mjs`
@@ -240,7 +527,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   350 ms same-gesture hold on both relabels (`undoTapHeld`), so a double-tap's second half never
   un-sends the round (`send-button/undo-tap-not-held`).
 - **Plumbing both PRs need (Codex correction 10):** `getSplitContext` carries the session's `qr_code`
-  (`SplitContext.qrCode`) so a table with no number yet can print its code on a pass.
+  (`SplitContext.qrCode`) so a table with no number yet can print its code on a pass (since #335's fix
+  round no pass prints it, and nothing reads the field — OPEN-ITEMS PD1 files dropping it).
 - **Mutants:** `surfaces/dine-in-phone-pay-reopened`, `surfaces/create-intent-route-answers-open`,
   `checkout-stage/parked-door-admits-a-table`, `checkout-stage/parked-door-refuses-pickup`,
   `checkout-verb/door-promises-pay-while-parked`, `checkout/door-ignores-the-parked-door`,

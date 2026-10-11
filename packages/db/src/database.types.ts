@@ -1226,6 +1226,8 @@ export type Database = {
           pickup_slot: string | null
           promo_code: string | null
           promo_granted_cents: number | null
+          send_nudge_at: string | null
+          send_nudge_seat: string | null
           session_id: string
           settle_at: string | null
           settle_by: string | null
@@ -1252,6 +1254,8 @@ export type Database = {
           pickup_slot?: string | null
           promo_code?: string | null
           promo_granted_cents?: number | null
+          send_nudge_at?: string | null
+          send_nudge_seat?: string | null
           session_id: string
           settle_at?: string | null
           settle_by?: string | null
@@ -1278,6 +1282,8 @@ export type Database = {
           pickup_slot?: string | null
           promo_code?: string | null
           promo_granted_cents?: number | null
+          send_nudge_at?: string | null
+          send_nudge_seat?: string | null
           session_id?: string
           settle_at?: string | null
           settle_by?: string | null
@@ -2136,6 +2142,15 @@ export type Database = {
         Returns: number
       }
       mms_now: { Args: never; Returns: string }
+      mms_nudge_host: {
+        Args: { p_cart_id: string; p_seat: string }
+        Returns: {
+          nudge_seat: string
+          nudged_at: string
+          ok: boolean
+          reason: string
+        }[]
+      }
       mms_open_tab: { Args: { p_cart: string }; Returns: string }
       mms_pickup_asap: {
         Args: { p_cart_id: string }
@@ -2228,6 +2243,10 @@ export type Database = {
       mms_release_promo_grant_for_holder: {
         Args: { p_cart_id: string; p_uid: string }
         Returns: undefined
+      }
+      mms_release_promo_grant_for_settlement: {
+        Args: { p_cart_id: string; p_fresh_after: string; p_owner: string }
+        Returns: number
       }
       mms_request_approval: {
         Args: {

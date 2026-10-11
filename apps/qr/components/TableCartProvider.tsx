@@ -47,6 +47,7 @@ import {
 } from "@/lib/live-region";
 import { useCoalescedRefresh } from "@/lib/echo-refresh";
 import { setDisplayName } from "@/lib/members";
+import type { SendNudge } from "@/lib/send-nudge-state";
 import { useTableSession } from "@/lib/useTableSession";
 import {
   useCartRealtime,
@@ -195,6 +196,9 @@ type CartCtx = {
    *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
    *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
   settling: boolean;
+  /** PD1 — a guest's "Let {host} know" stamp standing on the cart (the view's `sendNudge`), or
+   *  null. The host's order bar reads "Someone's waiting" while it stands (lib/cart-bar-state). */
+  sendNudge: SendNudge | null;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -260,6 +264,9 @@ export function TableCartProvider({
   const [items, setItems] = useState<CartItem[]>([]);
   const [totals, setTotals] = useState<CartTotals | null>(null);
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
+  // PD1 — a guest's "Let {host} know" stamp, read from every applied view (advisory; cleared by the
+  // fire). The order bar's line 2 reads it on the HOST's /menu.
+  const [sendNudge, setSendNudge] = useState<SendNudge | null>(null);
   const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   // T14 — the VIEWER's own seat, from the same `assertCartMember` call that produced `lockedBy`, so
@@ -441,6 +448,7 @@ export function TableCartProvider({
       // `normalizePickupSlot`; reading the raw column here made the menu greeting say "Scheduled for
       // <time>" for a time the diner never chose while /cart said ASAP for the same cart.
       setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
+      setSendNudge(v.sendNudge);
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
@@ -1644,6 +1652,7 @@ export function TableCartProvider({
       lockedByName,
       lockedByYou,
       settling,
+      sendNudge,
     }),
     [
       cartId,
@@ -1674,6 +1683,7 @@ export function TableCartProvider({
       lockedByName,
       lockedByYou,
       settling,
+      sendNudge,
     ],
   );
 

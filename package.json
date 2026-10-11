@@ -27,6 +27,8 @@
     "verify:bind-race:mutants": "node scripts/verify-bind-race.mjs --mutants",
     "verify:counter-race": "node scripts/verify-counter-fire-race.mjs",
     "verify:counter-race:mutants": "node scripts/verify-counter-fire-race.mjs --mutants",
+    "verify:fire-cart-race": "node scripts/verify-fire-cart-race.mjs",
+    "verify:fire-cart-race:mutants": "node scripts/verify-fire-cart-race.mjs --mutants",
     "review:bundle": "node scripts/review-bundle.mjs",
     "check:migration-versions": "node scripts/check-migration-versions.mjs",
     "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",

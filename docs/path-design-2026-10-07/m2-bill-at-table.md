@@ -1068,8 +1068,13 @@ Precedence as read: D > the Codex corrections > the cross-spec reconciliations >
   `counter` tier (one figure at `--fs-pass` under "Table · စားပွဲ", the dotted seam and notches with
   `--pass-hole` set to the page ground, the torn foot) with the unsent mark as `KitchenTrack
 stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
-  body. A numberless table prints its session code at the holder's 40px tier, spelt for a screen
-  reader (reconciliation 6). The primitive's prop surface: m10's `### H`.
+  body. ~~A numberless table prints its session code at the holder's 40px tier, spelt for a screen
+  reader (reconciliation 6).~~ **Reversed 2026-10-09 (owner-delegated; the blind pass on #335,
+  fixed in #335):** no pass prints the session's join code — it is the table's bearer join secret
+  and its realtime/RLS key, and this pass is held up at the register. A numberless table prints
+  "Aye’s table" (the host's first name) or "Your table" in the figure's place
+  (`lib/pass-identity.ts`), and Dad finds the table on the console by its open cart. The primitive's
+  prop surface: m10's `### H`.
 - Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
   text on the floor chip too.
 - Decision 12: the ask over unsent dishes stays refused (the Bill's door is held with its reason)
@@ -1106,7 +1111,22 @@ stage="unsent"` in its head; the total, the "View bill" disclosure and the recei
    never reaches a drawn surface.
 
 **Residuals filed.** A stale promo pin can reach the register's cash settle (`mms_promo_discount`
-honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**. The group table
+honours any pin; only create-intent releases a predecessor's) — OPEN-ITEMS **M268**, **built in #338**
+(stacked on #331; decided under the owner's delegation, 2026-10-09): every settlement door — cash, the
+Terminal, the secure-tab close — runs create-intent's sequence on its ordinary path.
+`acquireSettlementSuperseding` releases the pin under the freeze it just took, awaited, before it
+answers `acquired`, through the ONE binding (`releasePromoGrantFor`, now taking a settlement owner as
+its proof) and a new RPC, `mms_release_promo_grant_for_settlement` (migration `20261009120000`), whose
+guards all sit in its WHERE (`status = 'open'`, `settle_by = p_owner`, a FRESH `settle_at` by the app-clock
+cutoff `acquireCartLock` admits by — Codex on 56a4fd1: `acquireCartLock` takes a cart under a stale
+freeze and leaves `settle_by`, so a stalled settle could clear a successor's fresh pin — and
+`live_payment_intent_id is null`) and whose answer the caller checks. Only a refusal under this fresh
+freeze by a live link (the RPC's 0) supersedes that intent under the settlement rules — the link read
+under the freeze, and `acquired` only after a second release answers 1 (the blind pass on 5d19601); any
+other refusal (-1) answers `unavailable`, never a total priced from the pin and never a successor's
+checkout cancelled. A
+promo applied at the register still discounts, re-derived live — the release touches the pin, never
+`promo_code`. The group table
 that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind
 passes on #331: the board shows only while the self-serve split door is open (`splitBoardShown`,
 lib/counter-pay-state — the same door the register's refusal sentence reads).
