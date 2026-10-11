@@ -61,7 +61,7 @@
 --     `--mutants`): an add (`mms_cart_item_inc_qty`), a qty change (`_set_qty_if_open`), a nudge and
 --     the merge, each against the fire. Nothing else is proven by a second session.
 --   · What is MEASURED, not proven (the last blind pass on #335 asked for every partner): a
---     statement-order scan of the LATEST definition of all 86 public functions in the migrations on
+--     statement-order scan of the LATEST definition of all 88 public functions in the migrations on
 --     2026-10-11, following calls between them — 13 lock both tables, and every one takes its FIRST
 --     conflicting `qr_carts` lock before any `qr_cart_items` lock and later re-locks only carts it
 --     already holds (the merge locks both of its carts up front); every other function locks one

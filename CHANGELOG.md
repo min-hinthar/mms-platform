@@ -77,7 +77,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     `ok` naming another seat is refused like a foreign `recent`; the migration carries no `drop`
     (the prod apply path stalls on one, and no database has had `mms_nudge_host`); the lock-order
     claim is narrowed to what is proven (two sessions: add · qty · nudge · merge) and what is
-    measured (a statement-order scan of all 86 functions: the 13 that lock both tables take the
+    measured (a statement-order scan of all 88 functions: the 13 that lock both tables take the
     cart first; the rest lock one table).
   - **Replayable, not prose:** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
     `scripts/verify-mode-authority.mjs` (suite `pd1`, 23 mutants, one documented survivor — the
