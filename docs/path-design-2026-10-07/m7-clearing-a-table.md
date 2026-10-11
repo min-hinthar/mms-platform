@@ -1159,8 +1159,55 @@ owner's delegation, the reason is below.
   cascade. The header's lock order and file name now match the code; the stamp's `ceiling` gate (at
   and past the bound) and the 2000 default are pinned (M182.11–14, 13 more SQL mutants, the share re-read's cart scope among them).
 
+**Codex round 1 on #341 (four findings, all fixed).**
+
+- **A cleared table takes no member.** A diner's join issued while a clear held the session row
+  waited on it (the foreign key's KEY SHARE), then landed on the CLOSED session — measured on the
+  throwaway cluster: a 2.1 s wait, then a member — and `/api/session`'s hosted path handed it a fresh
+  open cart there. The refusal now sits where the membership is written, beside the party cap and
+  PD3's solo guard: `session_members_live_session` (`mms_refuse_closed_session_join`, BEFORE INSERT
+  OR UPDATE OF session_id) reads the session's status FOR SHARE — a join that waits on a clear (or
+  any close) re-reads the row once it commits and is refused `session_closed`. FOR SHARE, not FOR KEY
+  SHARE: a plain close (the sweeper's, a merge's) takes NO KEY UPDATE, which KEY SHARE never waits
+  on. Not the party key in the clear: the party cap takes that key before the foreign key's row lock,
+  so a clear holding the row and then asking for the key would deadlock a join, and the key alone
+  refuses nothing. The route answers `session_closed` with the closed-row 409 it already gives a shell
+  adopted under a join ("Could not check the table — try again.") — no new existence oracle; the
+  retry re-resolves the table. Proved two-session by `verify-bind-race.mjs` orders l · m · n.
+- **Any line changed after the look refuses the clear.** A draft re-counted, taken off, sent or
+  turned to-go after the look moved neither `created_at`, the SENT set nor its figure, so "Seat next
+  party" could cancel an order change nobody had seen. `qr_cart_items` has no `updated_at`, so the look
+  carries every live line (`clearLineKey`: `<id>:<qty>:<fulfillment>:draft|sent`) and the RPC compares
+  them as a set (`p_seen_lines`). **Decided under delegation:** the key reads draft-or-sent, never the
+  kitchen state — a cook starting or serving a SENT dish moves neither the figure nor what the clear
+  drops, a walkout's clear must not wait on the kitchen (ruling #6), and the window's own watch
+  (`tillSlipDiverged`) already ignores it. A refused clear now says the clear's own line,
+  `settle.clear.changed` ("…changed after you looked, so it stayed open"), in the pane and when the
+  window drops.
+- **Paid food the kitchen has not finished holds the clear (`paid_unserved`).** Verified first: the
+  kitchen board shows a dine-in line only while its session is ACTIVE (`kdsLineGate`), whatever its
+  cart's status — so a clear over a paid cart still cooking took its tickets off the board, and a paid
+  DRAFT (settlement fires it: `mms_fire_pending_food`, its reconciler) never reached it. **Decided
+  under delegation — the lead's default, not Codex's "stop-only, non-loss" alternative:** a paid dish
+  is never stopped and never written off — the guest paid for it, and stopping it would keep their
+  money for food they never got. A great KDS never lets a ticket vanish, and a great maître d' does
+  not reset a table whose food is still coming. So the look answers `paidUnserved` and the pane says
+  "Table N has paid food the kitchen hasn't finished — serve it or bag it, then clear the table."
+  (`settle.clear.paidUnserved`, K15-HIGH). The RPC refuses the same, writing nothing. It counts a
+  paid cart's lines that are draft, fired or in progress, not grocery (never the kitchen's), comps
+  included (still made), and it takes those lines FOR SHARE first, so a recall in flight (served →
+  in progress) is read after it commits (`verify-bind-race.mjs` order o). Not closed: a recall made
+  AFTER the clear lands on a closed table (M270 (9)).
+- **Seat next keeps the pane as it was at the tap.** `startAdmitted` took its "did they move it"
+  baseline when the clear answered, so staff who picked another table meanwhile had the new party
+  opened over it. The reservation now takes the baseline at its own tap and carries it into the
+  start.
+
 **Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
 → `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause; the floor
 card's in-slot window; the manager stamp UI behind the PIN seam; a Help door on the full table page
-for `card_live`; the two-session lock-order harness for `mms_clear_table` (beside
-`verify-merge-race`); the M182 prod apply (ruling #5).
+for `card_live`; the two-session lock-order harness for `mms_clear_table` against a Send, a merge,
+a settle and an approve (beside `verify-merge-race` — the join, a plain close and a recall are driven
+now, `verify-bind-race` l–o); a seated member's REJOIN (no membership insert) as a clear commits, which
+can still find no open cart and make one on the closed table (8); a kitchen recall made after the
+clear, which lands on the closed table (9); the M182 prod apply (ruling #5).

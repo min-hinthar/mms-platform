@@ -32,7 +32,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   holding money is re-read under the cart lock; "Seat next party" gives the mint back at the bound;
   a window that leaves with its pane says the clear was not sent (never when the table closed
   underneath it); a tab secured under an armed slip drops it; `qr_table_clears` no longer
-  cascades away with its session. 44 SQL mutants (`m182`).
+  cascades away with its session.
+- **Codex round 1 on #341:** a cleared table takes no member — the trigger
+  `session_members_live_session` reads the session FOR SHARE, so a join that waited on the clear's
+  lock is refused (`session_closed`, which `/api/session` answers with its closed-row 409, never an
+  open cart on a dead table); any line changed after the look — a draft re-counted, taken off, sent
+  or turned to-go — refuses the clear (`p_seen_lines`, `clearLineKey`; the kitchen's own progress
+  never does), said in the clear's own words (`settle.clear.changed`); paid food the kitchen has
+  not finished holds the clear (`paid_unserved`, the look's `paidUnserved`: "serve it or bag it,
+  then clear the table") — never stopped, never written off, never off the board; "Seat next party"
+  keeps the pane as it was at the tap. 64 SQL mutants (`m182`); `verify-bind-race` orders l–o and
+  mutants M7–M9.
 - **Mutants:** `clear/*`, `clear-hint/*`, `clear-floor/*`, `clear-ui/*`, `clear-window/*`,
   `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
   anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.
