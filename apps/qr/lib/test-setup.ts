@@ -12,6 +12,48 @@ import { resetHandBacksForTests } from "./settled-view";
 import { runTestResets } from "./test-resets";
 
 /**
+ * The real `setTimeout`, read when this file loads — before any suite can fake the clock. vitest's
+ * jsdom environment leaves Node's timers in place (jsdom's own are not installed as globals), so this
+ * is the clock the unmount timers below are queued on.
+ */
+const REAL_SET_TIMEOUT = globalThis.setTimeout;
+
+/**
+ * The #340 CI flake (build job 114406642840: every test passed, "Errors 1 error", exit 1) —
+ * `TypeError: Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type
+ * 'Event'`, thrown from `@radix-ui/react-focus-scope` after its file had finished.
+ *
+ * Every `Sheet` (`@mms/ui`) is a Radix modal Dialog, and its FocusScope answers an UNMOUNT by queueing
+ * its close-restore on `setTimeout(…, 0)`: build a `new CustomEvent`, dispatch it on the sheet's
+ * container. A suite's own `afterEach(cleanup)` is that unmount, and vitest yields no macrotask
+ * between a case's hooks and the next case, or between a file's last hook and the environment's
+ * teardown — so the file's LAST restore races the teardown, which deletes jsdom's globals and puts
+ * Node's own `CustomEvent` back. When the timer loses, jsdom's `dispatchEvent` is handed a Node event
+ * and throws, unhandled, after the summary has counted every test green. Which side wins is IPC
+ * timing, which is why the same suite passes on most runs.
+ *
+ * So after every jsdom case this waits ONE macrotask, and the restore fires inside the case that
+ * queued it. Why that is enough, and why here:
+ *  - ORDER: vitest's default `sequence.hooks: "stack"` runs `afterEach` hooks in reverse registration
+ *    order, and a describe's before its file's. This setup registers first, so its hook runs LAST —
+ *    after every suite's own cleanup — and Node fires equal-delay timers in the order they were
+ *    queued, so a 0 ms wait queued after the unmount resolves after Radix's.
+ *  - REAL CLOCK: a suite that leaves `vi.useFakeTimers()` on through its hooks would otherwise hang
+ *    this hook until the hook timeout (measured: "Hook timed out in 10000ms"). A restore queued while
+ *    the clock was faked sits on the fake clock, which is discarded with it, so it can never fire —
+ *    before the teardown or after it. (A `shouldAdvanceTime` clock left running to the end of a file
+ *    is the one shape out of reach: its interval would tick a faked restore later.)
+ *  - jsdom only: a node suite mounts nothing, so it pays nothing.
+ *
+ * Pinned by `lib/test-setup.teardown.test.tsx`.
+ */
+function drainUnmountTimers(): Promise<void> {
+  return new Promise((resolve) => {
+    REAL_SET_TIMEOUT(resolve, 0);
+  });
+}
+
+/**
  * Phase 2h (the contract critic, F7) — vitest's `setupFiles` entry for every suite in apps/qr.
  *
  * The stall ledger (`bounded-write.ts`) is MODULE state, and vitest isolates modules per FILE, not
@@ -22,7 +64,10 @@ import { runTestResets } from "./test-resets";
  * suite, TablePane's and CashSettleButton's all hang promises and mount money controls). So the
  * ledger is emptied after EVERY case, here, once — never remembered per suite.
  */
-afterEach(() => {
+afterEach(async () => {
+  // Before any reset, a jsdom case first lets the timers its unmount queued FIRE (drainUnmountTimers
+  // below says why): what they run is caller code, which must land in this case, never the next.
+  if (typeof document !== "undefined") await drainUnmountTimers();
   resetLedgerForTests();
   // Phase 2h · review a (A4) — the per-subject own-wait register is module state too: a case that
   // leaves a refund hung would refuse the next case's refund of the same line in its own words.
