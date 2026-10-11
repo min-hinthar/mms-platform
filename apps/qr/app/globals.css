@@ -2581,6 +2581,321 @@ html[data-fx="off"] .pa-mid {
   transform: scale(0.97);
 }
 
+/* PD1 (m1 "Next Stop: Kitchen", screen 1) — the guest's WAIT block on the Order stage: no card and no
+   fill, a two-row itinerary on the page ground. A 30px lead column carries the "who" marks (the
+   host's avatar; the receipt disc of the "show this" family); the text column holds the next step,
+   the quiet nudge, a hairline, the staff fallback. The one filled verb follows: "Show a server". */
+.checkout-wait {
+  margin: var(--s4) 0 0;
+}
+.checkout-wait-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--tx);
+}
+.checkout-wait-h .mark-ring {
+  color: var(--t2);
+}
+.checkout-wait-h [lang="my"] {
+  font-family: var(--font-my);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+  color: var(--t2);
+}
+.checkout-wait-dot {
+  color: var(--t2);
+}
+.checkout-wait-grid {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  column-gap: 10px;
+  row-gap: var(--s1);
+  align-items: start;
+}
+.checkout-wait-lead {
+  grid-column: 1;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-full);
+  background: var(--sf);
+  border: 1px solid var(--bd);
+  color: var(--ac-strong);
+}
+.checkout-wait-text {
+  grid-column: 2;
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-normal);
+  color: var(--tx);
+}
+.checkout-wait-text-my {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  color: var(--t2);
+}
+.checkout-wait-quiet {
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+}
+.checkout-wait-rule {
+  grid-column: 2;
+  height: 1px;
+  margin: var(--s2) 0;
+  background: var(--bd);
+}
+/* "Let Aye know" and its settled confirmation, in the text column. The button never unmounts: once
+   the stamp stands it is `aria-disabled` and described by the confirmation beside it (m1 B7, C). */
+.checkout-wait-nudge {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 44px;
+}
+.checkout-wait-nudge[aria-disabled="true"] {
+  color: var(--t2);
+  cursor: default;
+}
+.checkout-wait-nudge-my {
+  margin-inline-start: 0.4em;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+.checkout-wait-seen {
+  grid-column: 2;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.checkout-wait-seen [lang="my"] {
+  display: block;
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+  color: var(--t3);
+}
+.checkout-wait-cta {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 100%;
+  margin-top: var(--s4);
+  min-height: 58px;
+}
+.checkout-wait-cta-label,
+.checkout-wait-cta-my {
+  position: relative;
+  z-index: 1;
+}
+.checkout-wait-cta-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-wait.mms-rise {
+    animation: none;
+  }
+}
+
+/* PD1 (m1 screen 3) — the HOST's quiet line above Send: the waiting guest's avatar is the signal
+   (no bell — a bell implies sound). Plain text, never live; Send is `aria-describedby` it. */
+.checkout-nudge-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: var(--s3) 0 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-normal);
+  color: var(--tx);
+}
+.checkout-nudge-line-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  color: var(--t2);
+}
+/* The Send's caption: feedforward before the tap, the SAME node (same id) once Send is Undo — the
+   control keeps its box, so the tap shifts nothing. */
+.checkout-send-caption {
+  margin: var(--s2) 0 0;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.checkout-send-caption [lang="my"] {
+  display: block;
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+  color: var(--t3);
+}
+
+/* PD1 (m1 screen 2) — "Show a server": the Sheet as a FULL-SCREEN dialog (Radix: trap, Esc, inert).
+   Out-specifies `.mms-sheet` and its ≥441px float rule (0,2,0 over 0,1,0). The page ground is the
+   pass's host, so the notches show it (`--pass-hole` defaults to `--pg`). */
+.mms-sheet.mms-sheet-full {
+  top: 0;
+  bottom: 0;
+  max-height: none;
+  height: 100dvh;
+  max-width: none;
+  border-radius: 0;
+  background: var(--pg);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+.show-server-kicker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--s2);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.show-server-kicker-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: var(--lh-my);
+}
+/* The ticket centres between the head and Done; when it does not fit (a long list, 200% zoom) it
+   top-anchors and the middle scrolls, Done stays pinned. */
+.show-server-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+  padding: var(--s3) 0;
+}
+.pass-dishes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pass-dish {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 10px 0;
+}
+.pass-dish + .pass-dish {
+  border-top: 1px solid var(--pass-unlit);
+}
+/* The kitchen's qty grammar (`qtyStands`, the KDS token) in the PASS's own inks — never a theme
+   token on the paper: a single is a ringed numeral, a multiple is filled. The one accent fill on a
+   pass that is not "now": the KDS exception the vocabulary names (m1 appendix C). */
+.pass-dish-qty {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px var(--pass-seam);
+  color: var(--pass-ink);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+}
+.pass-dish-qty[data-many] {
+  background: var(--pass-ac);
+  color: var(--pass-paper);
+  box-shadow: none;
+}
+.pass-dish-names {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pass-dish-name,
+.pass-dish-name-my {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  color: var(--pass-ink);
+  overflow-wrap: anywhere;
+}
+.pass-dish-name {
+  line-height: var(--lh-snug);
+}
+.pass-dish-name-my {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+.show-server-done {
+  flex: none;
+  width: 100%;
+  min-height: 56px;
+  margin-top: var(--s3);
+  border-radius: var(--r-full);
+  background: var(--cd);
+  border: 1px solid var(--bd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+  cursor: pointer;
+}
+.show-server-done [lang="my"] {
+  font-family: var(--font-my);
+}
+.show-server-dot {
+  margin: 0 0.4em;
+  color: var(--t2);
+}
+
+/* PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — the /menu order bar on a SHARED cart: no count capsule,
+   and a second line in the console's own words under "View order". Inherits the bar's ink. */
+.cartbar-label {
+  display: grid;
+  justify-items: start;
+  text-align: start;
+}
+.cartbar-line2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+}
+.cartbar-line2 .mark-ring {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+.cartbar-line2 [lang="my"] {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+
 /* Checkout totals "receipt" — the breakdown sits on its own textured, lifted layer (card + masked
    dot-grid via .card-textured) so it reads as a distinct slip, not loose text on the page. The hero
    total's hairline divider (Row `strong`) supplies the subtotal→total step; padding gives the slip air. */

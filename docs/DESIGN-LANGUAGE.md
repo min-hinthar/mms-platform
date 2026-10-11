@@ -2449,7 +2449,14 @@ Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLa
   filled `.checkout-cta` or none: Send while the host still has drafts; the outline Undo alone during
   the grace; the receipt's Total door once everything is with the kitchen. Two verbs side by side with
   no state between them (J23's "Send to kitchen" beside "View bill & pay") is the shape this rule
-  forbids, and so is a filled Send on the Bill beside a dimmed Pay.
+  forbids, and so is a filled Send on the Bill beside a dimmed Pay. **PD1 (2026-10-09) adds one arm
+  for a GUEST whose dishes wait on a host's Send:** their one filled `.checkout-cta` is "Show a
+  server" — the `CounterPass` held up for Dad, whose console Send fires the round too — and the
+  receipt's Total door goes quiet beside it (a door to a bill you can read, never a second hero). The
+  guest's next step is the shipped `hostSendsCopy` sentence, actor-first, above the block's two ways
+  forward (the quiet "Let {host} know" — a durable stamp on the cart, cleared by the fire — and the
+  staff fallback last). A hostless table keeps the Bill door: nobody at the table sends, so nothing
+  waits on a tablemate. `orderStageHero`'s "wait" arm decides it, with mutants.
 - **The bill is readable; only money waits.** The undo grace used to live in the Send button's own
   state, so a stage flip destroyed it and Checkout locked the Bill door for ten seconds to protect it.
   The grace is Checkout's now; the Total door is always open (reading is not a write); Pay is the one

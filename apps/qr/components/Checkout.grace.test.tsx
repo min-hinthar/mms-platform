@@ -49,6 +49,10 @@ vi.mock("@/lib/counter-pay", () => ({
 }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+// PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
+vi.mock("@/lib/send-nudge", () => ({
+  nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
+}));
 vi.mock("@mms/ui", async (orig) => ({
   ...(await orig<typeof import("@mms/ui")>()),
   NumberFlow: ({ value }: { value: number }) => <span>{value}</span>,
@@ -130,6 +134,9 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: 7,
+    sendNudge: null,
+    nudgeReady: true,
+    serverNow: "2026-10-08T10:00:00.000Z",
     mode: "dinein",
     ...over,
   } satisfies View;
@@ -220,7 +227,7 @@ function mountAllSent() {
 async function sendAndOpenGrace(receipt: typeof SENT = SENT) {
   h.sendToKitchen.mockResolvedValue(receipt);
   h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
-  await press(/^Send to kitchen · 1 item/);
+  await press(/^Send to kitchen(?! now)/);
   await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
 }
 
@@ -419,7 +426,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     );
     h.sendToKitchen.mockResolvedValue(SHORT_GRACE);
     h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: asked }));
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
     await press("Total · $12.00 — View bill");
     expect(screen.queryByRole("button", { name: /^Pay · / })).toBeNull();

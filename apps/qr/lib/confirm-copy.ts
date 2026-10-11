@@ -122,3 +122,65 @@ export function hostSendsCopy(hostName: string | null): { en: string; my: string
     my: `${who ? `${who} က` : "စားပွဲက တစ်ယောက်က သူ့ဖုန်းကနေ" /* K15 draft (2026-09-24; was စားပွဲ စဖွင့်တဲ့သူက) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
   };
 }
+
+/**
+ * PD1 (m1 screen 1, row C) — the quiet human fallback under the guest's next step. TRUE because the
+ * console's Send fires a diner's round too (`lib/staff-send-view.ts`: a host table gets a secondary
+ * console Send with the host note; `lib/checkout-stage.ts`: "The console can ALWAYS send"). Named
+ * when the table can name its host (`chosenName`); the role branch otherwise. ဝန်ထမ်း is the shipped
+ * diner word for staff (`counterBody`). Both MY lines are K15 drafts (m1, quiet).
+ */
+export function staffCanSendCopy(hostName: string | null): { en: string; my: string } {
+  const who = hostName?.trim() || null;
+  return who
+    ? {
+        en: `If ${who} is away, our staff can send it too.`,
+        my: `${who} မရှိရင် ဝန်ထမ်းကလည်း ပို့ပေးလို့ ရပါတယ်။`,
+      }
+    : {
+        en: "If they’re away, our staff can send it too.",
+        my: "သူ မရှိရင် ဝန်ထမ်းကလည်း ပို့ပေးလို့ ရပါတယ်။",
+      };
+}
+
+/**
+ * PD1 (owner answer 3; m1 B7) — the quiet "Let {host} know" and its settled confirmation. Offered
+ * ONLY for a host the table can name (`nudgeOffered` takes `chosenName(host)`): "Let Guest know"
+ * would name a placeholder, so there is no role branch and no English-only orphan. The confirmation
+ * claims only what the stamp keeps — the host's Order page and order bar draw the waiting line
+ * whenever they look, until the Send clears it. Both MY lines are K15 drafts (m1, quiet).
+ */
+export function nudgeCopy(hostName: string): {
+  button: { en: string; my: string };
+  seen: { en: string; my: string };
+} {
+  const who = hostName.trim();
+  return {
+    button: { en: `Let ${who} know`, my: `${who} ကို ပြောလိုက်မယ်` },
+    seen: { en: `${who} can see you’re waiting.`, my: `စောင့်နေတာ ${who} မြင်ရပါပြီ` },
+  };
+}
+
+/**
+ * PD1 (the blind pass on #335) — a tablemate's nudge already stands: `mms_nudge_host` answered
+ * `taken` with THEIR seat. The guest is told whose nudge it was — never "{host} can see you're
+ * waiting", which would claim a stamp that is not theirs. The tablemate is named only by a name the
+ * table CHOSE (`chosenName`); otherwise "Someone at your table". Both MY lines are K15 drafts (m1,
+ * quiet).
+ */
+export function alreadyNudgedCopy(
+  nudgerName: string | null,
+  hostName: string,
+): { en: string; my: string } {
+  const who = nudgerName?.trim() || null;
+  const host = hostName.trim();
+  return who
+    ? {
+        en: `${who} already let ${host} know — they can see the table’s waiting.`,
+        my: `${who} က ${host} ကို ပြောပြီးသားပါ — စားပွဲက စောင့်နေတာ မြင်ရပါတယ်`,
+      }
+    : {
+        en: `Someone at your table already let ${host} know — they can see the table’s waiting.`,
+        my: `စားပွဲက တစ်ယောက်က ${host} ကို ပြောပြီးသားပါ — စောင့်နေတာ မြင်ရပါတယ်`,
+      };
+}
