@@ -33022,6 +33022,14 @@ const MUTANTS = [
     replace: '  stop: "kds.err.bump",\n',
   },
   {
+    id: "m270/stop-card/qty-unsaid",
+    file: "apps/qr/components/staff/KdsStopCard.tsx",
+    suite: "components/staff/KdsStopCard.test.tsx",
+    why: "#347 Codex r5 (a11y) — the stopped dish's count is said: the drawn numeral is aria-hidden, so without it a screen reader hears which dish to stop but not how many",
+    find: '                  <span className="sr-only">{`${localizeCount(l.qty, lang)} `}</span>\n',
+    replace: "",
+  },
+  {
     id: "m270/stop-card/held-unsaid",
     file: "apps/qr/components/staff/KdsStopCard.tsx",
     suite: "components/staff/KdsStopCard.test.tsx",

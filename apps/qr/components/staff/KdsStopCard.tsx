@@ -5,7 +5,7 @@ import { Chrome } from "./Chrome";
 import { TicketLineText } from "./TicketText";
 import { useStaffLang } from "./StaffLangProvider";
 import { ts } from "@/lib/i18n/staff";
-import { tf } from "@/lib/i18n/fill";
+import { localizeCount, tf } from "@/lib/i18n/fill";
 import type { KitchenStopLine } from "@/lib/kitchen-types";
 
 /**
@@ -83,6 +83,10 @@ export function KdsStopCard({
                   {l.qty}
                 </span>
                 <span className="kds-line-main">
+                  {/* The numeral is drawn for the eye (aria-hidden); the count is said here, in the
+                      device's prose numerals as the live row's name says it (Codex r5 on #347) —
+                      "stop 2 mohinga" is not "stop mohinga". */}
+                  <span className="sr-only">{`${localizeCount(l.qty, lang)} `}</span>
                   <TicketLineText line={l} />
                 </span>
               </span>

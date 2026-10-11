@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KdsStopCard, type KdsStopLine } from "./KdsStopCard";
 import { StaffLangProvider } from "./StaffLangProvider";
-import { tf } from "@/lib/i18n/fill";
+import { localizeCount, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 
 /**
@@ -52,6 +52,10 @@ describe("KdsStopCard — the reserved shape", () => {
     expect(struck).toHaveLength(2);
     expect(struck[0]!.textContent).toContain("မုန့်ဟင်းခါး");
     expect(struck[1]!.textContent).toContain("Shan Noodles");
+    // MUTATION m270/stop-card/qty-unsaid: the drawn numeral is aria-hidden, so a screen reader hears
+    // which dish to stop but not how many (Codex r5 on #347). Said in the device's prose numerals.
+    expect(struck[0]!.querySelector(".sr-only")?.textContent).toBe(`${localizeCount(2, "my")} `);
+    expect(struck[1]!.querySelector(".sr-only")?.textContent).toBe(`${localizeCount(1, "my")} `);
     // The rows are not controls: nothing on a dish nobody will eat is tappable.
     expect(card.querySelectorAll(".kds-lines button")).toHaveLength(0);
     const ack = getByRole("button", { name: new RegExp(ts("my", "help.done")) });
