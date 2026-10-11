@@ -4085,6 +4085,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "m268/takeover-keeps-the-stale-era",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M268 · Codex on #338 @ 90732bc (P1) — a settlement that takes over a stale, unlinked pay lock without ending its era leaves a stalled create-intent able to link its minted intent afterwards: a payable checkout on a cart the counter is collecting, priced from the pin the settlement just cleared",
+    find: "        settle_by: owner,\n        locked: false,\n        locked_at: null,\n        locked_by: null,\n",
+    replace: "        settle_by: owner,\n",
+  },
+  {
     id: "m268/scoped-read-ignores-the-pay-lock",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",

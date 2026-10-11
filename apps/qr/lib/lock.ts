@@ -192,9 +192,27 @@ export async function acquireSettlement(cartId: string, owner: string): Promise<
   // `locked_at`, and using `cutoff` here would let a settlement take over a pay-lock at 10 minutes
   // that single-pay may take at 5 — two different answers to "is this attempt still alive?".
   const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  // ⚠️ THE TAKEOVER ENDS THE STALE ERA (Codex on #338 @ 90732bc, P1). "Stale and unlinked" is a
+  // guess that the attempt is dead, and one live shape defeats it: a create-intent request that
+  // minted its PaymentIntent and then stalled before `linkPaymentIntent`. Left as it was, its era
+  // still matched the link's `locked_by` + `locked_at` keys, so it could resume, link, and hand the
+  // diner a client secret on a cart this settlement was collecting — priced from a promo pin M268's
+  // release had just cleared: a charge fulfillment cannot reconcile, beside the counter's own. So the
+  // freeze clears the pay-lock columns in the SAME statement that admits it: the old era can never
+  // link again, and that request answers an error instead of a payable intent. On the
+  // `locked = false` arm this writes what is already there.
   const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString(), settle_by: owner }, { count: "exact" })
+    .update(
+      {
+        settle_at: new Date().toISOString(),
+        settle_by: owner,
+        locked: false,
+        locked_at: null,
+        locked_by: null,
+      },
+      { count: "exact" },
+    )
     .eq("id", cartId)
     .eq("status", "open")
     .or(`locked.eq.false,and(locked_at.lte.${lockCutoff},live_payment_intent_id.is.null)`)

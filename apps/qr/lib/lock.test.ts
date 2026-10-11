@@ -667,6 +667,18 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     expect(lockTerm).toMatch(/,and\(locked_at\.lte\.[^,]+,live_payment_intent_id\.is\.null\)$/);
   });
 
+  it("ends the stale attempt's era in the SAME write — a stalled create-intent can never link after it (Codex on #338 @ 90732bc)", async () => {
+    // A create-intent that minted its intent and stalled before `linkPaymentIntent` keeps the era
+    // the link is keyed on (`locked_by` + `locked_at`). Left in place, it resumed after this takeover
+    // and handed the diner a payable intent on a cart the counter was collecting, priced from a pin
+    // the settlement had cleared. MUTATION: drop the pay-lock columns from the payload → that era
+    // survives the freeze; red.
+    updateCount = 1;
+    expect(await acquireSettlement(CART, UID)).toBe("acquired");
+    const update = queries.find((q) => q.payload.settle_at !== undefined)!;
+    expect(update.payload).toMatchObject({ locked: false, locked_at: null, locked_by: null });
+  });
+
   it("carries NO same-owner re-acquire arm — a mutex admits nobody twice (A3 · M201)", async () => {
     // The predicate used to read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a
     // re-open door for the host's split that the counter inherited by passing a shared staff uid.
@@ -676,7 +688,13 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     updateCount = 1;
     expect(await acquireSettlement(CART, UID)).toBe("acquired");
     const update = queries.find((q) => q.payload.settle_at !== undefined)!;
-    expect(update.payload).toEqual({ settle_at: expect.any(String), settle_by: UID });
+    expect(update.payload).toEqual({
+      settle_at: expect.any(String),
+      settle_by: UID,
+      locked: false,
+      locked_at: null,
+      locked_by: null,
+    });
     const settleTerm = update.or.find((o) => o.startsWith("settle_at.is.null"));
     expect(settleTerm).toBeDefined();
     expect(settleTerm).not.toContain("settle_by");
