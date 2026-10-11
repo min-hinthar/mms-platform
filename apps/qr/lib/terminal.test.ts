@@ -186,6 +186,9 @@ let extendError: { message: string } | null = null;
 let heldByAttempt = false;
 let heldError: { message: string } | null = null;
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   settlementHeldBy: (cartId: string, owner: string) => {
     log("heldBy", { cartId, owner });
     return Promise.resolve({ held: heldByAttempt, error: heldError });

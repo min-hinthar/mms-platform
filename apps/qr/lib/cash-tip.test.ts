@@ -41,6 +41,9 @@ vi.mock("./staff-open-cart", () => ({
 }));
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: () => Promise.resolve("acquired"),
   // A3 — the release names its request-unique owner and reports whether it matched.
   releaseSettlementFor: () => Promise.resolve({ released: true, error: null }),
