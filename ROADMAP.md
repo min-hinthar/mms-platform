@@ -455,8 +455,10 @@ the plan state.
         slider retired), the glance strip Open · Late at the identity tier, "Late" in the badge (K38).
   - [x] **3d · counter — the receipt stack** (#315, 2026-10-06): Subtotal · Discount · Tax · Total on the
         pad's ticket, its Total Take payment's figure (K46).
-  - [ ] **3d · counter — the cash-sheet re-host** with a tablet in hand (K39), and the table page's two
-        bases (K44).
+  - [x] **3d · counter — the cash-sheet re-host** with a tablet in hand (K39), and the table page's two
+        bases (K44) — built in PD6's PR (`claude/feat/pd6-till-tray`, 2026-10-09: the crowned till tray,
+        the seal, the counter door on the pad, `ReceiptStack` on the order card); it merges after the
+        device sitting (ruling #12). The Team tile K39 carried is not in it.
   - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the
         ASAP chip in the one sheet, the counter pass; reward terms from config, LA coupon expiry, the
         honest history foot, the receipt link on a row.

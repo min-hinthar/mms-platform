@@ -935,8 +935,9 @@ describe("the KDS line's OFF THE MENU tag — its ink and its dot over the card 
 describe("text on the DOTTED card — `.card-textured` over `.card`'s satin ramp, both themes", () => {
   /**
    * The blind review's open question: warn and --t3 text on the dotted staff cards — the pad's
-   * stale line (`.pad-stale`), the paid card's still-to-collect row (`.staff-handoff-row-collect`),
-   * the table page's --t3 captions — was audited against flat `--cd` only, because the main audit
+   * stale line (`.pad-stale`), the paid card's still-to-collect row (since PD6 the SEAL's collect
+   * hero, measured on the seal's own two grounds below), the table page's --t3 captions — was
+   * audited against flat `--cd` only, because the main audit
    * asserts token PAIRS and a card's face is not one token: it is `--cd` with a ramp to `--cd-foot`
    * (`.card`'s background-image). Every layer here is read out of globals.css — bound to the rules
    * that paint them, the KDS block's shape — never typed.
@@ -989,10 +990,6 @@ describe("text on the DOTTED card — `.card-textured` over `.card`'s satin ramp
   );
   const INKS: Array<[string, string]> = [
     [".pad-stale", onlyToken(declared(".pad-stale", "color"), VAR)],
-    [
-      ".staff-handoff-row-collect",
-      onlyToken(declared(".staff-handoff-row-collect dd", "color"), VAR),
-    ],
     ["--t3 captions", "--t3"],
     ["--t2 hints", "--t2"],
   ];
@@ -1006,6 +1003,36 @@ describe("text on the DOTTED card — `.card-textured` over `.card`'s satin ramp
         expect(ratio(fg, top)).toBeGreaterThanOrEqual(AA);
         expect(ratio(fg, bottom)).toBeGreaterThanOrEqual(AA);
       });
+    }
+  }
+
+  /**
+   * PD6 — THE SEAL (`HandoffCard`) is no `.card`: its ground is its own `--seal-ground`, the calm
+   * paper (`.staff-seal`) or the landing's green wash (`.staff-seal[data-landing]`), both READ from
+   * the rules that paint them. Its warn collect hero (the figure still owed), the visual echo under
+   * each fact and Walk-up's note must clear AA on BOTH grounds, both themes — the wash is the one
+   * screen where a green ground meets warn ink. The landing's `--tex-dot` cores are the same
+   * unasserted speck as above. Watched RED before committing: the collect ink repainted `--warnb`
+   * (the warn FILL), and the landing's ground repainted `--warn` (every ink on it red) — the ground
+   * is READ, not assumed.
+   */
+  const SEAL_GROUNDS: Array<[string, string]> = [
+    ["calm", onlyToken(declared(".staff-seal", "--seal-ground"), VAR)],
+    ["landing", onlyToken(declared(".staff-seal[data-landing]", "--seal-ground"), VAR)],
+  ];
+  const SEAL_INKS: Array<[string, string]> = [
+    ["collect hero", onlyToken(declared('.staff-seal-hero[data-row="collect"] dd', "color"), VAR)],
+    ["echo", onlyToken(declared(".staff-seal-echo", "color"), VAR)],
+    ["Walk-up note", onlyToken(declared(".staff-seal-note", "color"), VAR)],
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    for (const [ground, groundToken] of SEAL_GROUNDS) {
+      for (const [where, ink] of SEAL_INKS) {
+        it(`${theme} · the seal's ${where} (${ink}) clears AA on its ${ground} ground (${groundToken})`, () => {
+          expect(ratio(t(map, ink), t(map, groundToken))).toBeGreaterThanOrEqual(AA);
+        });
+      }
     }
   }
 });

@@ -48,6 +48,53 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `board-motion/*`, `board-poll/*`), 26 retired with the band and the shelf wait. No migration; every
   read is the service client's behind the device token. Drafts: `K15 · kitchen-ops`.
 
+### PD6 — the walk-up cash sale: the crowned till tray and the seal; PD2's pane twin; PD1's ring (2026-10-09)
+
+- **One money verb, one cash sheet** (`docs/path-design-2026-10-07/m6-walk-up-cash.md`; build notes
+  in its §H). "Take cash · $X" (`settle.cash.trigger` / `.title`, now K15-HIGH) opens the crowned till
+  tray on every door — the counter pad's dock and the table page / pane alike: `CashSettleButton`
+  keeps one host contract and gains a `door` (the pad's gate, busy and held states, routed through
+  the pad's ONE region) and a `slip`. The tray reads OWE → TIP → GAVE at the computed till
+  breakpoint `TILL_MEDIA` = `(min-width: 85.375em) and (min-height: 44em)` (`lib/till.ts`: the grid's
+  1262px + 2×32 padding + 2×20 gutters = 1366px; narrower, the sheet it always was); the due at
+  `--fs-pass`, Change at `--till-fs-hand`, the double-tap guard checked by geometry at design time (`tillBandsAt`,
+  `tillDoorLandsInert`). The slip freezes with the quote; a diverged cart reads "The order changed —
+  tap to update" and holds Take until the re-quote (Codex round 3).
+- **The seal** (`HandoffCard`): the paid card's grammar — Change (or the Total, with no tender) as the
+  hero, the #CODE on the CounterPass stub (landscape at the till width, `--fs-pass`), "Back to the
+  counter" the one hero action and Walk-up the quiet secondary with its honest note; the green bloom
+  only on the landing, once, reduced-motion escorted. On the pad the sale never leaves: the stash is
+  written FIRST (`stashHandoff`, Codex correction 4), the poll pauses, the seal stands where the pad
+  was; a reload of `/add` on the closed counter session lands on its table page, which adopts the
+  stash for that order (`sealAdopt`). A Cancel after a refused or stalled attempt says "Nothing was
+  taken — the order is still here." through the pad's one region; an unpriced read never opens the
+  tray (`pad.reason.unpriced`).
+- **PD2 (the pane half):** an asked table opens with the CounterPass twin of the guest's counter pass
+  — figureless (the ask's words; the number stays in the pane heading), the ask's age plain text, its
+  total the very binding Take cash reads.
+- **K44:** the table page's order card speaks receipt through `ReceiptStack` (extracted from the pad
+  ticket), never the pre-tax "so far" beside a tax-inclusive door.
+- **PD1 · P2do:** the solid owed-Send dot becomes the hollow KitchenTrack ring in `--warn` on the tile,
+  the key, the card's kitchen row, the line tag and the ticket's group, with one word
+  (`pad.group.unsent`); an asked host table counts every unsent dish and says how long each has
+  waited, as plain text.
+- **The blind pass on #334 (fix round):** the till's doubt is sticky (`tillLedgerAfter` — a refusal or
+  a stalled tap after a lost answer, or a new opening, never says "Nothing was taken", and never lets
+  the page's closed-bounce hold go); the pad's gate re-decides the hold after the drain and the tray's
+  total is `number | null` (no tray on $0.00); the seal lands once per same-tab reload
+  (`takeSealLanding`), calm on every revisit; focus moves to Take after the slip's re-quote; the slip
+  list's name is one script.
+- **The last blind pass on #334:** ONE time-based rule resolves a lost or late settle's doubt —
+  the ledger keeps WHEN each arose (the newest loss advances it), and `tillLedgerRead` applies the
+  hosts' own `settleUnknownAfterRead` to the start of their latest open read (`openReadAt`, fed by
+  the pad AND the table page); the pad's mark advances to the newest doubt. A refusal after a lost
+  answer tells the pane `unknown`. The seal lands only on a document RELOADED after the landing
+  (`sealNavNow`); a client-side revisit is calm.
+- **Mutants:** `till/*`, `till-ui/*`, `seal/*`, `pad-seal/*`, `pad-door/*`, `pad-route/*`,
+  `pad/unpriced-*`, `send-view/asked-table-counts-only-staff`, `p2do/*`, `pd1/*`, `pd2/*`, `k44/*`;
+  re-anchored: the cash sheet's, the receipt stack's (now `ReceiptStack.tsx`) and the strip's owed mark.
+  Burmese drafts: OPEN-ITEMS `K15 · counter-floor`.
+
 ### A solo session refuses a second member — pickup and scan-and-go, in SQL where the membership is written (2026-10-09, PD3 follow-up)
 
 - **The gap (found in #330's second blind pass):** `/api/session` found a `?j=<code>` session by its

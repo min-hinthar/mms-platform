@@ -907,7 +907,7 @@ describe("CashSettleButton — keep the change names the tip it MAKES when a tip
 });
 
 describe("CashSettleButton — an unknown outcome is handed UP (critic finding: the counter's closed-bounce)", () => {
-  it("a rejected settle says unknown to the parent; the next answered attempt says known", async () => {
+  it("a rejected settle says unknown to the parent; a NEWER attempt's refusal never says known (#334, C1); a landed one does", async () => {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const onOutcomeUnknown = vi.fn();
@@ -923,7 +923,16 @@ describe("CashSettleButton — an unknown outcome is handed UP (critic finding: 
     await act(async () => {
       fireEvent.click(settle());
     });
-    // MUTATION: never clear it — a later GENUINE close (cleared from another tablet) is held too; red.
+    // The blind pass on #334 (C1): "That table is closed." after a lost answer is most likely the
+    // FIRST settle landing — the refusal of a newer attempt answers nothing about it, so the page
+    // keeps its hold ("most likely went through"), never a bounce to the floor.
+    expect(onOutcomeUnknown).not.toHaveBeenCalledWith(false);
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o1", totalCents: 4250, tipCents: 0 });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION p2c-register/cash-unknown-never-cleared: a LANDED attempt answers every doubt — never
+    // cleared, a later genuine close is held with a 'most likely went through' it did not earn; red.
     expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
   });
 });

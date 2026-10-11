@@ -334,6 +334,31 @@ describe("padSettle — Take payment", () => {
     expect(padSettle(settleIn({ itemCount: 0 }))).toMatchObject({ enabled: false, block: "empty" });
   });
 
+  it("PD6 (m6 graft 2) — 'unpriced' is ranked LAST: lines on the order, amounts settled, no total", () => {
+    // The read priced nothing: the till tray never opens on a null total. MUTATION
+    // pad/unpriced-never-held: Take cash opens the tray over a null due; red.
+    expect(padSettle(settleIn({ mode: "pickup", settleTotalCents: null }))).toMatchObject({
+      enabled: false,
+      block: "unpriced",
+      showAmount: false,
+    });
+    // Ranked after every other hold: an empty order says "add a dish", a flying add merely withholds
+    // the figure (the tap drains it), and the gate's unsent dishes outrank it.
+    expect(padSettle(settleIn({ itemCount: 0, settleTotalCents: null })).block).toBe("empty");
+    // MUTATION pad/unpriced-outranks-a-pending-add (the amounts-settled conjunct dropped): a cashier
+    // is told to reload the order while the dish they just tapped is still on its way; red.
+    expect(
+      padSettle(
+        settleIn({ mode: "pickup", settleTotalCents: null, pending: { ...NONE, flying: 1 } }),
+      ).block,
+    ).toBeNull();
+    expect(padSettle(settleIn({ settleTotalCents: null, unsentUnits: 1 })).block).toBe("unsent");
+    // Its sentence is the reload: the ticket's own way out.
+    expect(
+      padSettleReason("unpriced", { tab: false, note: null, blocker: null, unsent: 0 }),
+    ).toEqual({ k: "pad.reason.unpriced" });
+  });
+
   it("an unsaved kitchen note holds it — leaving the pad would throw the note away", () => {
     // MUTATION: Take payment blind to the note — a walk-up's "no peanuts" typed but not saved is
     // dropped when the pad navigates, and a counter order cooks when paid with no note; red.

@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Icon } from "@mms/ui";
+import { Icon, KitchenTrack } from "@mms/ui";
 import { kitchenSegments, type KitchenSegment } from "@/lib/floor-kitchen";
 import type { FloorKitchen } from "@/lib/floor-types";
 import type { KdsThresholds } from "@/lib/kitchen-types";
@@ -57,6 +57,16 @@ export function FloorKitchenLine({
           <Fragment key={s.k}>
             {i > 0 ? <span aria-hidden> · </span> : null}
             <span className="floor-kitchen-seg" data-seg={s.k}>
+              {/* PD1 · P2do — "not sent" leads with the hollow ring (the one shape, decorative: the
+                  words carry the state). */}
+              {s.k === "floor.kitchen.notSent" && (
+                <KitchenTrack
+                  stage="unsent"
+                  size="glyph"
+                  surface="theme"
+                  className="staff-unsent-ring"
+                />
+              )}
               {s.k === "expo.kitchenDone" ? (
                 <Chrome lang={lang} k={s.k} />
               ) : (

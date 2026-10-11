@@ -25,8 +25,8 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { type ClosedVerdict, type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
-import { LiveMoney } from "./LiveMoney";
-import { Badge, Icon, buttonClass } from "@mms/ui";
+import { Badge, CounterPass, Icon, buttonClass } from "@mms/ui";
+import { ReceiptStack } from "./ReceiptStack";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
@@ -44,7 +44,8 @@ import { StaffBar } from "./StaffBar";
 import { Chrome, OutageText } from "./Chrome";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
-import type { StaffKey } from "@/lib/i18n/staff";
+import { STAFF, type StaffKey } from "@/lib/i18n/staff";
+import { tillSlipFrom } from "@/lib/till";
 // ── Phase 2a · send ──
 import { counterAskLive } from "@/lib/counter-pay-state";
 import {
@@ -81,6 +82,7 @@ import {
   markHandoffFocus,
   paneFreezeSpoken,
   readHandoffStash,
+  markSealLanding,
   stashHandoff,
   lostWriteKind,
   type LateAnswer,
@@ -242,6 +244,10 @@ export function FloorDetailLive({
   // answered CASH attempt cleared it, so a close hours later — cleared from another tablet, or paid
   // on the reader — was said as "the payment most likely went through".
   const settleUnknown = useRef<number | null>(null);
+  // #334 (the last blind pass) — the START of the latest committed read that showed the order OPEN:
+  // the cash till's `openReadAt`, so its own doubts resolve by this page's rule (no `door` needed).
+  const openReadAt = useRef<number | null>(null);
+  const openReadAtNow = useCallback(() => openReadAt.current, []);
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
@@ -251,6 +257,14 @@ export function FloorDetailLive({
   // Phase 2f — THE counter-order predicate, decided once on the server (`isCounterOrder`: a pickup
   // session minted with a `reg-` code), never re-derived here from the label.
   const isCounter = detail.counterOrder;
+  // PD2 · PD6 — THE figure at the till on this table: the ask pass's total reads the very field Take
+  // cash's trigger reads (`detail.settleTotalCents`, `getCartTotals(cart.id, 0)` — the guest pass's
+  // own derivation), never a second computation, so the two can never show two figures. When a
+  // manager decision lands and the total re-reads (PD8's `totalPending`), the pass must say
+  // "Updating the total…" with the trigger: that flag joins this binding when PD8 merges.
+  const tillDue = detail.settleTotalCents;
+  // The ask is live (the same `counterRequestedAt` the floor chip reads) on an order with dishes.
+  const askLive = counterAskLive(detail.counterRequestedAt) && detail.itemCount > 0;
   // W6a review (confirmed HIGH): the settle handoff card must SURVIVE the settled detail state — the
   // settle button lives inside the open-cart conditional, and the realtime/poll refresh unmounts it
   // (client state included) within ~0.4-5s of the settle, mid-handoff. The card's data lives HERE.
@@ -267,6 +281,9 @@ export function FloorDetailLive({
   const setHandoff = useCallback(
     (h: Handoff) => {
       stashHandoff(sessionId, h);
+      // PD6 (m6 B6) — a counter order's same-tab RELOAD lands its seal once more (a one-shot
+      // note the closed card takes); every later revisit is the calm seal (#334).
+      if (h.isCounter) markSealLanding(sessionId, h.orderId, Date.now());
       setHandoffState(h);
     },
     [sessionId],
@@ -488,10 +505,13 @@ export function FloorDetailLive({
           if (!alive.current) return;
           if (res.kind === "detail") {
             // Phase 2c · review (R2) — an open cart read after the lost settle could last land.
+            const cartOpen = res.detail.cartId != null && !res.detail.settled;
             settleUnknown.current = settleUnknownAfterRead(settleUnknown.current, {
               startedAtMs,
-              cartOpen: res.detail.cartId != null && !res.detail.settled,
+              cartOpen,
             });
+            if (cartOpen)
+              openReadAt.current = Math.max(openReadAt.current ?? startedAtMs, startedAtMs);
             setDetail(res.detail);
             setReadTicket(ticket);
             fails.current = 0;
@@ -1079,6 +1099,49 @@ export function FloorDetailLive({
           </div>
         )}
 
+        {/* PD2 (m2 screen 3) — after a table's ask, Dad's pane shows the TWIN of the guest's counter
+            pass: the ONE PASS (CounterPass, rendered, never redrawn — the same paper, seam and total
+            the guest holds up), moved to the top of the detail. Its identity is the figureless arm —
+            the ask in the family's words — because the table's number is already the pane's heading
+            (the page's bar): printed once, never twice. The ask's age is plain text in its status
+            row (CALL tier: no escalation). The total is `tillDue`, the SAME binding Take cash reads
+            below — one value, so the two can never show different figures; it is
+            `getCartTotals(cart.id, 0)`, the guest pass's own derivation (the diner-cart stream pins
+            the two reads equal over a promo'd cart). Unmounted on the next read after a withdraw. */}
+        {askLive && (
+          <CounterPass
+            tier="counter"
+            lang={lang}
+            label={TABLE_LABEL}
+            fallback={{
+              en: STAFF["table.detail.counterAsk"].en,
+              my: STAFF["table.detail.counterAsk"].my,
+            }}
+            head={
+              <span className="floor-ask-age">
+                <Icon name="receipt" size={16} aria-hidden />
+                <Chrome lang={lang} k="table.detail.counterAsked" echo={false} />{" "}
+                <RelativeTime iso={detail.counterRequestedAt!} serverNow={detail.serverNow} />
+              </span>
+            }
+            id="counter-ask-h"
+            headingLevel={inPane ? 3 : 2}
+            className="floor-ask-pass"
+            tear
+          >
+            {tillDue != null ? (
+              <dl className="floor-ask-total">
+                <div>
+                  <dt>
+                    <Chrome lang={lang} k="floor.settled.row.total" echo="inline" />
+                  </dt>
+                  <dd>{fmt(tillDue)}</dd>
+                </div>
+              </dl>
+            ) : null}
+          </CounterPass>
+        )}
+
         {/* Party */}
         <section className="card card-textured" style={sectionCard} aria-labelledby="party-h">
           {/* `echo={false}` is REQUIRED on a heading that is an aria-labelledby target: the computed
@@ -1203,6 +1266,8 @@ export function FloorDetailLive({
                   onError={onWriteError}
                   onEditState={onEditState}
                   onWaiting={onLineWaiting}
+                  // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.
+                  unsentAge={askLive ? { serverNow: detail.serverNow } : undefined}
                 />
               ))}
             </ul>
@@ -1283,27 +1348,17 @@ export function FloorDetailLive({
             </ul>
           )}
 
-          <div style={totalRow}>
-            {detail.itemCount > 0 && (
-              <span>
-                <span style={{ fontWeight: "var(--fw-bold)" }}>
-                  <LiveMoney cents={detail.runningSubtotalCents} />
-                </span>{" "}
-                {/* The AMOUNT is untouched — `LiveMoney` still renders the server-derived cents. Only
-                  the label speaks the device language: inline on the words, no echo on the count
-                  (an echoed count would print the same number twice, once per numeral system). */}
-                <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
-                  <Chrome lang={lang} k="table.detail.subtotalSoFar" echo="inline" /> ·{" "}
-                  <Chrome
-                    lang={lang}
-                    k={plural(detail.itemCount, "table.detail.item.one", "table.detail.item.many")}
-                    vars={{ n: detail.itemCount }}
-                  />
-                </span>
-              </span>
-            )}
-            {detail.paidTotalCents != null &&
-              (detail.refund == null || detail.refund.state === "none" ? (
+          {/* PD6 · K44 — the order card speaks receipt: the SAME stack as the pad's ticket
+              (`ReceiptStack`: Subtotal · Discount · Tax · Total, its Total the figure Take cash
+              names), never the LINES read's pre-tax "so far" beside a tax-inclusive door (two bases
+              on one screen). On an ASKED table no money row at all: the pass above carries the one
+              figure at the till (m2 B4 · risk 6). Settled, the paid row below is the record. */}
+          {!detail.settled && !askLive && (
+            <ReceiptStack lang={lang} detail={detail} amountsSettled className="floor-receipts" />
+          )}
+          {detail.paidTotalCents != null && (
+            <div style={totalRow}>
+              {detail.refund == null || detail.refund.state === "none" ? (
                 <span style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>
                   <Chrome
                     lang={lang}
@@ -1335,16 +1390,8 @@ export function FloorDetailLive({
                     />
                   )}
                 </span>
-              ))}
-          </div>
-          {/* K33 — "tax is added at settle" is a promise about a RUNNING cart. Over a settled
-              record the tax was added, so the sentence is simply false there; it is suppressed
-              rather than reworded, because the settled row already states the authoritative
-              figure and a second caption under it would only invite a second reading. */}
-          {!detail.settled && (
-            <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-              <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
-            </p>
+              )}
+            </div>
           )}
           {/* Phase 2a · send — the slot sits between the order and its one region, so the page
               reads "send, then settle". It mounts no region of its own. */}
@@ -1508,22 +1555,9 @@ export function FloorDetailLive({
 
         {/* Open a tab (S3.1) — when there's an open cart, no tab yet, and no payment in flight. Marks the
           table so it settles once at close; moves no money. The diner can also open one from /cart. */}
-        {/* A1 — the ask, above the controls that answer it. Rendered from the SAME `counterRequestedAt`
-          the floor chip derives `counter` from, so the banner and the chip cannot disagree; it stays
-          while a card payment holds the cart (the chip then says Paying) because the ask is still a
-          fact about the table, and the settle controls below already refuse under the freeze. */}
-        {detail.counterRequestedAt && detail.itemCount > 0 && (
-          <section className="card card-textured" style={askCard} aria-labelledby="counter-ask-h">
-            <p id="counter-ask-h" style={askTitle}>
-              <Icon name="receipt" size={16} />
-              <Chrome lang={lang} k="table.detail.counterAsk" echo="stack" />
-            </p>
-            <p style={{ ...muted, marginTop: 4 }}>
-              <Chrome lang={lang} k="table.detail.counterAsked" echo={false} />{" "}
-              <RelativeTime iso={detail.counterRequestedAt} serverNow={detail.serverNow} />
-            </p>
-          </section>
-        )}
+        {/* A1 — the ask, above the controls that answer it: since PD2 it is the counter pass at the
+            top of the detail (above), rendered from the SAME `counterRequestedAt` the floor chip
+            derives `counter` from, so the pass and the chip cannot disagree. */}
         {/* A1 — "Open a tab" is PARKED (`SURFACES.cardOnFileTabs`): a tab already open still closes
           below, but no new one is offered. */}
         {surfaceOpen("cardOnFileTabs") && canWrite && detail.tab === "none" && (
@@ -1581,6 +1615,8 @@ export function FloorDetailLive({
             <CashSettleButton
               sessionId={sessionId}
               totalCents={detail.settleTotalCents}
+              // PD6 — the till tray's slip, frozen with its quote (Codex round 3 on m6).
+              slip={tillSlipFrom(detail.lines, lang)}
               tipBaseCents={detail.settleTipBaseCents}
               intendedTipCents={detail.intendedTipCents}
               isTab={detail.tab !== "none"}
@@ -1608,10 +1644,12 @@ export function FloorDetailLive({
               onOutcomeUnknown={
                 isCounter
                   ? (unknown) => {
+                      // `true` advances the mark to the NEWEST doubt (the till's contract).
                       settleUnknown.current = unknown ? Date.now() : null;
                     }
                   : undefined
               }
+              openReadAt={openReadAtNow}
               blocked={settleBlocked}
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}
@@ -1728,6 +1766,9 @@ export function FloorDetailLive({
             handoff={shownCard}
             onDone={inPane ? () => nav.toFloor("user") : undefined}
             headingLevel={inPane ? 3 : 2}
+            // PD6 (m6 B6) — the wash and the one bloom only where it JUST landed (this tab's
+            // settle, in memory) — never a restored stash on a revisit, never the server's card.
+            landing={shownCard === handoff}
           />
         )}
         {detail.paymentInFlight && !panelUp && (
@@ -1924,23 +1965,9 @@ const noteLine: CSSProperties = {
   fontStyle: "italic",
 };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
-// A1 — the ask banner: attention tone (the same pair the Pay-at-counter chip wears), never color
-// alone — the sentence carries the meaning.
-const askCard: CSSProperties = {
-  marginTop: "var(--s4)",
-  padding: "14px 16px",
-  borderColor: "var(--warn)",
-  background: "var(--warnb)",
-};
-const askTitle: CSSProperties = {
-  margin: 0,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontWeight: "var(--fw-heavy)",
-  fontSize: "var(--fs-body)",
-  color: "var(--warn)",
-};
+/** PD2 — the CounterPass's two-tongue label (not drawn on the figureless ask pass, which names the
+ *  table in the pane's heading instead). */
+const TABLE_LABEL = { en: STAFF["floor.table.label"].en, my: STAFF["floor.table.label"].my };
 const chipList: CSSProperties = {
   listStyle: "none",
   margin: 0,
