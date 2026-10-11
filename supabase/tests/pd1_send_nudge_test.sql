@@ -89,7 +89,7 @@ begin
     (sess,  'PD1-NUDGE-1', 'dinein', 'active', aye),
     (hsess, 'PD1-NUDGE-H', 'dinein', 'active', null),
     (tsess, 'PD1-NUDGE-T', 'dinein', 'active', aye),
-    (psess, 'PD1-NUDGE-P', 'pickup', 'active', aye),
+    (psess, 'PD1-NUDGE-P', 'dinein', 'active', aye),   -- flipped to pickup once seated, below
     (esess, 'PD1-NUDGE-E', 'dinein', 'active', aye),
     (nsess, 'PD1-NUDGE-N', 'dinein', 'active', aye);
   insert into public.session_members (session_id, seat_id, role, display_name) values
@@ -99,6 +99,10 @@ begin
     (psess, aye, 'host', 'Aye'), (psess, thiri, 'guest', 'Thiri'),
     (esess, aye, 'host', 'Aye'),
     (nsess, aye, 'host', 'Aye'), (nsess, thiri, 'guest', 'Thiri');
+  -- A pickup session is SOLO since #339 (`mms_refuse_solo_join` refuses its second member), so the
+  -- mode case seats two at a dine-in table and then turns it into a pickup one: the nudge's own
+  -- `s.mode = 'dinein'` term is what must refuse (PD1.12), not the membership trigger.
+  update public.table_sessions set mode = 'pickup' where id = psess;
   insert into public.qr_carts (id, session_id) values
     (cart, sess), (hcart, hsess), (tcart, tsess), (pcart, psess), (ecart, esess), (ncart, nsess);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment) values
