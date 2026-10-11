@@ -141,8 +141,28 @@ beforeEach(() => {
   nudgeRes = { data: null, error: null };
 });
 
+/** A dine-in draft row as `qr_cart_items` answers it, added at `createdAt`. */
+const draftRow = (createdAt: string) => ({
+  id: `l-${createdAt}`,
+  menu_item_id: "m-1",
+  name: "Mohinga",
+  qty: 1,
+  modifiers: [],
+  unit_price_cents: 1400,
+  tax_cents: 0,
+  by_seat: "u-2",
+  state: "draft",
+  fire_at: null,
+  comped: false,
+  fulfillment: "dinein",
+  notes: null,
+  created_at: createdAt,
+});
+
 describe("getCartView — PD1's nudge stamp is advisory: read when it stands, never an outage", () => {
   it("a standing stamp reaches the view, both halves", async () => {
+    // A LIVE stamp: the dish it names was added before it, and still waits.
+    itemsRes = { data: [draftRow("2026-10-08T09:59:00.000000+00:00")], error: null };
     nudgeRes = {
       data: { send_nudge_seat: "s-thiri", send_nudge_at: "2026-10-08T10:00:00.000Z" },
       error: null,
@@ -168,6 +188,27 @@ describe("getCartView — PD1's nudge stamp is advisory: read when it stands, ne
     const v = await getCartView("c-1");
     expect(v.sendNudge).toBeNull();
     expect(v.nudgeReady).toBe(true);
+  });
+  it("a STALE stamp — every dish it named has gone — is no wait, whatever was added since", async () => {
+    // The last blind pass on #335: Thiri nudged, took her dish off; Mya's later dish must not read
+    // as "Thiri is waiting on this send." on the host's phone.
+    nudgeRes = {
+      data: { send_nudge_seat: "s-thiri", send_nudge_at: "2026-10-08T10:00:00.000000+00:00" },
+      error: null,
+    };
+    itemsRes = { data: [draftRow("2026-10-08T10:20:00.000000+00:00")], error: null };
+    // MUTATION (cart/nudge-view-skips-the-liveness-rule): the raw stamp reported — a stale wait
+    // drawn over an unrelated dish; red.
+    expect((await getCartView("c-1")).sendNudge).toBeNull();
+    // …and the same stamp with a dish that predates it still stands.
+    itemsRes = {
+      data: [draftRow("2026-10-08T09:59:00.000000+00:00"), draftRow("2026-10-08T10:20:00+00:00")],
+      error: null,
+    };
+    expect((await getCartView("c-1")).sendNudge).toEqual({
+      seat: "s-thiri",
+      at: "2026-10-08T10:00:00.000000+00:00",
+    });
   });
   it("half a stamp is no stamp — nothing would ever clear the line it drew", async () => {
     // MUTATION (cart/nudge-half-stamp-read-as-a-wait): the time half dropped from the check — a seat

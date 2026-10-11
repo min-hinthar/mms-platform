@@ -170,10 +170,17 @@ describe("nudgeHost", () => {
     // MUTATION (send-nudge/recent-trusts-any-seat): the seat check dropped — Mya reads Thiri's
     // stamp as her own; red.
     expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({ ok: false, reason: "error" });
-    // …and a landed nudge reports the seat the SQL stamped, whatever the caller's uid reads.
+    // …and an `ok` whose stamp names ANOTHER seat is refused too (the last blind pass on #335: the
+    // guard covered `recent` only). The SQL always stamps the caller, so this row is not one it
+    // writes — never a success, never a confirmation drawn over someone else's stamp.
     rpcAnswer = { data: [LANDED], error: null };
+    // MUTATION (send-nudge/ok-trusts-any-seat): the seat check dropped from the ok branch — Mya is
+    // told her nudge landed over Thiri's stamp; red.
     // MUTATION (send-nudge/success-reports-the-callers-seat): the stamp's seat taken from the caller
-    // instead of the row; red.
+    // instead of the row — the foreign stamp relabelled as Mya's own and reported ok; red.
+    expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({ ok: false, reason: "error" });
+    // …while the caller's own landed nudge reports the seat the SQL stamped.
+    authz = GUEST;
     expect(await nudgeHost({ cartId: "c-1" })).toEqual({
       ok: true,
       nudge: { seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" },

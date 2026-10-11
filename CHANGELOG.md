@@ -41,8 +41,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   when the countdown ends." under Send and Undo, the same node across the relabel. The /menu order bar
   on a shared cart drops its count capsule and count-bearing name and reads "Not sent yet" — or, on
   the host's phone while a stamp stands, "Someone’s waiting" (`lib/cart-bar-state.ts`).
-- **Guards:** 47 verify:slice mutants (measured against #331's head with
-  `git diff … -- scripts/verify-slice.mjs | grep -cE '^\+    id: "'` — checkout-verb's wait arm,
+- **Guards:** 53 verify:slice mutants, measured on this branch with
+  `git diff "$(git merge-base origin/main HEAD)" HEAD -- scripts/verify-slice.mjs | grep -cE '^\+    id: "'`
+  (an earlier draft of this line said 28 — transcribed, never measured; it was 30 then) — checkout-verb's wait arm,
   send-nudge's rules and action, show-server, cart-bar, the stamp read, the copy, the pass identity
   and the Checkout wiring); the pass's dish rows are in-pass for `check-pass-inks`. Every new Burmese
   string is a K15 draft (`K15 · diner-cart`).
@@ -70,6 +71,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - **Deploy order:** apply `20261008123000` FIRST, then merge; the Bill offers "Let {host} know" only
     when the stamp read succeeds (`nudgeReady`), and `/cart` now passes the first view's stamp and
     clock to `Checkout` (there is no mount-time read, so the host's waiting line waited for one).
+  - **The last capped pass on #335 (REJECT), fixed red-first:** a stamp is a wait only while a
+    dine-in draft that PREDATES it still waits (`nudgeLive` in the view; the same rule in
+    `mms_nudge_host`, PD1.19) — a stale stamp no longer revives over a later, unrelated dish; an
+    `ok` naming another seat is refused like a foreign `recent`; the migration carries no `drop`
+    (the prod apply path stalls on one, and no database has had `mms_nudge_host`); the lock-order
+    claim is narrowed to what is proven (two sessions: add · qty · nudge · merge) and what is
+    measured (a statement-order scan of all 86 functions: the 13 that lock both tables take the
+    cart first; the rest lock one table).
   - **Replayable, not prose:** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
     `scripts/verify-mode-authority.mjs` (suite `pd1`, 23 mutants, one documented survivor — the
     lock's ORDER, killed by the race harness); the decorative `NUDGE_COOLDOWN_MS` and its

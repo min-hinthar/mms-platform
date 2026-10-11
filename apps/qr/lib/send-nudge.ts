@@ -73,8 +73,10 @@ export async function nudgeHost(raw: unknown): Promise<NudgeHostResult> {
   }
   // The host waits on nobody: said here for the sentence, decided again in the SQL.
   if (authz.role === "host") return { ok: false, reason: "is_host", error: FAILED };
-  // Nobody can send while a payment holds the cart — the host, the staff Send and the fire all
-  // refuse it — so a stamp saying someone waits on that send names a wait nobody can end. The Bill
+  // Nobody can send while a payment holds the cart — the host's Send (`sendToKitchen`, on this same
+  // authz read) and the staff Send (`staffFireCart`, `paymentInFlightReason`) both refuse it in the
+  // app; `mms_fire_cart` itself carries no freeze term — so a stamp saying someone waits on that
+  // send names a wait nobody can end. The Bill
   // hides the button under the same freeze (`nudgeOffered`'s `frozen`, m1 decision 18); this is the
   // server half `cartFreeze` mirrors (scripts/check-freeze-parity.mjs), and `mms_nudge_host`
   // restates it IN its WHERE (the lock and settle legs), so a lock committing after this read is
@@ -99,7 +101,10 @@ export async function nudgeHost(raw: unknown): Promise<NudgeHostResult> {
   // A stamp, as the SERVER holds it — both halves, its own seat. Never the caller's seat.
   const stamp: SendNudge | null =
     row.nudge_seat && row.nudged_at ? { seat: row.nudge_seat, at: row.nudged_at } : null;
-  if (row.ok && stamp) return { ok: true, nudge: stamp };
+  // ok — and the stamp the SQL wrote names THIS seat. It always does (it stamps `p_seat`); a row that
+  // says otherwise is not one this function writes, so it is refused like a foreign `recent` below,
+  // and no confirmation is ever drawn for a stamp that is not the caller's.
+  if (row.ok && stamp && stamp.seat === authz.uid) return { ok: true, nudge: stamp };
   // `recent`: THIS seat's stamp stands — the guest's line still shows, nothing to retry. A stamp
   // that names another seat under this reason is not one this function writes; it is refused.
   if (row.reason === "recent" && stamp && stamp.seat === authz.uid)

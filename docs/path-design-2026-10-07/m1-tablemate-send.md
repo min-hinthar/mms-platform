@@ -648,6 +648,15 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   reads the pass's DOM and accessible names for the code, and a mutant per pass that routes it back.
 - **Replayable.** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
   `scripts/verify-mode-authority.mjs` (suite `pd1`); the decorative `NUDGE_COOLDOWN_MS` is gone.
+- **The last capped pass (REJECT), 2026-10-11.** A stamp is cleared by the fire alone, so it
+  outlived a dish taken off — and a LATER, unrelated draft read it as "Thiri is waiting on this
+  send." Now a stamp is a wait only while a dine-in draft that PREDATES it still waits: the view
+  reports only a live stamp (`nudgeLive`), and `mms_nudge_host` lets a stale stamp block nothing
+  (PD1.19). An `ok` naming another seat is refused like a foreign `recent`. The migration has no
+  `drop` (the prod MCP apply stalls on a destructive statement). The lock-order claim is narrowed:
+  proven with two sessions for an add, a qty change, a nudge and the merge; measured by a
+  statement-order scan for the rest (the 13 functions that lock both tables take the cart first;
+  every other locks one table, so a lines-only writer never waits on a cart).
 - **Two clocks on the pass, justified.** The pass compares the lines' DB-stamped `fire_at` with the
   view's `serverNow` (the APP server's clock) — the same pairing `sendToKitchen` has returned since
   S2 for the undo countdown. The skew between the two managed hosts is NOT measured here (both are

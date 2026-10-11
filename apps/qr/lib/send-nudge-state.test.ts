@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chosenName,
   DEFAULT_SEAT_NAME,
+  nudgeLive,
   nudgeOffered,
   nudgeStands,
   waitingLine,
@@ -101,5 +102,43 @@ describe("chosenName — the default seat name is a role word, never a person", 
     expect(chosenName("   ")).toBeNull();
     expect(chosenName(null)).toBeNull();
     expect(chosenName(undefined)).toBeNull();
+  });
+});
+
+describe("nudgeLive — a stamp is a wait only while a dish that predates it still waits", () => {
+  const stamp = { seat: "s-thiri", at: "2026-10-08T10:00:00.123100+00:00" };
+  const line = (createdAt: string, state = "draft", fulfillment = "dinein") => ({
+    state,
+    fulfillment,
+    createdAt,
+  });
+  it("a dine-in draft added before the stamp keeps it live", () => {
+    expect(nudgeLive(stamp, [line("2026-10-08T09:59:00+00:00")])).toEqual(stamp);
+  });
+  it("only LATER drafts — the dish it named has gone — make it no wait (the last blind pass on #335)", () => {
+    // MUTATION (send-nudge/live-ignores-when-the-dish-was-added): the time comparison dropped —
+    // a later, unrelated dish revives Thiri's stale wait on the host's phone; red.
+    expect(nudgeLive(stamp, [line("2026-10-08T10:20:00+00:00")])).toBeNull();
+    expect(nudgeLive(stamp, [])).toBeNull();
+  });
+  it("a to-go draft or a sent dish that predates it is no wait — only what a Send would move", () => {
+    // MUTATION (send-nudge/live-counts-a-togo-draft): the fulfillment check dropped; red.
+    expect(nudgeLive(stamp, [line("2026-10-08T09:59:00+00:00", "draft", "togo")])).toBeNull();
+    // MUTATION (send-nudge/live-counts-a-sent-dish): the state check dropped; red.
+    expect(nudgeLive(stamp, [line("2026-10-08T09:59:00+00:00", "fired", "dinein")])).toBeNull();
+  });
+  it("orders inside one millisecond by the database's microseconds", () => {
+    // Date.parse keeps three fractional digits; a draft added 800µs AFTER the stamp, in the same
+    // millisecond, must still read as later.
+    // MUTATION (send-nudge/live-loses-the-microseconds): the fraction dropped — the same-ms draft
+    // reads as predating the stamp; red.
+    expect(nudgeLive(stamp, [line("2026-10-08T10:00:00.123900+00:00")])).toBeNull();
+    expect(nudgeLive(stamp, [line("2026-10-08T10:00:00.1231+00:00")])).toEqual(stamp);
+  });
+  it("no stamp, or a time it cannot read, is no wait", () => {
+    expect(nudgeLive(null, [line("2026-10-08T09:59:00+00:00")])).toBeNull();
+    expect(
+      nudgeLive({ seat: "s", at: "yesterday" }, [line("2026-10-08T09:59:00+00:00")]),
+    ).toBeNull();
   });
 });

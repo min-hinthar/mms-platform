@@ -16,7 +16,7 @@ import {
   undoFireInput,
 } from "@mms/db/schemas";
 import type { LineState } from "@mms/db";
-import type { SendNudge } from "./send-nudge-state";
+import { nudgeLive, type SendNudge } from "./send-nudge-state";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from "./authz";
@@ -703,7 +703,7 @@ export async function getCartView(cartId: string): Promise<{
   const { data: rows, error: rowsErr } = await db
     .from("qr_cart_items")
     .select(
-      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes",
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes,created_at",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
@@ -815,10 +815,18 @@ export async function getCartView(cartId: string): Promise<{
     // PD1 — a stamp is BOTH halves or none: a seat with no time (or the reverse) is a row this
     // migration never writes, and reading it as a wait would put a line on the host's phone that
     // nothing clears. A failed read is null too (advisory; see the read).
-    sendNudge:
+    // …and a LIVE one only (the last blind pass on #335): a stamp whose dishes have all gone names
+    // no wait, whatever was added since — `nudgeLive`, the one rule every reader of the view reads.
+    sendNudge: nudgeLive(
       nudgeRes.error || !nudgeRes.data?.send_nudge_seat || !nudgeRes.data.send_nudge_at
         ? null
         : { seat: nudgeRes.data.send_nudge_seat, at: nudgeRes.data.send_nudge_at },
+      (rows ?? []).map((r) => ({
+        state: r.state,
+        fulfillment: r.fulfillment,
+        createdAt: r.created_at,
+      })),
+    ),
     // PD1 — whether that read answered at all: an unreadable stamp hides the nudge's offer.
     nudgeReady: !nudgeRes.error,
     // PD1 — the app server's clock as this view was made, so a phone compares the lines' `fire_at`
