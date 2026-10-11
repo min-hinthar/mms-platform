@@ -1168,9 +1168,18 @@ tender is stated, below).
 12. **The cookie is a Route Handler**, not the Server Action B11 named (see above).
 13. **The Account row's glyph is `info`; "Call us" moved to the `phone` glyph** (two `info` glyphs in one
     list read as one kind of row).
-14. **A short screen** (no headless browser was used — see below): the stage steps down at
-    `max-height: 46em` and `38em` (one height and one scale each); the words scroll inside the page;
-    the dots and the dock stay pinned.
+14. **A short screen, measured — not estimated** (open risk 13, C). Headless Chromium 141 (the agent
+    environment has one: `/opt/pw-browsers/chromium_headless_shell-1194`) rendered each page's DOM
+    (dumped from the jsdom suite's real render) with the PRODUCTION CSS and fonts (`.next`, served
+    locally) at 390×844, 375×667 and 320×568, at 100% and at 200% root text, reduced motion on (the
+    final frames): 36 cases, every picture inside its tray, the dock in view, nothing scrolling
+    sideways. Below 46em of height the tray steps down (13.5rem, then 11rem at 38em) with one scale,
+    and the words scroll inside the page while the dots and the dock stay pinned. The measurement
+    changed four things: the key collided three-across at 390 (now one stamp per row); the Bill's
+    pass overflowed the tray (its own scale, `--guide-live`); an auto grid row sat a tall picture low
+    (the tray is flex now); Back's Burmese wrapped at 320 (the dock's padding). The 200% case raises the
+    ROOT size only (em media queries do not follow it, so the tray's step-down is not exercised
+    there) — iOS's own text size and a real phone remain the device sitting's look (#12).
 
 **Not built, and why.**
 
@@ -1178,8 +1187,6 @@ tender is stated, below).
   hand-set figure sizes, the "Pay · ရှင်းမယ်" pill with no amount, the avatar discs — none is a slot of
   the real pass (B7: rendered, never redrawn).
 - **A swipe** (decision 15) and a Burmese line for "How it works" (the spec lists it English-only).
-- **The headless measurement at 390 / 375 / 320 and 200% text** (open risk 13, C): left to the device
-  sitting (#12), like PD12's.
 
 **K15.** The guide adds NO new Burmese: every Burmese line is a shipped string, referenced (never
 re-typed). The English it adds is listed English-only for the native sitting (OPEN-ITEMS `K15 ·

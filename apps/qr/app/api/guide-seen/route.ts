@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GUIDE_SEEN_MARK } from "@/lib/guide-seen";
-import { DINER_GUIDE_COOKIE, dinerGuideCookieOptions } from "@/lib/diner-guide";
+import { DINER_GUIDE_COOKIE, dinerGuideCookieOptions } from "@/lib/diner-guide-mark";
 
 /**
  * PD11 (m11, the critic's B11) — the diner guide's SERVER-SET seen mark.

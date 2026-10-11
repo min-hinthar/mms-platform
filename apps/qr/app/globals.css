@@ -17871,15 +17871,22 @@ html[data-reloading] body::after {
   padding-top: var(--s2);
 }
 /* The stage: a sunken tray (cards carry dots — `.card-textured`), ONE height, the picture centred. It
-   shrinks first on a short screen; the picture follows by one scale. */
+   shrinks first on a short screen; the picture follows by one scale. Measured headless (Chromium,
+   the production CSS and fonts) at 390×844, 375×667 and 320×568, 100% and 200% text: every picture
+   fits its tray, the dock stays in view, nothing scrolls sideways. `--guide-live` is the Bill's pass
+   (two dishes, its head and its seam — the tallest picture). */
 .diner-guide-stage {
   --pass-hole: var(--sunken);
   --guide-scale: 1;
+  --guide-live: 0.92;
   flex: none;
-  height: 17rem;
+  height: 18.5rem;
   overflow: hidden;
-  display: grid;
-  place-items: center;
+  /* Flex, not grid: an auto grid row grows to a tall picture and starts at the top, so its scaled
+     visual sat low; a flex item overflows its box evenly and its centre stays the tray's. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--s3);
   border: 1px solid var(--bd);
   border-radius: var(--r-card);
@@ -17889,30 +17896,39 @@ html[data-reloading] body::after {
 @media (max-height: 46em) {
   .diner-guide-stage {
     --guide-scale: 0.82;
+    --guide-live: 0.67;
     height: 13.5rem;
   }
 }
 @media (max-height: 38em) {
   .diner-guide-stage {
-    --guide-scale: 0.68;
-    height: 10rem;
+    --guide-scale: 0.7;
+    --guide-live: 0.53;
+    height: 11rem;
   }
 }
 /* A RISE rides its own box around the picture: `.mms-rise` animates `transform`, and on the picture
    itself it would drop the scale for the length of the motion. */
 .diner-guide-rise {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
 }
 /* The picture: the real component at its own width, ONE uniform scale. */
 .diner-guide-pic {
+  flex: none;
   width: min(100%, 19rem);
   transform: scale(var(--guide-scale));
   transform-origin: center;
 }
+/* Page 1's pass is the hero (Wallet's "added"): the holder tier, a quarter larger. */
 .diner-guide-pic[data-scale="pass"] {
-  width: min(100%, 13.5rem);
+  width: min(80%, 13.5rem); /* × 1.25 never wider than the tray */
+  transform: scale(calc(var(--guide-scale) * 1.25));
+}
+.diner-guide-pic[data-scale="live"] {
+  transform: scale(var(--guide-live));
 }
 .diner-guide-pic[data-scale="counter"] {
   width: min(100%, 15rem);
@@ -18018,18 +18034,14 @@ html[data-reloading] body::after {
   font-size: var(--fs-sm);
   color: var(--t3);
 }
-/* Page 3's key: the three stamps at the glyph size, each with its two words, as a list. */
+/* Page 3's key: the three stamps at the glyph size, each with its two words — one stamp per row
+   (three across, the two-tongue words collided at 390). */
 .diner-guide-key {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s2);
+  gap: var(--s1);
   margin: 0;
   padding: 0;
   list-style: none;
-}
-.diner-guide-key .ui-track {
-  flex-direction: column;
-  align-items: flex-start;
 }
 /* The foot: the dots, then the dock — pinned under the page. */
 .diner-guide-foot {
@@ -18041,6 +18053,10 @@ html[data-reloading] body::after {
 }
 .diner-guide-dock {
   max-width: none;
+}
+/* Back's third of a 320px dock still holds "နောက်သို့" on one line. */
+.diner-guide-dock > .ui-btn {
+  padding-inline: var(--s3);
 }
 .diner-guide-dock .diner-guide-pair {
   align-items: center;

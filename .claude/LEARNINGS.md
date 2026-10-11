@@ -4007,3 +4007,19 @@ are cheap to make: a reviewer can call such a defence decorative because "action
 and an author can build an elaborate one for an interleaving the framework never produces. Read the
 queue's dispatch rule in the INSTALLED version, name the one path that breaks serialization, and
 write the defence (and its residual's reachability) against that path.
+
+## #263
+
+**There IS a headless Chromium in the agent environment — measure a screen instead of estimating it
+(PD11, 2026-10-11).** PD12's record said "no browser in the agent environment"; Playwright's
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell` runs (`--no-sandbox`).
+The recipe that needs no dev server and no database: render the component in its own jsdom suite and
+write `document.body.innerHTML` per state; build once (`pnpm turbo build --filter=@mms/qr`); wrap each
+dump in a page that links `.next/static/chunks/*.css` and puts next/font's `*__variable` classes on
+`<html>`; serve a dir whose `_next` is a symlink to `.next` (`python3 -m http.server`); run the shell
+with `--force-prefers-reduced-motion --window-size=W,H --virtual-time-budget=3000` and either
+`--screenshot` or `--dump-dom` over an inline script that writes its measurements (rects, overflow,
+`scrollWidth`) into the DOM. It found four layout defects the jsdom suites could not (a key that
+collided three-across, a picture that overflowed its tray, a grid row that centred a tall child low,
+a wrapped Burmese label). Caveat: raising the root font-size does not move `em` media queries, so it
+approximates text zoom without exercising breakpoints.

@@ -5,7 +5,7 @@ import {
   DINER_GUIDE_COOKIE_MAX_AGE,
   DINER_GUIDE_KEY,
   cookieMarked,
-} from "@/lib/diner-guide";
+} from "@/lib/diner-guide-mark";
 import { POST } from "./route";
 
 /**

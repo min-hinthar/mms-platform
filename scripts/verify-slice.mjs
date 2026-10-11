@@ -32838,7 +32838,7 @@ const MUTANTS = [
   },
   {
     id: "pd11/store/cookie-ignored",
-    file: "apps/qr/lib/diner-guide.ts",
+    file: "apps/qr/lib/diner-guide-mark.ts",
     suite: "lib/diner-guide.test.ts",
     why: "the critic's B11 — Safari clears script storage after seven days; without the server-set cookie a monthly regular meets the guide every visit",
     find: "        ls.getItem(k) ?? (cookieMarked(cookie(), guideCookieName(k)) ? GUIDE_SEEN_MARK : null),\n",
@@ -32846,7 +32846,7 @@ const MUTANTS = [
   },
   {
     id: "pd11/cookie/whole-name",
-    file: "apps/qr/lib/diner-guide.ts",
+    file: "apps/qr/lib/diner-guide-mark.ts",
     suite: "lib/diner-guide.test.ts",
     why: "a cookie whose name merely CONTAINS the mark's (or an empty one) is not the mark",
     find: '    if (part.slice(0, eq).trim() === name && part.slice(eq + 1).trim() !== "") return true;\n',
@@ -32854,7 +32854,7 @@ const MUTANTS = [
   },
   {
     id: "pd11/cookie/http-only",
-    file: "apps/qr/lib/diner-guide.ts",
+    file: "apps/qr/lib/diner-guide-mark.ts",
     suite: "app/api/guide-seen/route.test.ts",
     why: "the critic's B11 — an HttpOnly mark is invisible to document.cookie, so the first run could never read it back",
     find: "    httpOnly: false,\n",
@@ -32862,7 +32862,7 @@ const MUTANTS = [
   },
   {
     id: "pd11/cookie/session-cookie",
-    file: "apps/qr/lib/diner-guide.ts",
+    file: "apps/qr/lib/diner-guide-mark.ts",
     suite: "app/api/guide-seen/route.test.ts",
     why: "the critic's B11 — the mark must OUTLIVE the visit: without Max-Age it is a session cookie gone with the tab",
     find: "    maxAge: DINER_GUIDE_COOKIE_MAX_AGE,\n",

@@ -1,6 +1,16 @@
 import type { CartItem } from "@mms/db";
 import { SAME_GESTURE_MS } from "@mms/ui";
-import { GUIDE_SEEN_MARK, guideSeenKey, type GuideStore } from "./guide-seen";
+import {
+  DINER_GUIDE_COOKIE,
+  DINER_GUIDE_COOKIE_MAX_AGE,
+  DINER_GUIDE_KEY,
+  DINER_GUIDE_REVISION,
+  DINER_GUIDE_SURFACE,
+  cookieMarked,
+  dinerGuideCookieOptions,
+  dinerGuideStore,
+  guideCookieName,
+} from "./diner-guide-mark";
 import { PAY_OPENS_SERVED } from "./checkout-verb";
 import { t } from "./i18n";
 import { STAFF } from "./i18n/staff";
@@ -28,12 +38,19 @@ import type { WelcomeBack } from "./rewards";
 
 // ── The first run ────────────────────────────────────────────────────────────────────────────────
 
-/** The guide's surface and its SHAPE's revision: a guide whose pages change is a new first visit
- *  (`lib/help.ts`'s precedent) — a word that changes at the C2 flip is not a new shape (m11). */
-export const DINER_GUIDE_SURFACE = "dinein";
-export const DINER_GUIDE_REVISION = 1;
-/** Per DEVICE (no person in the key): a phone, not an account. */
-export const DINER_GUIDE_KEY = guideSeenKey(DINER_GUIDE_SURFACE, DINER_GUIDE_REVISION);
+/** The mark (its key, and the server-set cookie that outlives Safari) lives in `diner-guide-mark.ts`
+ *  — a module with no UI or dictionary imports, so the `/api/guide-seen` route bundles only it. */
+export {
+  DINER_GUIDE_COOKIE,
+  DINER_GUIDE_COOKIE_MAX_AGE,
+  DINER_GUIDE_KEY,
+  DINER_GUIDE_REVISION,
+  DINER_GUIDE_SURFACE,
+  cookieMarked,
+  dinerGuideCookieOptions,
+  dinerGuideStore,
+  guideCookieName,
+};
 
 /**
  * Is this diner one the server already KNOWS? The menu's existing recognition read
@@ -104,64 +121,6 @@ export function anyDialogOpen(doc: Pick<Document, "querySelector">): boolean {
  * keep 400). Read through the shared `guideActAccepted`.
  */
 export const DINER_GUIDE_ARM_MS = SAME_GESTURE_MS;
-
-// ── The mark that outlives Safari's script storage (the critic's B11) ────────────────────────────
-
-/**
- * iOS Safari deletes SCRIPT-WRITTEN storage (localStorage, `document.cookie` cookies) after seven
- * days without a visit; a cookie set by an HTTP RESPONSE from the site itself is not capped. So the
- * guide also asks the server to set its mark (`POST /api/guide-seen`, at open), and the first run
- * reads it back from `document.cookie` when local storage holds nothing. The cookie name is the
- * seen key in cookie-token characters (a `:` is a separator in a cookie name).
- */
-export function guideCookieName(key: string): string {
-  return key.replace(/:/g, ".");
-}
-export const DINER_GUIDE_COOKIE = guideCookieName(DINER_GUIDE_KEY);
-
-/** 400 days — the longest lifetime a browser keeps (Chrome caps there). */
-export const DINER_GUIDE_COOKIE_MAX_AGE = 34_560_000;
-
-/**
- * The cookie's attributes. NOT HttpOnly: the first run reads it in the browser (the menu render is
- * frozen this wave, so the server cannot hand it down). It carries no authority — a "seen" flag in
- * the caller's own jar — so a page reading it is harmless.
- */
-export function dinerGuideCookieOptions(production: boolean) {
-  return {
-    httpOnly: false,
-    sameSite: "lax" as const,
-    secure: production,
-    path: "/",
-    maxAge: DINER_GUIDE_COOKIE_MAX_AGE,
-  };
-}
-
-/** Does a `Cookie` header (or `document.cookie`) carry the named mark? Whole names only. */
-export function cookieMarked(cookie: string, name: string): boolean {
-  for (const part of cookie.split(";")) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    if (part.slice(0, eq).trim() === name && part.slice(eq + 1).trim() !== "") return true;
-  }
-  return false;
-}
-
-/**
- * The diner guide's store: `localStorage` first, then — when it holds nothing for a key — the
- * server-set cookie for that key. A store that THROWS still throws (the shared helper reads that as
- * refused: never auto-open), and writes go to local storage only (the cookie is the server's).
- */
-export function dinerGuideStore(local: () => GuideStore, cookie: () => string): () => GuideStore {
-  return () => {
-    const ls = local();
-    return {
-      getItem: (k) =>
-        ls.getItem(k) ?? (cookieMarked(cookie(), guideCookieName(k)) ? GUIDE_SEEN_MARK : null),
-      setItem: (k, v) => ls.setItem(k, v),
-    };
-  };
-}
 
 // ── The pages ────────────────────────────────────────────────────────────────────────────────────
 

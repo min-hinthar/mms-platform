@@ -2718,3 +2718,7 @@ over PD12's ONE seen-key rule (`lib/guide-seen.ts`, `useGuideFirstRun`) and ONE 
   heading, from Account on the row that opened it.
 - **Motion is the product's own, once per open:** RISE (after the sheet's entrance on page 1), FILL,
   TURN; a revisit draws the end frame; reduced motion gets it; no loop, no auto-advance, no swipe.
+- **Measured, not assumed (2026-10-11, headless Chromium, the production CSS and the real fonts):** at
+  390×844, 375×667 and 320×568, at 100% and 200% root text, every picture sits inside its tray, the
+  dock stays in view and nothing scrolls sideways; below 46em of height the tray steps down and the
+  words scroll inside the page. A real phone and iOS's own text size are the device sitting's look.
