@@ -681,6 +681,39 @@ describe("PD9 — the passes step down to fit their box, and re-fit when the box
     ]);
   });
 
+  it("a MIXED fold names each dish as its own row would: the translated dish keeps its Burmese, the untranslated one its English alone, never under the Burmese mark (Codex round 1 on #336; the rule is `board-fit/fold-translation-all-or-nothing`, the wiring `board-wall/fold-marks-the-whole-line`)", async () => {
+    stubPassBox({ w: 800, h: 250 });
+    const { container } = await renderTables("en", [
+      {
+        table: 4,
+        out: false,
+        rounds: [
+          {
+            n: 1,
+            next: false,
+            dishes: [
+              dish({ stage: "served" }),
+              dish({ name: "Faluda", nameMy: null, stage: "served" }),
+            ],
+          },
+          { n: 2, next: false, dishes: [dish({ name: "Rice", nameMy: null, stage: "cooking" })] },
+        ],
+      },
+    ]);
+    await waitFor(() => expect(container.querySelector(".orb-dish-folded")).not.toBeNull());
+    const folded = container.querySelector(".orb-dish-folded")!;
+    const lead = folded.querySelector(".orb-dish-line")!;
+    // The lead line, dish by dish: the Burmese run marked, the English fallback unmarked.
+    expect([...lead.querySelectorAll('[lang="my"]')].map((e) => e.textContent)).toEqual([
+      "မုန့်ဟင်းခါး",
+    ]);
+    expect(lead.querySelector(".orb-dish-lead")!.textContent).toBe("Faluda");
+    expect(lead.querySelector(".orb-dish-lead")!.closest("[lang]")).toBeNull();
+    expect(lead.textContent).toBe("မုန့်ဟင်းခါး · Faluda");
+    // Beneath: the English of the translated dish only — the untranslated one already said it.
+    expect(folded.querySelector(".orb-dish-en")!.textContent).toBe("Mohinga");
+  });
+
   it("at the fold, a dish that advances FILLs its own row — keyed by its round's ORIGINAL place on the pass, not where the fold drew it (`board-wall/fold-keys-by-the-drawn-position`)", async () => {
     stubPassBox({ w: 800, h: 250 });
     vi.useFakeTimers();

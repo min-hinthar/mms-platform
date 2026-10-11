@@ -10,8 +10,10 @@ import {
   type PulseSessionRow,
 } from "@/lib/board-pulse";
 import {
+  idleRecheck,
   kitchenIdle,
   shapeBoardTables,
+  wallDishLines,
   type BoardLineRow,
   type BoardTable,
 } from "@/lib/board-tables";
@@ -316,19 +318,41 @@ export async function GET(req: NextRequest) {
   const allLines = [...new Map([...lines, ...sendLines].map((l) => [l.id, l])).values()];
 
   // The catalog's Burmese, through the ONE loader — ADVISORY (the P1 posture): a failed read logs and
-  // the dish rows draw the English snapshot names. Not asked when there are no tables to name.
-  const names = tablesReadable
-    ? await loadLineNames(db, allLines, { tag: "board" })
+  // the dish rows draw the English snapshot names. Asked for the dishes the wall DRAWS and nothing
+  // else (Codex round 1 on #336): a pickup bag or a scan-and-go cart on the wok has no row to name, so
+  // a kitchen with no table to draw asks no catalog at all.
+  const drawn = tablesReadable
+    ? wallDishLines({ lines: allLines, cartById, sessionById, nowIso: dbNowIso })
+    : [];
+  const names = drawn.length
+    ? await loadLineNames(db, drawn, { tag: "board" })
     : { nameMyByRef: new Map<string, string | null>() };
 
   // PD9 (the blind pass on #336) — "All clear" is a claim about the WHOLE kitchen, and the tables are
   // dine-in only: a pickup bag on the wok, a counter order sent before it was paid, or a table the wall
-  // does not draw keeps the kitchen busy over an empty table list. Asked of the same bounded line read
-  // the tables came from, so it answers only when they do (`null` otherwise: the wall says it cannot
-  // read the kitchen). A boolean, never a count — nothing about any order is published by it.
-  const idle: boolean | null = tablesReadable
-    ? kitchenIdle({ lines: allLines, cartById, sessionById, nowIso: dbNowIso })
-    : null;
+  // does not draw keeps the kitchen busy over an empty table list. Asked only when the tables answer
+  // (`null` otherwise: the wall says it cannot read the kitchen). A boolean, never a count — nothing
+  // about any order is published by it.
+  //
+  // Judged on the FIRST line read (`IdleInput.lines`), never `allLines`: every line of it named a cart
+  // the cart read was asked about, so a cart missing from that answer is one the read found cancelled
+  // — a line the Send completion read re-fetched can name the cart a merge just moved it to, which no
+  // read asked about (Codex round 1 on #336).
+  const idleInput = { lines, cartById, sessionById, nowIso: dbNowIso };
+  // A still-cooking line the reads place on no live kitchen — its cart cancelled, or its table closed —
+  // was CLEARED (its lines stay on the cart) or MERGED (its lines moved, in the same transaction). Only
+  // the line's current cart tells them apart, so it is re-read, AFTER the cart and session reads, and
+  // only when those lines alone stand between the reads and "All clear". ADVISORY in the safe
+  // direction: a failed re-read is "not idle", and the tables still publish.
+  const recheck = tablesReadable ? idleRecheck(idleInput) : [];
+  const rereadRes = recheck.length
+    ? await db.from("qr_cart_items").select("id,cart_id").in("id", recheck)
+    : { data: [] as { id: string; cart_id: string }[], error: null };
+  if (rereadRes.error) console.error("[board] idle re-read failed:", rereadRes.error.message);
+  const linesNow = rereadRes.error
+    ? null
+    : new Map((rereadRes.data ?? []).map((r) => [r.id, r.cart_id]));
+  const idle: boolean | null = tablesReadable ? kitchenIdle({ ...idleInput, linesNow }) : null;
 
   const tables: BoardTable[] | null = tablesReadable
     ? shapeBoardTables({

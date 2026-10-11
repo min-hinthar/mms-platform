@@ -105,8 +105,53 @@ const WALL_STAGES: ReadonlySet<string> = new Set<BoardDishStage>(["sent", "cooki
 
 type Send = { key: string; table: number; sessionId: string; lines: BoardLineRow[] };
 
+/** What decides WHICH food is on the wall — the reads, without the names and rounds that dress it. */
+export type WallInput = Pick<ShapeTablesInput, "lines" | "cartById" | "sessionById" | "nowIso">;
+
+/**
+ * PD9 (Codex round 1 on #336) — the lines the wall DRAWS a dish row for, and nothing else on the wok:
+ * the Sends `shapeBoardTables` publishes, by its own rules. The route asks the catalog for these
+ * names only, and asks nothing when there are none — a pickup-only or scan-and-go-only kitchen used
+ * to cost every wall a menu or grocery read every 5 s for rows it never drew.
+ */
+export function wallDishLines(input: WallInput): BoardLineRow[] {
+  return wallSends(input).flatMap((s) => s.lines);
+}
+
 export function shapeBoardTables(input: ShapeTablesInput): BoardTable[] {
-  const { lines, cartById, sessionById, nameMyByItem, roundOf, nowIso } = input;
+  const { nameMyByItem, roundOf, nowIso } = input;
+
+  // Tables: each Send that still has something to say, oldest first.
+  const byTable = new Map<number, Send[]>();
+  for (const send of wallSends(input)) {
+    const list = byTable.get(send.table);
+    if (list) list.push(send);
+    else byTable.set(send.table, [send]);
+  }
+
+  return [...byTable.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([table, list]) => {
+      const ordered = [...list].sort(
+        (a, b) => cmp(cardStamp(a.lines), cardStamp(b.lines)) || cmp(a.key, b.key),
+      );
+      const rounds = ordered.map((send, i): BoardRound => {
+        const round = roundOf(send.sessionId, send.lines[0]?.fire_batch ?? null);
+        return {
+          n: round.kind === "n" ? round.n : null,
+          // "Next round" only for an UNKNOWN number with an older round on this pass (decision 17).
+          next: round.kind === "unknown" && i > 0,
+          dishes: shapeDishes(send.lines, nameMyByItem, nowIso),
+        };
+      });
+      const all = ordered.flatMap((s) => s.lines);
+      return { table, out: rollUp(all, nowIso).stage === "served", rounds };
+    });
+}
+
+/** The Sends on the wall: gated, staged, keyed by the KDS's own card key, and still lingering. */
+function wallSends(input: WallInput): Send[] {
+  const { lines, cartById, sessionById, nowIso } = input;
   const nowMs = Date.parse(nowIso);
   const lingerFloorMs = nowMs - PULSE_PASS_LINGER_MS;
 
@@ -152,33 +197,8 @@ export function shapeBoardTables(input: ShapeTablesInput): BoardTable[] {
       });
   }
 
-  // Tables: each Send that still has something to say, oldest first.
-  const byTable = new Map<number, Send[]>();
-  for (const send of sends.values()) {
-    if (lingeredOut(send.lines, nowIso, lingerFloorMs)) continue;
-    const list = byTable.get(send.table);
-    if (list) list.push(send);
-    else byTable.set(send.table, [send]);
-  }
-
-  return [...byTable.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([table, list]) => {
-      const ordered = [...list].sort(
-        (a, b) => cmp(cardStamp(a.lines), cardStamp(b.lines)) || cmp(a.key, b.key),
-      );
-      const rounds = ordered.map((send, i): BoardRound => {
-        const round = roundOf(send.sessionId, send.lines[0]?.fire_batch ?? null);
-        return {
-          n: round.kind === "n" ? round.n : null,
-          // "Next round" only for an UNKNOWN number with an older round on this pass (decision 17).
-          next: round.kind === "unknown" && i > 0,
-          dishes: shapeDishes(send.lines, nameMyByItem, nowIso),
-        };
-      });
-      const all = ordered.flatMap((s) => s.lines);
-      return { table, out: rollUp(all, nowIso).stage === "served", rounds };
-    });
+  // Each Send that still has something to say.
+  return [...sends.values()].filter((send) => !lingeredOut(send.lines, nowIso, lingerFloorMs));
 }
 
 /**
@@ -268,34 +288,85 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  * Sending (`mms_line_transition` and `mms_bump_ticket` refuse Start and Done before `fire_at`), so it
  * never reaches the gate. Of the gate's answer only `show` is read: `slotted` decides held-or-hidden
  * for a paid counter line inside its grace (refused above either way) and `cartOwes` only the Unpaid
- * flag, so the constants below cannot change it. A line whose cart is absent was cancelled or cleared
- * (the read keeps only open and paid carts). A line whose SESSION is absent cannot be judged, and the
- * answer is "not idle": silence is the safe failure of an "All clear".
+ * flag, so the constants below cannot change it. A line whose SESSION is absent cannot be judged, and
+ * the answer is "not idle": silence is the safe failure of an "All clear".
+ *
+ * A LINE THE READS PLACE ON NO LIVE KITCHEN (Codex round 1 on #336) — still cooking, but its cart is
+ * gone from the cart read (which keeps only open and paid carts, so the cart was CANCELLED), or the
+ * gate hides it because its table is no longer active. Two writes leave a line there, and they leave
+ * opposite truths: a CLEAR cancels the cart and closes the table but leaves every line on it, off the
+ * KDS for good (until M182's clear voids them), while a MERGE (`mms_merge_table_orders`) cancels the
+ * source and closes its table in the same transaction that MOVES the lines onto the target, where
+ * they cook. The wall's reads are separate statements, so a merge committing between the line read
+ * and the cart (or session) read leaves the line naming a cart its food has already left — and a
+ * wall that read every such line as cleared said "All clear" for that poll over the merged food. The
+ * separating fact is the line's CURRENT cart: cancelled is terminal and a closed table is never a
+ * merge's source again, so a re-read made after the cart and session reads (`linesNow`, asked by the
+ * route for `idleRecheck`'s lines) that still finds the line on the cart it named proves a clear; a
+ * line it finds elsewhere (re-parented), or does not find (folded into a target line), or a re-read
+ * that did not answer (`null`) is "not idle". So a cleared table still lets the wall say "All clear",
+ * and a merge never does over food on the wok.
  */
-export function kitchenIdle(input: {
+export type IdleInput = {
+  /** The FIRST line read — never a line a later read re-fetched: every line's cart was asked of the
+   *  cart read, so a cart absent from `cartById` is one that read found cancelled. A line the Send
+   *  completion read re-fetched can name the cart a merge has just moved it to, which no read asked
+   *  about — and a re-read finding it there would look exactly like a clear. */
   lines: readonly BoardLineRow[];
   cartById: ReadonlyMap<string, PulseCartRow>;
   sessionById: ReadonlyMap<string, PulseSessionRow>;
   nowIso: string;
-}): boolean {
+};
+
+/** Off the wok · on the KDS's wok (busy) · still cooking on no live kitchen the reads can see. */
+type IdleVerdict = "off" | "busy" | "unplaced";
+
+function idleVerdict(l: BoardLineRow, input: IdleInput, nowMs: number): IdleVerdict {
+  if (!stillCooking(l, input.nowIso)) return "off";
+  const cart = input.cartById.get(l.cart_id);
+  if (!cart) return "unplaced";
+  const sess = input.sessionById.get(cart.session_id);
+  if (!sess) return "busy";
+  const gate = kdsLineGate({
+    mode: sess.mode,
+    counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
+    sessionStatus: sess.status,
+    cartStatus: cart.status,
+    slotted: false,
+    line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment ?? "dinein" },
+    cartOwes: false,
+    nowMs,
+  });
+  return gate.show ? "busy" : "unplaced";
+}
+
+/**
+ * The lines whose CURRENT cart the route must re-read before `kitchenIdle` can answer: the unplaced
+ * ones, asked only when they alone stand between the reads and "All clear" — a dish already on the
+ * wok answers "not idle" with no re-read, and a wall with nothing unplaced asks nothing.
+ */
+export function idleRecheck(input: IdleInput): string[] {
+  const nowMs = Date.parse(input.nowIso);
+  const unplaced: string[] = [];
+  for (const l of input.lines) {
+    const v = idleVerdict(l, input, nowMs);
+    if (v === "busy") return [];
+    if (v === "unplaced") unplaced.push(l.id);
+  }
+  return unplaced;
+}
+
+export function kitchenIdle(
+  input: IdleInput & {
+    /** The re-read of `idleRecheck`'s lines: line id → the cart it names NOW. `null` = not answered. */
+    linesNow: ReadonlyMap<string, string> | null;
+  },
+): boolean {
   const nowMs = Date.parse(input.nowIso);
   for (const l of input.lines) {
-    if (!stillCooking(l, input.nowIso)) continue;
-    const cart = input.cartById.get(l.cart_id);
-    if (!cart) continue;
-    const sess = input.sessionById.get(cart.session_id);
-    if (!sess) return false;
-    const gate = kdsLineGate({
-      mode: sess.mode,
-      counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
-      sessionStatus: sess.status,
-      cartStatus: cart.status,
-      slotted: false,
-      line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment ?? "dinein" },
-      cartOwes: false,
-      nowMs,
-    });
-    if (gate.show) return false;
+    const v = idleVerdict(l, input, nowMs);
+    if (v === "busy") return false;
+    if (v === "unplaced" && input.linesNow?.get(l.id) !== l.cart_id) return false;
   }
   return true;
 }

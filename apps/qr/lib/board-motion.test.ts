@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planBoardMotion, rowKey, type MotionMemory } from "./board-motion";
+import { tablesFitStart, viewTables } from "./board-fit";
 import type { BoardDish, BoardTable } from "./board-tables";
 
 /**
@@ -96,7 +97,46 @@ describe("planBoardMotion — what moves, one thing at a time, in a fixed order"
   });
 
   it("a row's identity is its table, round, to-go flag and name — never an id", () => {
-    const r = { n: null, next: true, dishes: [] };
-    expect(rowKey(4, 1, r, { ...dish("Tea", "sent"), togo: true })).toBe("4|@1|t|Tea");
+    const t: BoardTable = {
+      table: 4,
+      out: false,
+      rounds: [
+        { n: 1, next: false, dishes: [dish("Tea", "sent")] },
+        { n: null, next: true, dishes: [{ ...dish("Tea", "sent"), togo: true }] },
+      ],
+    };
+    expect(rowKey(t, 1, t.rounds[1]!.dishes[0]!)).toBe("4|@1|t|Tea");
+    expect(rowKey(t, 0, t.rounds[0]!.dishes[0]!)).toBe("4|1|d|Tea");
+  });
+
+  it("a RE-SEATED table keeps one key per row: two sessions' round 1 on one pass never share a key, so no advance is missed and no FILL lights two rows (Codex round 1 on #336; `board-motion/re-seat-shares-a-key`)", () => {
+    // A re-seat inside the linger: the old party's Send and the new party's both read round 1 (rounds
+    // count per session), same dish, same fulfillment — oldest first on the one pass.
+    const pass = (first: BoardDish["stage"], second: BoardDish["stage"]): BoardTable => ({
+      table: 4,
+      out: false,
+      rounds: [
+        { n: 1, next: false, dishes: [dish("Mohinga", first)] },
+        { n: 1, next: false, dishes: [dish("Mohinga", second)] },
+      ],
+    });
+    // The keys the WALL draws its rows by (the fit mints them with the planner's own `rowKey`).
+    const keys = (t: BoardTable) =>
+      viewTables([t], tablesFitStart(1)).columns[0][0]!.rounds.map((r) => {
+        const row = r.rows[0]!;
+        return row.kind === "dish" ? row.key : null;
+      });
+    const [older, newer] = keys(pass("sent", "cooking"));
+    expect(older).not.toBe(newer);
+    // The OLDER party's dish advances while the newer one's was already Cooking: one FILL, its own.
+    const prev = seed([pass("sent", "cooking")]);
+    expect(planBoardMotion(prev, [pass("cooking", "cooking")], []).steps).toEqual([
+      { kind: "fill", row: older },
+    ]);
+    // And the newer one alone: its own FILL, never the older row's.
+    const prev2 = seed([pass("cooking", "sent")]);
+    expect(planBoardMotion(prev2, [pass("cooking", "cooking")], []).steps).toEqual([
+      { kind: "fill", row: newer },
+    ]);
   });
 });

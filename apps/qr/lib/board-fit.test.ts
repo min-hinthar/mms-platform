@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   boardColumnFit,
+  dishNameLines,
   distinctNames,
   stepDownTables,
   tablesFitStart,
@@ -123,6 +124,41 @@ describe("PD9 — the passes step down in a fixed order: (a) collapse the served
       [2, 3, 4],
       [5, 7],
     ]);
+  });
+});
+
+describe("dishNameLines — every dish named as its own row names it, folded or not (Codex round 1 on #336)", () => {
+  const named = (name: string, nameMy: string | null): BoardDish => ({
+    ...dish(name, "served"),
+    nameMy,
+  });
+
+  it("one dish: its Burmese on top and its English beneath, or its English alone", () => {
+    expect(dishNameLines([named("Mohinga", "မုန့်ဟင်းခါး")])).toEqual({
+      lead: [{ text: "မုန့်ဟင်းခါး", my: true }],
+      echo: ["Mohinga"],
+    });
+    expect(dishNameLines([named("Faluda", null)])).toEqual({
+      lead: [{ text: "Faluda", my: false }],
+      echo: [],
+    });
+  });
+
+  it("a MIXED fold keeps each dish's own translation — one untranslated dish never strips the others' Burmese (`board-fit/fold-translation-all-or-nothing`), and its English is not said twice (`board-fit/echo-repeats-the-english`)", () => {
+    expect(
+      dishNameLines([
+        named("Mohinga", "မုန့်ဟင်းခါး"),
+        named("Faluda", null),
+        named("Tea", "လက်ဖက်ရည်"),
+      ]),
+    ).toEqual({
+      lead: [
+        { text: "မုန့်ဟင်းခါး", my: true },
+        { text: "Faluda", my: false },
+        { text: "လက်ဖက်ရည်", my: true },
+      ],
+      echo: ["Mohinga", "Tea"],
+    });
   });
 });
 

@@ -45,14 +45,26 @@ export type MotionMemory = {
 };
 
 /** A dish row's identity across polls — never published: the table, its round (by number, or by
- *  position when the number is unknown), the to-go flag and the name. */
-export function rowKey(
-  table: number,
-  roundIndex: number,
-  round: BoardRound,
-  dish: BoardDish,
-): string {
-  return `${table}|${round.n ?? `@${roundIndex}`}|${dish.togo ? "t" : "d"}|${dish.name}`;
+ *  position when the number is unknown), the to-go flag and the name. `roundIndex` is the round's
+ *  place in the TABLE's rounds, as the server sent them (never a position after the fit's fold). */
+export function rowKey(table: BoardTable, roundIndex: number, dish: BoardDish): string {
+  return `${table.table}|${roundTag(table.rounds, roundIndex)}|${dish.togo ? "t" : "d"}|${dish.name}`;
+}
+
+/**
+ * The round's part of a row key. A number is unique on a pass only per SESSION (Codex round 1 on
+ * #336): a table re-seated inside the linger puts two parties' Sends on one pass, both counted from
+ * round 1, so two rows of one dish shared a key — the planner's stage map kept one of them (an advance
+ * went missing) and a FILL lit both. A repeated number takes its occurrence on the pass ("1", then
+ * "1#1"), which moves only when an older round with the SAME number leaves — never when any older
+ * round does, as a bare position would. An unknown number keeps its position (`@i`).
+ */
+function roundTag(rounds: readonly BoardRound[], i: number): string {
+  const n = rounds[i]?.n ?? null;
+  if (n === null) return `@${i}`;
+  let seen = 0;
+  for (let j = 0; j < i; j++) if (rounds[j]!.n === n) seen++;
+  return seen === 0 ? `${n}` : `${n}#${seen}`;
 }
 
 const RANK: Readonly<Record<BoardDishStage, number>> = { sent: 1, cooking: 2, served: 3 };
@@ -70,7 +82,7 @@ export function planBoardMotion(
   const stages = new Map<string, BoardDishStage>();
   for (const t of tables ?? [])
     t.rounds.forEach((r, i) => {
-      for (const d of r.dishes) stages.set(rowKey(t.table, i, r, d), d.stage);
+      for (const d of r.dishes) stages.set(rowKey(t, i, d), d.stage);
     });
   const outNow = new Set((tables ?? []).filter((t) => t.out).map((t) => t.table));
   const readyNow = new Set(ready);
@@ -99,7 +111,7 @@ export function planBoardMotion(
         if (t.out) continue;
         t.rounds.forEach((r, i) => {
           for (const d of r.dishes) {
-            const key = rowKey(t.table, i, r, d);
+            const key = rowKey(t, i, d);
             const was = prev.tables?.stages.get(key);
             // A row seen for the first time lands at its final frame; only an ADVANCE fills.
             if (was !== undefined && RANK[d.stage] > RANK[was])

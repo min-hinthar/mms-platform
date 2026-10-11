@@ -11,6 +11,7 @@ import {
 import { BRAND_NAME } from "@/lib/brand";
 import {
   boardColumnFit,
+  dishNameLines,
   distinctNames,
   stepDownTables,
   tablesFitStart,
@@ -824,28 +825,37 @@ function DishRow({
   showStage: boolean;
   filling: boolean;
 }) {
-  const dishes = row.kind === "dish" ? [row.dish] : row.dishes;
-  const mys = dishes.map((d) => d.nameMy);
-  const allMy = mys.every((m) => m !== null);
+  // Dish by dish (`dishNameLines`, Codex round 1 on #336): a fold names each dish as its own row would.
+  const { lead, echo } = dishNameLines(row.kind === "dish" ? [row.dish] : row.dishes);
   const togo = row.kind === "dish" && row.dish.togo;
   return (
     <li className={`orb-dish${row.kind === "folded" ? " orb-dish-folded" : ""}`}>
       <span className="orb-dish-names">
         <span className="orb-dish-line">
-          {allMy ? (
-            <span className="orb-dish-my" lang="my">
-              {mys.join(" · ")}
-            </span>
-          ) : (
-            <span className="orb-dish-lead">{dishes.map((d) => d.name).join(" · ")}</span>
-          )}
+          {/* ONE flex item, so the line truncates as one; inside it the names are inline runs, each
+              Burmese one marked on its own span and the English fallback never under the mark. The
+              " · " separator is a glyph run in INLINE flow, not a whitespace node in the flex line. */}
+          <span className="orb-dish-head">
+            {lead.map((part, i) => (
+              <Fragment key={i}>
+                {i > 0 && " · "}
+                {part.my ? (
+                  <span className="orb-dish-my" lang="my">
+                    {part.text}
+                  </span>
+                ) : (
+                  <span className="orb-dish-lead">{part.text}</span>
+                )}
+              </Fragment>
+            ))}
+          </span>
           {togo && (
             <span className="orb-togo" lang={lang === "my" ? "my" : undefined}>
               {ts(lang, "kds.channel.togo")}
             </span>
           )}
         </span>
-        {allMy && <span className="orb-dish-en">{dishes.map((d) => d.name).join(" · ")}</span>}
+        {echo.length > 0 && <span className="orb-dish-en">{echo.join(" · ")}</span>}
       </span>
       {showStage && (
         <KitchenTrack

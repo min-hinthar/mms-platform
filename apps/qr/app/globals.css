@@ -9550,6 +9550,7 @@ a .chrome-en {
   gap: 8px;
   min-width: 0;
 }
+.orb-dish-head,
 .orb-dish-my,
 .orb-dish-lead,
 .orb-dish-en {
@@ -9557,6 +9558,14 @@ a .chrome-en {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The lead line's ONE flex item (Codex round 1 on #336): its names are inline runs, dish by dish —
+   a fold of several truncates as one line, and the " · " between them sits in inline flow at the
+   names' own size. */
+.orb-dish-head {
+  color: var(--pass-ink);
+  font-size: var(--tv-dish);
+  font-weight: var(--fw-bold);
 }
 /* Burmese on top at the larger size in BOTH board languages (m9 decision 18): these are the house's
    own dish names, and Burmese is never smaller. */

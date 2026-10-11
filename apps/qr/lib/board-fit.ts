@@ -79,13 +79,12 @@ export function viewTables(tables: readonly BoardTable[], fit: TablesFit): Table
 
 function fitTable(t: BoardTable, level: TablesFit["level"]): FitTable {
   // `index` is the round's position in the TABLE's rounds — the one `planBoardMotion` keys by —
-  // never its position after the fold has dropped an emptied round.
+  // never its position after the fold has dropped an emptied round; the key reads the WHOLE table
+  // `t` (a repeated round number takes its occurrence there), never the fold's filtered copy.
   const asRows = (r: BoardRound, index: number): FitRound => ({
     n: r.n,
     next: r.next,
-    rows: r.dishes.map(
-      (dish): FitRow => ({ kind: "dish", dish, key: rowKey(t.table, index, r, dish) }),
-    ),
+    rows: r.dishes.map((dish): FitRow => ({ kind: "dish", dish, key: rowKey(t, index, dish) })),
   });
   // (a) all served: the stub and its roll-up say it; the rows go.
   if (t.out && level >= 1)
@@ -114,6 +113,28 @@ function fitTable(t: BoardTable, level: TablesFit["level"]): FitTable {
     collapsed: false,
     folded: null,
     rounds: t.rounds.map((r, index) => asRows(r, index)),
+  };
+}
+
+/**
+ * PD9 (Codex round 1 on #336) — a dish row's two name lines, DISH BY DISH, so a folded row names each
+ * dish exactly as its own row would (m9 decision 18): `lead` is each dish's catalog Burmese, marked,
+ * or its English snapshot name, unmarked, when the catalog has none; `echo` is the English beneath,
+ * of the translated dishes only — an untranslated dish already said its English on the lead line.
+ * One dish is the ordinary row; the fold is the same rule over several. It was all-or-nothing once:
+ * one dish with no Burmese turned the whole fold English, on the busiest wall the room ever reads.
+ */
+export type DishNameLines = {
+  lead: { text: string; my: boolean }[];
+  echo: string[];
+};
+
+export function dishNameLines(dishes: readonly BoardDish[]): DishNameLines {
+  return {
+    lead: dishes.map((d) =>
+      d.nameMy !== null ? { text: d.nameMy, my: true } : { text: d.name, my: false },
+    ),
+    echo: dishes.filter((d) => d.nameMy !== null).map((d) => d.name),
   };
 }
 

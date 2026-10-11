@@ -77,6 +77,13 @@ let carts: CartRow[] = [];
 let cartsError: { message: string } | null = null;
 let menu: { id: string; name_my: string | null }[] = [];
 let menuError: { message: string } | null = null;
+/** Every catalog read the name loader issued: which table, for which refs (Codex round 1 on #336). */
+let catalogReads: { table: string; ids: unknown[] }[] = [];
+/** The idle re-read: the cart each line names NOW (`null` = the row is gone), the ids it was asked
+ *  for (`null` = never asked), and its failure. */
+let movedTo: Record<string, string | null> = {};
+let rereadIds: unknown[] | null = null;
+let rereadError: { message: string } | null = null;
 
 vi.mock("@/lib/device-auth", () => ({ authorizeDevice: () => Promise.resolve(gate) }));
 
@@ -178,6 +185,22 @@ vi.mock("@mms/db/server", () => ({
             return chain;
           },
           in: (col: string, values: unknown[]) => {
+            if (col === "id") {
+              // The IDLE RE-READ (Codex round 1 on #336): each asked line's CURRENT cart — moved by a
+              // merge (`movedTo`), gone (folded: `null`), or where the line read saw it.
+              rereadIds = values;
+              if (rereadError) return Promise.resolve({ data: null, error: rereadError });
+              const known = new Map([...lines, ...sendExtra].map((l) => [l.id, l.cart_id]));
+              return Promise.resolve({
+                data: values.flatMap((id) => {
+                  const now = Object.hasOwn(movedTo, id as string)
+                    ? movedTo[id as string]
+                    : known.get(id as string);
+                  return now ? [{ id, cart_id: now }] : [];
+                }),
+                error: null,
+              });
+            }
             if (col === "fire_batch") batches = values;
             else if (col === "state") states = values;
             else throw new Error(`unexpected qr_cart_items filter ${col}`);
@@ -248,6 +271,7 @@ vi.mock("@mms/db/server", () => ({
         const chain: Record<string, unknown> = {
           select: () => chain,
           in: (col: string, ids: unknown[]) => {
+            catalogReads.push({ table, ids });
             if (menuError) return Promise.resolve({ data: null, error: menuError });
             return Promise.resolve({
               data: menu.filter((m) => col === "id" && ids.includes(m.id)),
@@ -261,7 +285,10 @@ vi.mock("@mms/db/server", () => ({
         // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table.
         const chain: Record<string, unknown> = {
           select: () => chain,
-          in: () => Promise.resolve({ data: [], error: null }),
+          in: (_col: string, ids: unknown[]) => {
+            catalogReads.push({ table, ids });
+            return Promise.resolve({ data: [], error: null });
+          },
         };
         return chain;
       }
@@ -337,6 +364,10 @@ beforeEach(() => {
   cartsError = null;
   menu = [];
   menuError = null;
+  catalogReads = [];
+  movedTo = {};
+  rereadIds = null;
+  rereadError = null;
   requestedSessionIds = [];
   orderStatuses = [];
   orderCols = "";
@@ -641,6 +672,49 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
     expect(body.kitchenIdle).toBe(false);
   });
 
+  it("a line a MERGE moved between the line read and the cart read never reads 'All clear' — its cart reads cancelled, but the food cooks on the target (Codex round 1 on #336)", async () => {
+    // Table 4's Send names the source cart; the merge cancelled it and moved the line to `cart-1`,
+    // which no line of the first read named, so no read asked about it.
+    seedCookingTable({ cart_id: "cart-src" });
+    carts = [
+      { id: "cart-src", session_id: "sess-dinein", status: "cancelled" },
+      { id: "cart-1", session_id: "sess-dinein", status: "open" },
+    ];
+    movedTo = { "line-1": "cart-1" };
+    const merged = (await (await GET(req())).json()) as Body;
+    expect(merged.tables).toEqual([]);
+    expect(merged.kitchenIdle).toBe(false);
+    expect(rereadIds).toEqual(["line-1"]);
+    // A CLEAR leaves the line on its cancelled cart: the re-read finds it there, and "All clear" holds.
+    movedTo = {};
+    const cleared = (await (await GET(req())).json()) as Body;
+    expect(cleared.kitchenIdle).toBe(true);
+    // A re-read that does not answer cannot tell the two apart: silence, and the tables still publish.
+    rereadError = { message: "connection terminated" };
+    const blind = (await (await GET(req())).json()) as Body;
+    expect(blind.kitchenIdle).toBe(false);
+    expect(blind.tables).toEqual([]);
+  });
+
+  it("'All clear' is judged on the FIRST line read: a merge landing before the Send completion read re-fetches the line on a cart no read asked about, and a re-read finding it there is not a clear (Codex round 1 on #336; `board/idle-reads-the-completed-sends`)", async () => {
+    seedCookingTable();
+    sendExtra = [{ ...lines[0]!, cart_id: "cart-tgt" }];
+    movedTo = { "line-1": "cart-tgt" };
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.kitchenIdle).toBe(false);
+  });
+
+  it("the re-read is asked only when it can change the answer — never while a bag is on the wok, never with nothing unplaced (`board/idle-rereads-every-poll`)", async () => {
+    seedCookingTable({ cart_id: "cart-togo", fulfillment: "togo" });
+    carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    lines.push({ ...lines[0]!, id: "line-cleared", cart_id: "cart-gone", fire_batch: null });
+    expect(((await (await GET(req())).json()) as Body).kitchenIdle).toBe(false);
+    expect(rereadIds).toBeNull();
+    seedCookingTable();
+    expect(((await (await GET(req())).json()) as Body).kitchenIdle).toBe(false);
+    expect(rereadIds).toBeNull();
+  });
+
   it("a failed KITCHEN read is null, never an empty kitchen — and the code column still publishes (`board/tables-on-a-failed-kitchen-read`)", async () => {
     for (const fail of ["lines", "carts", "send"] as const) {
       seedCookingTable();
@@ -683,6 +757,54 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
     menuError = { message: "connection terminated" };
     const body = (await (await GET(req())).json()) as Body;
     expect(body.tables![0]!.rounds[0]!.dishes[0]).toMatchObject({ name: "Mohinga", nameMy: null });
+  });
+
+  it("a kitchen with no table to draw asks NO catalog for a name — a pickup-only or scan-and-go-only wok never costs the wall a menu or grocery read every 5 s (Codex round 1 on #336)", async () => {
+    // A pickup bag on the wok: its dish is a menu uuid, its Burmese would be a menu read.
+    seedCookingTable({ cart_id: "cart-togo", fulfillment: "togo" });
+    carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    const pickup = (await (await GET(req())).json()) as Body;
+    expect(pickup.tables).toEqual([]);
+    expect(catalogReads).toEqual([]);
+    // A scan-and-go cart: its lines carry a grocery barcode, its Burmese a grocery read.
+    sessions.push({
+      id: "sess-sg",
+      mode: "scango",
+      status: "active",
+      table_number: null,
+      expires_at: LIVE,
+      qr_code: "SESS-SG",
+    });
+    seedCookingTable({
+      cart_id: "cart-sg",
+      menu_item_id: "0123456789012",
+      name: "Rice 5lb",
+      fulfillment: "grocery",
+      state: "fired",
+      fire_batch: null,
+    });
+    carts = [{ id: "cart-sg", session_id: "sess-sg", status: "paid" }];
+    catalogReads = [];
+    const scango = (await (await GET(req())).json()) as Body;
+    expect(scango.tables).toEqual([]);
+    expect(catalogReads).toEqual([]);
+  });
+
+  it("the name read asks for the dishes the wall DRAWS, never the rest of the wok (Codex round 1 on #336; `board/names-for-every-line`)", async () => {
+    seedCookingTable();
+    lines.push({
+      ...lines[0]!,
+      id: "line-p",
+      cart_id: "cart-p",
+      menu_item_id: "dddddddd-dddd-4ddd-8ddd-dddddddd0004",
+      fire_batch: null,
+      fulfillment: "togo",
+    });
+    carts.push({ id: "cart-p", session_id: "sess-togo", status: "paid" });
+    menu = [{ id: DISH, name_my: "မုန့်ဟင်းခါး" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables![0]!.rounds[0]!.dishes[0]!.nameMy).toBe("မုန့်ဟင်းခါး");
+    expect(catalogReads).toEqual([{ table: "menu_items", ids: [DISH] }]);
   });
 
   it("publishes NO identifier, quantity, modifier, note or time of any kind, anywhere in the response", async () => {

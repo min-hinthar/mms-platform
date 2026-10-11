@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  idleRecheck,
   kitchenIdle,
   shapeBoardTables,
+  wallDishLines,
   type BoardLineRow,
   type ShapeTablesInput,
 } from "./board-tables";
@@ -314,15 +316,22 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
     expires_at: LIVE,
     qr_code: "reg-ab12",
   };
+  /** The re-read's answer when nothing moved: every line is still on the cart it named. */
+  const stay = (lines: readonly BoardLineRow[]) => new Map(lines.map((l) => [l.id, l.cart_id]));
   const idle = (
     lines: BoardLineRow[],
-    over: { carts?: PulseCartRow[]; sessions?: PulseSessionRow[] } = {},
+    over: {
+      carts?: PulseCartRow[];
+      sessions?: PulseSessionRow[];
+      linesNow?: ReadonlyMap<string, string> | null;
+    } = {},
   ) =>
     kitchenIdle({
       lines,
       cartById: new Map([...carts, ...(over.carts ?? [])].map((c) => [c.id, c])),
       sessionById: new Map([...sessions, counter, ...(over.sessions ?? [])].map((s) => [s.id, s])),
       nowIso: NOW,
+      linesNow: over.linesNow === undefined ? stay(lines) : over.linesNow,
     });
 
   it("an empty read is an idle kitchen", () => {
@@ -344,7 +353,7 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
     const ghost = sessions.map((s) => (s.id === "s4" ? { ...s, expires_at: at(-1) } : s));
     const l = line();
     expect(shape([l], { sessions: ghost })).toEqual([]);
-    expect(kitchenIdle({ ...input([l], { sessions: ghost }) })).toBe(false);
+    expect(kitchenIdle({ ...input([l], { sessions: ghost }), linesNow: stay([l]) })).toBe(false);
   });
 
   it("food OUT of the wok, or not on it yet, is idle: a served dish, a HELD scheduled pickup, a Send in its grace (`board-tables/idle-counts-served`, `board-tables/idle-counts-held`)", () => {
@@ -368,7 +377,10 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
         carts: [{ id: "cc", session_id: "sc", status: "open" }],
       }),
     ).toBe(false);
-    expect(kitchenIdle({ ...input([line(fresh)], { sessions: ghost }) })).toBe(false);
+    const ghostLine = line(fresh);
+    expect(
+      kitchenIdle({ ...input([ghostLine], { sessions: ghost }), linesNow: stay([ghostLine]) }),
+    ).toBe(false);
     // ONE definition in one payload: the table the wall DOES draw reads the same dish Cooking.
     const drawn = line(fresh);
     expect(shape([drawn])[0]!.rounds[0]!.dishes[0]!.stage).toBe("cooking");
@@ -386,8 +398,38 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
     expect(idle([bag])).toBe(true);
   });
 
-  it("a line on a cleared or cancelled cart is not cooking (the read keeps only open and paid carts; `board-tables/idle-counts-a-dropped-cart`)", () => {
+  it("a line on a CLEARED or cancelled cart is not cooking — once a re-read finds it still there: a clear leaves a table's lines on its cart, cancelled (the read keeps only open and paid carts; `board-tables/idle-counts-a-dropped-cart`)", () => {
     expect(idle([line({ cart_id: "gone" })])).toBe(true);
+    // A table that PAID and was then cleared with food still unbumped: its cart stays paid, its
+    // session closes, and the KDS hides it — off the wok once the re-read finds it in place.
+    expect(
+      idle([line({ cart_id: "cpaid" })], {
+        carts: [{ id: "cpaid", session_id: "s-gone", status: "paid" }],
+        sessions: [{ ...sessions[0]!, id: "s-gone", status: "closed" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("a line a MERGE moved while the wall read is never called idle: its cart is gone from the cart read, but the line was re-parented, not cleared (Codex round 1 on #336; `board-tables/idle-trusts-a-dropped-cart`)", () => {
+    // `mms_merge_table_orders` commits between the line read and the cart read: the line still names
+    // the source cart, which the merge cancelled, and its food cooks on the target.
+    const moved = line({ cart_id: "c-src" });
+    expect(idle([moved], { linesNow: new Map([[moved.id, "c4"]]) })).toBe(false);
+    // …or folded it into a matching target line: the source row is gone.
+    expect(idle([moved], { linesNow: new Map() })).toBe(false);
+    // …and a re-read that did not answer cannot tell a clear from a merge: silence.
+    expect(idle([moved], { linesNow: null })).toBe(false);
+  });
+
+  it("a merge that lands between the CART read and the SESSION read is never idle either: the cart still reads open, its table closed — the same re-read tells a clear from a merge (Codex round 1 on #336; `board-tables/idle-hidden-is-off`)", () => {
+    const merging = { carts: [{ id: "cx", session_id: "s-closed", status: "open" }] };
+    const closed = [{ ...sessions[0]!, id: "s-closed", status: "closed" }];
+    const l = line({ cart_id: "cx" });
+    expect(idle([l], { ...merging, sessions: closed, linesNow: new Map([[l.id, "c4"]]) })).toBe(
+      false,
+    );
+    // A CLEAR between the two reads leaves the line on its cart: off the wok.
+    expect(idle([l], { ...merging, sessions: closed })).toBe(true);
   });
 
   it('a line whose SESSION cannot be read is never called idle — silence is the safe failure of "All clear" (`board-tables/idle-unknown-session-is-idle`)', () => {
@@ -396,5 +438,44 @@ describe('kitchenIdle — "All clear" is a claim about the WHOLE kitchen (the bl
         carts: [{ id: "cx", session_id: "s-missing", status: "open" }],
       }),
     ).toBe(false);
+  });
+
+  it("the re-read is asked only when it can change the answer: for the lines the reads place on no live kitchen, and only while nothing else is cooking (`board-tables/idle-rereads-a-busy-kitchen`)", () => {
+    const recheck = (ls: BoardLineRow[]) =>
+      idleRecheck({
+        lines: ls,
+        cartById: new Map(carts.map((c) => [c.id, c])),
+        sessionById: new Map([...sessions, counter].map((s) => [s.id, s])),
+        nowIso: NOW,
+      });
+    const cleared = line({ cart_id: "gone" });
+    expect(recheck([cleared])).toEqual([cleared.id]);
+    // A dish cooking on a live table already answers "not idle": no re-read.
+    expect(recheck([cleared, line()])).toEqual([]);
+    // Nothing unplaced, nothing to ask — a served dish on a dead cart is off the wok either way.
+    expect(
+      recheck([line(), line({ cart_id: "gone", state: "served", bumped_at: at(-60) })]),
+    ).toEqual([]);
+    expect(recheck([])).toEqual([]);
+  });
+});
+
+describe("wallDishLines — the dishes the wall DRAWS, the only ones whose names it asks for (Codex round 1 on #336)", () => {
+  it("a drawn table's lines, and nothing else on the wok: no pickup bag, no grocery line, no cleared table, no Send past its linger", () => {
+    const drawn = line();
+    const lines = [
+      drawn,
+      line({ cart_id: "cp", fulfillment: "togo", menu_item_id: "m-bag" }),
+      line({ cart_id: "cp", fulfillment: "grocery", menu_item_id: "0123456789012" }),
+      line({ cart_id: "c7", fire_batch: B3, state: "served", bumped_at: at(-3600) }),
+      line({ cart_id: "gone" }),
+    ];
+    const wall = input(lines);
+    expect(wallDishLines(wall).map((l) => l.id)).toEqual([drawn.id]);
+    // Exactly the lines `shapeBoardTables` draws a row for.
+    expect(shapeBoardTables(wall).flatMap((t) => t.rounds.flatMap((r) => r.dishes))).toHaveLength(
+      1,
+    );
+    expect(wallDishLines(input([lines[1]!, lines[2]!]))).toEqual([]);
   });
 });
