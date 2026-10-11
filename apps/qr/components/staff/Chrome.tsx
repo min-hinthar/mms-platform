@@ -96,12 +96,19 @@ export function Chrome({
   lang,
   k,
   vars,
+  varsMy,
   echo = false,
   keepEcho = false,
 }: {
   lang: StaffLang;
   k: StaffKey;
   vars?: Record<string, string | number>;
+  /**
+   * PD8 — the Burmese template's OWN values where a slot has a Burmese twin (a dish's `nameMy`):
+   * the sheet title reads “မုန့်ဟင်းခါး” ဖျက် over Remove “Mohinga”, each tongue its own name. Only
+   * the slots given here differ; every other slot reads `vars`. The strings are unchanged.
+   */
+  varsMy?: Record<string, string | number>;
   /** `"stack"` = the echo on its own line · `"inline"` = after a middot · `false` = no echo. */
   echo?: "stack" | "inline" | false;
   /**
@@ -118,7 +125,7 @@ export function Chrome({
 
   const my = (
     <span lang="my" className="chrome-my">
-      {renderMyTemplate(k, vars, lang)}
+      {renderMyTemplate(k, varsMy ? { ...vars, ...varsMy } : vars, lang)}
     </span>
   );
   if (echo === false) return my;

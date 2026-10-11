@@ -110,6 +110,29 @@ describe("the add page — the exits that read the table", () => {
     expect((e as Redirect).to).toBe(STAFF_DOOR_TARGET.counter);
   });
 
+  it("PD6 — a CLOSED counter order goes to its own table page (the seal adopts this tab's stash there), whatever its card", async () => {
+    for (const handoff of [
+      {
+        orderId: "o-1",
+        totalCents: 1989,
+        tipCents: 0,
+        tenderedCents: null,
+        isCounter: true,
+        cartId: "c-1",
+        sentEarly: false,
+      },
+      null,
+    ]) {
+      h.detail = { kind: "closed", handoff, refund: "none", orderId: "o-1" };
+      const e = await StaffAddItems({ params: Promise.resolve({ id: ID }) }).catch(
+        (x: unknown) => x,
+      );
+      // MUTATION pad-route/closed-counter-to-the-floor: a reload right after the walk-up landing
+      // loses Cash received and Change (Codex correction 4); red.
+      expect((e as Redirect).to).toBe(`/staff/table/${ID}`);
+    }
+  });
+
   it("a settled table (no open order) goes to the table page", async () => {
     h.detail = table({ cartId: null });
     const e = await StaffAddItems({ params: Promise.resolve({ id: ID }) }).catch((x: unknown) => x);

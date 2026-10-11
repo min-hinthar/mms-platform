@@ -12,6 +12,12 @@ import {
   handoffFocusKey,
   markHandoffFocus,
   takeHandoffFocus,
+  markSealLanding,
+  sealLandingKey,
+  takeSealLanding,
+  sealNavNow,
+  type SealNav,
+  SEAL_LANDING_TTL_MS,
   handoffStashKey,
   handoffSuperseded,
   liveTwinOf,
@@ -575,6 +581,89 @@ describe("closedCounterNote — the refund in words, the hedge only for what the
     expect(closedCounterNote({ refund: "partial", orderId: null })).toEqual({
       k: "floor.pane.closed.body",
     });
+  });
+});
+
+// ── PD6 (#334) ── the seal lands once more on a same-tab RELOAD, never on a revisit.
+describe("markSealLanding / takeSealLanding — a reload's first mount, this order, inside its TTL", () => {
+  const store = () => {
+    const m = new Map<string, string>();
+    return {
+      m,
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
+  };
+  /** A document RELOADED at 1200 — after a note written at 1000. */
+  const RELOAD: SealNav = { reload: true, docStartMs: 1200 };
+  it("a reload's first mount lands, taking the note; the next mount in that document is calm", () => {
+    const st = store();
+    expect(sealLandingKey(A)).toBe(`mms-seal-landing:${A}`);
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-every-visit (never cleared) → every revisit re-lands; red.
+    expect(takeSealLanding(A, "o-1", 1500, RELOAD, st)).toBe(true);
+    expect(takeSealLanding(A, "o-1", 1600, RELOAD, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+  });
+  it("a CLIENT-SIDE revisit in the document that wrote the note lands nothing, and leaves the note for a reload (#334)", () => {
+    const st = store();
+    // This document started at 900 and wrote the note at 1000 (the landing); the cashier navigates
+    // away and back inside it — even a document that was itself a reload.
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/revisit-lands (the document check dropped) → the wash replays on Back; red.
+    expect(takeSealLanding(A, "o-1", 1100, { reload: true, docStartMs: 900 }, st)).toBe(false);
+    expect(st.m.size).toBe(1);
+    // …and the reload that follows still lands, once.
+    expect(takeSealLanding(A, "o-1", 1500, RELOAD, st)).toBe(true);
+  });
+  it("a later document that was NOT a reload (a full-page navigation): calm — and the note is taken", () => {
+    const st = store();
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/any-navigation-lands (the reload check dropped) → red.
+    expect(takeSealLanding(A, "o-1", 1500, { reload: false, docStartMs: 1200 }, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+  });
+  it("another order's note, a stale note, or one from the future: no landing — and it is still cleared", () => {
+    const st = store();
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-any-order → another sale's note lands this seal; red.
+    expect(takeSealLanding(A, "o-2", 1500, RELOAD, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+    markSealLanding(A, "o-1", 1000, st);
+    // MUTATION seal-stash/landing-no-ttl → a reload hours later replays the bloom; red.
+    expect(takeSealLanding(A, "o-1", 1000 + SEAL_LANDING_TTL_MS + 1, RELOAD, st)).toBe(false);
+    // The device clock went back between the note and the reload.
+    markSealLanding(A, "o-1", 5000, st);
+    expect(takeSealLanding(A, "o-1", 4000, { reload: true, docStartMs: 6000 }, st)).toBe(false);
+    markSealLanding(A, "o-1", 1000, st);
+    expect(takeSealLanding(A, "o-1", 1000 + SEAL_LANDING_TTL_MS, RELOAD, st)).toBe(true);
+    expect(takeSealLanding(A, "o-1", 1000, RELOAD, null)).toBe(false);
+  });
+  it("sealNavNow — Navigation Timing's type, the deprecated one as the fallback, and calm when neither reads", () => {
+    const entries = (type: string) => () => [{ type }];
+    expect(sealNavNow({ timeOrigin: 1234.5, getEntriesByType: entries("reload") })).toEqual({
+      reload: true,
+      docStartMs: 1234.5,
+    });
+    // MUTATION seal-stash/every-navigation-a-reload → red.
+    expect(sealNavNow({ timeOrigin: 1, getEntriesByType: entries("navigate") }).reload).toBe(false);
+    expect(sealNavNow({ timeOrigin: 1, getEntriesByType: entries("back_forward") }).reload).toBe(
+      false,
+    );
+    expect(
+      sealNavNow({ timeOrigin: 1, getEntriesByType: () => [], navigation: { type: 1 } }),
+    ).toEqual({ reload: true, docStartMs: 1 });
+    expect(sealNavNow({ timeOrigin: 1, navigation: { type: 0 } }).reload).toBe(false);
+    expect(sealNavNow({})).toEqual({ reload: false, docStartMs: 0 });
+    expect(sealNavNow(null)).toEqual({ reload: false, docStartMs: 0 });
+    expect(
+      sealNavNow({
+        getEntriesByType: () => {
+          throw new Error("no");
+        },
+      }),
+    ).toEqual({ reload: false, docStartMs: 0 });
   });
 });
 
