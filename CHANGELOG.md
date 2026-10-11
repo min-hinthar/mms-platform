@@ -87,6 +87,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     never said on the Order screen.
   - **Folded visit.** It records the wallet's height, so the next visit predicts the fold.
   - 8 mutants added, 3 re-pointed.
+- **After Codex round 3 on #346** (m10 §I):
+  - **Unknown clock.** A Send's grace reads "sending" on an unknown clock, never "sent".
+  - **Unreadable membership (behind the flag).** Pay names the whole order at a table whose
+    membership cannot be read.
+  - **Order-stage start (behind the flag).** A checkout that opened on the Order stage still plays the
+    door moment on the Bill.
+  - 3 mutants added, 1 re-pointed.
 
 ### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
 

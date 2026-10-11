@@ -30726,7 +30726,7 @@ const MUTANTS = [
     file: "apps/qr/lib/kitchen-track.ts",
     suite: "lib/kitchen-track.test.ts",
     why: "PD5 — a fired line inside its grace is SENDING (the diner can still pull it back); read as sent, the pass prints a Sent stamp for a Send that may be undone",
-    find: '      return Number.isFinite(fire) && fire > Date.parse(nowIso) ? "sending" : "sent";',
+    find: '      return fire > now ? "sending" : "sent";',
     replace: '      return "sent";',
   },
   {
@@ -33216,6 +33216,32 @@ const MUTANTS = [
     why: "PD10 (Codex round 2 on #346) — a folded visit keeps the open form's reserve; storing the folded block's height as the form's, a wallet-less visit reserves a toggle's height for a whole card form",
     find: "            h: foldedNow ? reserve.px : live.offsetHeight,",
     replace: "            h: live.offsetHeight,",
+  },
+  // ── PD10 · Codex round 3 on #346 ──
+  {
+    id: "kitchen-track/unknown-clock-reads-sent",
+    file: "apps/qr/lib/kitchen-track.ts",
+    suite: "lib/kitchen-track.test.ts",
+    why: "PD10 (Codex round 3 on #346) — a fire time the reader cannot compare (an unknown clock, an unreadable stamp) reads SENDING, never sent: the NaN comparison falling through read a Send the diner can still undo as 'sent to kitchen' on the menu strip before its first view",
+    find: '      if (!Number.isFinite(fire) || !Number.isFinite(now)) return "sending";',
+    replace: '      if (!Number.isFinite(fire) || !Number.isFinite(now)) return "sent";',
+  },
+  {
+    id: "checkout/unread-table-pays-as-solo",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "PD10 (Codex round 3 on #346) — Pay names the WHOLE order whenever the table's membership is unreadable; reading `isGroup` alone, a split-read miss shows 'Pay · $X' while create-intent charges the whole shared cart",
+    find: "  const payWholeOrder = isGroup || (staged && gateHost === null);",
+    replace: "  const payWholeOrder = isGroup;",
+  },
+  {
+    id: "checkout/bill-entry-leaves-the-door-unseeded",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "PD10 (Codex round 3 on #346) — entering the Bill seeds the door it watches; a checkout that opened on the Order stage otherwise keeps `door: null`, and the served view plays no door step: no POP, no 'Ready to pay.'",
+    find: "    passMotion.memory !== null &&\n    passMotion.memory.door === null\n  ) {",
+    replace:
+      "    passMotion.memory !== null &&\n    passMotion.memory.door === null &&\n    false\n  ) {",
   },
 ];
 

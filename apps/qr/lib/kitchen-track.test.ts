@@ -44,6 +44,20 @@ describe("trackStage — one line's stamp", () => {
     expect(trackStage(line({ fire_at: null }), NOW)).toBe("sent");
   });
 
+  it("an UNKNOWN clock cannot prove the grace has passed — a fired line with a fire time reads sending, never sent (Codex round 3 on #346)", () => {
+    // MUTATION (kitchen-track/unknown-clock-reads-sent): the NaN comparison falls through to "sent"
+    // — before the menu strip's first view brings a clock, a Send the diner can still undo reads
+    // "sent to kitchen"; red.
+    expect(trackStage(line({ fire_at: at(4_000) }), "")).toBe("sending");
+    expect(trackStage(line({ fire_at: at(-60_000) }), "")).toBe("sending");
+    // An unreadable stamp is no proof either.
+    expect(trackStage(line({ fire_at: "not a time" }), NOW)).toBe("sending");
+    // A line with NO fire time stays sent (M2), clock or not; and a known clock reads as before.
+    expect(trackStage(line({ fire_at: null }), "")).toBe("sent");
+    expect(trackStage(line({ fire_at: at(-1) }), NOW)).toBe("sent");
+    expect(trackStage(line({ fire_at: at(1) }), NOW)).toBe("sending");
+  });
+
   it("in progress is cooking (`kitchen-track/in-progress-reads-as-sent`)", () => {
     expect(trackStage(line({ state: "in_progress" }), NOW)).toBe("cooking");
   });

@@ -1440,6 +1440,19 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
 - **A folded visit stores the wallet slot.** It keeps the open form's reserve (this device's, or the
   312px fallback) and records `walletH`. A device whose first table visit folded now predicts the fold
   next time, instead of drawing the full skeleton and collapsing.
+  **After Codex round 3 on #346** (fix-on-sight):
+
+- **An unknown clock reads "sending".** `trackStage` reads a fired line whose fire time it cannot
+  compare (the unknown clock `""`, or an unreadable stamp) as "sending", never "sent" by a NaN
+  falling through. This is reachable on the menu strip before its first view. A known clock reads
+  exactly as before. The TV board's route always passes a clock (`mms_now()`, or the app clock if
+  that read fails). The KDS does not read the track.
+- **Unreadable membership pays the WHOLE order.** At a table whose membership cannot be read
+  (`gateHost` null), Pay reads "Pay the whole order · $X". create-intent charges the whole shared
+  cart, and no owner rows are drawn to say otherwise. The split's guide line is not drawn, since
+  there is no split above it.
+- **Entering the Bill seeds the door it watches.** A checkout that opened on the Order stage now gets
+  the door moment when the food is served: no animation on entry, then the POP and "Ready to pay."
 - **Checked, and does not reproduce:** a `fired` line with a null `fire_at` reads "Sent" (fired at
   or before now; `kitchen-track.test.ts` pins it), never "Sending…" forever, and needs no re-read.
   Such rows are reachable: before P2f (`20261001000000`), `mms_line_transition`'s draft → fired edge

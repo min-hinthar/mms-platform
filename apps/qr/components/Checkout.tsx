@@ -1468,6 +1468,11 @@ export function Checkout({
   // superset of the old rule: parked implies a dine-in `gateMode`). Nothing on the staged path reads
   // `splitContext` unguarded: `isGroup` gates its two `!` reads.
   const staged = isDineIn || gateMode === "dinein";
+  // Codex round 3 on #346 — Pay names the WHOLE order whenever the table's membership is unreadable
+  // (`gateHost` null at a table: the split read missed, or its member read came back empty).
+  // create-intent charges the whole shared cart, so a plain "Pay · $X" there, with no owner rows to
+  // say otherwise, would read as this phone's own share.
+  const payWholeOrder = isGroup || (staged && gateHost === null);
   // The blind passes on #331 (guard 6) — the split board is the SELF-SERVE split's screen. While the
   // split door is parked (`openSettlement` refuses) every freeze is the REGISTER's cash settle, which
   // flipped a whole table to "splitting the bill" for the length of the counter's settle. The rule is
@@ -1540,6 +1545,20 @@ export function Checkout({
   // nothing replays.
   if (!billMounted && passMotion.steps.length > 0) {
     setPassMotion((m) => ({ ...m, steps: [], i: 0, nonce: m.nonce + 1 }));
+  }
+  // Codex round 3 on #346 — ENTERING the Bill re-seeds the door it watches. A checkout that opened
+  // on the Order stage seeded `door: null` (no door on screen), and the flip to the Bill applies no
+  // view, so the next served view would compare null → open and play no door step: no POP, and no
+  // "Ready to pay." for a screen-reader user. The entry seeds the door as it stands NOW (held or
+  // open), drawn as it is: the entry itself plays nothing.
+  if (
+    !phonePayOff &&
+    billMounted &&
+    passMotion.memory !== null &&
+    passMotion.memory.door === null
+  ) {
+    const door = servedHold === null;
+    setPassMotion((m) => (m.memory === null ? m : { ...m, memory: { ...m.memory, door } }));
   }
   const headingKey: DictKey = passShowing
     ? "counterTitle"
@@ -4826,14 +4845,14 @@ export function Checkout({
                       "Starting checkout…"
                     ) : (
                       <>
-                        {isGroup
+                        {payWholeOrder
                           ? `${T("payWholeOrder")} · ${ctaTotal}`
                           : `${T("pay")} · ${ctaTotal}`}
                         <span aria-hidden className="checkout-cta-arrow">
                           →
                         </span>
                         {/* W16b — MY line under the EN+amount line (amount stays Latin, EN line only). */}
-                        <My k={isGroup ? "payWholeOrder" : "pay"} color="inherit" />
+                        <My k={payWholeOrder ? "payWholeOrder" : "pay"} color="inherit" />
                       </>
                     )}
                   </span>
@@ -4903,7 +4922,7 @@ export function Checkout({
               <PayDock
                 line={payLine}
                 held={settling || block !== null}
-                payKey={isGroup ? "payWholeOrder" : "pay"}
+                payKey={payWholeOrder ? "payWholeOrder" : "pay"}
                 amount={ctaTotal}
                 loading={loadingPay}
                 busy={payBusy}

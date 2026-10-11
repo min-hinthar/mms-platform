@@ -3521,6 +3521,37 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     expect(document.querySelector(".checkout-door-pop")).toBeNull();
   });
 
+  it("a checkout that OPENED on the Order stage still plays the door moment on the Bill (Codex round 3 on #346)", async () => {
+    // MUTATION (checkout/bill-entry-leaves-the-door-unseeded): the Bill entry keeps the Order
+    // stage's `door: null` — the later served view compares null → open: no POP, and no "Ready to
+    // pay." for a screen-reader user; red.
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    // The dish goes to the kitchen and starts cooking while the diner is on the Order stage…
+    h.getCartView.mockResolvedValue(view({ items: [COOKING] }));
+    await syncFromServer();
+    // …then they open the Bill: the door is held by the kitchen.
+    await press(/View bill/);
+    expect(pay().getAttribute("aria-disabled")).toBe("true");
+    // The dish is served (past Mom's window) and the view lands through the realtime self-heal.
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    await act(async () => {
+      h.echo.current?.();
+    });
+    await waitFor(() => expect(regionText()).toContain("Ready to pay."), { timeout: 3000 });
+  });
+
+  it("a table whose membership cannot be read names Pay as the WHOLE order (Codex round 3 on #346)", () => {
+    // MUTATION (checkout/unread-table-pays-as-solo): `isGroup` alone — with the split read missed,
+    // Pay reads "Pay · $X" while create-intent charges the whole shared cart; red.
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [SERVED] });
+    expect(screen.getByRole("button", { name: /^Pay the whole order · \$12\.00/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Pay · \$/ })).toBeNull();
+    cleanup();
+    // A solo table read whole keeps the plain "Pay".
+    mount({ splitContext: HOST, initialItems: [SERVED] });
+    expect(screen.getByRole("button", { name: /^Pay · \$12\.00/ })).toBeTruthy();
+  });
+
   it("a door already open on mount is drawn open — no POP, no announcement", async () => {
     mount({ splitContext: HOST, initialItems: [SERVED] });
     expect(pay().getAttribute("aria-disabled")).toBeNull();
