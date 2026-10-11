@@ -279,12 +279,14 @@ function PayStep({
 
   // Remember this device's geometry — only once the wallet SETTLED (never on grace: a pending wallet
   // would store a height without it), one frame after that commit.
-  // PD10 — never a FOLDED block: it would replace the open form's height a wallet-less visit
-  // reserves (the folded skeleton is predicted from `walletH` instead).
+  // PD10 — a FOLDED block is never stored as the open form's height: a folded visit keeps the open
+  // form's reserve (this device's own, or the fallback) and records only the wallet slot. Codex round
+  // 2 on #346: skipping the write instead left a device whose first visit folded with no `walletH`,
+  // so it never predicted the fold and every later visit drew the full skeleton, then collapsed.
   const walletSettled = wallet !== "loading";
   const foldedNow = foldAtReveal === true;
   useEffect(() => {
-    if (!revealed || !walletSettled || foldedNow) return;
+    if (!revealed || !walletSettled) return;
     const raf = window.requestAnimationFrame(() => {
       const live = liveRef.current;
       if (!live) return;
@@ -293,7 +295,7 @@ function PayStep({
           PAY_ELEMENT_STORAGE_KEY,
           JSON.stringify({
             w: document.documentElement.clientWidth,
-            h: live.offsetHeight,
+            h: foldedNow ? reserve.px : live.offsetHeight,
             walletH: walletSlotRef.current?.offsetHeight ?? 0,
           }),
         );
@@ -303,7 +305,7 @@ function PayStep({
       }
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [revealed, walletSettled, attempt, foldedNow]);
+  }, [revealed, walletSettled, attempt, foldedNow, reserve.px]);
 
   // Connectivity. `online` auto-retries a load this attempt saw fail offline — the promise the
   // offline sentence makes ("we'll try again when you reconnect") is this code path.

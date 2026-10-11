@@ -1626,7 +1626,13 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
 
   it("a table with NO host is never gated at the counter either — nobody there could send", () => {
     mount({
-      splitContext: { ...HOST, myRole: "guest" as const, members: [] },
+      // The viewer is always a member (an EMPTY list is a failed read — the host then reads as
+      // unknown, Codex round 2 on #346): a hostless table is its guests and no host.
+      splitContext: {
+        ...HOST,
+        myRole: "guest" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "guest" as const }],
+      },
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
@@ -1696,7 +1702,9 @@ describe("Phase 1b → PD10 · D5 — a table with no host: nobody there can sen
         mode: "dinein",
         mySeat: MY_SEAT,
         myRole: "guest",
-        members: [],
+        // The viewer is always a member: a hostless table is its guests and no host (an EMPTY list
+        // is a failed member read, which leaves the host UNKNOWN — Codex round 2 on #346).
+        members: [{ seat: MY_SEAT, name: "Me", role: "guest" }],
         tableNumber: 7,
         qrCode: null,
       },
@@ -3492,6 +3500,27 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     expect(tipChip(/20%/).getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("leaving the Bill mid-sequence drops the queued door step — no POP, and 'Ready to pay.' is never said on the Order screen (Codex round 2 on #346)", async () => {
+    // MUTATION (checkout/door-said-after-leaving-the-bill): the queued steps keep playing off-screen
+    // — the door step announces "Ready to pay." into the Order screen's region; red.
+    const tea: CartItem = { ...SERVED, bumpedAt: at(-KDS_UNDO_MS + 300) };
+    h.getCartView.mockResolvedValue(view({ items: [tea], dbNow: at(2_000) }));
+    mount({ splitContext: HOST, initialItems: [tea] });
+    // The settle re-read lands and the sequence starts: the row FILLs first…
+    await waitFor(() => expect(document.querySelector("[data-filling]")).not.toBeNull(), {
+      timeout: 3000,
+    });
+    // …and the diner goes back to the order before the door step.
+    await press(/Back to your order/);
+    for (let i = 0; i < 20; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+    }
+    expect(regionText()).not.toContain("Ready to pay.");
+    expect(document.querySelector(".checkout-door-pop")).toBeNull();
+  });
+
   it("a door already open on mount is drawn open — no POP, no announcement", async () => {
     mount({ splitContext: HOST, initialItems: [SERVED] });
     expect(pay().getAttribute("aria-disabled")).toBeNull();
@@ -3621,13 +3650,45 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     // again — with the door open and the split read missed, the Bill is the unstaged review: Pay held
     // by the served gate ("…or pay at the counter") with no counter to tap and no pass; red.
     mount({ splitContext: null, initialViewMode: "dinein", initialItems: [{ ...ITEM }] });
-    // No host is known, so the draft holds Pay with the hostless reason, which names the counter…
     if (!document.getElementById("pay-line")) await press(/View bill/);
-    expect(payLine()).toBe("A server will send these to the kitchen — or pay at the counter.");
-    // …and the counter it names is on screen, live (never gated by served — D5).
+    // The counter is on screen, live (never gated by served — D5), and the pass is drawn.
     const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
     expect(counter.getAttribute("aria-disabled")).toBeNull();
     expect(document.querySelector(".live-pass")).not.toBeNull();
+  });
+
+  it("a split-read miss leaves the table's HOST unknown: the draft holds Pay with the honest reason — never the counter promise, never 'send' (Codex round 2 on #346)", async () => {
+    // MUTATION (checkout/served-gate-guesses-the-host): the gate fed the split's guessed `false` —
+    // a hosted table is called hostless, and the Bill promises a counter whose own read of the
+    // real host_seat refuses the drafts; red.
+    const UNKNOWN =
+      "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.";
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [{ ...ITEM }] });
+    if (!document.getElementById("pay-line")) await press(/View bill/);
+    expect(payLine()).toBe(UNKNOWN);
+    expect(payLine()).not.toMatch(/counter/i);
+    cleanup();
+    // A split context whose member read came back EMPTY is the same unknown (the viewer is always
+    // a member, so an empty list is a failed read).
+    mount({
+      splitContext: { ...HOST, members: [] },
+      initialViewMode: "dinein",
+      initialItems: [{ ...ITEM }],
+    });
+    if (!document.getElementById("pay-line")) await press(/View bill/);
+    expect(payLine()).toBe(UNKNOWN);
+    cleanup();
+    // A table READ with no host is hostless, and says so (the server and the counter).
+    mount({
+      splitContext: {
+        ...HOST,
+        myRole: "guest" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "guest" as const }],
+      },
+      initialItems: [{ ...ITEM }],
+    });
+    if (!document.getElementById("pay-line")) await press(/View bill/);
+    expect(payLine()).toBe("A server will send these to the kitchen — or pay at the counter.");
   });
 
   describe("the pay step's 'Pay at the counter' — leave Pay, then ask (m10 decision 7)", () => {

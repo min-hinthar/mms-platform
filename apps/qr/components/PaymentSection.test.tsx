@@ -2,7 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { CartTotals } from "@mms/db";
-import { PAY_ELEMENT_TIMING } from "@/lib/pay-element";
+import {
+  PAY_ELEMENT_FALLBACK_PX,
+  PAY_ELEMENT_STORAGE_KEY,
+  PAY_ELEMENT_TIMING,
+  payElementReserve,
+} from "@/lib/pay-element";
 
 /**
  * The pay step's WIRING (the rules themselves are values in `lib/pay-element.test.ts`).
@@ -573,6 +578,48 @@ describe("PD10 — at a table the wallet leads and the card waits behind 'Pay wi
     expect(document.activeElement).toBe(t);
     await advance(PAY_ELEMENT_TIMING.settleMs);
     expect(pay().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a FOLDED visit records the wallet slot and keeps the open form's reserve — so the next visit predicts the fold (Codex round 2 on #346)", async () => {
+    // MUTATION (payment-section/folded-visit-forgets-the-wallet): a folded visit writes nothing — a
+    // device whose first table visit folded never learns its wallet height, so every later visit
+    // draws the full card skeleton and then collapses; red.
+    // MUTATION (payment-section/folded-block-stored-as-the-form): the folded block's height stored
+    // as the open form's — a wallet-less visit then reserves a toggle's height for a whole card
+    // form; red.
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(48);
+    const stored = () =>
+      JSON.parse(window.localStorage.getItem(PAY_ELEMENT_STORAGE_KEY) ?? "null") as unknown;
+    try {
+      window.localStorage.removeItem(PAY_ELEMENT_STORAGE_KEY);
+      mountTable();
+      await flush();
+      await cardReady();
+      await walletReady(true);
+      expect(toggle()).not.toBeNull(); // folded at the reveal
+      await advance(50); // the frame the write rides
+      expect(stored()).toMatchObject({ h: PAY_ELEMENT_FALLBACK_PX, walletH: 48 });
+      // The next visit reads a wallet, so it predicts the fold.
+      expect(payElementReserve(stored(), 0, PAY_ELEMENT_FALLBACK_PX)).toEqual({
+        px: PAY_ELEMENT_FALLBACK_PX,
+        walletPx: 48,
+      });
+      // A device that already measured its open form keeps that height; only the wallet is new.
+      cleanup();
+      window.localStorage.setItem(
+        PAY_ELEMENT_STORAGE_KEY,
+        JSON.stringify({ w: 0, h: 400, walletH: 40 }),
+      );
+      mountTable();
+      await flush();
+      await cardReady();
+      await walletReady(true);
+      await advance(50);
+      expect(stored()).toMatchObject({ h: 400, walletH: 48 });
+    } finally {
+      height.mockRestore();
+      window.localStorage.removeItem(PAY_ELEMENT_STORAGE_KEY);
+    }
   });
 
   it("no wallet at the reveal: today's open form, with no disclosure", async () => {

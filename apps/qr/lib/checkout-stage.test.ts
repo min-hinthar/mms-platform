@@ -11,6 +11,7 @@ import {
   holdsServedGate,
   servedGateApplies,
   servedGateDecision,
+  servedGateHost,
   servedGateVerdict,
   staffSettleBlockedByUnsent,
   staffSettleUnsentVerdict,
@@ -219,8 +220,25 @@ describe("PD10 · D5 — servedGateVerdict: the door opens only once everything 
     fulfillment: "dinein",
     ...over,
   });
-  const verdict = (lines: TrackLine[], hostPresent = true, mode: string | null = "dinein") =>
-    servedGateVerdict(mode, lines, NOW, hostPresent);
+  const verdict = (
+    lines: TrackLine[],
+    hostPresent: boolean | null = true,
+    mode: string | null = "dinein",
+  ) => servedGateVerdict(mode, lines, NOW, hostPresent);
+
+  it("a dine-in draft at a table whose host the Bill cannot READ is `unknownHost` — never guessed hostless or hosted (Codex round 2 on #346)", () => {
+    // MUTATION (checkout-stage/served-gate-unknown-host-reads-hostless): an unknown host read as
+    // "no host" — a hosted table's Bill promises the counter, whose own read of the real host_seat
+    // refuses the drafts; red.
+    const draft = served({ state: "draft", fire_at: null, bumped_at: null });
+    expect(verdict([served(), draft], null)).toBe("unknownHost");
+    // The host only matters to a dine-in draft: the kitchen and a to-go draft read the same.
+    expect(verdict([served({ state: "in_progress", bumped_at: null })], null)).toBe("kitchen");
+    expect(
+      verdict([served(), served({ state: "draft", fulfillment: "togo", bumped_at: null })], null),
+    ).toBe("togo");
+    expect(verdict([served()], null)).toBeNull();
+  });
 
   it("everything served past Mom's undo window → the door is open", () => {
     expect(verdict([served(), served({ fulfillment: "togo" })])).toBeNull();
@@ -308,6 +326,21 @@ describe("PD10 · D5 — servedGateVerdict: the door opens only once everything 
     expect(verdict([cooking], true, null)).toBeNull();
     expect(servedGateApplies("dinein")).toBe(true);
     expect(servedGateApplies("pickup")).toBe(false);
+  });
+});
+
+describe("PD10 — servedGateHost: the host as the Bill can KNOW it (Codex round 2 on #346)", () => {
+  it("a missing split context, or an empty member read, is UNKNOWN — never false", () => {
+    // MUTATION (checkout-stage/served-gate-host-unknown-reads-hostless): the miss read as `false` —
+    // a hosted table whose split read failed is called hostless; red.
+    expect(servedGateHost(null)).toBeNull();
+    expect(servedGateHost(undefined)).toBeNull();
+    // The viewer is always a member: an empty list is a member read that failed.
+    expect(servedGateHost({ members: [] })).toBeNull();
+  });
+  it("a read table answers: a host among the members, or none", () => {
+    expect(servedGateHost({ members: [{ role: "guest" }, { role: "host" }] })).toBe(true);
+    expect(servedGateHost({ members: [{ role: "guest" }] })).toBe(false);
   });
 });
 

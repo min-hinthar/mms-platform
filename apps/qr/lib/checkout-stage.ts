@@ -218,9 +218,30 @@ export function holdsServedGate(line: TrackLine, nowIso: string): boolean {
  *  - `togo`     a to-go draft (Codex round 3): it otherwise fires only when the bill is PAID, so a
  *               phone payment would charge before that dish was cooked — it can go early from its
  *               ⋯ ("Send to kitchen now");
- *  - `kitchen`  everything is sent, and something is not served yet (or served inside Mom's undo).
+ *  - `kitchen`  everything is sent, and something is not served yet (or served inside Mom's undo);
+ *  - `unknownHost` a dine-in draft at a table whose host the Bill cannot READ (Codex round 2 on
+ *               #346: the split context missed, or its member read came back empty). It is never
+ *               guessed as `hostless`: that reason promises the counter, and the counter's own
+ *               server read (`requestCounterPay`, the real `host_seat`) refuses a hosted table's
+ *               drafts. Nor is it guessed as `unsent`, which would tell a guest to send. It says only
+ *               what is known: some dishes have not gone to the kitchen yet. The server always
+ *               knows `host_seat`, so `create-intent` never reaches this reason.
  */
-export type ServedHold = "unsent" | "hostless" | "togo" | "kitchen";
+export type ServedHold = "unsent" | "hostless" | "togo" | "kitchen" | "unknownHost";
+
+/**
+ * PD10 (Codex round 2 on #346) — whether the table has a HOST, as the Bill can KNOW it from its split
+ * context. Null (UNKNOWN), never false, when that context is missing (`app/cart/page.tsx` nulls it on
+ * any `getSplitContext` failure) or its member list is empty. The viewer is always a member, so an
+ * empty list is a member read that failed (`getSplitContext` does not check its error). Known false
+ * only when the table's members were read and none of them is the host.
+ */
+export function servedGateHost(
+  split: { members: ReadonlyArray<{ role: string }> } | null | undefined,
+): boolean | null {
+  if (!split || split.members.length === 0) return null;
+  return split.members.some((m) => m.role === "host");
+}
 
 /**
  * PD10 · D5 — THE SERVED GATE. Phone pay (card, Apple Pay, Google Pay) opens only when nothing on
@@ -243,7 +264,8 @@ export function servedGateVerdict(
   mode: string | null | undefined,
   lines: ReadonlyArray<TrackLine>,
   nowIso: string,
-  hostPresent: boolean,
+  /** Null = the host is UNKNOWN to this reader (`servedGateHost`); the server always passes a value. */
+  hostPresent: boolean | null,
 ): ServedHold | null {
   if (!servedGateApplies(mode)) return null;
   let dineInDraft = false;
@@ -255,7 +277,8 @@ export function servedGateVerdict(
     else if (l.fulfillment === "togo") togoDraft = true;
     else dineInDraft = true;
   }
-  if (dineInDraft) return hostPresent ? "unsent" : "hostless";
+  if (dineInDraft)
+    return hostPresent === null ? "unknownHost" : hostPresent ? "unsent" : "hostless";
   if (togoDraft) return "togo";
   return kitchen ? "kitchen" : null;
 }

@@ -110,6 +110,7 @@ import {
   payBlockedByUnsent,
   doorMode,
   phonePayParked,
+  servedGateHost,
   servedGateVerdict,
   unsentFoodQty,
   type CheckoutStage,
@@ -450,6 +451,10 @@ export function Checkout({
   const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
   // Phase 1b — the host's name for a guest's "who sends" line (lib/confirm-copy `hostSendsCopy`).
   const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
+  // PD10 (Codex round 2 on #346) — the SERVED GATE's host: UNKNOWN when the split context missed (or
+  // its member read came back empty), never the guessed `false` above. That guess would call a
+  // hosted table hostless and promise a counter its own server read refuses (`servedGateHost`).
+  const gateHost = servedGateHost(splitContext);
   // PD1 (m1 graft 3) — the name the table CHOSE, never the default "Guest" read as a person
   // (`chosenName`): an unnamed host gets the role sentence everywhere this name is spoken.
   const hostMember = splitContext?.members.find((m) => m.role === "host") ?? null;
@@ -636,7 +641,7 @@ export function Checkout({
   const dbNowIso = viewClockIso(dbNowMs);
   const servedHold = phonePayOff
     ? null
-    : servedGateVerdict(gateMode, viewItems.map(trackLineOf), dbNowIso, hostPresent);
+    : servedGateVerdict(gateMode, viewItems.map(trackLineOf), dbNowIso, gateHost);
   // PD10 (Codex round 5) — THE TIP CLEARS WHEN THE GATE CLOSES: a recall (or a new round) shutting
   // the door after a guest lit a tip clears the preset AND any custom amount, so a reopened door
   // starts with no tip selected, exactly as the design promises ("none pre-selected"). The close
@@ -1526,6 +1531,15 @@ export function Checkout({
     );
     const steps = billMounted ? planPassMotion(passMotion.memory, memory, viewQuiet) : [];
     setPassMotion((m) => ({ token: viewNo, memory, steps, i: 0, nonce: m.nonce + 1 }));
+  }
+  // Codex round 2 on #346 — a sequence the Bill LEAVES mid-way (Back to the order, on to Pay) is
+  // dropped, never played off-screen: its door step would POP nothing and say "Ready to pay." into
+  // the Order screen's region. Clearing the steps also bumps the nonce, so the player's scheduled
+  // advance is void, and `passStep` going null runs the door effect's cleanup, which cancels a frame
+  // already scheduled. Coming back to the Bill is a revisit: the memory has followed every view, so
+  // nothing replays.
+  if (!billMounted && passMotion.steps.length > 0) {
+    setPassMotion((m) => ({ ...m, steps: [], i: 0, nonce: m.nonce + 1 }));
   }
   const headingKey: DictKey = passShowing
     ? "counterTitle"
@@ -2484,7 +2498,7 @@ export function Checkout({
         // (an undo may have put drafts back; a recall may have landed). Null while parked.
         servedHold: phonePayOff
           ? null
-          : servedGateVerdict(gateMode, f.items.map(trackLineOf), dbNowIso, hostPresent),
+          : servedGateVerdict(gateMode, f.items.map(trackLineOf), dbNowIso, gateHost),
         graceOpen: grace.isOpen(),
         // The chain has drained: nothing of ours is in flight by construction.
         undoInFlight: false,

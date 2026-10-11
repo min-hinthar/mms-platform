@@ -237,6 +237,20 @@ describe("servedHoldCopy — D5's sentences, one function for the dock and creat
     );
   });
 
+  it("unknownHost: says only what is known — never the counter, never 'send' (Codex round 2 on #346)", () => {
+    // MUTATION (checkout-verb/unknown-host-promises-the-counter): the hostless sentence for an
+    // unknown host — a counter promise the server may refuse; red.
+    const copy = servedHoldCopy("unknownHost", { canSend: false, hostName: null });
+    expect(copy).toBe(
+      "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.",
+    );
+    expect(copy).not.toMatch(/counter/i);
+    expect(copy).not.toMatch(/\bsend\b/i);
+    expect(
+      payBlockCopy("unknownHost", { lockedByName: null, canSend: false, hostName: null }),
+    ).toBe(copy);
+  });
+
   it("unsent with no name to give (the server's case) says D5's sentence — it names nobody", () => {
     expect(servedHoldCopy("unsent", { canSend: false, hostName: null })).toBe(
       "Pay opens once everything’s served.",

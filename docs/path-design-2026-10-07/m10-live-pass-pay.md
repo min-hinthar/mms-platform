@@ -1422,6 +1422,24 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
   kitchen" and headed itself "with the kitchen" on them. `sending` is now its own stage there: it is
   counted "N sending", and when nothing else is under way the headline is the family's word
   ("Sending…" · ပို့နေပါတယ်…, `DINER_STAGE_WORD`). It also keeps `allServed` false.
+  **After Codex round 2 on #346** (the last triaged round):
+
+- **The host, when the Bill cannot read it, is UNKNOWN.** `servedGateHost` returns null when the split
+  context is missing or its member list is empty (the viewer is always a member). It never returns
+  `false`. A dine-in draft at such a table holds with its own reason, `unknownHost`: "Some dishes
+  haven’t gone to the kitchen yet — Pay opens once everything’s served." It never says `hostless`,
+  whose counter promise the counter's own read of the real `host_seat` refuses, and never `unsent`,
+  which would tell a guest to send. `create-intent` always knows `host_seat` and never reaches it.
+- **Boarded rows keep their words.** The pay step drops only the kitchen track and the owner.
+  "On the house", "Removed", "In your basket" and a to-go draft's sentence stay, because a
+  strikethrough alone is CSS a screen reader never hears, and it cannot tell a comp from a removal.
+- **A sequence the Bill leaves is dropped.** Leaving the Bill mid-FILL/TURN (back to the order, or
+  on to Pay) clears the queued steps and bumps the player's nonce. `passStep` going null cancels a
+  frame the door effect already scheduled. "Ready to pay." is never said on the Order screen, and
+  coming back is a revisit.
+- **A folded visit stores the wallet slot.** It keeps the open form's reserve (this device's, or the
+  312px fallback) and records `walletH`. A device whose first table visit folded now predicts the fold
+  next time, instead of drawing the full skeleton and collapsing.
 - **Checked, and does not reproduce:** a `fired` line with a null `fire_at` reads "Sent" (fired at
   or before now; `kitchen-track.test.ts` pins it), never "Sending…" forever, and needs no re-read.
   Such rows are reachable: before P2f (`20261001000000`), `mms_line_transition`'s draft → fired edge

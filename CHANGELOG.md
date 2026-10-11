@@ -79,6 +79,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - **N2.** The menu's kitchen strip counts a dish still inside the Send's undo window as "sending",
     never "sent to kitchen", and never heads itself "with the kitchen" on it alone.
   - 2 mutants added.
+- **After Codex round 2 on #346** (m10 §I):
+  - **Unknown host (behind the flag).** When the Bill cannot read the table's host, it says so
+    honestly. It never promises the counter or tells a guest to send.
+  - **Boarded rows (live).** The pay step's rows keep "On the house" and "Removed".
+  - **Leaving mid-sequence.** Leaving the Bill drops a queued pass sequence, so "Ready to pay." is
+    never said on the Order screen.
+  - **Folded visit.** It records the wallet's height, so the next visit predicts the fold.
+  - 8 mutants added, 3 re-pointed.
 
 ### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
 

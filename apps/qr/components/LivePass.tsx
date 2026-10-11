@@ -42,10 +42,11 @@ import { passIdentity } from "@/lib/pass-identity";
  * Nothing moves on a first read, and nothing is announced: kitchen progress is ambient (the view
  * keeps its one live region). The pass hosts no controls.
  *
- * `boarded` is the pay step's variant (m10 screen 2): the rows the charge was minted from, compact —
- * their options and notes kept, but no track, no word, no owner (the head already says where the kitchen is, and the payer pays the
- * whole order). Amounts are never computed here: prices are the server's line cents, the foot is
- * the caller's binding.
+ * `boarded` is the pay step's variant (m10 screen 2): the rows the charge was minted from, compact.
+ * They keep their options and notes, and their words ("On the house", "Removed", "In your basket",
+ * a to-go draft's sentence), but drop the kitchen track and the owner: the head already says where
+ * the kitchen is, and the payer pays the whole order. Amounts are never computed here: prices are
+ * the server's line cents, and the foot is the caller's binding.
  */
 export function LivePass({
   items,
@@ -188,8 +189,14 @@ function DishRow({
   filling: boolean;
   boarded: boolean;
 }) {
-  const struck = item.comped || item.lineState === "voided";
-  const stage = passRowStage(item, nowIso);
+  const voided = item.lineState === "voided";
+  const struck = item.comped || voided;
+  const togoDraft = item.lineState === "draft" && item.fulfillment === "togo";
+  const comped = !!item.comped && !voided;
+  // The kitchen track rides the full pass only; boarded, the row keeps its words and drops the track.
+  const track = boarded ? null : passRowStage(item, nowIso);
+  // What leads the state line (a dot separates anything after it).
+  const lead = voided || item.fulfillment === "grocery" || togoDraft || track !== null;
   return (
     <li className="live-pass-dish" data-voided={item.lineState === "voided" || undefined}>
       <span className="live-pass-dish-line">
@@ -216,47 +223,55 @@ function DishRow({
           {item.notes ? `“${item.notes}”` : ""}
         </span>
       )}
-      {!boarded && (
+      {/* Codex round 2 on #346 — the BOARDED pass (the pay step) drops only the kitchen track and
+          the owner; every row's WORDS stay: "On the house" and "Removed" are what tell a comp from
+          a removal (their struck prices are CSS a screen reader never hears), "In your basket" and a
+          to-go draft's sentence say what the charge covers. */}
+      {lead || comped || owner ? (
         <span className="live-pass-dish-state">
-          {item.lineState === "voided" ? (
+          {voided ? (
             <span className="live-pass-dish-note">Removed</span>
           ) : item.fulfillment === "grocery" ? (
             <span className="live-pass-dish-note">In your basket</span>
-          ) : item.lineState === "draft" && item.fulfillment === "togo" ? (
+          ) : togoDraft ? (
             <>
               {/* The hollow ring (the shared "not sent" mark), decorative: the shipped sentence
                   carries the state, and stays true at the counter (D5, Codex round 3). */}
-              <KitchenTrack stage="unsent" size="row" />
+              {!boarded && <KitchenTrack stage="unsent" size="row" />}
               <span className="live-pass-dish-note">
                 Not sent yet — goes to the kitchen when you pay
               </span>
             </>
-          ) : stage ? (
+          ) : track ? (
             <KitchenTrack
-              stage={stage}
+              stage={track}
               size="row"
-              word={DINER_STAGE_WORD[stage]}
+              word={DINER_STAGE_WORD[track]}
               filling={filling}
             />
           ) : null}
-          {item.comped && item.lineState !== "voided" && (
+          {comped && (
             <>
-              <span aria-hidden className="live-pass-dot">
-                ·
-              </span>
+              {lead && (
+                <span aria-hidden className="live-pass-dot">
+                  ·
+                </span>
+              )}
               <span className="live-pass-dish-note">On the house</span>
             </>
           )}
           {owner && (
             <>
-              <span aria-hidden className="live-pass-dot">
-                ·
-              </span>
+              {(lead || comped) && (
+                <span aria-hidden className="live-pass-dot">
+                  ·
+                </span>
+              )}
               <span className="live-pass-owner ph-no-capture">{owner}</span>
             </>
           )}
         </span>
-      )}
+      ) : null}
     </li>
   );
 }
