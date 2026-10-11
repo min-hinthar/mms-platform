@@ -35,6 +35,7 @@ vi.mock("@/lib/floor", () => ({
         lossCents: 0,
         units: 0,
         droppedUnits: 0,
+        lines: [],
       },
     }),
   getMergeCandidates: (...a: unknown[]) => getMergeCandidates(...(a as [])),

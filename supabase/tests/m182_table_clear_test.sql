@@ -67,13 +67,27 @@ begin
   return v_id;
 end $$;
 
--- The clear, as the server writes it: the server cleared, the look at `p_seen_at`.
+-- The order as the look saw it (`p_seen_lines`, Codex P1 on #341): every live line of the open cart —
+-- id, quantity, fulfillment, and whether it is still a draft. Read off the table as it is NOW, so a
+-- case compares the table unchanged unless it changes the table after taking its look; M182.17 pins
+-- the string itself, literally (lib/clear-table.ts `clearLineKey` builds the same one).
+create or replace function pg_temp.m182_shape(p_sess uuid) returns text[] language sql as $$
+  select coalesce(array_agg(ci.id::text || ':' || ci.qty || ':' || ci.fulfillment || ':' ||
+                            case when ci.state = 'draft' then 'draft' else 'sent' end), '{}')
+    from public.qr_cart_items ci
+   where ci.cart_id = pg_temp.m182_cart(p_sess) and ci.state <> 'voided'
+$$;
+
+-- The clear, as the server writes it: the server cleared, the look at `p_seen_at`, and the order as it
+-- stands (`p_lines` null) unless a case passes the look it took before changing the table.
 create or replace function pg_temp.m182_clear(p_sess uuid, p_expected uuid[], p_loss integer,
                                               p_seen timestamptz default now(),
                                               p_approver uuid default null,
-                                              p_by uuid default '00000000-0000-0000-0000-000000182b00')
+                                              p_by uuid default '00000000-0000-0000-0000-000000182b00',
+                                              p_lines text[] default null)
   returns jsonb language sql as $$
-  select public.mms_clear_table(p_sess, p_by, p_seen, p_expected, p_loss, p_approver)
+  select public.mms_clear_table(p_sess, p_by, p_seen, p_expected, p_loss,
+                                coalesce(p_lines, pg_temp.m182_shape(p_sess)), p_approver)
 $$;
 
 -- Nothing was written: the session active, its cart open, no clear row, no loss row.
@@ -209,8 +223,9 @@ begin
   assert j->>'status' = 'ok', format('M182.4 · order and duplicates are ignored (%s)', j);
 
   -- A look that showed dishes, over a table that PAID since: no open cart, nothing sent — a change.
+  -- (Served, not fired: paid food still unserved is M182.16's `paid_unserved`, which answers first.)
   s := pg_temp.m182_table('M182-4-PAID');
-  a := pg_temp.m182_line(s, 1400, 1, 'fired', past);
+  a := pg_temp.m182_line(s, 1400, 1, 'served', past);
   update public.qr_carts set status = 'paid' where id = pg_temp.m182_cart(s);
   j := pg_temp.m182_clear(s, array[a], 1400);
   assert j->>'status' = 'changed', format('M182.4 · a loss look over a paid table refuses (%s)', j);
@@ -539,6 +554,217 @@ begin
   insert into public.mms_loss_config select (cfg).*;
   assert (select l::text from public.mms_loss_config l where l.id) = cfg::text,
     'M182.14 · the config row is back exactly as it was';
+end $$;
+
+-- ══ M182.15 · a cleared table takes no member (Codex P1 on #341) — and a live one still does ════
+-- The ORDER (a join that waits on the clear's session lock is then refused) is two-session work:
+-- scripts/verify-bind-race.mjs orders l · m · n. This pins the decision itself, in one session.
+do $$
+declare s uuid; live uuid; j jsonb; err text; moved uuid;
+begin
+  s := pg_temp.m182_table('M182-15-CLEARED');
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.15 · the table cleared (%s)', j);
+  err := null;
+  begin
+    insert into public.session_members (session_id, seat_id, display_name, role)
+      values (s, gen_random_uuid(), 'Bo', 'guest');
+  exception when sqlstate 'P0001' then err := sqlerrm;
+  end;
+  assert err = 'session_closed',
+    format('M182.15 · a join to a cleared table is refused as session_closed (%s)', err);
+  assert not exists (select 1 from public.session_members where session_id = s),
+    'M182.15 · the cleared table has no member';
+  -- The legitimate half: a live table still takes a member.
+  live := pg_temp.m182_table('M182-15-LIVE');
+  insert into public.session_members (session_id, seat_id, display_name, role)
+    values (live, gen_random_uuid(), 'Aye', 'host') returning id into moved;
+  assert exists (select 1 from public.session_members where id = moved),
+    'M182.15 · a live table still takes a member';
+  -- A member MOVED onto the cleared table (the trigger's UPDATE OF session_id event) is refused too.
+  err := null;
+  begin
+    update public.session_members set session_id = s where id = moved;
+  exception when sqlstate 'P0001' then err := sqlerrm;
+  end;
+  assert err = 'session_closed',
+    format('M182.15 · a member moved onto a cleared table is refused (%s)', err);
+  assert (select session_id from public.session_members where id = moved) = live,
+    'M182.15 · the moved member stayed where it was';
+end $$;
+
+-- ══ M182.16 · PAID food not yet served holds the clear (Codex P1 on #341) ═══════════════════════
+-- The kitchen board shows a dine-in line only while its session is ACTIVE (`kdsLineGate`), so a clear
+-- over a paid cart still cooking would make those tickets vanish — paid food, never stopped, never on
+-- the loss list, just gone; and a paid DRAFT is fired after settlement (`mms_fire_pending_food`, its
+-- reconciler) into whatever the session is by then. Refused, writing nothing; served, it clears.
+do $$
+declare s uuid; c uuid; o uuid; a uuid; j jsonb; st text; past timestamptz := now() - interval '3 minutes';
+begin
+  -- Fired, past its grace, on a cart that already PAID: the kitchen is cooking it.
+  s := pg_temp.m182_table('M182-16-FIRED');
+  c := pg_temp.m182_cart(s);
+  a := pg_temp.m182_line(s, 1400, 1, 'fired', past);
+  update public.qr_carts set status = 'paid' where id = c;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'paid_unserved',
+    format('M182.16 · a paid cart''s fired dish holds the clear (%s)', j);
+  assert (select status from public.table_sessions where id = s) = 'active'
+     and (select status from public.qr_carts where id = c) = 'paid'
+     and (select state from public.qr_cart_items where id = a) = 'fired'
+     and not exists (select 1 from public.qr_table_clears where session_id = s)
+     and not exists (select 1 from public.mms_approvals where session_id = s),
+    'M182.16 · the paid_unserved refusal wrote nothing: the ticket stays on the kitchen board';
+  -- Cooking.
+  update public.qr_cart_items set state = 'in_progress' where id = a;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'paid_unserved',
+    format('M182.16 · a paid cart''s dish being cooked holds the clear (%s)', j);
+  -- Still inside its send grace: it reaches the board once the grace passes — unless the table closed.
+  update public.qr_cart_items set state = 'fired', fire_at = now() + interval '8 seconds' where id = a;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'paid_unserved',
+    format('M182.16 · a paid dish inside its grace holds the clear too (%s)', j);
+  -- A paid DRAFT (food the settlement has yet to fire — `mms_fire_pending_food`, its reconciler).
+  update public.qr_cart_items set state = 'draft', fire_at = null where id = a;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'paid_unserved',
+    format('M182.16 · a paid draft the settlement has yet to fire holds the clear (%s)', j);
+  -- Served: the kitchen is done with it, and the table clears free.
+  update public.qr_cart_items set state = 'served', fire_at = past where id = a;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok' and (j->>'dishes')::int = 0,
+    format('M182.16 · a paid cart whose food is served clears free (%s)', j);
+  assert (select status from public.qr_carts where id = c) = 'paid',
+    'M182.16 · the paid cart is never cancelled';
+
+  -- The table paid and KEPT ORDERING: the paid cart still cooking holds the clear over the new open
+  -- cart too, which is left exactly as it was.
+  s := pg_temp.m182_table('M182-16-KEPT');
+  c := pg_temp.m182_cart(s);
+  a := pg_temp.m182_line(s, 1400, 1, 'in_progress', past);
+  update public.qr_carts set status = 'paid' where id = c;
+  insert into public.qr_carts (session_id) values (s) returning id into o;
+  perform pg_temp.m182_line(s, 900);
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'paid_unserved',
+    format('M182.16 · a paid cart cooking beside an open one holds the clear (%s)', j);
+  assert (select status from public.qr_carts where id = o) = 'open'
+     and (select status from public.table_sessions where id = s) = 'active',
+    'M182.16 · the open cart and the session are untouched';
+  -- Another table's paid food in the kitchen (M182-16-KEPT's, still cooking) never holds THIS clear.
+  s := pg_temp.m182_table('M182-16-OTHER');
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.16 · another table''s paid food never holds this clear (%s)', j);
+
+  -- Grocery is never the kitchen's (the stop set's own rule): a paid bag line does not hold a clear.
+  s := pg_temp.m182_table('M182-16-GROCERY');
+  c := pg_temp.m182_cart(s);
+  perform pg_temp.m182_line(s, 500, 1, 'fired', past, false, 'grocery');
+  update public.qr_carts set status = 'paid' where id = c;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.16 · a paid grocery line never holds a clear (%s)', j);
+
+  -- Only a PAID cart's: a CANCELLED cart's fired line is no paid ticket (nothing cooks it).
+  s := pg_temp.m182_table('M182-16-CANCELLED');
+  c := pg_temp.m182_cart(s);
+  perform pg_temp.m182_line(s, 1400, 1, 'fired', past);
+  update public.qr_carts set status = 'cancelled' where id = c;
+  j := pg_temp.m182_clear(s, '{}', 0);
+  select j->>'status' into st;
+  assert st = 'ok', format('M182.16 · a cancelled cart''s line never holds a clear (%s)', j);
+end $$;
+
+-- ══ M182.17 · ANY line changed after the look refuses (Codex P1 on #341) — the kitchen's own
+-- progress does not ════════════════════════════════════════════════════════════════════════════════
+-- A diner (or a server) can change the order without adding a line or touching the SENT set: a
+-- draft's quantity, a draft taken off, a draft sent, its fulfillment flipped. None of those moved
+-- `created_at`, the SENT set or its figure, so before `p_seen_lines` a clear — "Seat next party" above
+-- all — cancelled an order change nobody had looked at. A cook starting or serving a SENT dish
+-- changes neither the figure nor what the clear drops, and is never a refusal (ruling #6: a clear
+-- never waits on the kitchen).
+do $$
+declare s uuid; a uuid; d uuid; look text[]; j jsonb; ok boolean;
+        past timestamptz := now() - interval '3 minutes';
+begin
+  -- The string, pinned literally: `<id>:<qty>:<fulfillment>:draft|sent`, every live line.
+  s := pg_temp.m182_table('M182-17-FORMAT');
+  a := pg_temp.m182_line(s, 1400, 2, 'fired', past);
+  d := pg_temp.m182_line(s, 900, 1, 'draft', null, false, 'togo');
+  perform pg_temp.m182_line(s, 700, 1, 'voided', past);              -- a voided line is no line
+  look := array[a::text || ':2:dinein:sent', d::text || ':1:togo:draft'];
+  j := pg_temp.m182_clear(s, array[a], 2800, p_lines => look);
+  assert j->>'status' = 'ok', format('M182.17 · the look''s own lines, as their literal keys, clear (%s)', j);
+
+  -- A draft's QUANTITY changed after the look — the finding's own shape.
+  s := pg_temp.m182_table('M182-17-QTY');
+  d := pg_temp.m182_line(s, 900, 1);
+  look := pg_temp.m182_shape(s);
+  update public.qr_cart_items set qty = 3 where id = d;
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => look);
+  assert j->>'status' = 'changed', format('M182.17 · a draft re-counted after the look refuses (%s)', j);
+  assert pg_temp.m182_untouched(s), 'M182.17 · the re-count refusal wrote nothing';
+  -- …and the same table, looked at again, clears.
+  j := pg_temp.m182_clear(s, '{}', 0);
+  assert j->>'status' = 'ok', format('M182.17 · a fresh look at the new quantity clears (%s)', j);
+
+  -- A draft REMOVED after the look.
+  s := pg_temp.m182_table('M182-17-GONE');
+  d := pg_temp.m182_line(s, 900, 1);
+  look := pg_temp.m182_shape(s);
+  delete from public.qr_cart_items where id = d;
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => look);
+  assert j->>'status' = 'changed', format('M182.17 · a draft removed after the look refuses (%s)', j);
+
+  -- A draft SENT after the look, still inside its grace (the kitchen has not seen it; the order moved).
+  s := pg_temp.m182_table('M182-17-SENT');
+  d := pg_temp.m182_line(s, 900, 1);
+  look := pg_temp.m182_shape(s);
+  update public.qr_cart_items set state = 'fired', fire_at = now() + interval '8 seconds' where id = d;
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => look);
+  assert j->>'status' = 'changed', format('M182.17 · a draft sent after the look refuses (%s)', j);
+
+  -- A draft's FULFILLMENT flipped after the look (here, to go).
+  s := pg_temp.m182_table('M182-17-TOGO');
+  d := pg_temp.m182_line(s, 900, 1);
+  look := pg_temp.m182_shape(s);
+  update public.qr_cart_items set fulfillment = 'togo' where id = d;
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => look);
+  assert j->>'status' = 'changed', format('M182.17 · a draft turned to-go after the look refuses (%s)', j);
+
+  -- The legitimate half: the kitchen started, then served, a SENT dish after the look.
+  s := pg_temp.m182_table('M182-17-KITCHEN');
+  a := pg_temp.m182_line(s, 1400, 1, 'fired', past);
+  look := pg_temp.m182_shape(s);
+  update public.qr_cart_items set state = 'in_progress' where id = a;
+  j := pg_temp.m182_clear(s, array[a], 1400, p_lines => look);
+  assert j->>'status' = 'ok', format('M182.17 · a cook starting a sent dish is no change (%s)', j);
+  s := pg_temp.m182_table('M182-17-SERVED');
+  a := pg_temp.m182_line(s, 1400, 1, 'in_progress', past);
+  look := pg_temp.m182_shape(s);
+  update public.qr_cart_items set state = 'served' where id = a;
+  j := pg_temp.m182_clear(s, array[a], 1400, p_lines => look);
+  assert j->>'status' = 'ok', format('M182.17 · a cook serving a sent dish is no change (%s)', j);
+
+  -- The look's lines as SETS: order and duplicates ignored; a NULL element never matches.
+  s := pg_temp.m182_table('M182-17-SET');
+  d := pg_temp.m182_line(s, 900, 1);
+  perform pg_temp.m182_line(s, 800, 2);
+  look := pg_temp.m182_shape(s);
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => look || array[null::text]);
+  assert j->>'status' = 'changed', format('M182.17 · a NULL line key never matches (%s)', j);
+  j := pg_temp.m182_clear(s, '{}', 0, p_lines => array[look[2], look[1], look[1]]);
+  assert j->>'status' = 'ok', format('M182.17 · order and duplicates are ignored (%s)', j);
+
+  -- No look at the lines is no clear: a NULL `p_seen_lines` is an error, never an empty table.
+  s := pg_temp.m182_table('M182-17-NULL');
+  ok := false;
+  begin
+    perform public.mms_clear_table(s, '00000000-0000-0000-0000-000000182b00', now(), '{}', 0, null);
+  exception when raise_exception then ok := sqlerrm like 'mms_clear_table:%';
+  end;
+  assert ok, 'M182.17 · a NULL p_seen_lines raises';
+  assert pg_temp.m182_untouched(s), 'M182.17 · …and wrote nothing';
 end $$;
 
 -- ══ M182.10 · the record's own bounds ══════════════════════════════════════════════════════════

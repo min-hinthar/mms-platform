@@ -408,7 +408,13 @@ export const verifyStaffPinInput = z.object({
  *  `changed` (writing nothing) when it is any other, and `joined` when someone sat down after the look
  *  — so the client never ASSERTS a loss, it only names the one it was shown. A counter order's clear
  *  ignores it (`mms_clear_counter_cart` decides SENT itself). Bounded like the no-show's (200 lines),
- *  the figure by a ceiling far past any table ($100,000), the clock as an ISO timestamp with offset. */
+ *  the figure by a ceiling far past any table ($100,000), the clock as an ISO timestamp with offset.
+ *
+ *  Codex P1 on #341 — `lines` is EVERY live line as the look read it (`clearLineKey`:
+ *  `<id>:<qty>:<fulfillment>:draft|sent`, ≤ 53 characters — a uuid, a 1–99 qty, the longest
+ *  fulfillment, the longer flag), so a draft re-counted, taken off, sent or turned to-go after the look
+ *  refuses the clear (`p_seen_lines`). Bounded at 64 characters a key and 500 keys — far past any
+ *  table; the RPC compares them as a set and trusts none of them. */
 export const clearTableInput = z.object({
   sessionId: uuid,
   expect: z
@@ -416,6 +422,7 @@ export const clearTableInput = z.object({
       lineIds: z.array(uuid).max(200),
       lossCents: z.number().int().min(0).max(10_000_000),
       seenAt: z.string().max(40).datetime({ offset: true }),
+      lines: z.array(z.string().max(64)).max(500),
     })
     .optional(),
 });

@@ -497,10 +497,18 @@ describe("reserve — the lock taken at the tap, held across another write, spen
       </button>
     );
   }
-  function Split({ onReserve }: { onReserve: (r: unknown) => void }) {
+  function Split({
+    onReserve,
+    selectedId = "s-old",
+    selectionGen = 0,
+  }: {
+    onReserve: (r: unknown) => void;
+    selectedId?: string | null;
+    selectionGen?: number;
+  }) {
     const api: TablePaneApi = {
-      selectedId: "s-old",
-      selectionGen: 0,
+      selectedId,
+      selectionGen,
       openFromCard: () => {},
       openSession: (id, hint) => {
         openSession(id, hint);
@@ -573,5 +581,48 @@ describe("reserve — the lock taken at the tap, held across another write, spen
     // the route leaves the counter home, the only page with the bell; red.
     expect(openSession).toHaveBeenCalledWith("s-new", { counter: false, display: "4" });
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("the person MOVED the pane while the clear was out: the next party never opens over the table they chose, and the lock re-arms (Codex P2 on #341)", async () => {
+    // "Seat next party" reserves at the tap (the pane showing the table being cleared); the clear
+    // is out for a while; meanwhile the person taps another table. `go` runs only once the clear
+    // answers — so a baseline taken THERE is the table they moved to, and the landing would open
+    // the new party right over it.
+    let got: R = null;
+    openRegisterOrder.mockResolvedValueOnce({ ok: true, sessionId: "s-new", created: true });
+    const v = render(<Split onReserve={(r) => (got = r as R)} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "reserve 4" }));
+    });
+    // The clear is outstanding: the person picks another table in the pane.
+    v.rerender(<Split onReserve={(r) => (got = r as R)} selectedId="s-other" selectionGen={1} />);
+    // The clear answered ok: the reserved start goes.
+    await act(async () => {
+      got!.go({ kind: "table", tableNumber: 4 }, { onStart: () => {}, onRefusal: () => {} });
+    });
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "table", tableNumber: 4 });
+    // MUTATION counter-mint/reserve-baseline-at-go (the baseline taken when `go` runs, not at the
+    // reservation) → the new party opens over "s-other"; red.
+    expect(openSession).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    // The start landed (the next poll shows it); the lock is handed back — no route swap is coming.
+    expect(
+      screen.getByRole("button", { name: "start 7" }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
+  it("a move that comes BACK (A → B → A) while the clear is out is still a move", async () => {
+    let got: R = null;
+    openRegisterOrder.mockResolvedValueOnce({ ok: true, sessionId: "s-new", created: true });
+    const v = render(<Split onReserve={(r) => (got = r as R)} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "reserve 4" }));
+    });
+    v.rerender(<Split onReserve={(r) => (got = r as R)} selectedId="s-other" selectionGen={1} />);
+    v.rerender(<Split onReserve={(r) => (got = r as R)} selectedId="s-old" selectionGen={2} />);
+    await act(async () => {
+      got!.go({ kind: "table", tableNumber: 4 }, { onStart: () => {}, onRefusal: () => {} });
+    });
+    expect(openSession).not.toHaveBeenCalled();
   });
 });

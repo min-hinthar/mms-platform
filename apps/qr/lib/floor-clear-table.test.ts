@@ -64,6 +64,13 @@ let carts: Record<string, Row | null> = {};
 let cartError: { message: string } | null = null;
 let items: Row[] = [];
 let itemsError: { message: string } | null = null;
+// Codex P1 on #341 — the session's PAID carts and their lines (the look's second read).
+let paidCarts: Row[] = [];
+let paidCartsError: { message: string } | null = null;
+let paidItems: Row[] = [];
+let paidItemsError: { message: string } | null = null;
+/** The cart ids the paid-lines read asked for (`.in("cart_id", …)`). */
+let paidLinesAskedFor: unknown[] | null = null;
 let clock: { data: unknown; error: { message: string } | null } = { data: DB_NOW, error: null };
 let answer: { data: unknown; error: { message: string } | null } = {
   data: { status: "ok", dishes: 0, loss_cents: 0, clear_id: "c-1" },
@@ -74,6 +81,7 @@ let rpcCalls: { fn: string; args?: Record<string, unknown> }[] = [];
 
 function tableApi(name: string) {
   const eqs: Record<string, unknown> = {};
+  const ins: Record<string, unknown[]> = {};
   let patch = false;
   // The columns a read ASKED for: a row answers only those (a fixture that ignored the select would
   // let a dropped column report clean).
@@ -96,7 +104,10 @@ function tableApi(name: string) {
       return api;
     },
     neq: () => api,
-    in: () => api,
+    in(col: string, vals: unknown[]) {
+      ins[col] = vals;
+      return api;
+    },
     maybeSingle() {
       if (name === "table_sessions")
         return Promise.resolve(
@@ -116,6 +127,21 @@ function tableApi(name: string) {
       if (patch) {
         updates.push(name);
         return resolve({ data: null, error: null });
+      }
+      // The paid read (Codex P1 on #341): the session's PAID carts, then THEIR lines (`.in`).
+      if (name === "qr_carts" && eqs.status === "paid")
+        return resolve(
+          paidCartsError
+            ? { data: null, error: paidCartsError }
+            : { data: paidCarts.map((c) => only(c)), error: null },
+        );
+      if (name === "qr_cart_items" && ins.cart_id) {
+        paidLinesAskedFor = ins.cart_id;
+        return resolve(
+          paidItemsError
+            ? { data: null, error: paidItemsError }
+            : { data: paidItems.map((r) => only(r)), error: null },
+        );
       }
       if (name === "qr_cart_items")
         return resolve(
@@ -160,7 +186,7 @@ const line = (over: Row): Row => ({
   menu_item_id: "m-mohinga",
   ...over,
 });
-const LOOK = { lineIds: [L1], lossCents: 1400, seenAt: DB_NOW };
+const LOOK = { lineIds: [L1], lossCents: 1400, seenAt: DB_NOW, lines: [`${L1}:1:dinein:sent`] };
 
 beforeEach(() => {
   gate.ok = true;
@@ -176,6 +202,11 @@ beforeEach(() => {
   cartError = null;
   items = [line({})];
   itemsError = null;
+  paidCarts = [];
+  paidCartsError = null;
+  paidItems = [];
+  paidItemsError = null;
+  paidLinesAskedFor = null;
   clock = { data: DB_NOW, error: null };
   answer = { data: { status: "ok", dishes: 0, loss_cents: 0, clear_id: "c-1" }, error: null };
   updates = [];
@@ -192,6 +223,8 @@ describe("getClearPreview — the fresh look, on the database clock; unknown is 
     expect(r.preview.lossCents).toBe(1400);
     expect(r.preview.seenAt).toBe(DB_NOW);
     expect(r.preview.sent[0]!.nameMy).toBe("မုန့်ဟင်းခါး");
+    // Codex P1 on #341 — the look carries EVERY live line, as the RPC reads it.
+    expect(r.preview.lines).toEqual([`${L1}:1:dinein:sent`]);
   });
 
   it("no open cart: an empty look (a free clear), still on the DB clock", async () => {
@@ -199,8 +232,42 @@ describe("getClearPreview — the fresh look, on the database clock; unknown is 
     const r = await getClearPreview({ sessionId: TABLE });
     expect(r).toEqual({
       kind: "preview",
-      preview: { seenAt: DB_NOW, sent: [], lossCents: 0, units: 0, droppedUnits: 0 },
+      preview: { seenAt: DB_NOW, sent: [], lossCents: 0, units: 0, droppedUnits: 0, lines: [] },
     });
+  });
+
+  it("a PAID cart's food the kitchen has not finished answers `paidUnserved` — whatever the open cart holds (Codex P1 on #341)", async () => {
+    paidCarts = [{ id: "cart-p" }];
+    paidItems = [
+      { state: "served", fulfillment: "dinein" },
+      { state: "in_progress", fulfillment: "dinein" },
+    ];
+    // MUTATION clear-floor/preview-paid-unread (the paid read removed) → the look shows the open
+    // cart's slip (or a free window) over paid food still cooking, whose tickets the clear then
+    // takes off the board; red.
+    expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "paidUnserved" });
+    // Only the session's PAID carts are read, by id.
+    // MUTATION clear-floor/preview-paid-lines-any-cart → red.
+    expect(paidLinesAskedFor).toEqual(["cart-p"]);
+    // With no open cart at all (the table paid and nothing else) — the same answer.
+    carts = {};
+    expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "paidUnserved" });
+    // The legitimate half: a paid cart whose food is all served is a free look.
+    paidItems = [{ state: "served", fulfillment: "dinein" }];
+    const free = await getClearPreview({ sessionId: TABLE });
+    expect(free.kind).toBe("preview");
+  });
+
+  it("a failed PAID read is UNKNOWN — never 'nothing cooking' (Codex P1 on #341)", async () => {
+    // MUTATION clear-floor/preview-paid-cart-error-is-empty → a failed read of the paid carts reads
+    // as none, and a table whose paid food is cooking clears; red.
+    paidCartsError = { message: "boom" };
+    expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "unknown" });
+    paidCartsError = null;
+    paidCarts = [{ id: "cart-p" }];
+    // MUTATION clear-floor/preview-paid-lines-error-is-empty → red.
+    paidItemsError = { message: "boom" };
+    expect(await getClearPreview({ sessionId: TABLE })).toEqual({ kind: "unknown" });
   });
 
   it("every failed read is UNKNOWN — the pane clears nothing (Codex correction 11)", async () => {
@@ -278,6 +345,9 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
           p_seen_at: DB_NOW,
           p_expected_line_ids: [L1],
           p_loss_cents: 1400,
+          // MUTATION clear-floor/seen-lines-not-the-look → the RPC compares the order against
+          // lines nobody was shown; red.
+          p_seen_lines: [`${L1}:1:dinein:sent`],
         },
       },
     ]);
@@ -287,7 +357,10 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
   it("a free clear answers plain ok — no loss figure to say", async () => {
     // MUTATION clear-floor/free-clear-reads-a-loss → "0 dishes on the loss list"; red.
     expect(
-      await clearTable({ sessionId: TABLE, expect: { lineIds: [], lossCents: 0, seenAt: DB_NOW } }),
+      await clearTable({
+        sessionId: TABLE,
+        expect: { lineIds: [], lossCents: 0, seenAt: DB_NOW, lines: [] },
+      }),
     ).toEqual({ ok: true });
   });
 
@@ -313,6 +386,19 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
       ok: false,
       error: STAFF["settle.clear.secureTab"].en.replace("{id}", "7"),
       code: "secure_tab",
+    });
+    // Codex P1 on #341 — paid food the kitchen has not finished, said with this table's number.
+    answer = { data: { status: "paid_unserved" }, error: null };
+    expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toEqual({
+      ok: false,
+      error: STAFF["settle.clear.paidUnserved"].en.replace("{id}", "7"),
+      code: "paid_unserved",
+    });
+    answer = { data: { status: "changed" }, error: null };
+    expect(await clearTable({ sessionId: TABLE, expect: LOOK })).toEqual({
+      ok: false,
+      error: STAFF["settle.clear.changed"].en.replace("{id}", "7"),
+      code: "changed",
     });
     for (const status of ["changed", "in_flight", "card_live", "closed", "needs_approval"]) {
       answer = { data: { status }, error: null };
@@ -374,6 +460,13 @@ describe("clearTable on a TABLE — ONE call to mms_clear_table, carrying the lo
     ).toMatchObject({ ok: false });
     expect(
       await clearTable({ sessionId: TABLE, expect: { ...LOOK, lineIds: ["x"] } }),
+    ).toMatchObject({ ok: false });
+    // Codex P1 on #341 — the look's lines are required and bounded (a key is ≤ 53 characters).
+    const { lines: _dropped, ...noLines } = LOOK;
+    void _dropped;
+    expect(await clearTable({ sessionId: TABLE, expect: noLines })).toMatchObject({ ok: false });
+    expect(
+      await clearTable({ sessionId: TABLE, expect: { ...LOOK, lines: ["x".repeat(65)] } }),
     ).toMatchObject({ ok: false });
     expect(rpcCalls).toEqual([]);
   });

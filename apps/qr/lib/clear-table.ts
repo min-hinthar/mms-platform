@@ -56,7 +56,23 @@ export type ClearPreview = {
   /** Dishes the kitchen never got (drafts, in-grace fires — comped or not): dropped, never counted
    *  as a loss. The no-show's own rule (`counterNoShowDropped`), named once. */
   droppedUnits: number;
+  /** Codex P1 on #341 — EVERY live line as the look read it (`clearLineKey`, sorted): the RPC's
+   *  `p_seen_lines`, compared as a set under its line locks, so a draft re-counted, taken off, sent
+   *  or turned to-go after the look refuses the clear instead of being cancelled unseen. */
+  lines: string[];
 };
+
+/**
+ * One live line as the look saw it — `<id>:<qty>:<fulfillment>:draft|sent`, the string
+ * `mms_clear_table` builds for `p_seen_lines` (M182.17 pins it literally). The state is read only as
+ * draft-or-sent, NEVER the kitchen's own state: a cook starting or serving a SENT dish moves neither
+ * the figure nor what the clear drops, and a walkout's clear must not wait on the kitchen (ruling #6)
+ * — the window's watch (`tillSlipDiverged`) ignores it too. A voided line is no line (the caller
+ * leaves it out, as the RPC does).
+ */
+export function clearLineKey(r: Pick<ClearRow, "id" | "qty" | "fulfillment" | "state">): string {
+  return `${r.id}:${r.qty}:${r.fulfillment}:${r.state === "draft" ? "draft" : "sent"}`;
+}
 
 /** The look, from a fresh read of the open cart's lines on the database clock. */
 export function clearPreviewOf(
@@ -86,7 +102,31 @@ export function clearPreviewOf(
     lossCents: sent.reduce((s, l) => s + l.amountCents, 0),
     units: sent.reduce((s, l) => s + l.qty, 0),
     droppedUnits: dropped.reduce((s, r) => s + r.qty, 0),
+    lines: rows
+      .filter((r) => r.state !== "voided")
+      .map(clearLineKey)
+      .sort(),
   };
+}
+
+/** A PAID cart's line states the kitchen has not finished: a paid DRAFT (settlement fires it —
+ *  `mms_fire_pending_food`, its reconciler), fired, or being cooked. */
+const PAID_UNSERVED_STATES: ReadonlySet<string> = new Set(["draft", "fired", "in_progress"]);
+
+/**
+ * Codex P1 on #341 — does a PAID cart still have food the kitchen has not finished? A table that paid
+ * has no open cart, yet its paid cart can still be cooking — and the kitchen board shows a dine-in
+ * line only while its session is ACTIVE (`kdsLineGate`), so a clear would take those tickets off the
+ * board, or keep a paid draft from ever reaching it. So the look answers `paidUnserved` and the pane
+ * says to serve it or bag it first; `mms_clear_table` refuses the same (`paid_unserved`) under its
+ * locks. Never a loss and never stopped: the guest paid for it. Grocery is never the kitchen's (the
+ * stop set's own rule); a comp is still made, so it counts. The SQL twin is the RPC's own predicate,
+ * pinned by M182.16.
+ */
+export function clearPaidUnserved(
+  paidLines: readonly { state: string; fulfillment: string }[],
+): boolean {
+  return paidLines.some((l) => PAID_UNSERVED_STATES.has(l.state) && l.fulfillment !== "grocery");
 }
 
 /** Whether the clear is a LOSS (the slip and its "Did Table N pay?" fork), or free (straight into
@@ -113,6 +153,7 @@ export type ClearRefusal =
   | "not_found"
   | "closed"
   | "counter"
+  | "paid_unserved"
   | "in_flight"
   | "card_live"
   | "joined"
@@ -131,6 +172,7 @@ const REFUSALS: ReadonlySet<string> = new Set<ClearRefusal>([
   "not_found",
   "closed",
   "counter",
+  "paid_unserved",
   "in_flight",
   "card_live",
   "joined",
@@ -172,7 +214,9 @@ export function clearAnswerOf(raw: unknown): ClearAnswer {
 export function clearRefusalSays(r: ClearRefusal): { k: StaffKey; relook: boolean } {
   switch (r) {
     case "changed":
-      return { k: "table.noshow.err.changed", relook: true };
+      // The clear's own sentence (Codex P1 on #341): the order moved after the look — any line, not
+      // only the SENT set — and nothing was cleared.
+      return { k: "settle.clear.changed", relook: true };
     case "joined":
       return { k: "settle.clear.joined", relook: true };
     case "in_flight":
@@ -184,6 +228,10 @@ export function clearRefusalSays(r: ClearRefusal): { k: StaffKey; relook: boolea
       return { k: "settle.clear.gone", relook: false };
     case "counter":
       return { k: "settle.clear.counterSent", relook: false };
+    case "paid_unserved":
+      // Paid food the kitchen has not finished: the way out is the kitchen (serve it or bag it), and
+      // a fresh look would say the same.
+      return { k: "settle.clear.paidUnserved", relook: false };
     case "secure_tab":
       // A card on file can still pay for what was sent: the way out is that card, not a write-off.
       return { k: "settle.clear.secureTab", relook: false };

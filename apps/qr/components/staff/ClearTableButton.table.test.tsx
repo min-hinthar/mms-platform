@@ -66,7 +66,14 @@ async function walk(ms: number, step = 250) {
 }
 
 const SEEN = "2026-10-09T18:00:00.000000+00:00";
-const FREE: ClearPreview = { seenAt: SEEN, sent: [], lossCents: 0, units: 0, droppedUnits: 0 };
+const FREE: ClearPreview = {
+  seenAt: SEEN,
+  sent: [],
+  lossCents: 0,
+  units: 0,
+  droppedUnits: 0,
+  lines: [],
+};
 const LOSS: ClearPreview = {
   seenAt: SEEN,
   sent: [
@@ -83,6 +90,8 @@ const LOSS: ClearPreview = {
   lossCents: 4100,
   units: 3,
   droppedUnits: 1,
+  // Every live line as the look read it (Codex P1 on #341) — the two sent dishes and the one draft.
+  lines: ["d1:1:dinein:draft", "l1:2:dinein:sent", "l2:1:dinein:sent"],
 };
 const WATCH: ClearWatch = {
   members: ["seat-1"],
@@ -189,7 +198,7 @@ describe("a free table — straight into the six-second window, nothing written 
     // MUTATION clear-ui/look-not-carried (the clear sent without the look) → red.
     expect(clearTable).toHaveBeenCalledWith({
       sessionId: "s4",
-      expect: { lineIds: [], lossCents: 0, seenAt: SEEN },
+      expect: { lineIds: [], lossCents: 0, seenAt: SEEN, lines: [] },
     });
     // MUTATION clear-ui/turnover-unsaid → the floor never hears the table is free; red.
     expect(floorLine()).toBe(tf("en", "settle.clear.free", { id: "4" }));
@@ -240,7 +249,11 @@ describe("a free table — straight into the six-second window, nothing written 
     });
     await flush();
     expect(windowGroup()).toBeNull();
-    expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.noshow.err.changed"));
+    // Codex P1 on #341 — the clear's own sentence, the one the server's `changed` says too.
+    // MUTATION clear-ui/stale-changed-says-the-no-shows → red.
+    expect(screen.getByRole("alert").textContent).toBe(
+      tf("en", "settle.clear.changed", { id: "4" }),
+    );
     await flush(CLEAR_UNDO_MS * 2);
     expect(clearTable).not.toHaveBeenCalled();
   });
@@ -393,6 +406,26 @@ describe("a SECURED tab with food sent — its card pays; no slip, no walkout (t
   });
 });
 
+describe("PAID food the kitchen has not finished — serve it or bag it first (Codex P1 on #341)", () => {
+  it("the look says so; no slip, no window, nothing sent — the paid tickets stay on the board", async () => {
+    getClearPreview.mockResolvedValue({ kind: "paidUnserved" });
+    const onSlip = vi.fn();
+    mount({ onSlip, onTakeCash: () => {} });
+    await tap(trigger());
+    // MUTATION clear-ui/paid-unserved-look-unsaid (the look not handled) → it falls through to a
+    // free clear's window over paid food still cooking, whose tickets then leave the board; red.
+    expect(screen.getByRole("alert").textContent).toBe(
+      tf("en", "settle.clear.paidUnserved", { id: "4" }),
+    );
+    expect(screen.queryByRole("heading", { name: ts("en", "settle.clear.loss.head") })).toBeNull();
+    expect(onSlip).not.toHaveBeenCalledWith(true);
+    expect(windowGroup()).toBeNull();
+    await flush(CLEAR_UNDO_MS * 2);
+    expect(clearTable).not.toHaveBeenCalled();
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+  });
+});
+
 describe("food SENT and unpaid — the loss slip, only after Clear was reached for", () => {
   const slipHead = () => screen.getByRole("heading", { name: ts("en", "settle.clear.loss.head") });
 
@@ -430,9 +463,16 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     expect(windowGroup()).not.toBeNull();
     expect(onSlip).toHaveBeenLastCalledWith(false);
     await flush(CLEAR_UNDO_MS + 500);
+    // MUTATION clear-ui/look-lines-not-carried (the look's lines left off the wire) → the RPC
+    // compares the order against nothing it was shown; red.
     expect(clearTable).toHaveBeenCalledWith({
       sessionId: "s4",
-      expect: { lineIds: ["l1", "l2"], lossCents: 4100, seenAt: SEEN },
+      expect: {
+        lineIds: ["l1", "l2"],
+        lossCents: 4100,
+        seenAt: SEEN,
+        lines: ["d1:1:dinein:draft", "l1:2:dinein:sent", "l2:1:dinein:sent"],
+      },
     });
     // MUTATION clear-ui/loss-said-as-free → the floor says "free" over three dishes written off; red.
     expect(floorLine()).toBe(tf("en", "settle.clear.freeLoss.many", { id: "4", n: 3 }));

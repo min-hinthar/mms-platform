@@ -120,6 +120,14 @@
  * the lock dropped, and the lock taken after the read. Both are KILLED by
  * `scripts/verify-counter-fire-race.mjs --mutants` (orders k and k2). Twenty survivors in all.
  *
+ * Codex round 1 on #341 grows suite `m182` (M182 · PD7, `mms_clear_table`) by TWENTY mutants: the
+ * membership trigger `mms_refuse_closed_session_join` (a cleared table takes no member — M182.15),
+ * the `paid_unserved` refusal (a paid cart's food the kitchen has not finished — M182.16) and the
+ * `p_seen_lines` compare (any line changed after the look — M182.17), each beside its legitimate
+ * half. TWO documented survivors, both row locks no single session can interleave — the trigger's FOR
+ * SHARE and the clear's FOR SHARE on the paid lines — KILLED by `scripts/verify-bind-race.mjs
+ * --mutants` (M7 · M8 · M9: orders l, n and o). Twenty-two survivors in all.
+ *
  * USAGE
  * -----
  *   node scripts/verify-mode-authority.mjs                        # the local `supabase start` stack
@@ -3041,6 +3049,171 @@ const MUTANTS = [
       find: "    v_max_loss := coalesce(v_max_loss, 2000);\n",
       replace: "    v_max_loss := coalesce(v_max_loss, 1999);\n",
     },
+    // ── Codex r1 on #341: a cleared table takes no member (the trigger), paid food not yet served
+    // holds the clear, and ANY line changed after the look refuses it. Two documented survivors, both
+    // row locks no single session can interleave — KILLED by verify-bind-race.mjs --mutants (M7 · M9).
+    {
+      id: "clear-join/status-unchecked",
+      fn: "mms_refuse_closed_session_join",
+      expect: "M182.15 · a join to a cleared table is refused as session_closed",
+      why: "Codex P1 on #341 — a join that waited on the clear's lock lands on the closed table, and /api/session hands it an open cart on a dead session",
+      find: "  if v_status is not null and v_status <> 'active' then\n",
+      replace: "  if false then\n",
+    },
+    {
+      id: "clear-join/every-join-refused",
+      fn: "mms_refuse_closed_session_join",
+      expect: "session_closed",
+      why: "over-block: every join refused, live table or not — caught at the suite's first live join (M182.3), where the trigger's raise surfaces uncaught",
+      find: "  if v_status is not null and v_status <> 'active' then\n",
+      replace: "  if v_status is not null then\n",
+    },
+    {
+      id: "clear-join/lock-deleted",
+      fn: "mms_refuse_closed_session_join",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR — the FOR SHARE orders a join after a clear or a plain close in flight; one session cannot interleave it. KILLED by verify-bind-race.mjs --mutants (M7: orders l and n)",
+      find: "    for share;   -- Codex P1 on #341: wait out a clear or a close, then read the newest status\n",
+      replace: "    ;\n",
+    },
+    {
+      id: "clear/paid-unserved-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a paid cart's fired dish holds the clear",
+      why: "Codex P1 on #341 — a paid table still cooking is cleared, and its tickets leave the kitchen board (a dine-in line shows only on an active session)",
+      find: "    return jsonb_build_object('status', 'paid_unserved');\n",
+      replace: "    null;\n",
+    },
+    {
+      id: "clear/paid-unserved-fired-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a paid cart's fired dish holds the clear",
+      why: "a paid dish on the board, not yet started, vanishes with the table",
+      find: "                and ci.state in ('draft', 'fired', 'in_progress')\n",
+      replace: "                and ci.state in ('draft', 'in_progress')\n",
+    },
+    {
+      id: "clear/paid-unserved-cooking-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a paid cart's dish being cooked holds the clear",
+      why: "a paid dish the cook has started vanishes from the board mid-cook",
+      find: "                and ci.state in ('draft', 'fired', 'in_progress')\n",
+      replace: "                and ci.state in ('draft', 'fired')\n",
+    },
+    {
+      id: "clear/paid-unserved-drafts-ignored",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a paid draft the settlement has yet to fire holds the clear",
+      why: "a paid draft is fired by settlement (or its reconciler) into a closed table — paid food that never reaches the board",
+      find: "                and ci.state in ('draft', 'fired', 'in_progress')\n",
+      replace: "                and ci.state in ('fired', 'in_progress')\n",
+    },
+    {
+      id: "clear/paid-unserved-counts-served",
+      fn: "mms_clear_table",
+      expect: "M182.4 · a loss look over a paid table refuses",
+      why: "over-block: a paid table whose food is all served can never be cleared — first caught where the suite's first paid, served table expects `changed` and gets `paid_unserved`",
+      find: "                and ci.state in ('draft', 'fired', 'in_progress')\n",
+      replace: "                and ci.state in ('draft', 'fired', 'in_progress', 'served')\n",
+    },
+    {
+      id: "clear/paid-unserved-counts-grocery",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a paid grocery line never holds a clear",
+      why: "over-block: a paid grocery line (bagged, never cooked) holds the table forever",
+      find: "                and ci.state in ('draft', 'fired', 'in_progress')\n                and ci.fulfillment <> 'grocery') then\n",
+      replace: "                and ci.state in ('draft', 'fired', 'in_progress')) then\n",
+    },
+    {
+      id: "clear/paid-unserved-any-cart",
+      fn: "mms_clear_table",
+      expect: "M182.16 · a cancelled cart's line never holds a clear",
+      why: "over-block: a cancelled cart's dead line (nothing cooks it) holds the table",
+      find: "              where pc.session_id = p_session and pc.status = 'paid'\n                and ci.state in",
+      replace:
+        "              where pc.session_id = p_session and pc.status <> 'open'\n                and ci.state in",
+    },
+    {
+      id: "clear/paid-unserved-any-session",
+      fn: "mms_clear_table",
+      expect: "M182.16 · another table's paid food never holds this clear",
+      why: "over-block: one table's paid food in the kitchen holds every clear on the floor",
+      find: "              where pc.session_id = p_session and pc.status = 'paid'\n                and ci.state in",
+      replace: "              where pc.status = 'paid'\n                and ci.state in",
+    },
+    {
+      id: "clear/paid-lines-lock-deleted",
+      fn: "mms_clear_table",
+      expect: null,
+      why: "DOCUMENTED SURVIVOR — the paid lines' FOR SHARE orders the clear after a recall in flight (served → in_progress); one session cannot interleave it. KILLED by verify-bind-race.mjs --mutants (M9: order o)",
+      find: "   order by ci.id\n   for share of ci;   -- Codex P1 on #341: a recall in flight is read after it commits\n",
+      replace: "   order by ci.id;\n",
+    },
+    {
+      id: "clear/seen-lines-compare-deleted",
+      fn: "mms_clear_table",
+      expect: "M182.17 · a draft re-counted after the look refuses",
+      why: "Codex P1 on #341 — a draft re-counted, taken off, sent or turned to-go after the look is cancelled with the table, unseen",
+      find: "  if (select array_agg(distinct e order by e) from unnest(p_seen_lines) e)\n       is distinct from v_lines then\n    return jsonb_build_object('status', 'changed');\n  end if;\n",
+      replace: "",
+    },
+    {
+      id: "clear/seen-lines-key-drops-qty",
+      fn: "mms_clear_table",
+      expect: "M182.4 · order and duplicates are ignored",
+      why: "the key forgets the quantity: a draft re-counted after the look reads as the same line (and the look's own keys, which carry it, never match)",
+      find: "      from (select ci.id::text || ':' || ci.qty || ':' || ci.fulfillment || ':' ||\n",
+      replace: "      from (select ci.id::text || ':' || ci.fulfillment || ':' ||\n",
+    },
+    {
+      id: "clear/seen-lines-key-drops-fulfillment",
+      fn: "mms_clear_table",
+      expect: "M182.4 · order and duplicates are ignored",
+      why: "the key forgets the fulfillment: a draft turned to-go after the look reads as the same line",
+      find: "      from (select ci.id::text || ':' || ci.qty || ':' || ci.fulfillment || ':' ||\n",
+      replace: "      from (select ci.id::text || ':' || ci.qty || ':' ||\n",
+    },
+    {
+      id: "clear/seen-lines-key-ignores-the-send",
+      fn: "mms_clear_table",
+      expect: "M182.6 · the loss clear answers ok",
+      why: "the key forgets draft-or-sent: a draft sent after the look reads as the same line",
+      find: "                   case when ci.state = 'draft' then 'draft' else 'sent' end as k\n",
+      replace: "                   'sent' as k\n",
+    },
+    {
+      id: "clear/seen-lines-key-reads-kitchen-state",
+      fn: "mms_clear_table",
+      expect: "M182.4 · order and duplicates are ignored",
+      why: "over-block: the key reads the kitchen state, so a cook starting a sent dish refuses the clear — a walkout's clear waits on the kitchen (ruling #6)",
+      find: "                   case when ci.state = 'draft' then 'draft' else 'sent' end as k\n",
+      replace: "                   ci.state as k\n",
+    },
+    {
+      id: "clear/seen-lines-counts-voided",
+      fn: "mms_clear_table",
+      expect: "M182.17 · the look's own lines, as their literal keys, clear",
+      why: "over-block: a voided line the look rightly left out reads as a change",
+      find: "             where ci.cart_id = v_cart and ci.state <> 'voided') l;\n",
+      replace: "             where ci.cart_id = v_cart) l;\n",
+    },
+    {
+      id: "clear/seen-lines-null-admitted",
+      fn: "mms_clear_table",
+      expect: "M182.17 · a NULL p_seen_lines raises",
+      why: "a request with no look at the lines clears an empty table as if it had looked",
+      find: "  if p_session is null or p_initiator is null or p_seen_at is null or p_loss_cents is null\n     or p_seen_lines is null then\n",
+      replace:
+        "  if p_session is null or p_initiator is null or p_seen_at is null or p_loss_cents is null then\n",
+    },
+    {
+      id: "clear/seen-lines-null-element-matches",
+      fn: "mms_clear_table",
+      expect: "M182.17 · a NULL line key never matches",
+      why: "a NULL key in the look is dropped instead of refused — the SENT set's own rule, broken for the lines",
+      find: "from unnest(p_seen_lines) e)\n",
+      replace: "from unnest(p_seen_lines) e where e is not null)\n",
+    },
   ].map((m) => ({ ...m, src: "m182", suite: "m182" })),
 ];
 
@@ -3108,6 +3281,7 @@ const TARGETS = [
   "mms_assert_solo_sessions_single",
   "mms_clear_table",
   "mms_ack_table_clear_stop",
+  "mms_refuse_closed_session_join",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

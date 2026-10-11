@@ -3,12 +3,18 @@
 -- ⚠️ PROD: one of the four files ruling #5 approved (OWNER_RULINGS_2026-10-07 #5). Applied ONE FILE AT
 -- A TIME through the Supabase MCP `apply_migration`, at a quiet time the OWNER names, never `db push`
 -- (M125). Verify after: ONE definition each of `public.mms_clear_table(uuid, uuid, timestamptz,
--- uuid[], integer, uuid)` and `public.mms_ack_table_clear_stop(uuid, uuid)`; for both,
+-- uuid[], integer, text[], uuid)` and `public.mms_ack_table_clear_stop(uuid, uuid)`; for both,
 -- `has_function_privilege('service_role', …, 'execute')` true and anon / authenticated false; the
 -- table `public.qr_table_clears` with RLS on, no anon / authenticated privilege, and its
 -- `session_id` foreign key NO ACTION (`pg_constraint.confdeltype = 'a'`, never a cascade); the column
--- `mms_loss_config.clear_requires_pin` (default false). Deploy order: migration first, app second —
--- until the app calls `mms_clear_table`, nothing calls it, and the old app's plain cancel keeps working.
+-- `mms_loss_config.clear_requires_pin` (default false); ONE definition of
+-- `public.mms_refuse_closed_session_join()` (no anon / authenticated execute) and the trigger
+-- `session_members_live_session` on `public.session_members` (BEFORE INSERT OR UPDATE OF session_id,
+-- `pg_trigger.tgtype = 23`). Deploy order: migration first, app second — until the app calls
+-- `mms_clear_table`, nothing calls it, and the old app's plain cancel keeps working. The trigger acts
+-- at once: it refuses a join to a table that is not ACTIVE — which no route reaches unless it races a
+-- close (`/api/session` finds active rows only) — and until the app's mapping ships, the old route
+-- answers that refusal with its generic 500 "Could not join session", never a member on a dead table.
 --
 -- THE DEFECT (M182, #275's six-lens audit; P2hf). `clearTable` (apps/qr/lib/floor.ts) cancelled a
 -- dine-in cart and closed its session in two plain writes. Sent and cooking lines went with it: no
@@ -31,14 +37,26 @@
 -- is `unit_price_cents * qty`, the ledger's own (`mms_approvals.amount_cents`, voids_comps.sql:52):
 -- the menu price, pre-tax, never the bill.
 --
--- ## The snapshot the staff member saw (`p_seen_at`, `p_expected_line_ids`, `p_loss_cents`)
+-- ## The snapshot the staff member saw (`p_seen_at`, `p_expected_line_ids`, `p_loss_cents`,
+-- `p_seen_lines`)
 -- The clear is a deferred write (a 6 s Undo in the app), so the table can move between the look and
 -- the write. Refusals, each BEFORE any write:
 --   'joined'  — someone joined the table after the look (`session_members.created_at > p_seen_at`):
 --               a next party who scanned the sticker is never closed out;
 --   'changed' — a line was added after the look, or the SENT set is not the one shown (as SETS; a
 --               NULL or a NULL element never matches), or its value is not `p_loss_cents` — or the
---               look is from the FUTURE (`p_seen_at > now()`).
+--               look is from the FUTURE (`p_seen_at > now()`) — or ANY line is not the one shown
+--               (`p_seen_lines`, Codex P1 on #341, below).
+-- `p_seen_lines` is the whole open order as the look read it, one key per live (not voided) line:
+-- `<id>:<qty>:<fulfillment>:draft|sent` — `clearLineKey` (apps/qr/lib/clear-table.ts) builds the same
+-- string, and M182.17 pins it literally. Compared as SETS, like the SENT set. Without it a diner's
+-- change that adds no line and moves neither the SENT set nor its figure — a draft re-counted, a draft
+-- taken off, a draft sent (still in its grace), a draft turned to-go — passed, and a clear ("Seat next
+-- party" above all) cancelled an order change nobody had looked at. `qr_cart_items` has no
+-- `updated_at` to compare instead. The key reads draft-or-sent, NEVER the kitchen state: a cook
+-- starting or serving a SENT dish moves neither the figure nor what the clear drops, and a walkout's
+-- clear must not wait on the kitchen (ruling #6) — the window's own watch (`tillSlipDiverged`,
+-- lib/clear-window.ts) ignores it too. Required: a NULL raises, never reads as an empty table.
 -- `p_seen_at` is meant to be the DATABASE clock at the look (`mms_now`), but the REQUEST carries it,
 -- and this function bounds it from ABOVE only: a value later than this transaction's own clock is
 -- refused (a post-dated look would pass every join and every added dish — the blind pass on #341).
@@ -60,6 +78,20 @@
 --                 it cannot close it — the caller's read stays, and a capture on a cancelled cart is
 --                 the refunds-needed ledger's (M163).
 --
+-- ## Paid food not yet served — 'paid_unserved' (Codex P1 on #341)
+-- A table that PAID has no open cart, yet a paid cart may still have food in the kitchen (fired or
+-- cooking) or on its way there (a paid DRAFT, which settlement fires — `mms_fire_pending_food` and
+-- its reconciler, `mms_reconcile_settled_fulfillment`). The kitchen board shows a dine-in line only
+-- while its session is ACTIVE (`kdsLineGate`, apps/qr/lib/counter-order.ts), so closing the session
+-- took those tickets off the board — paid food, never stopped, never on any loss list, just gone —
+-- and kept a paid draft's off it for good. This function only ever inspected the OPEN cart. So a
+-- paid cart with any line `draft` · `fired` · `in_progress` (not grocery — never the kitchen's; a comp
+-- included — it is still made) refuses the clear, writing nothing: serve it or bag it first. Never
+-- stopped as a loss and never written off: the guest paid for it (m7 §H). Its lines are locked FOR
+-- SHARE first (a recall in flight — served → in_progress — is read after it commits). Not closed: a
+-- recall issued AFTER the clear commits lands on a closed table (`mms_recall_ticket` reads no session)
+-- — OPEN-ITEMS M270 (9).
+--
 -- ## A secured tab (card on file) — 'secure_tab'
 -- A `tab_type = 'secure'` cart with SENT food is refused without a verified manager (`p_approver`):
 -- its food can still be charged to the saved card (`closeSecureTab`, lib/staff-cart.ts), and a
@@ -69,12 +101,13 @@
 -- manager's, recorded as such (the gate below) — the seam a declined card after a walkout needs
 -- (M270); the app sends no approver today, so in the app the pane says to close it on the card.
 --
--- ## Lock order: cart → session → approvals → lines (the code below, in that order). The open cart
--- FOR UPDATE first (one open cart per session, `qr_carts_one_open_per_session`); then the session FOR
--- UPDATE (the fire takes cart → session FOR SHARE, the same direction; the sweeper takes sessions
--- SKIP LOCKED and no cart); then the cart's PENDING approvals FOR UPDATE, in id order; then its
--- LINES FOR UPDATE, in id order (the kitchen's `mms_line_transition` / `mms_bump_ticket` lock only
--- the line). A manager resolving a request meanwhile waits and then reads 'superseded': an approve
+-- ## Lock order: cart → session → paid lines → approvals → lines (the code below, in that order). The
+-- open cart FOR UPDATE first (one open cart per session, `qr_carts_one_open_per_session`); then the
+-- session FOR UPDATE (the fire takes cart → session FOR SHARE, the same direction; the sweeper takes
+-- sessions SKIP LOCKED and no cart; a join takes the session FOR SHARE and no cart — section 4); then
+-- the PAID carts' lines FOR SHARE, in id order; then the open cart's PENDING approvals FOR UPDATE, in
+-- id order; then its LINES FOR UPDATE, in id order (the kitchen's `mms_line_transition` /
+-- `mms_bump_ticket` / `mms_recall_ticket` lock only lines, `mms_bump_ticket` in id order). A manager resolving a request meanwhile waits and then reads 'superseded': an approve
 -- takes the line's cart FOR SHARE first (M269, 20261009120100 — cart → request → line), so it waits
 -- on this function's cart lock; a deny or a close takes request → line and waits at the approvals.
 -- The no-show, the counter clear and the merge take cart → approvals → lines and no session; this is
@@ -101,14 +134,20 @@
 --      `stop_acknowledged_at` is null, and "Got it" writes it through `mms_ack_table_clear_stop`.
 -- Returns jsonb `{status, dishes, loss_cents, clear_id}` — `dishes` the SENT units (Σ qty) the app
 -- says back with the RPC's OWN count ("Table 4 cleared — 3 dishes on the loss list").
--- Statuses: 'ok' | 'not_found' | 'closed' | 'counter' | 'in_flight' | 'card_live' | 'joined' |
--- 'changed' | 'secure_tab' | 'needs_approval' | 'self_approve' | 'bad_approver'.
+-- Statuses: 'ok' | 'not_found' | 'closed' | 'counter' | 'paid_unserved' | 'in_flight' | 'card_live' |
+-- 'joined' | 'changed' | 'secure_tab' | 'needs_approval' | 'self_approve' | 'bad_approver'.
 --
 -- A COUNTER order (`mode = 'pickup' and qr_code like 'reg-%'`) is refused ('counter'): its exits are
 -- its own — `mms_clear_counter_cart` (nothing sent) and `mms_counter_no_show` (sent food).
 --
--- Pinned by supabase/tests/m182_table_clear_test.sql (named in ci.yml). Idempotent: `if not exists`
--- on the column, the table and the index, `create or replace` on the functions, grants restated.
+-- A cleared table takes no member: section 4, the trigger `session_members_live_session` (Codex P1 on
+-- #341) — a join racing the clear waits on its session lock and is then refused.
+--
+-- Pinned by supabase/tests/m182_table_clear_test.sql (named in ci.yml), `verify-mode-authority.mjs`
+-- (suite `m182`) and, for the orders no single session can interleave, `verify-bind-race.mjs` (orders
+-- l · m · n · o). Idempotent: `if not exists` on the column, the table and the index, `create or
+-- replace` on the functions and the trigger (no DROP: the MCP apply path cannot confirm one), grants
+-- restated.
 
 -- ── 0. the ONE seam that can switch a PIN on (ruling #6) ─────────────────────────────────────────
 alter table public.mms_loss_config
@@ -161,6 +200,7 @@ create or replace function public.mms_clear_table(
   p_seen_at timestamptz,
   p_expected_line_ids uuid[],
   p_loss_cents integer,
+  p_seen_lines text[],
   p_approver uuid default null
 ) returns jsonb
   language plpgsql set search_path = '' as $$
@@ -168,12 +208,14 @@ declare
   v_cart uuid; v_cart_locked boolean; v_cart_locked_at timestamptz; v_cart_settle_at timestamptz;
   v_live_pi text; v_tab text;
   v_found boolean; v_sess_status text; v_sess_mode text; v_sess_code text;
-  v_sent uuid[]; v_stop uuid[]; v_loss integer := 0; v_units integer := 0; v_cooked boolean := false;
+  v_sent uuid[]; v_stop uuid[]; v_lines text[];
+  v_loss integer := 0; v_units integer := 0; v_cooked boolean := false;
   v_max_loss integer; v_gate text; v_requires_pin boolean;
   v_role text; v_active boolean; v_clear uuid;
 begin
-  if p_session is null or p_initiator is null or p_seen_at is null or p_loss_cents is null then
-    raise exception 'mms_clear_table: session, initiator, seen_at and loss_cents are required';
+  if p_session is null or p_initiator is null or p_seen_at is null or p_loss_cents is null
+     or p_seen_lines is null then
+    raise exception 'mms_clear_table: session, initiator, seen_at, loss_cents and seen_lines are required';
   end if;
   -- A look from the future never happened (the header): refused before any lock is taken.
   if p_seen_at > now() then return jsonb_build_object('status', 'changed'); end if;
@@ -195,6 +237,24 @@ begin
   if v_sess_status = 'closed' then return jsonb_build_object('status', 'closed'); end if;
   if v_sess_mode = 'pickup' and v_sess_code like 'reg-%' then
     return jsonb_build_object('status', 'counter');
+  end if;
+
+  -- PAID food not yet served (Codex P1 on #341): closing the session would take its tickets off the
+  -- board, or keep them from ever reaching it (the header). The paid carts' lines are locked FOR SHARE
+  -- first, in id order, so a recall in flight (`mms_recall_ticket`: served → in_progress, within two
+  -- minutes of a bump) is read after it commits; the session lock keeps any new cart out (its foreign
+  -- key's KEY SHARE waits on it), and the open cart, held, cannot turn paid under us.
+  perform 1 from public.qr_cart_items ci
+    join public.qr_carts pc on pc.id = ci.cart_id
+   where pc.session_id = p_session and pc.status = 'paid'
+   order by ci.id
+   for share of ci;   -- Codex P1 on #341: a recall in flight is read after it commits
+  if exists (select 1 from public.qr_cart_items ci
+               join public.qr_carts pc on pc.id = ci.cart_id
+              where pc.session_id = p_session and pc.status = 'paid'
+                and ci.state in ('draft', 'fired', 'in_progress')
+                and ci.fulfillment <> 'grocery') then
+    return jsonb_build_object('status', 'paid_unserved');
   end if;
 
   if v_cart is not null then
@@ -244,12 +304,27 @@ begin
         and ci.state in ('fired', 'in_progress')
         and ci.fulfillment <> 'grocery'
         and (ci.fire_at is null or ci.fire_at <= now());
+    -- The order line by line (Codex P1 on #341): every live line's id, quantity, fulfillment, and
+    -- whether it is still a draft — the key `clearLineKey` builds (lib/clear-table.ts), read under the
+    -- line locks above.
+    select array_agg(distinct l.k order by l.k) into v_lines
+      from (select ci.id::text || ':' || ci.qty || ':' || ci.fulfillment || ':' ||
+                   case when ci.state = 'draft' then 'draft' else 'sent' end as k
+              from public.qr_cart_items ci
+             where ci.cart_id = v_cart and ci.state <> 'voided') l;
   end if;
 
   -- The set the staff member saw, as SETS (order and duplicates ignored; a NULL element never
   -- matches). No open cart means nothing is SENT, so a look that showed dishes is a change too.
   if (select array_agg(distinct e order by e) from unnest(p_expected_line_ids) e)
        is distinct from v_sent then
+    return jsonb_build_object('status', 'changed');
+  end if;
+  -- ANY line changed after the look — a draft re-counted, taken off, sent, or turned to-go — is a
+  -- change too, as SETS like the one above (the header). The kitchen's own progress on a SENT dish is
+  -- not: the key reads draft-or-sent, never which kitchen state.
+  if (select array_agg(distinct e order by e) from unnest(p_seen_lines) e)
+       is distinct from v_lines then
     return jsonb_build_object('status', 'changed');
   end if;
   if v_sent is not null then
@@ -315,14 +390,15 @@ begin
   return jsonb_build_object('status', 'ok', 'dishes', v_units, 'loss_cents', v_loss,
                             'clear_id', v_clear);
 end $$;
-comment on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, uuid) is
-  'M182 · ruling #6 — clear a table: refuses a counter order, money in flight, a live card attempt, '
-  'a join or a change after the look, a secured tab''s sent food without a manager; else supersedes pending requests, records every sent dish as a '
+comment on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, text[], uuid) is
+  'M182 · ruling #6 — clear a table: refuses a counter order, paid food not yet served, money in '
+  'flight, a live card attempt, a join or any line changed after the look, a secured tab''s sent food '
+  'without a manager; else supersedes pending requests, records every sent dish as a '
   'table_cleared void (unapproved unless a manager approved), voids the kitchen''s lines, cancels '
   'the cart, closes the session and writes the qr_table_clears row (the durable stop record).';
-revoke all on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, uuid)
+revoke all on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, text[], uuid)
   from public, anon, authenticated;
-grant execute on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, uuid)
+grant execute on function public.mms_clear_table(uuid, uuid, timestamptz, uuid[], integer, text[], uuid)
   to service_role;
 
 -- ── 3. "Got it" — the kitchen acknowledges a stop (kitchen-ops' card writes it) ─────────────────
@@ -346,3 +422,56 @@ begin
 end $$;
 revoke all on function public.mms_ack_table_clear_stop(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.mms_ack_table_clear_stop(uuid, uuid) to service_role;
+
+-- ── 4. a cleared table takes no member (Codex P1 on #341) ───────────────────────────────────────
+-- THE RACE, measured on the throwaway cluster before this section existed: a diner's membership
+-- insert issued while a clear held the session row waited ~2 s on it (the foreign key's KEY SHARE
+-- against the clear's FOR UPDATE), then LANDED on the closed session — the row still exists, which
+-- is all a foreign key asks. `/api/session` then handed that diner a fresh OPEN cart on the closed
+-- session (its hosted-row path re-reads nothing), and the clear's own 'joined' check could not see
+-- a member that committed after it.
+--
+-- So the refusal sits where the membership is WRITTEN, beside `session_members_party_cap` and
+-- `session_members_solo_guard` (PD3): a BEFORE INSERT OR UPDATE OF session_id trigger, covering every
+-- writer. It reads the session's status FOR SHARE, and the lock is the point. In READ COMMITTED a
+-- locking read that meets a row another transaction holds WAITS for it, then re-reads the row's
+-- NEWEST version: so a join issued while a clear holds the row (its FOR UPDATE) or while any plain
+-- close is in flight (the sweeper's, a merge's, a counter or kiosk close — their UPDATE's NO KEY
+-- UPDATE) waits, then sees 'closed' and is refused. FOR KEY SHARE would NOT do: it is compatible with
+-- NO KEY UPDATE, so it would read the old 'active' past an uncommitted plain close
+-- (verify-bind-race.mjs order n, mutant M8). The reverse order needs nothing new: a join that holds
+-- the row first makes the clear's FOR UPDATE wait, and the clear's 'joined' check then sees it.
+--
+-- Not the alternative of the clear taking the party key (`mms_party:<session>`): the party cap takes
+-- that key BEFORE the foreign key's row lock, so a clear holding the session row and then asking for
+-- the key would deadlock against a join holding the key and waiting on the row — and the key alone
+-- refuses nothing: the party cap counts members, it never reads the status.
+--
+-- Fires first by name (`live_session` < `party_cap` < `solo_guard`): a closed table refuses before the
+-- party cap's key is taken. No cycle: the trigger takes the session row, then the party key; no
+-- writer takes the key and then waits on a session row (the clear takes no key at all).
+--
+-- `/api/session` answers `session_closed` with the closed-row answer it already gives (409 "Could
+-- not check the table — try again."): no new existence oracle, and the retry re-resolves the table
+-- from the top — a sticker scan mints the next party, a `?j=` code meets "No table found".
+-- A missing session row is the foreign key's to refuse, not ours.
+create or replace function public.mms_refuse_closed_session_join() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_status text;
+begin
+  select s.status into v_status
+    from public.table_sessions s where s.id = new.session_id
+    for share;   -- Codex P1 on #341: wait out a clear or a close, then read the newest status
+  if v_status is not null and v_status <> 'active' then
+    raise exception 'session_closed' using errcode = 'P0001';  -- /api/session: the closed-row 409
+  end if;
+  return new;
+end; $$;
+
+create or replace trigger session_members_live_session
+  before insert or update of session_id on public.session_members
+  for each row execute function public.mms_refuse_closed_session_join();
+
+-- A trigger function fires as its owner whatever the grants; revoke anyway so it is not reachable as
+-- an RPC (the party cap's lockdown, 20260621000000_abuse_limits.sql; LEARNINGS #58).
+revoke all on function public.mms_refuse_closed_session_join() from public, anon, authenticated;

@@ -95,6 +95,10 @@ export { useCounterMint, useOptionalCounterMint } from "./CounterMintContext";
  * split the lock silently, which is the defect this module exists to remove.
  */
 
+/** The pane's selection as a start's baseline: its id and its generation (a move that comes back
+ *  ends on the id it left, so the id alone is not enough — Phase 2d · Codex round 1). */
+type PaneBaseline = { picked: string | null; gen: number };
+
 /** Where a landed mint goes: a NEW session to its add screen, a converged one to its own page. */
 export function mintLanding(sessionId: string, created: boolean): string {
   return created ? `/staff/table/${sessionId}/add` : `/staff/table/${sessionId}`;
@@ -129,19 +133,32 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
     paneNow.current = pane;
   });
 
+  /** What the pane shows NOW — a start's "did they move it" baseline, taken at the TAP. */
+  const paneBaseline = useCallback(
+    (): PaneBaseline => ({
+      picked: paneNow.current?.selectedId ?? null,
+      gen: paneNow.current?.selectionGen ?? 0,
+    }),
+    [],
+  );
+
   /** A start ADMITTED under `id` (the lock already held — by `run` at the tap, or by a
    *  reservation): ask the server, land, re-arm. `inPane` (a reservation's start) opens a NEW
-   *  session in the pane at split width too, never a route off the counter home (correction 6). */
+   *  session in the pane at split width too, never a route off the counter home (correction 6).
+   *  `atTap` is the pane as the person left it when they TAPPED: `run` takes it now; a reservation
+   *  took it at ITS tap and carries it here (Codex P2 on #341) — the clear it waited on may have
+   *  answered long after the person moved on to another table. */
   const startAdmitted = useCallback(
     (
       id: MintId,
       input: MintInput,
       { onStart, onRefusal, onResolved }: MintCallbacks,
       inPane = false,
+      atTap: PaneBaseline = paneBaseline(),
     ) => {
       // What the pane showed when the person tapped — the landing's "did they move it" baseline.
-      const pickedAtTap = paneNow.current?.selectedId ?? null;
-      const genAtTap = paneNow.current?.selectionGen ?? 0;
+      const pickedAtTap = atTap.picked;
+      const genAtTap = atTap.gen;
       onStart();
       // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
       haptic("commit");
@@ -225,7 +242,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [router, pane],
+    [router, pane, paneBaseline],
   );
 
   const run = useCallback(
@@ -248,6 +265,9 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
     (id: MintId): MintReservation | null => {
       // Correction 5 — the hold checked FIRST: any start in flight, landed or unanswered refuses.
       if (inFlight.current !== null || waitingRef.current !== null) return null;
+      // Codex P2 on #341 — the pane as it was at THIS tap: `go` runs only once the clear answers,
+      // and a person who picked another table meanwhile must not have the new party opened over it.
+      const atTap = paneBaseline();
       // Correction 9 — taken NOW, so no Walk-up or table start can slip in before the clear answers.
       inFlight.current = id;
       setMinting(id);
@@ -256,7 +276,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         go: (input, to) => {
           if (spent) return;
           spent = true;
-          startAdmitted(id, input, to, true);
+          startAdmitted(id, input, to, true, atTap);
         },
         release: () => {
           if (spent) return;
@@ -268,7 +288,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         },
       };
     },
-    [startAdmitted],
+    [startAdmitted, paneBaseline],
   );
 
   const value: CounterMint = {

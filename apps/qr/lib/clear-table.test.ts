@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   clearAnswerOf,
   clearIsLoss,
+  clearLineKey,
   clearNeedsTheCard,
+  clearPaidUnserved,
   clearPreviewOf,
   clearRefusalSays,
   clearSentLine,
@@ -63,6 +65,8 @@ describe("clearPreviewOf — the slip's dishes and its ONE figure", () => {
     row({ id: "c1", state: "in_progress", comped: true }),
     // A comped DRAFT: the kitchen never had it either — dropped, as the no-show drops it.
     row({ id: "c2", state: "draft", fire_at: null, comped: true }),
+    // A voided line: no longer on the order — neither sent, dropped, nor one of the look's lines.
+    row({ id: "v1", state: "voided" }),
   ];
   const p = clearPreviewOf(rows, NOW, "2026-10-09T18:00:00.000000+00:00", (id) =>
     id === "m-mohinga" ? "မုန့်ဟင်းခါး" : null,
@@ -86,11 +90,72 @@ describe("clearPreviewOf — the slip's dishes and its ONE figure", () => {
     expect(p.seenAt).toBe("2026-10-09T18:00:00.000000+00:00");
     expect(clearIsLoss(p)).toBe(true);
   });
+  it("the look's LINES: every live line's key, voided ones left out (Codex P1 on #341)", () => {
+    // MUTATION clear/lines-count-voided → "v1:1:dinein:sent" joins the look, and the RPC (which
+    // reads live lines only) refuses every clear over a table with a void as changed; red.
+    // MUTATION clear/lines-only-the-sent → the drafts leave the look, so a draft re-counted after it
+    // can never be told apart; red.
+    expect(p.lines).toEqual([
+      "c1:1:dinein:sent",
+      "c2:1:dinein:draft",
+      "d1:3:dinein:draft",
+      "g1:1:dinein:sent",
+      "l1:2:dinein:sent",
+      "l2:1:dinein:sent",
+      "l3:1:dinein:sent",
+    ]);
+  });
   it("nothing SENT: a free clear (straight to the Undo window, no slip)", () => {
     const free = clearPreviewOf([row({ id: "d", state: "draft", fire_at: null })], NOW, "x");
     // MUTATION clear/every-clear-a-loss → red.
     expect(clearIsLoss(free)).toBe(false);
     expect(free.lossCents).toBe(0);
+  });
+});
+
+describe("clearLineKey — one live line as the look saw it (Codex P1 on #341)", () => {
+  it("`<id>:<qty>:<fulfillment>:draft|sent` — the string mms_clear_table builds (M182.17 pins it)", () => {
+    expect(clearLineKey(row({ id: "a", qty: 2 }))).toBe("a:2:dinein:sent");
+    expect(clearLineKey(row({ id: "d", state: "draft", fire_at: null, fulfillment: "togo" }))).toBe(
+      "d:1:togo:draft",
+    );
+  });
+  it("a re-count, a send and a to-go flip each change the key; the kitchen's own progress never does", () => {
+    const draft = row({ id: "d", state: "draft", fire_at: null });
+    // MUTATION clear/line-key-drops-qty → a draft re-counted after the look reads as the same; red.
+    expect(clearLineKey({ ...draft, qty: 3 })).not.toBe(clearLineKey(draft));
+    // MUTATION clear/line-key-ignores-the-send → a draft sent after the look reads as the same; red.
+    expect(clearLineKey(row({ id: "d", state: "fired", fire_at: FUTURE }))).not.toBe(
+      clearLineKey(draft),
+    );
+    // MUTATION clear/line-key-drops-fulfillment → a draft turned to-go reads as the same; red.
+    expect(clearLineKey({ ...draft, fulfillment: "togo" })).not.toBe(clearLineKey(draft));
+    const sent = row({ id: "s" });
+    // MUTATION clear/line-key-reads-kitchen-state → a cook starting a sent dish refuses the clear
+    // (ruling #6: a clear never waits on the kitchen); red.
+    expect(clearLineKey({ ...sent, state: "in_progress" })).toBe(clearLineKey(sent));
+    expect(clearLineKey({ ...sent, state: "served" })).toBe(clearLineKey(sent));
+  });
+});
+
+describe("clearPaidUnserved — a PAID cart's food the kitchen has not finished holds the clear", () => {
+  const paid = (state: string, fulfillment = "dinein") => ({ state, fulfillment });
+  it("a paid draft (settlement fires it), a fired dish, a dish being cooked — comped or not", () => {
+    // MUTATION clear/paid-unserved-drafts-ignored → a paid draft is fired into a closed table; red.
+    expect(clearPaidUnserved([paid("draft")])).toBe(true);
+    // MUTATION clear/paid-unserved-fired-ignored → red.
+    expect(clearPaidUnserved([paid("fired")])).toBe(true);
+    // MUTATION clear/paid-unserved-cooking-ignored → red.
+    expect(clearPaidUnserved([paid("in_progress")])).toBe(true);
+    expect(clearPaidUnserved([paid("served"), paid("fired", "togo")])).toBe(true);
+  });
+  it("served, voided or grocery never holds it — and no paid lines at all is a free clear", () => {
+    // MUTATION clear/paid-unserved-counts-served → a paid, finished table can never be cleared; red.
+    expect(clearPaidUnserved([paid("served")])).toBe(false);
+    expect(clearPaidUnserved([paid("voided")])).toBe(false);
+    // MUTATION clear/paid-unserved-counts-grocery → a paid bag line holds the table forever; red.
+    expect(clearPaidUnserved([paid("fired", "grocery")])).toBe(false);
+    expect(clearPaidUnserved([])).toBe(false);
   });
 });
 
@@ -108,6 +173,9 @@ describe("clearAnswerOf — the RPC's jsonb, read defensively", () => {
     // MUTATION clear/secure-refusal-unread → the secured-tab refusal reads as "couldn't confirm"
     // (and the pane offers a retry the server will refuse again); red.
     expect(clearAnswerOf({ status: "secure_tab" }).status).toBe("secure_tab");
+    // MUTATION clear/paid-unserved-unread → the paid-food refusal reads as "couldn't confirm" — the
+    // pane offers a retry the server refuses again, and never says the food is still cooking; red.
+    expect(clearAnswerOf({ status: "paid_unserved" }).status).toBe("paid_unserved");
     // MUTATION clear/answer-trusts-any-ok (the count unchecked) → red.
     expect(clearAnswerOf({ status: "ok", dishes: "3", loss_cents: 100 }).status).toBe("unreadable");
     expect(clearAnswerOf({ status: "ok", dishes: -1, loss_cents: 0 }).status).toBe("unreadable");
@@ -120,7 +188,10 @@ describe("clearAnswerOf — the RPC's jsonb, read defensively", () => {
 
 describe("clearRefusalSays — the dictionary's words, and when to look again", () => {
   it("a change or a join under the look asks for a fresh look; money in flight does not", () => {
-    expect(clearRefusalSays("changed")).toEqual({ k: "table.noshow.err.changed", relook: true });
+    // Codex P1 on #341 — the clear's OWN sentence ("…changed after you looked, so it stayed open"):
+    // the no-show's line never said that nothing was cleared.
+    // MUTATION clear/changed-says-the-no-shows → red.
+    expect(clearRefusalSays("changed")).toEqual({ k: "settle.clear.changed", relook: true });
     // MUTATION clear/joined-reads-as-changed → red: the join's own sentence names WHY it stayed.
     expect(clearRefusalSays("joined")).toEqual({ k: "settle.clear.joined", relook: true });
     expect(clearRefusalSays("in_flight")).toEqual({ k: "settle.clear.midPayment", relook: false });
@@ -129,6 +200,13 @@ describe("clearRefusalSays — the dictionary's words, and when to look again", 
     // MUTATION clear/secure-refusal-says-manager → a card-on-file table is told it needs a manager,
     // never that the saved card is the way out; red.
     expect(clearRefusalSays("secure_tab")).toEqual({ k: "settle.clear.secureTab", relook: false });
+    // Codex P1 on #341 — paid food not yet served: the way out is the kitchen (serve it or bag it),
+    // and a fresh look would only say the same.
+    // MUTATION clear/paid-unserved-says-changed → told to look again at a table that has not moved; red.
+    expect(clearRefusalSays("paid_unserved")).toEqual({
+      k: "settle.clear.paidUnserved",
+      relook: false,
+    });
   });
 });
 

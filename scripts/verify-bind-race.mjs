@@ -39,6 +39,25 @@
  *   (j) B inserts a line on the SHELL   → A's grid claim BLOCKS, then `false`; nobody is host.
  *   (k) B joins the SHELL (member row)  → A's grid claim blocks, then `false`; nobody is host.
  *
+ * ── M182 · PD7 (Codex P1s on #341) — the table CLEAR against a join and a recall ────────────────
+ *
+ * `20261009120400_m182_table_clear.sql` holds two more locks no single session can interleave, and
+ * `verify-mode-authority.mjs` (suite `m182`) lists each lock's deletion as a documented SURVIVOR:
+ * the membership trigger's FOR SHARE on the session row (`mms_refuse_closed_session_join`) and the
+ * clear's FOR SHARE on the PAID carts' lines (`mms_clear_table`). Same harness, same session row:
+ *
+ *   (l) B clears a table and HOLDS     → A's join BLOCKS on B, then is REFUSED (`session_closed`);
+ *                                          the cleared table has no member — the defect Codex found.
+ *   (m) B joins and HOLDS              → A's clear (looked BEFORE the join) blocks, then answers
+ *                                          `joined`; the table stays open. A CONTROL: the foreign
+ *                                          key's KEY SHARE already orders this way, lock or none.
+ *   (n) B closes the table with a PLAIN UPDATE (the sweeper's, a merge's) and HOLDS → A's join
+ *                                          blocks, then is refused — what FOR SHARE has and FOR KEY
+ *                                          SHARE lacks (NO KEY UPDATE does not conflict with it).
+ *   (o) B recalls a PAID cart's served dish (served → in_progress) and HOLDS → A's clear blocks, then
+ *                                          answers `paid_unserved`; the table stays open and the
+ *                                          ticket stays on the kitchen board.
+ *
  * Every wait is observed, both ways: a statement is polled until it either appears in
  * `pg_blocking_pids` behind the named peer ("blocked") or its completion marker lands ("done").
  *
@@ -53,6 +72,13 @@
  *   M5  the claim's shell-cart lock deleted     → j must go red.
  *   M6  the claim's shell-session lock deleted  → k must go red (its own UPDATE takes NO KEY
  *                                                 UPDATE, which a join's KEY SHARE never waits on).
+ *   M7  the join trigger's `for share` deleted  → l and n must go red (m stays green: the control).
+ *   M8  the join trigger's lock → `for key share` → n must go red; l stays green (the clear's own
+ *                                                 FOR UPDATE conflicts with KEY SHARE too).
+ *   M9  the clear's paid-lines `for share` deleted → o must go red.
+ *
+ * M1–M6 patch the M263 migration, M7–M9 the M182 one; each mutant restores ITS file, and the drift
+ * check below covers both files' functions.
  *
  * Each mutant asserts its line matched exactly once, the apply succeeded and `md5(prosrc)` changed;
  * the restore re-applies the migration file and asserts the body is byte-identical. Before any of
@@ -67,7 +93,8 @@
  * scrubbed from the children; in the database TLS must be off and the address private; a TCP host
  * must be the port `supabase status` reports (`BIND_RACE_ASSUME_DISPOSABLE=1` skips only that).
  * Fixtures are committed, tagged `M263R-` on `table_sessions.qr_code` (and the one registry row it
- * adds, table 88, `M263R-T88`), closed after every order and swept by tag in a `finally`.
+ * adds, table 88, `M263R-T88`), closed after every order and swept by tag in a `finally` — a
+ * clear's own record (`qr_table_clears`, whose session key is NO ACTION) and loss rows first.
  *
  * Run: `pnpm verify:bind-race` · `pnpm verify:bind-race:mutants` (the local stack), or
  *   BIND_RACE_DSN="postgresql:///postgres?host=/tmp&port=55432&user=postgres" node scripts/verify-bind-race.mjs
@@ -89,6 +116,10 @@ const FNS = [
   "mms_shell_untouched",
   "mms_untouched_shells",
 ];
+/** M182 · PD7 (orders l–o, mutants M7–M9) — the table clear's migration and every function it
+ *  defines, under the same drift check and the same per-file restore. */
+const CLEAR_MIGRATION = path.join(ROOT, "supabase/migrations/20261009120400_m182_table_clear.sql");
+const CLEAR_FNS = ["mms_ack_table_clear_stop", "mms_clear_table", "mms_refuse_closed_session_join"];
 const TAG = "M263R";
 const TABLE = 88;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -379,6 +410,40 @@ const claimShell = (sh) =>
 const hostOf = (s) =>
   `select coalesce(host_seat::text, 'null') from public.table_sessions where id = '${s.id}';`;
 
+// ── M182 · PD7 — the clear, a join, a plain close, a recall ──
+/** The clear, as the app sends it: nothing sent, nothing shown — `p_seen` the look's clock. */
+const clearTable = (s, seen = "now()") =>
+  `select pg_temp.m263r_try($q$select public.mms_clear_table('${s.id}'::uuid, gen_random_uuid(),
+     ${seen}, '{}'::uuid[], 0, '{}'::text[])->>'status'$q$);`;
+/** A diner's membership insert, as `/api/session` writes it. */
+const join = (s) =>
+  `select pg_temp.m263r_try($q$insert into public.session_members (session_id, seat_id, display_name,
+     role) values ('${s.id}', gen_random_uuid(), 'Bo', 'guest') returning 'landed'$q$);`;
+const membersOf = (s) =>
+  `select count(*) from public.session_members where session_id = '${s.id}';`;
+/** A table that PAID, one dish served thirty seconds ago — still inside the kitchen's recall window. */
+function paidServedTable() {
+  const out = q(`with s as (
+      insert into public.table_sessions (qr_code, mode, status, host_seat, expires_at)
+      values ('${TAG}-P-${RUN}-${++fixtureSeq}', 'dinein', 'active', gen_random_uuid(),
+              now() + interval '1 hour')
+      returning id
+    ), c as (
+      insert into public.qr_carts (session_id) select id from s returning id
+    )
+    select (select id from s), (select id from c);`);
+  const [id, cart] = out.split("|");
+  if (!id || !cart) throw new Error(`${TAG} paid fixture did not resolve: ${out}`);
+  const line =
+    q(`insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents,
+      tax_cents, fulfillment, state, fire_at, started_at, bumped_at)
+    values ('${cart}', '${TAG}-dish', 'Mohinga', 1, 1400, 0, 'dinein', 'served',
+            now() - interval '3 minutes', now() - interval '2 minutes', now() - interval '30 seconds')
+    returning id;`);
+  q(`update public.qr_carts set status = 'paid' where id = '${cart}';`);
+  return { id, cart, line };
+}
+
 /** A holds nothing; B holds `hold` open; A's bind must wait for B and then answer `want`. */
 async function bHoldsThenABinds(hold, aSql, check) {
   const a = await new Session("a").open();
@@ -608,6 +673,72 @@ const ORDERS = {
       closeAll();
     }
   },
+  // ── M182 · PD7 (Codex P1s on #341) ──
+  async l() {
+    const t = session("C", null);
+    try {
+      return await bHoldsThenABinds(clearTable(t), join(t), ({ held, how, res }) => [
+        ["B cleared the table", held, "ok"],
+        ["A's join waited for the clear", how, "blocked"],
+        ["A's join was refused", res, "ERR:session_closed"],
+        ["the cleared table has no member", q(membersOf(t)), "0"],
+      ]);
+    } finally {
+      closeAll();
+    }
+  },
+  async m() {
+    const t = session("C", null);
+    // The look, taken BEFORE the join: the clear must see the member who sat down after it.
+    const seen = q("select now()::text;");
+    try {
+      return await bHoldsThenABinds(
+        join(t),
+        clearTable(t, `'${seen}'::timestamptz`),
+        ({ held, how, res }) => [
+          ["B's join landed", held, "landed"],
+          ["A's clear waited for the join", how, "blocked"],
+          ["A's clear answered joined", res, "joined"],
+          ["the table stayed open", q(statusOf(t)), "active"],
+        ],
+      );
+    } finally {
+      closeAll();
+    }
+  },
+  async n() {
+    const t = session("C", null);
+    try {
+      return await bHoldsThenABinds(
+        `update public.table_sessions set status = 'closed' where id = '${t.id}' returning 'held';`,
+        join(t),
+        ({ how, res }) => [
+          ["A's join waited for the plain close", how, "blocked"],
+          ["A's join was refused", res, "ERR:session_closed"],
+          ["the closed table has no member", q(membersOf(t)), "0"],
+        ],
+      );
+    } finally {
+      closeAll();
+    }
+  },
+  async o() {
+    const t = paidServedTable();
+    try {
+      return await bHoldsThenABinds(
+        `select public.mms_recall_ticket('${t.cart}'::uuid, array['${t.line}']::uuid[])::text;`,
+        clearTable(t),
+        ({ held, how, res }) => [
+          ["B recalled the served dish", held, "1"],
+          ["A's clear waited for the recall", how, "blocked"],
+          ["A's clear answered paid_unserved", res, "paid_unserved"],
+          ["the table stayed open", q(statusOf(t)), "active"],
+        ],
+      );
+    } finally {
+      closeAll();
+    }
+  },
 };
 
 /** Run every order; returns the ids that went red (printing when `loud`). */
@@ -633,7 +764,12 @@ let lockOwned = false;
 let registryOwned = false;
 function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
-  q(`delete from public.qr_cart_items ci using public.qr_carts c, public.table_sessions s
+  // M182 — a clear's own record holds its session (NO ACTION), and its loss rows name it: first.
+  q(`delete from public.qr_table_clears t using public.table_sessions s
+       where t.session_id = s.id and s.qr_code like '${TAG}-%';
+     delete from public.mms_approvals a using public.table_sessions s
+       where a.session_id = s.id and s.qr_code like '${TAG}-%';
+     delete from public.qr_cart_items ci using public.qr_carts c, public.table_sessions s
        where ci.cart_id = c.id and c.session_id = s.id and s.qr_code like '${TAG}-%';
      delete from public.session_members m using public.table_sessions s
        where m.session_id = s.id and s.qr_code like '${TAG}-%';
@@ -663,16 +799,31 @@ function ensureRegistry() {
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
-const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
-const IN_FNS = FNS.map((f) => `'${f}'`).join(", ");
-const IDENTITY = `select p.proname || '|' || md5(pg_get_functiondef(p.oid)) || '|' ||
+/** Each migration a mutant may patch: its text, its functions, and the two probes over them. */
+const MIGS = Object.fromEntries(
+  [
+    ["m263", MIGRATION, FNS],
+    ["m182", CLEAR_MIGRATION, CLEAR_FNS],
+  ].map(([key, file, fns]) => {
+    const inFns = fns.map((f) => `'${f}'`).join(", ");
+    return [
+      key,
+      {
+        file,
+        fns,
+        text: readFileSync(file, "utf8"),
+        identity: `select p.proname || '|' || md5(pg_get_functiondef(p.oid)) || '|' ||
     coalesce(array_to_string(p.proacl::text[], ','), '(default)')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname in (${IN_FNS})
-  order by 1;`;
-const HASH = `select string_agg(p.proname || '=' || md5(p.prosrc), ',' order by p.proname)
+  where n.nspname = 'public' and p.proname in (${inFns})
+  order by 1;`,
+        hash: `select string_agg(p.proname || '=' || md5(p.prosrc), ',' order by p.proname)
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname in (${IN_FNS});`;
+  where n.nspname = 'public' and p.proname in (${inFns});`,
+      },
+    ];
+  }),
+);
 
 /** Each mutant rewrites ONE line, found by the comment the migration pins it with. */
 const MUTANTS = [
@@ -718,27 +869,57 @@ const MUTANTS = [
     expect: ["k"],
     why: "a join landing mid-claim is invisible to the predicate (the claim's own UPDATE takes NO KEY UPDATE, compatible with the FK's KEY SHARE), and the claimant hosts a table somebody just joined",
   },
+  // ── M182 · PD7 (Codex P1s on #341) — the M182 migration's two locks ──
+  {
+    id: "M7/join-trigger-lock-deleted",
+    mig: "m182",
+    line: /^\s*for share;\s+-- Codex P1 on #341: wait out a clear or a close/,
+    to: (l) => l.replace("for share;", ";"),
+    expect: ["l", "n"],
+    why: "the trigger reads the status past an uncommitted clear (or close), the foreign key then waits and admits the insert: a member, and an open cart, on a closed table",
+  },
+  {
+    id: "M8/join-trigger-lock-is-key-share",
+    mig: "m182",
+    line: /^\s*for share;\s+-- Codex P1 on #341: wait out a clear or a close/,
+    to: (l) => l.replace("for share;", "for key share;"),
+    expect: ["n"],
+    why: "KEY SHARE waits out the clear's FOR UPDATE but not a plain close's NO KEY UPDATE: a join racing the sweeper or a merge lands on the closed table",
+  },
+  {
+    id: "M9/clear-paid-lines-lock-deleted",
+    mig: "m182",
+    line: /^\s*for share of ci;\s+-- Codex P1 on #341: a recall in flight/,
+    to: (l) => l.replace("for share of ci;", ";"),
+    expect: ["o"],
+    why: "the clear reads a recalled dish as still served, closes the table, and the recalled ticket leaves the kitchen board",
+  },
 ];
 
-function restoreMigration() {
-  q(MIGRATION_TEXT, "restore");
+function restoreMigration(mig) {
+  q(MIGS[mig].text, "restore");
 }
 
 async function runMutants() {
-  // Drift first, with NOTHING written: what would this migration produce, rolled back?
-  const live = q(IDENTITY);
-  const expected = q(`begin;\n${MIGRATION_TEXT}\n${IDENTITY}\nrollback;`)
-    .split("\n")
-    .filter((l) => /^mms_\w+\|[0-9a-f]{32}\|/.test(l))
-    .join("\n");
-  if (!live || live !== expected || live.split("\n").length !== FNS.length) {
-    throw new Error(
-      `${TAG} REFUSED — the live ${FN} is not what ${path.basename(MIGRATION)} produces — a later ` +
-        `migration redefines it (or a mutant is live, or it is missing). Restoring from this file ` +
-        `would revert it, so every verdict would be about dead code.\n  live: ${live}\n  migration: ${expected}`,
-    );
+  // Drift first, with NOTHING written: what would each migration produce, rolled back?
+  const live = {};
+  const baseHash = {};
+  for (const [key, m] of Object.entries(MIGS)) {
+    live[key] = q(m.identity);
+    const expected = q(`begin;\n${m.text}\n${m.identity}\nrollback;`)
+      .split("\n")
+      .filter((l) => /^mms_\w+\|[0-9a-f]{32}\|/.test(l))
+      .join("\n");
+    if (!live[key] || live[key] !== expected || live[key].split("\n").length !== m.fns.length) {
+      throw new Error(
+        `${TAG} REFUSED — the live ${m.fns.join(" · ")} are not what ${path.basename(m.file)} ` +
+          `produces — a later migration redefines one (or a mutant is live, or one is missing). ` +
+          `Restoring from this file would revert it, so every verdict would be about dead code.` +
+          `\n  live: ${live[key]}\n  migration: ${expected}`,
+      );
+    }
+    baseHash[key] = q(m.hash);
   }
-  const baseHash = q(HASH);
   console.log(`\n${TAG} mutation battery — ${MUTANTS.length} mutants against the LIVE function\n`);
   const reds0 = await battery(false);
   if (reds0.length) {
@@ -750,7 +931,8 @@ async function runMutants() {
 
   let bad = 0;
   for (const m of MUTANTS) {
-    const textLines = MIGRATION_TEXT.split("\n");
+    const mig = m.mig ?? "m263";
+    const textLines = MIGS[mig].text.split("\n");
     const hits = textLines.filter((l) => m.line.test(l));
     if (hits.length !== 1) {
       console.log(`  ${red("STALE")} ${m.id} — the line matched ${hits.length}× (want exactly 1)`);
@@ -762,14 +944,14 @@ async function runMutants() {
     const restoreNow = () => {
       if (!live_) return;
       live_ = false;
-      restoreMigration();
+      restoreMigration(mig);
     };
     process.once("exit", restoreNow);
     process.once("SIGINT", restoreNow);
     process.once("SIGTERM", restoreNow);
     try {
       q(mutated, "mutate");
-      if (q(HASH) === baseHash) {
+      if (q(MIGS[mig].hash) === baseHash[mig]) {
         console.log(`  ${red("INERT")} ${m.id} — applied, but the body did not change`);
         bad++;
         continue;
@@ -796,7 +978,7 @@ async function runMutants() {
       process.removeListener("SIGINT", restoreNow);
       process.removeListener("SIGTERM", restoreNow);
     }
-    if (q(IDENTITY) !== live) {
+    if (q(MIGS[mig].identity) !== live[mig]) {
       throw new Error(`${TAG} FATAL — the restore after ${m.id} is not byte-identical.`);
     }
   }
@@ -847,7 +1029,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:bind-race — ${Object.keys(ORDERS).length} orders (a–k), every wait observed\n`,
+        `\n✓ verify:bind-race — ${Object.keys(ORDERS).length} orders (a–${Object.keys(ORDERS).at(-1)}), every wait observed\n`,
       ),
     );
   }

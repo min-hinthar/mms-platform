@@ -432,9 +432,12 @@ export type ClearTableResult =
 /** PD7 (Codex correction 11) — the fresh look at the Clear tap. `unknown`: the read failed, so the
  *  pane clears NOTHING (an unknown kitchen read is never a no-loss clear). `counter`: a counter order
  *  keeps its own exits (the plain clear, or "They didn't come"). `secure`: a secured tab with SENT
- *  food — the saved card pays for it, never a write-off (`clearNeedsTheCard`). */
+ *  food — the saved card pays for it, never a write-off (`clearNeedsTheCard`). `paidUnserved` (Codex
+ *  P1 on #341): a PAID cart's food the kitchen has not finished — serve it or bag it first; a clear
+ *  would take its tickets off the board (`clearPaidUnserved`). */
 export type ClearPreviewResult =
   | { kind: "preview"; preview: ClearPreview }
+  | { kind: "paidUnserved" }
   | { kind: "secure" }
   | { kind: "counter" }
   | { kind: "closed" }

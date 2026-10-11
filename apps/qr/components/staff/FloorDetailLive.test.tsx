@@ -2384,6 +2384,7 @@ describe("PD7 (m7 B3 · B12) — the clear's loss slip beside the settle section
         lossCents: 1400,
         units: 1,
         droppedUnits: 0,
+        lines: ["l1:1:dinein:sent"],
       },
     });
     mountWith(SETTLEABLE);

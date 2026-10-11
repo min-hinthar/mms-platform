@@ -8,7 +8,13 @@ import {
   counterOlderInput,
   mergeTablesInput,
 } from "@mms/db/schemas";
-import { clearAnswerOf, clearNeedsTheCard, clearPreviewOf, clearRefusalSays } from "./clear-table";
+import {
+  clearAnswerOf,
+  clearNeedsTheCard,
+  clearPaidUnserved,
+  clearPreviewOf,
+  clearRefusalSays,
+} from "./clear-table";
 import { STAFF } from "./i18n/staff";
 import { fill } from "./i18n/fill";
 import { AuthzError } from "./authz";
@@ -1152,8 +1158,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
  * price, what is dropped) and the clock the clear then carries as `seenAt`. Any failed read is
  * `unknown`: the pane clears NOTHING on an unknown kitchen read — never a no-loss clear over food
  * nobody could see. A counter order answers `counter` (its exits are its own); a closed table
- * `closed`; a secured tab with SENT food `secure` (its card pays — `clearNeedsTheCard`). Advisory
- * only: `mms_clear_table` re-derives every figure under its locks.
+ * `closed`; a PAID cart's food the kitchen has not finished `paidUnserved` (Codex P1 on #341 — the
+ * board shows a dine-in ticket only while the table is open, so a clear would take it away); a
+ * secured tab with SENT food `secure` (its card pays — `clearNeedsTheCard`). The look carries EVERY
+ * live line (`preview.lines`), so a change to any of them after it refuses the clear. Advisory only:
+ * `mms_clear_table` re-derives every figure under its locks.
  */
 export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult> {
   const gate = await staffGate();
@@ -1173,6 +1182,26 @@ export async function getClearPreview(raw: unknown): Promise<ClearPreviewResult>
   const seenAt = typeof clockRes.data === "string" ? clockRes.data : null;
   const nowMs = seenAt === null ? Number.NaN : Date.parse(seenAt);
   if (seenAt === null || !Number.isFinite(nowMs)) return { kind: "unknown" };
+  // Codex P1 on #341 — a PAID cart's food the kitchen has not finished holds the clear, whatever the
+  // open cart holds (the RPC refuses it first, `paid_unserved`). Read in full and decided by the one
+  // rule (`clearPaidUnserved`); a failed read is `unknown`, never "nothing cooking".
+  const { data: paidCarts, error: paidCartsError } = await db
+    .from("qr_carts")
+    .select("id")
+    .eq("session_id", sessionId)
+    .eq("status", "paid");
+  if (paidCartsError || !paidCarts) return { kind: "unknown" };
+  if (paidCarts.length > 0) {
+    const { data: paidLines, error: paidLinesError } = await db
+      .from("qr_cart_items")
+      .select("state,fulfillment")
+      .in(
+        "cart_id",
+        paidCarts.map((c) => c.id),
+      );
+    if (paidLinesError || !paidLines) return { kind: "unknown" };
+    if (clearPaidUnserved(paidLines)) return { kind: "paidUnserved" };
+  }
   const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,tab_type")
@@ -1303,8 +1332,9 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
     // pending requests superseded, every SENT dish on the owner's loss list as not approved, the
     // kitchen's lines voided with a durable stop record, the cart cancelled, the session closed, and
     // the audit row (`qr_table_clears`: who, when, the dishes, the loss). It refuses — writing nothing
-    // — a join or a change after the look the staff member saw (`expect`), money in flight, or a live
-    // card attempt. No look, no clear: the client never asserts a loss, it names the one it was shown.
+    // — a join or ANY line changed after the look the staff member saw (`expect`), paid food the
+    // kitchen has not finished, money in flight, or a live card attempt. No look, no clear: the
+    // client never asserts a loss, it names the one it was shown.
     if (!expect) return { ok: false, error: STAFF["table.noshow.err.changed"].en, code: "changed" };
     const { data: answerRaw, error: clearErr } = await db.rpc("mms_clear_table", {
       p_session: sessionId,
@@ -1312,6 +1342,8 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
       p_seen_at: expect.seenAt,
       p_expected_line_ids: expect.lineIds,
       p_loss_cents: expect.lossCents,
+      // Codex P1 on #341 — every live line as the look saw it: any line changed since refuses.
+      p_seen_lines: expect.lines,
     });
     // An RPC error: a refusal by the database rolled the ONE transaction back; a response lost on
     // the way may hide a commit. Either way the retry is safe — a cleared table answers `closed`, and

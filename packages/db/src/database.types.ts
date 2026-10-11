@@ -2009,6 +2009,7 @@ export type Database = {
           p_initiator: string
           p_loss_cents: number
           p_seen_at: string
+          p_seen_lines: string[]
           p_session: string
         }
         Returns: Json

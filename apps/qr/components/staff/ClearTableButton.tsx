@@ -307,6 +307,14 @@ export function ClearTableButton({
       setConfirming(true);
       return;
     }
+    if (r.kind === "paidUnserved") {
+      // Codex P1 on #341 — the table PAID and the kitchen has not finished its food: a clear would
+      // take those tickets off the board. No slip, no window — serve it or bag it first.
+      setPhase({ k: "rest" });
+      setNotice({ k: "settle.clear.paidUnserved", vars: { id: label } });
+      resay();
+      return;
+    }
     if (r.kind === "secure") {
       // A secured tab's SENT food is its saved card's to pay (the blind pass on #341): no slip and
       // no walkout — the pane's card door ("Close bill · card on file") is the way out.
@@ -509,7 +517,7 @@ export function ClearTableButton({
         ? { k: "settle.clear.midPayment" }
         : stale === "joined"
           ? { k: "settle.clear.joined", vars: { id: label } }
-          : { k: "table.noshow.err.changed" },
+          : { k: "settle.clear.changed", vars: { id: label } },
     );
     resay();
     setDropped((n) => n + 1);
@@ -875,11 +883,13 @@ const confirmRow: CSSProperties = {
 };
 const hint: CSSProperties = { margin: "8px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" };
 
-/** The look a table's clear carries — the dishes and the figure shown, and the clock they were read on. */
+/** The look a table's clear carries — the dishes and the figure shown, the clock they were read on,
+ *  and every live line as it stood (Codex P1 on #341: any line changed since refuses the clear). */
 const expectOf = (p: ClearPreview) => ({
   lineIds: p.sent.map((l) => l.id),
   lossCents: p.lossCents,
   seenAt: p.seenAt,
+  lines: p.lines,
 });
 
 const fmtCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;

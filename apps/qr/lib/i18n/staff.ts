@@ -4034,6 +4034,22 @@ export const STAFF = {
     my: "ဒီမှာ ကတ်နဲ့ ငွေချေတာ စပြီး မပြီးသေးပါ — မရှင်းခင် အကူအညီ ကနေ မေးပါ။",
   }, // K15-HIGH — never "went through" before the server-side retrieve (m7 graft 8)
   "settle.clear.gone": { en: "That table is already cleared.", my: "ဒီစားပွဲ ရှင်းပြီးသားပါ။" },
+  // Codex P1 on #341 — the clear's OWN changed line: the order moved after the look (a draft
+  // re-counted, taken off, sent or turned to-go — not only the sent dishes), and nothing was cleared.
+  // Grounded: table.noshow.err.changed (အော်ဒါ ပြောင်းသွား · ပြန်စစ်), settle.clear.joined (မရှင်းဘဲ
+  // ဖွင့်ထားပါတယ် · မရှင်းခင်).
+  "settle.clear.changed": {
+    en: "Table {id}’s order changed after you looked, so it stayed open — check it before you clear it.",
+    my: "စားပွဲ {id} ရဲ့ အော်ဒါ ကြည့်ပြီးမှ ပြောင်းသွားလို့ မရှင်းဘဲ ဖွင့်ထားပါတယ် — မရှင်းခင် ပြန်စစ်ပါ။",
+  }, // K15-HIGH — misread as cleared, a party still ordering is seated over (draft)
+  // Codex P1 on #341 — a PAID cart's food the kitchen has not finished holds the clear (the board shows
+  // a dine-in ticket only while its table is open). Grounded: ငွေရှင်းပြီး (the paid chip), ဟင်း ·
+  // မီးဖိုချောင် (settle.clear.counterSent), ထုတ် (kds.served.chip), ထုပ် (kds.line.bagit), စားပွဲ ရှင်း
+  // (settle.clear.btn).
+  "settle.clear.paidUnserved": {
+    en: "Table {id} has paid food the kitchen hasn’t finished — serve it or bag it, then clear the table.",
+    my: "စားပွဲ {id} မှာ ငွေရှင်းပြီးသား ဟင်း မီးဖိုချောင်က မပြီးသေးပါ — ထုတ်ပေး ဒါမှမဟုတ် ထုပ်ပေးပြီးမှ စားပွဲ ရှင်းပါ။",
+  }, // K15-HIGH — misread, a paid ticket leaves the kitchen board unserved (draft)
   "settle.clear.secureTab": {
     en: "Table {id} has a card on file — close the bill on that card before you clear it.",
     my: "စားပွဲ {id} မှာ သိမ်းထားကတ် ရှိပါတယ် — မရှင်းခင် အဲဒီကတ်နဲ့ စာရင်းပိတ်ပါ။",
@@ -4704,6 +4720,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.clear.cardLive",
   "settle.clear.secureTab",
   "settle.clear.windowLeft",
+  // ── Codex r1 on #341 ──
+  "settle.clear.changed",
+  "settle.clear.paidUnserved",
   "settle.clear.loss.head",
   "settle.clear.loss.total",
   "settle.clear.ask",
