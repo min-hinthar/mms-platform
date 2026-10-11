@@ -2790,12 +2790,14 @@ export const STAFF = {
     en: "A filled tile is a table asking to pay — the only tile that ever fills. Tap it to see their ask, with the same total their phone shows.",
     my: "အရောင်ဖြည့်ထားတဲ့ အကွက်က ငွေရှင်းချင်တဲ့ စားပွဲပါ — အရောင်ဖြည့်တဲ့ အကွက် ဒီတစ်မျိုးပဲ ရှိပါတယ်။ နှိပ်ရင် သူတို့ဖုန်းပေါ်က စုစုပေါင်း အတိုင်း မြင်ရပါမယ်။",
   },
-  // Counter step 4 — the till tray. "Take" is the door's own verb (settle.cash.settleAmount, ရှင်း);
+  // Counter step 4 — the till tray. No "in the corner": the readout sits in the band's money corner
+  // only from the till's breakpoint (85.375em); the single-column sheet below it draws it above the
+  // actions, and the guide shows from 64em. "Take" is the door's own verb (settle.cash.settleAmount, ရှင်း);
   // the change is အကြွေ (settle.cash.changeLabel); "nothing is taken" is settle.cash.cancelClean's
   // ဘာငွေမှ မယူရသေးပါ.
   "help.guide.counter.cash": {
-    en: "Tap the note they gave you. The change to hand back shows in the corner — nothing is taken until you tap Take.",
-    my: "ပေးတဲ့ ငွေစက္ကူကို နှိပ်ပါ။ ပြန်အမ်းရမယ့် အကြွေက ထောင့်မှာ ပေါ်ပါမယ် — ရှင်း ကို မနှိပ်မချင်း ဘာငွေမှ မယူရသေးပါ။",
+    en: "Tap the note they gave you, and the change to hand back appears — nothing is taken until you tap Take.",
+    my: "ပေးတဲ့ ငွေစက္ကူကို နှိပ်ရင် ပြန်အမ်းရမယ့် အကြွေ ပေါ်လာပါမယ် — ရှင်း ကို မနှိပ်မချင်း ဘာငွေမှ မယူရသေးပါ။",
   },
   // Counter step 5 — the clear window. {n} is the window's seconds (`CLEAR_UNDO_MS`), never typed.
   // Grounded: ထွက်သွားရင် ရှင်းပါ (floor.card.clearHint), ပြန်ဖျက် (kds.undo), နောက်ဧည့်သည် ဖွင့်

@@ -1557,16 +1557,20 @@ chose under the owner's delegation, the reason is below.
 5. **Counter 3's sentence is the five-step version** ("…with the same total their phone shows"), not
    the COPY list's "the same pass they're holding": the pane's pass is the twin, not the guest's
    (decision 16), and the total is the fact the two share (`getCartTotals`).
-6. **Counter 4 is a composed crop, said so** (C): the tray's GAVE tiles from the $50's row (the real
+6. **Counter 4's sentence drops "in the corner"**: the Change readout sits in the band's money corner
+   only in the till layout (from 85.375em × 44em); the guide shows from 64em, where a narrower tablet's
+   single-column sheet draws the readout above the actions. "…and the change to hand back appears" is
+   true in both.
+7. **Counter 4 is a composed crop, said so** (C): the tray's GAVE tiles from the $50's row (the real
    ladder for $46.41: $47 · $50 · $60 after Exact; the first row cropped away) with the band's Change
    readout drawn under them. Inside `.till-sheet`, so from the till's breakpoint it is the tray's own
    size and below it the single-column sheet's — whatever this device's tray really draws.
-7. **Counter 5 draws the window, not the card** (B3 a–c): the dashed "Clearing Table 7" chip, the
+8. **Counter 5 draws the window, not the card** (B3 a–c): the dashed "Clearing Table 7" chip, the
    in-slot Undo with ONE aria-hidden seconds leaf, Seat next party — no slab, no hatch.
-8. **Kitchen 4 has no head-stat replica** (B4), and every ticket picture is cropped above its bump —
+9. **Kitchen 4 has no head-stat replica** (B4), and every ticket picture is cropped above its bump —
    a test refuses any non-stop ticket that carries one.
-9. **Kitchen 1's title is the card's identity** ("Table 11", B7) rather than the spec's English-only
-   "One Send, one card"; its sentence carries the lesson (A4's shared stage words).
+10. **Kitchen 1's title is the card's identity** ("Table 11", B7) rather than the spec's English-only
+    "One Send, one card"; its sentence carries the lesson (A4's shared stage words).
 
 **Measured.** 26 `pd12/*` mutants in `scripts/verify-slice.mjs` (9 on the seen-key helper, 1 on the
 hook, 14 on the guide model, 2 on `StepGuide`'s arm wiring), each watched CAUGHT by its owning suite.

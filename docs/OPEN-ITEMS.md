@@ -1047,9 +1047,10 @@ is added to `STAFF_K15_HIGH` (final-kitchen-ops: no new HIGH); the money-adjacen
   (အဝိုင်းအလွတ် "an empty circle" for the hollow ring is the draft's own word.)
 - `help.guide.counter.ask` — "A filled tile is a table asking to pay — the only tile that ever fills.
   Tap it to see their ask, with the same total their phone shows." · အရောင်ဖြည့်ထားတဲ့ အကွက်က …
-- `help.guide.counter.cash` (**HIGH-candidate**) — "Tap the note they gave you. The change to hand back
-  shows in the corner — nothing is taken until you tap Take." · … ရှင်း ကို မနှိပ်မချင်း ဘာငွေမှ
-  မယူရသေးပါ။ (Take = the door's own ရှင်း; "nothing is taken" = `settle.cash.cancelClean`'s words.)
+- `help.guide.counter.cash` (**HIGH-candidate**) — "Tap the note they gave you, and the change to hand
+  back appears — nothing is taken until you tap Take." · … ရှင်း ကို မနှိပ်မချင်း ဘာငွေမှ မယူရသေးပါ။
+  (Take = the door's own ရှင်း; "nothing is taken" = `settle.cash.cancelClean`'s words. The spec's "in
+  the corner" is dropped: the readout is in the corner only in the till layout, from 85.375em.)
 - `help.guide.counter.clear` (**HIGH-candidate**) — "Clear a table once they’ve left. For {n} seconds,
   Undo waits right where you tapped — Seat next party skips the wait." · ဧည့်သည် ထွက်သွားမှ စားပွဲ
   ရှင်းပါ။ … (`{n}` is `CLEAR_UNDO_MS`.)
