@@ -13,7 +13,10 @@
 --   PD1N.2  it never locks a TO-GO draft or a SENT line: only the lines the UPDATE's `exists` reads;
 --   PD1N.3  it never locks lines on a cart that is not OPEN — it refuses that cart anyway (`closed`),
 --           and the post-pay kitchen writers work a paid cart's drafts;
---   PD1N.4  the restated function is callable by service_role only.
+--   PD1N.4  the restated function is callable by service_role only — and service_role holds UPDATE
+--           on `qr_cart_items`, which `for share` needs: the nudge is SECURITY INVOKER, so its line
+--           lock runs with the caller's privileges (the blind pass on #342; this file runs as
+--           postgres, which never needs the grant).
 --
 -- Each case PD1N.1–3 is falsified by a named mutant in scripts/verify-mode-authority.mjs (suite
 -- `pd1n`), which matches the `PD1N.<n> ·` prefix of the failing assert. PD1N.4 is a shape check that
@@ -110,6 +113,8 @@ begin
     'PD1N.4 · anon must not call the restated mms_nudge_host';
   assert not has_function_privilege('authenticated', 'public.mms_nudge_host(uuid, uuid)', 'execute'),
     'PD1N.4 · authenticated must not call the restated mms_nudge_host';
+  assert has_table_privilege('service_role', 'public.qr_cart_items', 'update'),
+    'PD1N.4 · service_role lacks UPDATE on qr_cart_items — the invoker nudge''s `for share` line lock would fail with 42501 for its only caller';
 end $$;
 
 rollback;

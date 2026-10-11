@@ -18,14 +18,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   nudge. Same signature, return and grants; no `drop`, no `delete`; the deployed build runs unchanged.
   The lock-cycle check, measured: `mms_set_line_fulfillment`'s latest definition (m17) never takes the
   cart, and the nudge still takes the cart before any line.
-- **Proven with two and three sessions:** `scripts/verify-fire-cart-race.mjs` gains four orders —
-  switch-before-nudge (i), nudge-before-switch (j), add-before-nudge (k: the cart stays first) and
-  bump-in-the-way (l: the id order matches `mms_bump_ticket`'s) — and four mutants: the line lock
-  dropped (i, j, l), `for key share` (i, j), taken before the cart (k), against id order (l). Its
-  battery now replays the migration CHAIN (PD1's file, then the follow-up's), so PD1's nudge
-  cart-lock mutant patches the follow-up's text, caught by (k). All 7 mutants were caught on three
-  consecutive runs. `supabase/tests/pd1_nudge_line_lock_test.sql` (CI's required list) pins the lock
-  TAKEN, on which lines and only on an open cart (PD1N.1–4), red-first against PD1's body;
+- **Proven with two and three sessions:** `scripts/verify-fire-cart-race.mjs` gains six orders —
+  switch-before-nudge (i), nudge-before-switch (j), add-before-nudge (k: the cart stays first),
+  bump-in-the-way (l: the id order matches `mms_bump_ticket`'s), and — the capped blind pass on
+  #342 — line-void-before-nudge (m) and nudge-before-line-fire (n): `mms_line_transition`, the
+  kitchen's void and fire of a line, which also locks only the line. Five mutants: the line lock
+  dropped (i, j, l, m, n), `for key share` (i, j, m, n), taken before the cart (k), against id order
+  (l), and BOTH nudge locks dropped (e, i, j, l, m, n) — the one kill left for fire-before-nudge (e),
+  which either lock alone keeps green. Its battery now replays the migration CHAIN (PD1's file, then
+  the follow-up's), so PD1's nudge cart-lock mutant patches the follow-up's text, caught by (k). All
+  8 mutants were caught on three consecutive runs, the same orders red each time.
+  `supabase/tests/pd1_nudge_line_lock_test.sql` (CI's required list) pins the lock TAKEN, on which
+  lines and only on an open cart (PD1N.1–3), red-first against PD1's body, and the grants (PD1N.4),
+  with service_role's UPDATE on `qr_cart_items` — the nudge is SECURITY INVOKER, and `for share`
+  needs that privilege from its one caller (red-first: revoked, the case fails);
   `verify-mode-authority.mjs` gains suite `pd1n` (4 killed, 3 documented survivors that only the race
   harness can see), and suite `pd1`'s nudge mutants patch the new file.
 - **A dish that joins the open "Show a server" pass stays on it (comment 4240355354, P2).** A

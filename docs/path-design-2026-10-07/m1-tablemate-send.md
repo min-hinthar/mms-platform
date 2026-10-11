@@ -587,7 +587,8 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   `fasnpdhtvqtzjlvruqcu`), and it goes FIRST: apply `20261008123000`, then merge. The build before
   PD1 runs unchanged against the new `mms_fire_cart`; the PD1 build offers "Let {host} know" only
   when its stamp read succeeds (`nudgeReady`), so an unmigrated project hides the button rather than
-  offering one whose every tap fails.
+  offering one whose every tap fails. **Applied** (prod migration row `20261011045025`, verified
+  2026-10-11); never re-applied after `20261011123000` (the post-merge review, below).
 - A8 (the console's hollow ring, Dad's pane grouping): counter-floor, with P2do.
 - Decision 16 (the host's name ask, once, when the party reaches two): not built; the role sentence
   covers an unnamed host meanwhile.
@@ -671,10 +672,18 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   nudge decided from a plain read of the dine-in drafts, so a nudge racing a switch of the last one
   stamped a cart no view could show the stamp on. `20261011123000_pd1_nudge_line_lock.sql` restates
   `mms_nudge_host` with the cart's dine-in drafts `for share` after the cart lock and before the
-  decision, in id order, while the cart is open (PD1's file is applied and stays as it ran). Cart →
-  line still holds: the switch never takes the cart (measured, m17's definition). Proven with two
-  sessions in both orders and against an add and a bump (`verify-fire-cart-race.mjs` orders i–l and
-  their mutants). One session pins the lock taken (`pd1_nudge_line_lock_test.sql`, suite `pd1n`).
+  decision, in id order, while the cart is open. Cart → line still holds: the switch never takes the
+  cart (measured, m17's definition). Proven with two sessions in both orders, against an add and a
+  bump, and against the kitchen's void and fire of the line (`mms_line_transition`, which also locks
+  only the line) — `verify-fire-cart-race.mjs` orders i–n and their mutants, one of which drops both
+  nudge locks and is the one that reddens the Send race (e). One session pins the lock taken
+  (`pd1_nudge_line_lock_test.sql`, suite `pd1n`) and service_role's UPDATE on `qr_cart_items` that
+  the invoker's `for share` needs (PD1N.4).
+- **Deploy order.** PD1's file `20261008123000` is applied (prod row `20261011045025`, verified
+  2026-10-11) and stays as it ran. `20261011123000` is pending: one file on the owner's go, applied
+  before #342 merges; the deployed build runs unchanged against it. PD1's file is never re-applied
+  after it — its `create or replace` would put back the nudge with no line lock, and the md5 check
+  the follow-up prescribes runs only when the follow-up is applied.
 - **A dish that joins the pass stays on it.** "The list follows the confirmed view" (screen 2) now
   also KEEPS a tablemate's draft that joined the open pass (`passListedNow`). Once sent, it reads
   "Sending…" and then "Sent to kitchen" like the dishes the pass opened on. Before this it left the

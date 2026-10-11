@@ -29,8 +29,10 @@
  *   (d) fire-first — (b) with the stepper: 'sent', the fired line keeps qty 1.
  *   (e) fire-first — A fires inside an open transaction; B's nudge must BLOCK on A and, once A
  *       commits, answer 'nothing_to_send' with no stamp written: the dishes it would name are gone.
- *       Without the nudge's own cart lock B waits only because A holds the row, and then decides from
+ *       Without the nudge's own locks B waits only because A holds the row, and then decides from
  *       the snapshot it took BEFORE A committed — the stamp lands on a cart with nothing to send.
+ *       (Since the follow-up either lock alone keeps (e) green; the paragraph after (n) says which
+ *       mutant reddens it.)
  *   (f) nudge-first — B nudges inside an open transaction ('ok'); A's fire must BLOCK on B and, once
  *       B commits, fire the line AND clear the stamp: the answered wait leaves the host's phone in
  *       the same transaction as the dishes.
@@ -65,6 +67,16 @@
  *       order is the plan's (heap order, which a reused free slot reorders), so a fixture that
  *       counted on it caught that mutant on some runs only (measured: its own precondition check
  *       refused on the second run, 2026-10-11).
+ *   (m) void-first — (i) with the kitchen's own edge: A voids Thiri's one dine-in draft through
+ *       `mms_line_transition` (one UPDATE of the line, never the cart) inside an open transaction;
+ *       B's nudge must BLOCK on A and, once A commits, answer 'nothing_to_send' with no stamp.
+ *   (n) nudge-first — (j) with the same edge's draft → fired: B nudges inside an open transaction
+ *       ('ok'); A's fire of the line must BLOCK on B and go through once B commits. (m) and (n) are
+ *       the blind pass on #342's ask: the migration's header claimed this ordering untested.
+ *
+ * Order (e) is the one that names the nudge against the Send, and since the follow-up either nudge
+ * lock ALONE keeps it green: the mutant `pd1n/nudge-both-locks-dropped` (PD1's first, lock-less
+ * decision) is what turns it red.
  *
  * Every wait is read from `pg_blocking_pids`, never a sleep. Each RPC runs inside a `pg_temp`
  * wrapper that turns 40P01 (and P2dd's two P0001 refusals) into DATA, so a deadlock is a verdict and
@@ -302,6 +314,10 @@ const HELPERS = `
   create function pg_temp.r_ful(p uuid, f text) returns text language plpgsql as $f$
   begin return public.mms_set_line_fulfillment(p, f);
   exception when deadlock_detected then return 'deadlock'; end $f$;
+  create function pg_temp.r_tr(p uuid, t text) returns text language plpgsql as $f$
+  declare v integer;
+  begin v := public.mms_line_transition(p, t); return v::text;
+  exception when deadlock_detected then return 'deadlock'; end $f$;
   create function pg_temp.r_bump(c uuid, ls uuid[]) returns text language plpgsql as $f$
   declare v integer;
   begin v := public.mms_bump_ticket(c, ls); return v::text;
@@ -496,6 +512,7 @@ const setQty = (f, n) => `select pg_temp.r_qty('${f.line}'::uuid, ${n});`;
 const nudge = (f) => `select pg_temp.r_nudge('${f.cart}'::uuid, '${THIRI}'::uuid);`;
 const merge = (f, t) => `select pg_temp.r_merge('${f.cart}'::uuid, '${t.cart}'::uuid);`;
 const toGo = (f) => `select pg_temp.r_ful('${f.line}'::uuid, 'togo');`;
+const transition = (f, to) => `select pg_temp.r_tr('${f.line}'::uuid, '${to}');`;
 const bump = (f) =>
   `select pg_temp.r_bump('${f.cart}'::uuid, array['${f.lo}', '${f.hi}']::uuid[]);`;
 const hold = (lineId) => `select pg_temp.r_hold('${lineId}'::uuid);`;
@@ -805,6 +822,56 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  // (m) void-first: the kitchen's own edge (`mms_line_transition`, which locks the line and never the
+  // cart) voids the last dine-in draft; the nudge waits on that LINE, then decides from its commit.
+  async m() {
+    const f = fixture("m");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const voided = await a.run(transition(f, "voided"));
+      b.fire(nudge(f));
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const answer = await b.collect();
+      return [
+        ["A voided the last dine-in draft", voided, "1"],
+        ["B's nudge waited for the void", how, "blocked"],
+        ["B's nudge found nothing left to send", answer, "nothing_to_send"],
+        ["no stamp on a cart with no dine-in draft", f.stamp(), "none"],
+        ["the line is voided", f.lineNow(), "voided|1|true"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  // (n) nudge-first: the same edge's draft → fired waits on the nudge's share lock; the stamp came
+  // first, and the fire (which never clears a stamp — only `mms_fire_cart` does) came after it.
+  async n() {
+    const f = fixture("n");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await b.run("begin;");
+      const answer = await b.run(nudge(f));
+      a.fire(transition(f, "fired"));
+      const how = await blockedOrDone(a, b);
+      await b.run("commit;");
+      const fired = await a.collect();
+      return [
+        ["B's nudge landed", answer, "ok"],
+        ["A's fire of the line waited for the nudge", how, "blocked"],
+        ["A fired the line once the nudge committed", fired, "1"],
+        ["the stamp written before the fire stands", f.stamp(), THIRI],
+        ["the line is fired", f.lineNow(), "fired|1|true"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 const NAMES = {
   a: "add-first",
@@ -819,6 +886,8 @@ const NAMES = {
   j: "nudge-before-switch",
   k: "add-before-nudge",
   l: "bump-in-the-way",
+  m: "line-void-before-nudge",
+  n: "nudge-before-line-fire",
 };
 
 /** Run every order; returns the ids that went red (printing when `loud`). */
@@ -921,7 +990,8 @@ const MUTANTS = [
     edits: [{ find: NUDGE_CART_LOCK, replace: "" }],
     // (k): with no cart lock first, the nudge takes the line `for share` and THEN wants the cart
     // the add holds (its UPDATE) — line → cart against the add's cart → line: 40P01. (e) — PD1's
-    // only kill — is green since the follow-up: the line lock alone waits for the fire's lines.
+    // only kill — is green since the follow-up: the line lock alone waits for the fire's lines
+    // (`pd1n/nudge-both-locks-dropped`, below, is (e)'s kill now).
     expect: ["k"],
     why: "a nudge with no cart lock first takes its lines before the cart — against an add holding the cart, a deadlock",
   },
@@ -932,17 +1002,18 @@ const MUTANTS = [
     // (i): Codex's finding — the nudge waits for nothing, reads the pre-switch line, answers 'ok' and
     // stamps a cart with no dine-in draft. (j): the switch waits for nothing; the stamp is decided
     // before the switch and committed after it. (l): the nudge takes no line, so it never queues.
-    expect: ["i", "j", "l"],
+    // (m) · (n): the same two races against `mms_line_transition`'s void and fire of the line.
+    expect: ["i", "j", "l", "m", "n"],
     why: "Codex's post-merge review of #335: a nudge racing a switch of the last dine-in draft to to-go answers 'ok' over a stamp no view can show",
   },
   {
     id: "pd1n/nudge-line-lock-key-share",
     src: "pd1n",
     edits: [{ find: "    for share of ci;\n", replace: "    for key share of ci;\n" }],
-    // `for key share` does not conflict with a line UPDATE's `for no key update`: (i) and (j) as
-    // above. (l) stays green: it DOES conflict with X's and the bump's `for update`, so the nudge
-    // still queues behind them in id order (measured, 2026-10-11).
-    expect: ["i", "j"],
+    // `for key share` does not conflict with a line UPDATE's `for no key update`: (i), (j), (m) and
+    // (n) as above. (l) stays green: it DOES conflict with X's and the bump's `for update`, so the
+    // nudge still queues behind them in id order (measured, 2026-10-11).
+    expect: ["i", "j", "m", "n"],
     why: "a lock that conflicts with no line UPDATE orders nothing — the switch races the nudge as if no lock were taken",
   },
   {
@@ -969,6 +1040,22 @@ const MUTANTS = [
     // whose order is the plan's (see the header's (l)).
     expect: ["l"],
     why: "two multi-row lockers taking the same drafts in different orders — the nudge against a bump, a deadlock",
+  },
+  {
+    id: "pd1n/nudge-both-locks-dropped",
+    src: "pd1n",
+    edits: [{ find: NUDGE_CART_LOCK + NUDGE_LINE_LOCK, replace: "" }],
+    // PD1's first, lock-less decision (no cart lock, no line lock): what PD1's file would put back if
+    // it were re-applied after the follow-up's, less its cart lock. (e) is the only order that names
+    // the nudge against the Send, and either lock ALONE keeps it green (the cart lock waits for the
+    // fire at the cart; the line lock waits for its lines) — so this is (e)'s one kill: the UPDATE
+    // waits for the fire's cart row, but its `exists` reads the lines from the snapshot it took
+    // before the fire committed, and answers 'ok' over dishes already sent (the blind pass on #342:
+    // the follow-up had left (e) with no mutant that turns it red). (i, j, l, m, n): no line lock,
+    // as in `pd1n/nudge-line-lock-dropped`. (k) stays green: the UPDATE still meets the add at the
+    // cart, holding no line (measured, 2026-10-11).
+    expect: ["e", "i", "j", "l", "m", "n"],
+    why: "a nudge that locks nothing before it decides answers 'ok' over dishes the Send has already fired",
   },
 ];
 
@@ -1084,7 +1171,7 @@ async function main() {
       failed += await runMutants();
     } else {
       console.log(
-        `\n${TAG} — the diner Send against an add, a qty change, a nudge and a merge; the nudge against a switch to to-go, an add and a bump\n`,
+        `\n${TAG} — the diner Send against an add, a qty change, a nudge and a merge; the nudge against a switch to to-go, an add, a bump and the kitchen's void and fire of a line\n`,
       );
       failed += (await battery(true)).length;
     }

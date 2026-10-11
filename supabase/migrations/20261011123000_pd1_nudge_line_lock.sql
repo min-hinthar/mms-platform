@@ -4,9 +4,10 @@
 -- nudges with fulfillment changes").
 --
 -- ## The finding, verified against the source
--- `mms_nudge_host` (20261008123000_pd1_send_nudge.sql, APPLIED to prod — so restated here, never
--- edited there) takes the cart row `for no key update` and then decides in ONE UPDATE whose WHERE
--- requires a DINE-IN DRAFT through a plain `exists`: a read that neither locks nor waits.
+-- `mms_nudge_host` (20261008123000_pd1_send_nudge.sql, APPLIED to prod as migration row
+-- `20261011045025`, verified 2026-10-11 — so restated here, never edited there) takes the cart row
+-- `for no key update` and then decides in ONE UPDATE whose WHERE requires a DINE-IN DRAFT through
+-- a plain `exists`: a read that neither locks nor waits.
 -- `mms_set_line_fulfillment` — its LATEST definition, 20260826000000_m17_line_tax_category.sql:171-262
 -- — locks the LINE and nothing else: its first read takes no lock, and its UPDATE's `exists` over
 -- `qr_carts` locks no cart (an FK check fires only when `cart_id` changes, and it never does). The
@@ -32,10 +33,15 @@
 --     when it was written and goes stale only through a change that came AFTER it — the serial
 --     order, which PD1's liveness rule already reads (order j).
 -- The same lock orders the nudge against every other writer that can take a dine-in draft away
--- WITHOUT the cart: `mms_line_transition` (one line, draft → fired or voided) — and against the
--- fire, which now meets it at a line as well as at the cart (order e stays green with either lock
--- alone; the race harness's mutants measure both). The writers that take the cart first (the fire,
--- the three line RPCs, `mms_void_line`, the merge) were already ordered by the cart lock.
+-- WITHOUT the cart: `mms_line_transition` (one line, draft → fired or voided). Its latest definition
+-- (20261001000000_p2f_counter_cook_before_paid.sql) is ONE UPDATE of the line, whose `from
+-- public.qr_carts` locks no cart, and an UPDATE's row lock conflicts with `for share` — order m (a
+-- void first: the nudge waits, then answers `nothing_to_send` with no stamp) and order n (the nudge
+-- first: the fire of the line waits for it). And against the fire, which now meets it at a line as
+-- well as at the cart: order e stays green with EITHER lock alone, so the race harness drops each
+-- lock alone and both together, and only the mutant that drops both (`pd1n/nudge-both-locks-dropped`,
+-- the lock-less decision) turns e red. The writers that take the cart first (the fire, the three
+-- line RPCs, `mms_void_line`, the merge) were already ordered by the cart lock.
 --
 -- ## Lock order: the cart FIRST, then the lines — the measured lock-cycle check
 -- With a line lock in the nudge, the PD1 order (cart → line) becomes load-bearing in a new way: a
@@ -69,6 +75,14 @@
 --     update`; `for key share` does not, and would wait for nothing (order i, the mutant
 --     `pd1n/nudge-line-lock-key-share`). It does not conflict with another share lock, so two
 --     tablemates' nudges still meet at the cart, as before.
+--   · Re-read for the blind pass on #342 (2026-10-11), the writers it named: `mms_fulfill_order`
+--     (m22's definition) takes the cart first (its UPDATE to `paid`) and only READS lines;
+--     `mms_counter_no_show` and `mms_clear_counter_cart` (p2f) take the cart `for update of c`, then
+--     the approvals, then the lines; `mms_sweep_expired_sessions` (p2f) locks sessions only; the two
+--     triggers on `qr_cart_items` (`mms_seed_added_by`, `mms_keep_added_by`, m87) write `new` and no
+--     other row, and no trigger on `qr_cart_items` writes `qr_carts`; `mms_fire_pending_food`
+--     (w3_kitchen here; main's PD5b restatement changes only its batch mint) is one UPDATE of a
+--     PAID cart's drafts that locks no cart. None of them runs line-then-cart on an open cart.
 --   · A scan of text, like PD1's and m261's: a later function written line-then-cart, or a new
 --     lines-only writer that locks several drafts out of id order, would break this, and no guard
 --     here would notice.
@@ -76,20 +90,27 @@
 -- ## What is PROVEN, and where
 --   · Two sessions, both orders (scripts/verify-fire-cart-race.mjs and its `--mutants`): the nudge
 --     against `mms_set_line_fulfillment` (i · j), against an add holding the cart (k), against a
---     bump holding its lines in id order (l, three sessions), beside PD1's a–h.
+--     bump holding its lines in id order (l, three sessions), against `mms_line_transition`'s void
+--     and fire of the line (m · n), beside PD1's a–h — and against the Send (e) with both locks
+--     dropped.
 --   · One session (supabase/tests/pd1_nudge_line_lock_test.sql, falsified case by case by suite
 --     `pd1n` in scripts/verify-mode-authority.mjs): the lock is TAKEN on the cart's dine-in drafts
 --     before the decision, even when it refuses (PD1N.1); never on a to-go draft or a sent line
---     (PD1N.2); never on a cart that is not open (PD1N.3); the grants (PD1N.4, a shape check that
---     runner cannot mutate). The lock's ORDER, STRENGTH and id order are invisible to one session —
---     three documented survivors there, killed by the race harness. Every PD1 behaviour case
+--     (PD1N.2); never on a cart that is not open (PD1N.3); the grants, and the UPDATE on
+--     `qr_cart_items` that `for share` needs from service_role, this invoker function's only caller
+--     (PD1N.4, a shape check that runner cannot mutate). The lock's ORDER, STRENGTH and id order are
+--     invisible to one session — three documented survivors there, killed by the race harness. Every PD1 behaviour case
 --     (pd1_send_nudge_test.sql) still runs against this body, and suite `pd1`'s nudge mutants now
 --     patch THIS file's text (its LAST definition).
 --
 -- ## Deploy order: none — the app is unchanged by this file
 -- Same signature, same return shape, same grants: the deployed build calls it exactly as before.
--- Apply it on the owner's go before the PR merges; the PR's app change (the "Show a server" pass)
--- does not depend on it.
+-- Apply it on the owner's go before the PR merges (#342); the PR's app change (the "Show a server"
+-- pass) does not depend on it. PD1's file (`20261008123000`) is already applied (prod row
+-- `20261011045025`), and it must NEVER be re-applied after this one: its idempotent `create or
+-- replace` would silently put back the nudge with no line lock, and the md5 check below runs only
+-- when THIS file is applied, so it would not notice. If PD1's file is ever replayed (a history
+-- repair, M125), re-apply this file after it and re-run that check.
 --
 -- ## Applying to prod (the QR history is divergent — CLAUDE.md, M125)
 -- On the OWNER's go (OWNER_RULINGS_2026-10-07 #5), ONE file with the Supabase MCP `apply_migration`,
