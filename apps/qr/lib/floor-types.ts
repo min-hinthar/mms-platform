@@ -10,6 +10,7 @@
 // `tableDisplay`, is exercised through `lib/floor-merge-promo.test.ts` — the merge refusal names the
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
+import type { ClearPreview, ClearRefusal } from "./clear-table";
 import type { LineState } from "@mms/db";
 import type { RefundState, RefundSummary } from "./refund-view";
 import type { CounterCursor, RegisterQueueRow } from "./register-queue";
@@ -420,7 +421,24 @@ export function tableDisplay(t: { tableNumber: number | null; label: string }): 
 
 /** `code: "sent"` (Phase 2f) — a counter order whose food reached the kitchen: the page says the
  *  no-show's words instead of the server's sentence. */
-export type ClearTableResult = { ok: true } | { ok: false; error: string; code?: "sent" };
+/** `clearTable`'s answer. PD7 · M182 — a table's clear goes through `mms_clear_table`: `ok` carries
+ *  the RPC's OWN count and figure (the board says "Table 4 cleared — 3 dishes on the loss list" from
+ *  them, never from the slip), and a refusal its name (`ClearRefusal`), or `unreadable` when the
+ *  answer had no known shape (said as "couldn't confirm" — never "cleared"). */
+export type ClearTableResult =
+  | { ok: true; dishes?: number; lossCents?: number }
+  | { ok: false; error: string; code?: "sent" | ClearRefusal | "unreadable" };
+
+/** PD7 (Codex correction 11) — the fresh look at the Clear tap. `unknown`: the read failed, so the
+ *  pane clears NOTHING (an unknown kitchen read is never a no-loss clear). `counter`: a counter order
+ *  keeps its own exits (the plain clear, or "They didn't come"). `secure`: a secured tab with SENT
+ *  food — the saved card pays for it, never a write-off (`clearNeedsTheCard`). */
+export type ClearPreviewResult =
+  | { kind: "preview"; preview: ClearPreview }
+  | { kind: "secure" }
+  | { kind: "counter" }
+  | { kind: "closed" }
+  | { kind: "unknown" };
 
 /** W10b: the drill-down read result. `closed` is the ONLY state that bounces back to the floor — a
  *  cleared table is gone, but an unreadable one ISN'T (the old `null` conflated them, so an outage

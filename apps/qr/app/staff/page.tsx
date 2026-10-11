@@ -14,7 +14,6 @@ import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
-import { CounterMintProvider } from "@/components/staff/CounterMint";
 import { DayCash } from "@/components/staff/DayCash";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
 import { SettledToday } from "@/components/staff/SettledToday";
@@ -255,27 +254,26 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
             <CounterZoneStrip lang={lang} zones={zones} />
             {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
-              order in zone 1 and every free table on the strip in zone 2 (`CounterMint.tsx`). */}
-            <CounterMintProvider>
-              {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
+              order in zone 1, every free table on the strip in zone 2 and (PD7) the pane's "Seat
+              next party" — held by `CounterSplit`, around the zones and the pane (`CounterMint.tsx`). */}
+            {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
               strip in zone 2. The zone's region is `RegisterStart`'s own, named by this heading. */}
-              <div className="staff-zone">
-                <h2 id="start-h" className="staff-zone-head" tabIndex={-1}>
-                  <Chrome lang={lang} k="floor.zone.start" />
-                </h2>
-                <p style={sub}>
-                  <Chrome lang={lang} k="reg.sub" echo="stack" />
-                </p>
-                <RegisterStart labelledBy="start-h" />
-              </div>
+            <div className="staff-zone">
+              <h2 id="start-h" className="staff-zone-head" tabIndex={-1}>
+                <Chrome lang={lang} k="floor.zone.start" />
+              </h2>
+              <p style={sub}>
+                <Chrome lang={lang} k="reg.sub" echo="stack" />
+              </p>
+              <RegisterStart labelledBy="start-h" />
+            </div>
 
-              {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
+            {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
               one list keyed by session; the board owns its heading. */}
-              <div id="floor-zone">
-                <ZoneFocus id="floor-zone" focus="floor-h" />
-                <FloorBoard initial={floor.snapshot} />
-              </div>
-            </CounterMintProvider>
+            <div id="floor-zone">
+              <ZoneFocus id="floor-zone" focus="floor-h" />
+              <FloorBoard initial={floor.snapshot} />
+            </div>
 
             {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
             <ExpoBoard initial={lane} initialOutage={!expo.ok} />

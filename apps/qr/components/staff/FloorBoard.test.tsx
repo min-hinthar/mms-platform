@@ -73,6 +73,7 @@ const { STAFF_HANG_MS, youngWrite } = await import("@/lib/bounded-write");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 const { tf } = await import("@/lib/i18n/fill");
 const { TablePaneContext } = await import("./TablePaneContext");
+const { TurnoverNewsProvider, useTurnoverNews, TURNOVER_DWELL_MS } = await import("./TurnoverNews");
 /** The board's poll backstop (`FloorBoard`'s own interval; not exported). */
 const POLL_MS = 5000;
 
@@ -1135,5 +1136,51 @@ describe("Phase 2h · integration b — the strip's waiting line stands while IT
     });
     await tick(0);
     expect(region().textContent).toBe("That table isn’t registered.");
+  });
+});
+
+describe("PD7 — the floor says a clear's outcome, and hints only where it can vouch", () => {
+  const paid = (n: number) =>
+    table(n, { status: "paid", itemCount: 0, runningSubtotalCents: 0, paidTotalCents: 4100 });
+  it("an unknown kitchen read shows no 'Clear when they leave' on any card", () => {
+    const { section } = mount(snap([paid(7)], { kitchenUnknown: true }));
+    // MUTATION floor-board/hint-unknown-not-passed → the hint over a kitchen nobody could read; red.
+    expect(section().querySelector(".floor-card-hint")).toBeNull();
+    cleanup();
+    const again = mount(snap([paid(7)]));
+    expect(again.section().querySelector(".floor-card-hint")).not.toBeNull();
+  });
+
+  it("the turnover line is said in the ONE region, under 'Ready to serve', then the counts return", async () => {
+    function Say() {
+      const news = useTurnoverNews();
+      return (
+        <button
+          type="button"
+          onClick={() => news?.say({ k: "settle.clear.free", vars: { id: "2" } })}
+        >
+          say
+        </button>
+      );
+    }
+    const utils = render(
+      <StaffLangProvider lang="en">
+        <TurnoverNewsProvider>
+          <CounterMintProvider>
+            <FloorBoard initial={snap([table(7)])} />
+            <Say />
+          </CounterMintProvider>
+        </TurnoverNewsProvider>
+      </StaffLangProvider>,
+    );
+    const region = () =>
+      document.getElementById("floor-h")!.closest("section")!.querySelector('[role="status"]')!;
+    await act(async () => {
+      fireEvent.click(utils.getByRole("button", { name: "say" }));
+    });
+    // MUTATION floor-board/turnover-unsaid → the clear's outcome is said nowhere; red.
+    expect(region().textContent).toBe(tf("en", "settle.clear.free", { id: "2" }));
+    await tick(TURNOVER_DWELL_MS + 100);
+    expect(region().textContent).toBe("1 active table");
   });
 });

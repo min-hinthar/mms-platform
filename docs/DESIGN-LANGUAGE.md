@@ -1938,6 +1938,17 @@ scroll-padding-inline: gutter`): a lit pill's lift shadow is otherwise sliced sq
 - **Steps that live in state still get history entries** (a hash per step), so the platform Back
   button walks them — and Back runs the same handler as the in-page back control, never a shortcut
   around its side effects.
+- **Clearing a table (PD7, m7) is undo over confirm, after a fresh look.** The pane's Clear reads the
+  table on the database clock first (an unknown read clears nothing — "couldn't check"); nothing
+  sent → the six-second window, "Clearing Table N", in the console's ONE provisional mark (the dashed
+  edge on the chip and on the in-slot Undo's `--sf` ground — never a fill), the seconds a decorative
+  leaf, the controls armed at 400 ms, a keyboard focus holding it with its warning in its own alert.
+  Food sent and unpaid → the loss slip first: paper, ONE outline diamond (glyph + word, no fill), the
+  figure over a SOLID rule (a settled preview, never the provisional dash), the question "Did Table N
+  pay?", and only after "No" the one danger act naming its sum; while it stands, Take cash steps down
+  to secondary (one hero per state, §32). Nothing is written until the window closes — leaving it is
+  the safe direction — and the outcome is said on the floor's region, because the pane leaves with
+  the table. The paid card's hint ("Clear when they leave") is words inside its link, never a control.
 
 ## 23 · The add moment (Phase 1c)
 

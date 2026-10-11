@@ -424,18 +424,21 @@ export type Database = {
       }
       mms_loss_config: {
         Row: {
+          clear_requires_pin: boolean
           id: boolean
           max_loss_cents: number
           max_loss_percent: number
           updated_at: string
         }
         Insert: {
+          clear_requires_pin?: boolean
           id?: boolean
           max_loss_cents?: number
           max_loss_percent?: number
           updated_at?: string
         }
         Update: {
+          clear_requires_pin?: boolean
           id?: boolean
           max_loss_cents?: number
           max_loss_percent?: number
@@ -1684,6 +1687,63 @@ export type Database = {
         }
         Relationships: []
       }
+      qr_table_clears: {
+        Row: {
+          approver_staff_id: string | null
+          cart_id: string | null
+          cleared_by: string
+          created_at: string
+          dishes: number
+          id: string
+          loss_cents: number
+          session_id: string
+          stop_acknowledged_at: string | null
+          stop_acknowledged_by: string | null
+          stop_line_ids: string[]
+        }
+        Insert: {
+          approver_staff_id?: string | null
+          cart_id?: string | null
+          cleared_by: string
+          created_at?: string
+          dishes?: number
+          id?: string
+          loss_cents?: number
+          session_id: string
+          stop_acknowledged_at?: string | null
+          stop_acknowledged_by?: string | null
+          stop_line_ids?: string[]
+        }
+        Update: {
+          approver_staff_id?: string | null
+          cart_id?: string | null
+          cleared_by?: string
+          created_at?: string
+          dishes?: number
+          id?: string
+          loss_cents?: number
+          session_id?: string
+          stop_acknowledged_at?: string | null
+          stop_acknowledged_by?: string | null
+          stop_line_ids?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_table_clears_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qr_table_clears_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "table_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qr_tables: {
         Row: {
           active: boolean
@@ -1879,6 +1939,10 @@ export type Database = {
       is_member: { Args: { sess: string }; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
       is_staff_at_least: { Args: { min_role: string }; Returns: boolean }
+      mms_ack_table_clear_stop: {
+        Args: { p_by: string; p_clear: string }
+        Returns: string
+      }
       mms_apply_refund_reconcile: {
         Args: { p_amount_refunded: number; p_payment_intent: string }
         Returns: string
@@ -1938,6 +2002,17 @@ export type Database = {
         }[]
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
+      mms_clear_table: {
+        Args: {
+          p_approver?: string
+          p_expected_line_ids: string[]
+          p_initiator: string
+          p_loss_cents: number
+          p_seen_at: string
+          p_session: string
+        }
+        Returns: Json
+      }
       mms_counter_no_show: {
         Args: {
           p_approver?: string

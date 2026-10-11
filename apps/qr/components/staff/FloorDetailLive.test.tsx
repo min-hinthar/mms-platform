@@ -29,9 +29,11 @@ import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-
 const NOW = "2026-09-24T18:00:00.000Z";
 let answer: () => Promise<TableDetailResult>;
 const getTableDetail = vi.fn((_id: string) => answer());
+const getClearPreview = vi.fn();
 vi.mock("@/lib/floor", () => ({
   getTableDetail: (id: string) => getTableDetail(id),
   clearTable: vi.fn(),
+  getClearPreview: (...a: unknown[]) => getClearPreview(...(a as [])),
   getMergeCandidates: vi.fn(() => Promise.resolve({ ok: true, candidates: [] })),
   mergeTables: vi.fn(),
 }));
@@ -2367,5 +2369,39 @@ describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till,
     mountWith({ ...DETAIL, lines: [unsent], itemCount: 1 });
     // MUTATION p2do/age-on-every-table: a "late"-looking clock on a table still choosing; red.
     expect(lineItem().textContent).not.toContain("6m ago");
+  });
+});
+
+describe("PD7 (m7 B3 · B12) — the clear's loss slip beside the settle section", () => {
+  it("while the slip is armed Take cash stands down to secondary, and the slip's door opens THAT till", async () => {
+    getClearPreview.mockResolvedValue({
+      kind: "preview",
+      preview: {
+        seenAt: "2026-10-09T18:00:00Z",
+        sent: [
+          { id: "l1", qty: 1, name: "Mohinga", nameMy: null, state: "fired", amountCents: 1400 },
+        ],
+        lossCents: 1400,
+        units: 1,
+        droppedUnits: 0,
+      },
+    });
+    mountWith(SETTLEABLE);
+    const cash = () => settleButtons()[0]!;
+    expect(cash().className).toContain("ui-btn-primary");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
+    });
+    const slip = screen.getByRole("region", { name: ts("en", "settle.clear.loss.head") });
+    // MUTATION floor-detail/slip-keeps-two-heroes (the demotion dropped) → red.
+    expect(cash().className).toContain("ui-btn-secondary");
+    await act(async () => {
+      fireEvent.click(within(slip).getByRole("button", { name: ts("en", "settle.cash.title") }));
+    });
+    // MUTATION floor-detail/slip-door-opens-nothing (the till's handle never wired) → red.
+    expect(screen.getByRole("dialog", { name: ts("en", "settle.cash.title") })).toBeTruthy();
+    // ONE till: the dialog is the settle section's own CashSettleButton.
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(cash().className).toContain("ui-btn-primary");
   });
 });

@@ -31,6 +31,8 @@ import { useCounterBellCover } from "./CounterBell";
 import { useReaderCollectOptional } from "./ReaderCollectContext";
 import type { TableHint } from "./TableNav";
 import { TablePane } from "./TablePane";
+import { CounterMintProvider } from "./CounterMint";
+import { TurnoverNewsProvider } from "./TurnoverNews";
 import { useReloadHold } from "./useReloadHold";
 import {
   TablePaneContext,
@@ -333,51 +335,58 @@ export function CounterSplit({
     publishFloor,
   };
 
+  // PD7 — the ONE mint lock spans the zones AND the pane (the pane's "Seat next party" reserves it
+  // across a clear — Codex corrections 5 · 9), and the turnover line spans both (a clear said on the
+  // floor — m7 B10). Inside the pane's context: the mint lands through the pane.
   return (
     <TablePaneContext.Provider value={api}>
-      <div
-        className="staff-col staff-col-dock staff-split"
-        data-pane={!hydrated ? "unknown" : sel ? "open" : lostWrite ? "lost" : "empty"}
-      >
-        <div className="staff-split-main">{children}</div>
-        <TablePane
-          paneRef={paneRef}
-          hydrated={hydrated}
-          sel={sel}
-          selectedNow={selectedNow}
-          rows={rows}
-          lostWrite={lostWrite}
-          settleOnce={settleOnce}
-          onSettleConsumed={() => setSettleOnce(null)}
-          terminalReady={terminalReady}
-          onClose={(reason) => close(reason, "control")}
-          onSelect={(id, hint) => {
-            select(id, hint, { write: true, focus: true });
-            opener.current = null;
-          }}
-          onLostWrite={(sessionId, hint, kind) => {
-            // Only an UNMOUNTED detail reports here (FloorDetailLive routes a refusal through this
-            // only once it is no longer alive), so the report is always one no mounted region can
-            // say — even when the same table is shown again (A → ✕ → A): that new detail never
-            // issued the write. Never filtered by the selection. A payment's outranks a dish's.
-            setLostWrite((prev) => nextLost(prev, { sessionId, hint, kind }));
-          }}
-          onLostLanded={(sessionId, how) => {
-            // Phase 2h · integration — a payment (or a line edit) the pane said it did not know
-            // about LANDED (a late ok, reported by the same unmounted detail that reported the
-            // unknown). Only THAT table's unknown of the same family is answered (`lostAfterLanded`
-            // — "went through" / "saved", or gone for a reader start): a refusal, another table's
-            // line all stand. Read through the updater, never this closure — the detail holds the
-            // handler it was last rendered with, from long before the landing.
-            const onLine =
-              paneRef.current
-                ?.querySelector(".staff-pane-lost")
-                ?.contains(document.activeElement) ?? false;
-            setLostWrite((prev) => lostAfterLanded(prev, sessionId, how));
-            if (onLine) setRetractSeq((n) => n + 1);
-          }}
-        />
-      </div>
+      <TurnoverNewsProvider>
+        <CounterMintProvider>
+          <div
+            className="staff-col staff-col-dock staff-split"
+            data-pane={!hydrated ? "unknown" : sel ? "open" : lostWrite ? "lost" : "empty"}
+          >
+            <div className="staff-split-main">{children}</div>
+            <TablePane
+              paneRef={paneRef}
+              hydrated={hydrated}
+              sel={sel}
+              selectedNow={selectedNow}
+              rows={rows}
+              lostWrite={lostWrite}
+              settleOnce={settleOnce}
+              onSettleConsumed={() => setSettleOnce(null)}
+              terminalReady={terminalReady}
+              onClose={(reason) => close(reason, "control")}
+              onSelect={(id, hint) => {
+                select(id, hint, { write: true, focus: true });
+                opener.current = null;
+              }}
+              onLostWrite={(sessionId, hint, kind) => {
+                // Only an UNMOUNTED detail reports here (FloorDetailLive routes a refusal through this
+                // only once it is no longer alive), so the report is always one no mounted region can
+                // say — even when the same table is shown again (A → ✕ → A): that new detail never
+                // issued the write. Never filtered by the selection. A payment's outranks a dish's.
+                setLostWrite((prev) => nextLost(prev, { sessionId, hint, kind }));
+              }}
+              onLostLanded={(sessionId, how) => {
+                // Phase 2h · integration — a payment (or a line edit) the pane said it did not know
+                // about LANDED (a late ok, reported by the same unmounted detail that reported the
+                // unknown). Only THAT table's unknown of the same family is answered (`lostAfterLanded`
+                // — "went through" / "saved", or gone for a reader start): a refusal, another table's
+                // line all stand. Read through the updater, never this closure — the detail holds the
+                // handler it was last rendered with, from long before the landing.
+                const onLine =
+                  paneRef.current
+                    ?.querySelector(".staff-pane-lost")
+                    ?.contains(document.activeElement) ?? false;
+                setLostWrite((prev) => lostAfterLanded(prev, sessionId, how));
+                if (onLine) setRetractSeq((n) => n + 1);
+              }}
+            />
+          </div>
+        </CounterMintProvider>
+      </TurnoverNewsProvider>
     </TablePaneContext.Provider>
   );
 }

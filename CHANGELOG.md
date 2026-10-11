@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD7 — clearing a table: quiet hints, a named loss, and the six-second window (2026-10-09)
+
+- **M182 · `mms_clear_table`** (`20261009120400_m182_table_clear.sql`; the prod apply waits for the
+  owner's go — ruling #5): ONE locked transaction (cart → session → approvals → lines) that refuses a
+  join or a change after the look the staff member saw (`p_seen_at`, the SENT set and its figure),
+  money in flight, a live card attempt and a counter order; then supersedes the cart's pending
+  approvals, writes every SENT dish to the owner's loss list as `void` / `table_cleared` at
+  `unapproved` (ruling #6, behind the `clear_requires_pin` seam), voids the kitchen's lines, closes
+  the table and writes `qr_table_clears` — the audit and the durable STOP record ("Got it":
+  `mms_ack_table_clear_stop`). Pinned by `m182_table_clear_test.sql` and the `m182` SQL mutants.
+- **The pane's Clear takes a fresh look** (`getClearPreview`, on the database clock): an unknown read
+  clears nothing (Codex correction 11); nothing sent → straight into "Clearing Table N" (§22, the
+  lane's six seconds, armed at 400 ms, held by a keyboard focus with its warning); food sent and
+  unpaid → the loss slip first — the dishes, their menu price, "Did Table N pay?", Take cash (the
+  pane's ONE till) or "No — they left without paying" and the one danger commit "Clear · $X loss".
+  A table that moves under the window (a join, a changed order, a payment) drops it; so does
+  leaving. While the slip is armed, Take cash stands down to secondary.
+- **Seat next party** reserves the screen's ONE mint lock at the tap (corrections 5 · 9), sends the
+  clear now and starts the next party only on its ok, in the pane (the bell stays live — correction
+  6). The outcome is said on the floor (`TurnoverNews`, the board's one region); the mint lock and
+  the line now live in `CounterSplit`. A paid, finished card says "Clear when they leave"
+  (`clearHint`) — words, never a control.
+- **The blind pass on #341:** a secured (card-on-file) tab's SENT food is never written off as a
+  walkout — the RPC refuses `secure_tab` without a verified manager and the look answers `secure`
+  (no slip; "close the bill on that card"); a post-dated `p_seen_at` is refused; a split share
+  holding money is re-read under the cart lock; "Seat next party" gives the mint back at the bound;
+  a window that leaves with its pane says the clear was not sent (never when the table closed
+  underneath it); a tab secured under an armed slip drops it; `qr_table_clears` no longer
+  cascades away with its session. 44 SQL mutants (`m182`).
+- **Mutants:** `clear/*`, `clear-hint/*`, `clear-floor/*`, `clear-ui/*`, `clear-window/*`,
+  `floor-detail/*`, `counter-mint/*`, `table-card/*`, `floor-board/*`; the shared clear commit's
+  anchors re-aimed. Burmese drafts: OPEN-ITEMS `K15 · counter-floor`. Build notes: m7 §H.
+
 ### PD6 — the walk-up cash sale: the crowned till tray and the seal; PD2's pane twin; PD1's ring (2026-10-09)
 
 - **One money verb, one cash sheet** (`docs/path-design-2026-10-07/m6-walk-up-cash.md`; build notes

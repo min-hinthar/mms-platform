@@ -3,14 +3,23 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
+import { handoffStashKey } from "@/lib/floor-pane";
 
 /**
+ * The COUNTER ORDER's clear: the two-step confirm and its bounded commit (PD7 kept it — a table's
+ * clear takes the fresh look, `ClearTableButton.table.test.tsx`; both ride the ONE bounded
+ * `confirm`, so the mechanics pinned here are the table's too).
+ *
  * Phase 2a · tablet — a cleared table returns to the FLOOR, asked for by name. A bare `/staff`
  * resolves by the door cookie: on a tablet whose Counter tap was refused (or never written) it lands
  * on the doors screen, so every clear dropped the server out of the floor they were working.
  */
 const clearTable = vi.fn();
-vi.mock("@/lib/floor", () => ({ clearTable: (...a: unknown[]) => clearTable(...(a as [])) }));
+const getClearPreview = vi.fn();
+vi.mock("@/lib/floor", () => ({
+  clearTable: (...a: unknown[]) => clearTable(...(a as [])),
+  getClearPreview: (...a: unknown[]) => getClearPreview(...(a as [])),
+}));
 const replace = vi.fn();
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));
@@ -31,7 +40,7 @@ describe("ClearTableButton — a successful clear", () => {
     clearTable.mockResolvedValue({ ok: true });
     render(
       <StaffLangProvider lang="en">
-        <ClearTableButton sessionId="s1" label="4" paymentInFlight={false} />
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={false} />
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
@@ -43,11 +52,27 @@ describe("ClearTableButton — a successful clear", () => {
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
+  it("a cleared order's paid-card stash goes with it (this tab's)", async () => {
+    clearTable.mockResolvedValue({ ok: true });
+    sessionStorage.setItem(handoffStashKey("s1"), JSON.stringify({ orderId: "o-1" }));
+    render(
+      <StaffLangProvider lang="en">
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={false} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.confirm") }));
+    });
+    // MUTATION clear-table/counter-clear-keeps-the-card → red.
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).toBeNull();
+  });
+
   it("a refused clear stays put — no navigation", async () => {
     clearTable.mockResolvedValue({ ok: false, error: "Invalid request." });
     render(
       <StaffLangProvider lang="en">
-        <ClearTableButton sessionId="s1" label="4" paymentInFlight={false} />
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={false} />
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
@@ -69,7 +94,7 @@ describe("ClearTableButton — Phase 2f · a counter order with food in the kitc
     });
     render(
       <StaffLangProvider lang="my">
-        <ClearTableButton sessionId="s1" label="reg-x" paymentInFlight={false} />
+        <ClearTableButton counterOrder sessionId="s1" label="reg-x" paymentInFlight={false} />
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: /ရှင်း|Clear/ }));
@@ -87,7 +112,7 @@ describe("ClearTableButton — Phase 2f · a counter order with food in the kitc
     clearTable.mockResolvedValue({ ok: false, error: "Invalid request." });
     render(
       <StaffLangProvider lang="en">
-        <ClearTableButton sessionId="s1" label="4" paymentInFlight={false} />
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={false} />
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
@@ -123,7 +148,7 @@ describe("ClearTableButton — Phase 2h: the clear is bounded, every control ari
   function mount(paymentInFlight = false) {
     return render(
       <StaffLangProvider lang="en">
-        <ClearTableButton sessionId="s1" label="4" paymentInFlight={paymentInFlight} />
+        <ClearTableButton counterOrder sessionId="s1" label="4" paymentInFlight={paymentInFlight} />
       </StaffLangProvider>,
     );
   }

@@ -456,6 +456,9 @@ export const STAFF = {
   "floor.status.partlyRefunded": { en: "Partly refunded", my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး" },
   "floor.card.refunded": { en: "{m} refunded", my: "{m} ပြန်အမ်းပြီး" },
   "floor.card.empty": { en: "No items yet", my: "ဘာမှ မရှိသေးပါ" },
+  // PD7 (m7 B6) — a paid, finished card's QUIET hint inside its link (never a second control, never a
+  // claim the code cannot know: the party may still be at tea). MY a K15 draft (brief-m7.md:282).
+  "floor.card.clearHint": { en: "Clear when they leave", my: "ထွက်သွားရင် ရှင်းပါ" },
 
   // ── VERBS — the visible word on a control, and the word its accessible name leads with ──────
   // A `…verb…` segment is a real constraint, not a naming habit: `al()`'s `verb` arm accepts only
@@ -3984,6 +3987,82 @@ export const STAFF = {
     en: "We couldn’t confirm the table was cleared — check the floor before you clear it again.",
     my: "စားပွဲ ရှင်းပြီလား အတည်မပြုနိုင်ပါ — ထပ်မရှင်းခင် ခန်းမကို စစ်ပါ။",
   }, // K15-HIGH — misread, a second clear lands on the next party's order
+  // ── PD7 · counter-floor (m7 "Turn Signals", refined; M182 · ruling #6) ── Every MY below is a
+  // Claude-authored DRAFT for the native sitting (OPEN-ITEMS `K15 · counter-floor`), from the
+  // brief's drafts where m7 cites one (brief-m7.md, m7.json), else composed from shipped words.
+  // The fresh look at the Clear tap (Codex correction 11).
+  "settle.clear.checking": {
+    en: "Checking what the kitchen has…",
+    my: "မီးဖိုချောင်မှာ ဘာရှိလဲ စစ်နေပါတယ်…",
+  },
+  "settle.clear.checkFailed": {
+    en: "We couldn’t check what the kitchen has — nothing was cleared. Try again.",
+    my: "မီးဖိုချောင်မှာ ဘာရှိလဲ မစစ်နိုင်ပါ — ဘာမှ မရှင်းရသေးပါ။ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — misread, a table with food out is cleared as if nothing were sent
+  // The 6-second window (§22 — undo over confirm): nothing is written until it closes.
+  "settle.clear.window": { en: "Clearing Table {id}", my: "စားပွဲ {id} ရှင်းနေပါတယ်" }, // K15-HIGH — "clearing", never "cleared", until the server answers
+  "settle.clear.seatNext": { en: "Seat next party", my: "နောက်ဧည့်သည် ဖွင့်" },
+  "settle.clear.holdWarn": {
+    en: "Table {id} will be cleared in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် စားပွဲ {id} ကို ရှင်းပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  }, // K15-HIGH — the one warning before a held window releases (WCAG 2.2.1)
+  // The outcomes, said on the floor (the pane leaves with the table — m7 B10).
+  "settle.clear.free": { en: "Table {id} is free.", my: "စားပွဲ {id} လွတ်ပြီ။" },
+  "settle.clear.freeLoss.one": {
+    en: "Table {id} cleared — {n} dish on the loss list.",
+    my: "စားပွဲ {id} ရှင်းပြီးပါပြီ — ဟင်း {n} ခု အရှုံးစာရင်းထဲ ရောက်ပါပြီ။",
+  }, // K15-HIGH — the RPC's own count of what went on the owner's loss list
+  "settle.clear.freeLoss.many": {
+    en: "Table {id} cleared — {n} dishes on the loss list.",
+    my: "စားပွဲ {id} ရှင်းပြီးပါပြီ — ဟင်း {n} ခု အရှုံးစာရင်းထဲ ရောက်ပါပြီ။",
+  }, // K15-HIGH — the RPC's own count of what went on the owner's loss list
+  "settle.clear.seatFailed": {
+    en: "Table {id} is clear — tap {id} on the strip to seat them.",
+    my: "စားပွဲ {id} ရှင်းပြီးပါပြီ — ထိုင်ခိုင်းဖို့ အပေါ်က {id} ကို နှိပ်ပါ။",
+  },
+  "settle.clear.windowLeft": {
+    en: "Clearing Table {id} stopped when you left — the clear was not sent.",
+    my: "စားပွဲ {id} ရှင်းတာ ထွက်လိုက်လို့ ရပ်သွားပါတယ် — ရှင်းဖို့ မပို့လိုက်ပါ။",
+  }, // K15-HIGH — about THIS clear only, never the table's state (another tablet may have cleared it); misread as cleared, the next party is seated onto an open table (draft)
+  // The refusals of `mms_clear_table`, each writing nothing.
+  "settle.clear.joined": {
+    en: "Someone just joined Table {id}, so it stayed open — check who’s sitting there before you clear it.",
+    my: "စားပွဲ {id} မှာ တစ်ယောက် အခုလေးတင် ဝင်လာလို့ မရှင်းဘဲ ဖွင့်ထားပါတယ် — မရှင်းခင် ဘယ်သူ ထိုင်နေလဲ စစ်ပါ။",
+  }, // K15-HIGH — misread, a party that just sat down is closed out
+  "settle.clear.cardLive": {
+    en: "A card payment started here and didn’t finish — ask for help from Help before you clear it.",
+    my: "ဒီမှာ ကတ်နဲ့ ငွေချေတာ စပြီး မပြီးသေးပါ — မရှင်းခင် အကူအညီ ကနေ မေးပါ။",
+  }, // K15-HIGH — never "went through" before the server-side retrieve (m7 graft 8)
+  "settle.clear.gone": { en: "That table is already cleared.", my: "ဒီစားပွဲ ရှင်းပြီးသားပါ။" },
+  "settle.clear.secureTab": {
+    en: "Table {id} has a card on file — close the bill on that card before you clear it.",
+    my: "စားပွဲ {id} မှာ သိမ်းထားကတ် ရှိပါတယ် — မရှင်းခင် အဲဒီကတ်နဲ့ စာရင်းပိတ်ပါ။",
+  }, // K15-HIGH — misread, food a saved card would pay for goes on the loss list (draft; grounded: settle.card.trigger's သိမ်းထားကတ် · စာရင်းပိတ်)
+  "settle.clear.needsManager": {
+    en: "Clearing this table needs a manager’s approval.",
+    my: "ဒီစားပွဲ ရှင်းဖို့ မန်နေဂျာ ခွင့်ပြုချက် လိုပါတယ်။",
+  }, // grounded: table.loss.managerLegend
+  // The loss slip — only after Dad reaches for Clear on a table with food out (m7 screen 2).
+  "settle.clear.loss.head": { en: "Not paid", my: "ငွေ မရှင်းရသေး" }, // K15-HIGH — grounded: settle.unpaid
+  "settle.clear.loss.sent": { en: "Sent to the kitchen", my: "မီးဖိုချောင် ပို့ပြီး" },
+  "settle.clear.loss.total": { en: "Their menu price", my: "မီနူး ဈေးနှုန်း" }, // K15-HIGH — the ledger's figure (pre-tax), never the bill
+  "settle.clear.ask": { en: "Did Table {id} pay?", my: "စားပွဲ {id} ငွေရှင်းပြီးပြီလား?" }, // K15-HIGH — the question before any loss
+  "settle.clear.walkout": { en: "No — they left without paying", my: "မရှင်းဘဲ ထွက်သွားကြတယ်" }, // K15-HIGH
+  // "Tells the kitchen to stop" is NOT said: it ships only with kitchen-ops' stop card (m7 B4,
+  // Codex correction 12) — the stop RECORD is written now, the card that reads it is not.
+  "settle.clear.loss.body.one": {
+    en: "Clearing puts {n} dish on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+  }, // K15-HIGH — what the commit records, before it is tapped
+  "settle.clear.loss.body.many": {
+    en: "Clearing puts {n} dishes on the owner’s loss list as not approved.",
+    my: "ရှင်းလိုက်ရင် ဒီဟင်း {n} ခုကို ပိုင်ရှင်ရဲ့ အရှုံးစာရင်းထဲ ခွင့်ပြုချက်မရဘဲ ထည့်ပါမယ်။",
+  }, // K15-HIGH — what the commit records, before it is tapped
+  "settle.clear.loss.tail": {
+    en: "Nothing is charged and nothing is refunded.",
+    my: "ငွေ မယူ၊ ပြန်လည်း မအမ်းပါ။",
+  }, // K15-HIGH — grounded: the shipped tail of table.noshow.body.*
+  "settle.clear.loss.commit": { en: "Clear · {m} loss", my: "ရှင်း · အရှုံး {m}" }, // K15-HIGH — the sum named on the control (§22)
   // Merging one table's order into another — the same late-landing hazard (a re-seated party's
   // cart). Words: ပေါင်း (settle.merge.btn).
   "settle.merge.waiting": {
@@ -4310,6 +4389,9 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["expo.unpaid.more.one", "expo.unpaid.more.many"],
   ["table.noshow.body.one", "table.noshow.body.many"],
   ["table.noshow.body.drafts.one", "table.noshow.body.drafts.many"],
+  // ── PD7 · counter-floor ──
+  ["settle.clear.freeLoss.one", "settle.clear.freeLoss.many"],
+  ["settle.clear.loss.body.one", "settle.clear.loss.body.many"],
   ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
   // ── Phase 2f review ──
   ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
@@ -4612,6 +4694,24 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.cash.titleTab",
   "pad.group.unsent",
   "settle.cash.cancelClean",
+  // ── PD7 · counter-floor (m7 B15: every new money key, so its English survives) ──
+  "settle.clear.checkFailed",
+  "settle.clear.window",
+  "settle.clear.holdWarn",
+  "settle.clear.freeLoss.one",
+  "settle.clear.freeLoss.many",
+  "settle.clear.joined",
+  "settle.clear.cardLive",
+  "settle.clear.secureTab",
+  "settle.clear.windowLeft",
+  "settle.clear.loss.head",
+  "settle.clear.loss.total",
+  "settle.clear.ask",
+  "settle.clear.walkout",
+  "settle.clear.loss.body.one",
+  "settle.clear.loss.body.many",
+  "settle.clear.loss.tail",
+  "settle.clear.loss.commit",
 ]);
 
 /**
