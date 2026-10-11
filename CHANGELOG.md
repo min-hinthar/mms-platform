@@ -26,9 +26,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9), registered in CI. It went
     red on the old drain and on the old merge.
   - `verify-mode-authority` gains suite `pd5b` with 8 killed mutants. The merge's 18 earlier mutants
-    now patch the pd5b file, and all 205 are accounted for.
-  - `verify-counter-fire-race` gains the grace race as orders k and k2, with 2 mutants, and restores
-    from the chain p2f → pd5b.
+    now patch the pd5b file, and all 241 are accounted for.
+  - `verify-counter-fire-race` gains the grace race as orders s and s2, with 2 mutants. The drain
+    and the merge join its `LATER` map, so every restore reads them from the pd5b file.
   - `verify-merge-race` and the M96/M97/M98/M109 fold tests are green and unchanged.
   - `kitchen-rounds/*` gains 4 mark mutants (the version, its position, the anchors and — Codex on
     #340 — the RFC variant) and retargets 1. Two `kitchen/*` mutants retire with the orders leg.

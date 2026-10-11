@@ -475,12 +475,13 @@ jobs:
       #   grep -c 'id: "' scripts/verify-mode-authority.mjs
       # ~211s measured locally at 127 mutants (each replays the chain) — the timeout has headroom for CI.
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
-      # (205 since PD5b — 8 pd5b rows over `mms_fire_pending_food` and the merge's fold, which also
-      # moves the 18 earlier merge rows onto the pd5b file; the full 205 ran green on a throwaway PG16.)
       # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
       # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
       # (206 since PD3's follow-up — suite pd3s, nine rows on mms_refuse_solo_join and its apply-time
       # guard, the chain nine files.)
+      # (241 since PD5b — suite pd5b, 8 rows over `mms_fire_pending_food` and the merge's fold, which
+      # also moves the 18 earlier merge rows onto the pd5b file; the chain twelve files. The full 241
+      # ran green in 632 s on a throwaway PG16 in a loaded container — re-measure if it nears 12 min.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs
@@ -542,11 +543,13 @@ jobs:
       # the void's and the request's cart locks (h, h2), and — the Phase 2f self-review — the Clear's
       # supersede (i) and approvals lock (i2) and the no-show's lines lock (j) — md5-checked apply,
       # byte-identical restore. The first six are verify-mode-authority.mjs's lock survivors; the
-      # other eight it leaves out. PD5b adds two on the settlement drain, against the grace race (k ·
-      # k2): its mark dropped (both) and its draft guard dropped (k — it re-stamps the Send's dish).
-      # The harness restores from the chain p2f → pd5b (PD5b restates the merge and the drain).
+      # other eight it leaves out. PD5b adds two on the settlement drain, against the grace race (s ·
+      # s2): its mark dropped (both) and its draft guard dropped (s — it re-stamps the Send's dish).
+      # PD5b restates the merge and the drain, so both join the harness's `LATER` map and every restore
+      # reads them from the pd5b file. Nineteen in all since PD5b (with M184's one and M269's two).
       # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait); 476s at
-      # sixteen on a loaded 4-CPU container (2026-10-09), so 12 minutes for headroom.
+      # sixteen on a loaded 4-CPU container (2026-10-09), 447s at nineteen (2026-10-11), so 12 minutes
+      # for headroom.
       - name: Counter-fire race mutants (can the locks fail?)
         timeout-minutes: 12
         run: node scripts/verify-counter-fire-race.mjs --mutants

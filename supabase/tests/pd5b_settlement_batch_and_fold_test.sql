@@ -13,7 +13,7 @@
 --           unmarked batch — still fired, still inside its grace — and only the settlement's line is
 --           marked. Before PD5b the kitchen read numbered by WHEN a batch fired, and this Send (fired
 --           after the order) lost its number. The two-session version — the settlement fire WAITING on
---           the Send's line lock, and the reverse — is scripts/verify-counter-fire-race.mjs (k · k2).
+--           the Send's line lock, and the reverse — is scripts/verify-counter-fire-race.mjs (s · s2).
 --   PD5B.4. a merge never folds a FIRED portion onto another Send's line: same dish, price, adder and
 --           state, two different batches — the source line re-parents as its own row and keeps its
 --           batch, and the target line's quantity is unchanged.

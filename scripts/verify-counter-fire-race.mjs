@@ -514,7 +514,7 @@ function target(id) {
 }
 
 /** PD5b — a DINE-IN table with an open cart and two drafts: a dine-in dish (what a Send fires) and a
- *  to-go one (a Send leaves it; the settlement fires it). The grace race (k · k2). */
+ *  to-go one (a Send leaves it; the settlement fires it). The grace race (s · s2). */
 function dineFixture(id) {
   const out = q(`with s as (
       insert into public.table_sessions (qr_code, mode, status, expires_at)

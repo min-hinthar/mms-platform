@@ -130,4 +130,4 @@ folds onto another Send's line (it re-parents and keeps its batch); two portions
 fold (6); served lines (7), two batchless fired lines (8) and drafts — even two carrying stale batches
 (9) — fold exactly as before. Rolls back. Red on PD5B.1 against the w3 drain and on PD5B.4 against the
 p2f merge; every case is falsified by name in `scripts/verify-mode-authority.mjs` (suite `pd5b`), and
-the drain's order against a concurrent Send by `scripts/verify-counter-fire-race.mjs` (k · k2).
+the drain's order against a concurrent Send by `scripts/verify-counter-fire-race.mjs` (s · s2).

@@ -1145,19 +1145,24 @@ lines above disagree, this section wins. That covers §H.2's "told apart by who 
   - `supabase/tests/pd5b_settlement_batch_and_fold_test.sql` (PD5B.1–9) went red on PD5B.1 against
     the w3 drain and on PD5B.4 against the p2f merge, and is green after.
   - `verify-mode-authority.mjs` has a new suite, `pd5b`: eight killed mutants, one per rule. M109's
-    and Phase 2f's merge mutants now patch the pd5b file. The battery accounts for all 205.
+    and Phase 2f's merge mutants now patch the pd5b file. The battery accounts for all 241 (with main's M184, M269 and PD3 suites).
   - `verify-counter-fire-race.mjs` gains the grace race as two orders on a dine-in table:
-    - **k:** the Send, then the payment and the drain, which waits on the Send's line lock and then
+    - **s:** the Send, then the payment and the drain, which waits on the Send's line lock and then
       leaves it;
-    - **k2:** the reverse.
+    - **s2:** the reverse.
 
     It also gains two mutants: the mark dropped, and the drain's draft guard dropped (that one
-    re-stamps the Send's dish). The harness now restores from the chain p2f → pd5b.
+    re-stamps the Send's dish). The two functions join the harness's `LATER` map, so every restore
+    reads them from the pd5b file. (The orders were k/k2 until main's M269 took those names for its
+    own counter-race orders.)
 
   - `verify-merge-race` (plain and `--mutants`) and the M96/M97/M98/M109 fold tests are unchanged
     and green.
   - `kitchen-queue-counter.test.ts` pins the grace race end to end. It went red on the PD5 code.
 
-- **Stacking.** PD9 (`claude/feat/pd9-tv-board`) moves the round read into
-  `lib/kitchen-round-read.ts`. Whichever of PD5b and PD9 merges second carries this change into that
-  module: drop the orders leg there, and drop `paidAtByCart` from the `roundOrdinals` call.
+- **Stacking.** PD9 (`claude/feat/pd9-tv-board`, #336) moves the round read into
+  `lib/kitchen-round-read.ts`. Whichever of PD5b (#340) and PD9 merges second carries this change into
+  that module: drop the orders leg there, and drop `paidAtByCart` from the `roundOrdinals` call. The
+  registry follows as a set operation: PD9 re-points `kitchen/settlement-on-a-staff-settled-cart` and
+  `kitchen/round-orders-saturation-ignored` to that module, and PD5b retires both, so neither
+  survives the second merge. (Re-checked 2026-10-11 against PD9's head `068ca35`.)
