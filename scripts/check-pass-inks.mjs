@@ -45,7 +45,9 @@ const ROOT = join(import.meta.dirname, "..");
 const TOKENS = "packages/ui/src/tokens.css";
 const SHEETS = ["apps/qr/app/globals.css"];
 /** Host classes rendered INSIDE a CounterPass (a class token, matched whole). */
-const IN_PASS = /\.counter-pass(?:-[\w-]+)?(?![\w-])/;
+// `.counter-pass*` — the counter ask's pass (PD2); `.pass-dish*` — the dish rows on the "Show a
+// server" pass (PD1).
+const IN_PASS = /\.(?:counter-pass|pass-dish(?:es)?)(?:-[\w-]+)?(?![\w-])/;
 
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 

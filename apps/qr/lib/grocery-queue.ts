@@ -151,7 +151,13 @@ export function flushCart(cartId: string): QueuedScan[] {
   return next;
 }
 
-export type DrainOutcome = { entry: QueuedScan; verdict: ReplayVerdict };
+export type DrainOutcome = {
+  entry: QueuedScan;
+  verdict: ReplayVerdict;
+  /** The server's reason behind a refusal (`rejected` / `terminal` / a transient), so the summary can
+   *  tell a weighed item from a code that was never in the app (PD4, blind pass on #329). */
+  reason?: string;
+};
 
 /**
  * ONE composed message for a finished drain — the page's toast channel is single-slot (a later
@@ -160,15 +166,27 @@ export type DrainOutcome = { entry: QueuedScan; verdict: ReplayVerdict };
  * MED: the strip promised "they'll add when you're back online"; the one correction of that
  * promise must actually paint). Pure so the sequencing rule is pinnable by a unit test.
  */
-export function drainSummary(delivered: number, rejectedBarcodes: string[]): string | null {
-  const rejected = rejectedBarcodes.length;
+export function drainSummary(delivered: number, rejectedReasons: string[]): string | null {
   const scans = (n: number) => (n === 1 ? "scan" : "scans");
-  if (delivered > 0 && rejected > 0)
-    return `Back online — added ${delivered} saved ${scans(delivered)}, but ${rejected} couldn’t be added (${rejectedBarcodes.join(", ")}) — no longer available.`;
-  if (delivered > 0) return `Back online — added ${delivered} saved ${scans(delivered)}.`;
-  if (rejected > 0)
-    return `Couldn’t add ${rejected} saved ${scans(rejected)} (${rejectedBarcodes.join(", ")}) — no longer available.`;
-  return null;
+  // PD4 (critic's fix B4; blind pass on #329) — a rejection is named by COUNT, never by its digits
+  // (a 13-digit code is nothing a shopper can act on), and by an HONEST cause: a weighed item is
+  // told it needs the scale — its own sentence, never "not in the app"; the rest (an unknown code,
+  // an item unavailable today) share the two causes they can be. Never the old "no longer
+  // available", a false cause for the common case (the code was never in the app at all).
+  const weighed = rejectedReasons.filter((r) => r === "weighed_item").length;
+  const other = rejectedReasons.length - weighed;
+  const parts: string[] = [];
+  if (delivered > 0) parts.push(`added ${delivered} saved ${scans(delivered)}`);
+  if (other > 0)
+    parts.push(
+      `${other} saved ${scans(other)} couldn’t be added — not in the app yet, or not available today`,
+    );
+  if (weighed > 0)
+    parts.push(
+      `${weighed} saved ${scans(weighed)} ${weighed === 1 ? "needs" : "need"} the scale — please bring ${weighed === 1 ? "it" : "them"} to the counter`,
+    );
+  if (parts.length === 0) return null;
+  return `${delivered > 0 ? "Back online — " : ""}${parts.join("; ")}.`;
 }
 
 /**
@@ -190,7 +208,11 @@ export async function drainCart(
     if (!loadQueue().some((e) => e.scanId === entry.scanId)) continue; // flushed underneath us
     const result = await send(entry).catch(() => null);
     const verdict = classifyReplay(result);
-    outcomes.push({ entry, verdict });
+    outcomes.push({
+      entry,
+      verdict,
+      ...(result && !result.ok ? { reason: result.reason } : {}),
+    });
     if (verdict === "delivered" || verdict === "rejected") removeEntry(entry.scanId);
     else if (verdict === "terminal") {
       flushCart(cartId);

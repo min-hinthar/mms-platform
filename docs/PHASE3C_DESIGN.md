@@ -63,6 +63,16 @@ kitchenDraftUnits, graceOpen })` → `"send"` (host, drafts, no grace) · `"undo
   ternary collapse into one call. _Law:_ decision logic in `lib/`, falsified by a value; one mutant per
   arm. _It is NOT_ P4's Send-on-the-Bill: with unsent dishes the Bill keeps Pay dimmed with its reason
   and the existing "← Back to send them" — two verbs on one screen is the shape J23 names.
+  _Amended by PD1 (PATH_DESIGN_2026-10-07 moment 1, 2026-10-09):_ a GUEST with dine-in drafts at a
+  table that HAS a host is a fourth arm, `"wait"` — their hero is "Show a server" (the table's ticket
+  held up for Dad, `ShowServerPass` on post-pay's `CounterPass`), and the Total door is the quiet,
+  always-open door ("Total · $X — View bill"; reading is not a write). `orderStageHero({ canSend,
+kitchenDraftUnits, graceOpen, hostPresent })`: grace → undo · the host with drafts → send · a host
+  table's guest with drafts → wait · otherwise bill (everything sent; a hostless table, whose drafts go
+  with the counter ask or the console's Send). The `hostSendsCopy` sentence stays — now the first row
+  of the wait block, beside the quiet "Let {host} know" nudge and the staff fallback. Mutants
+  `checkout-verb/wait-arm-dropped`, `checkout-verb/wait-offered-on-a-hostless-table`,
+  `checkout-verb/send-outranks-wait`.
 - **D14 — the receipt foot IS the door, named once.** `const orderTotalCents = totals.totalCents +
 tipPreviewCents` is the ONE binding (W17); it replaces the inline sums at `:2354` and `:3681`. Under
   the dishes sits one 44px `<button class="checkout-total-door">` of PHRASING content only — `Total` /

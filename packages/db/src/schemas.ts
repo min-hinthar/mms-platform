@@ -512,6 +512,12 @@ export const submitFeedbackInput = z.object({
  *  draft line server-side (mms_fire_cart, dine-in only). */
 export const sendToKitchenInput = z.object({ cartId: uuid });
 
+/** nudgeHost (PD1 — "Let Aye know") — a guest asks the host to send. Shape only: the client names
+ *  the cart, never the host or the seat; the server re-derives membership and `mms_nudge_host`
+ *  restates every rule in its WHERE (cart open, a host named, the nudger a member and not the host,
+ *  at most once a minute). */
+export const nudgeHostInput = z.object({ cartId: uuid });
+
 /** undoFire (S2.2) — the host reverses the just-sent batch within the grace window (fired→draft for any
  *  line still in grace). `batch` is the fire_batch sendToKitchen handed back, so undo targets exactly that
  *  send (S4-audit P1-3 — never another actor's make-it-now line). Shape only; the server re-derives

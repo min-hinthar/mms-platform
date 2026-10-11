@@ -1068,8 +1068,13 @@ Precedence as read: D > the Codex corrections > the cross-spec reconciliations >
   `counter` tier (one figure at `--fs-pass` under "Table · စားပွဲ", the dotted seam and notches with
   `--pass-hole` set to the page ground, the torn foot) with the unsent mark as `KitchenTrack
 stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
-  body. A numberless table prints its session code at the holder's 40px tier, spelt for a screen
-  reader (reconciliation 6). The primitive's prop surface: m10's `### H`.
+  body. ~~A numberless table prints its session code at the holder's 40px tier, spelt for a screen
+  reader (reconciliation 6).~~ **Reversed 2026-10-09 (owner-delegated; the blind pass on #335,
+  fixed in #335):** no pass prints the session's join code — it is the table's bearer join secret
+  and its realtime/RLS key, and this pass is held up at the register. A numberless table prints
+  "Aye’s table" (the host's first name) or "Your table" in the figure's place
+  (`lib/pass-identity.ts`), and Dad finds the table on the console by its open cart. The primitive's
+  prop surface: m10's `### H`.
 - Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
   text on the floor chip too.
 - Decision 12: the ask over unsent dishes stays refused (the Bill's door is held with its reason)

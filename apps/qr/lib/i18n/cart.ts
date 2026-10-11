@@ -153,6 +153,22 @@ export const CART = {
   },
   // The host's way back from the Bill's unsent note (the EN is the shipped link; the MY is new).
   backToSendThem: { en: "Back to send them", my: "ပြန်သွားပြီး ပို့မယ်" }, // K15 draft (m2, quiet)
+  // ── PD1 (PATH_DESIGN_2026-10-07, m1 "Next Stop: Kitchen") — a tablemate's dish waits on the
+  // host's Send. The host is named from `session_members` (never the default "Guest" as a person:
+  // `chosenName`); the interpolated pairs ("Let {host} know", "{host} can see you're waiting", "If
+  // {host} is away…", "{guest} is waiting on this send.") are composed where the name is minted —
+  // lib/confirm-copy.ts and lib/send-nudge-state.ts. K15 · diner-cart lists every draft below.
+  // The guest's one primary at the Order stage (the owner's own words). The MY is a verbatim
+  // contiguous excerpt of the shipped `counterBody` MY ("…show this to the staff…").
+  showServer: { en: "Show a server", my: "ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ" }, // K15 draft (m1: excerpt)
+  // The host's quiet line (and the order bar's line 2) when the table cannot name the waiting seat.
+  someoneWaiting: { en: "Someone’s waiting", my: "တစ်ယောက် စောင့်နေပါတယ်" }, // K15 draft (m1, quiet)
+  // The Send's caption — feedforward before the tap, the same node once Send is Undo. TRUE:
+  // dine-in lines in grace are hidden on the KDS (`kdsLineGate`, lib/counter-order.ts).
+  sendCaption: {
+    en: "The kitchen sees it when the countdown ends.",
+    my: "အချိန်ကုန်တာနဲ့ မီးဖိုချောင်က မြင်ရပါမယ်", // K15 draft (m1, guided)
+  },
   counterSettledTitle: { en: "All paid — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
   counterSettledBody: {
     en: "This bill was paid at the counter. There’s nothing left to pay here.",

@@ -3842,6 +3842,21 @@ also reflows a long `find:` anchor written before the format pass (LEARNINGS #10
 anchors from the FORMATTED source, and run `check:mutant-anchors` after `pnpm format`, never only
 before it.
 
+## #251
+
+**A cut paper shape with a shadow needs the shadow on the WRAPPER, and the React purity rule reaches
+`performance.now()` in render (PD4, 2026-10-08).** Two sharp edges from the grocery tag. (1) A shop
+tag — chamfered left corners, rounded right, a punched hole the camera shows through — is one element
+with `border-radius` (the right corners) + `clip-path: polygon(…)` (the chamfers) + `mask:
+radial-gradient(…)` (the hole); but `filter: drop-shadow` on THAT element is applied before the
+clip, so the shadow is cut off with the paper. Put the `drop-shadow` on a wrapper: a filter on the
+parent follows the rendered alpha of its contents, hole and chamfers included. (2)
+`react-hooks/purity` (the React Compiler lint, on by default here) refuses `performance.now()` and
+ref reads during render — so a chip's "armed" flag or a seconds leaf cannot be computed inline from
+the clock. Keep the pure rule (`chipArmed`, `undoSecondsLeft`) and call it from the handler at the
+event and from the interval/timeout that re-asks it; render reads the answer from state
+(`chipLive`, `undoLeft`). The rule still decides, and its mutant still reddens.
+
 ## #252
 
 **jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
@@ -3863,6 +3878,20 @@ of that file, `replace` present in the working copy where HEAD had none, and `fi
 that check raised here was the author's own edit (a third `setWriteError(null)`), told apart by `find`
 still present. And `execSync("git show …")` on the registry needs `maxBuffer` — the default 1 MB
 throws ENOBUFS mid-check, which reads like a parse failure.
+
+## #254
+
+**A harness that hardcodes 127.0.0.1:54322 can run beside another stream's cluster on that port — in a
+private network namespace (2026-10-09, PD5b).** `verify-merge-race.mjs` takes no DSN on purpose, and on
+a container shared by parallel streams another agent's throwaway cluster already held 54322. Run your
+OWN cluster on 54322 inside `unshare -n` (bring `lo` up first: there is no `ip` binary, so a three-line
+`SIOCSIFFLAGS` ioctl in Python does it), start `pg_ctl` and the harness in that namespace, and stop the
+cluster on exit. Nothing the harness commits reaches the other stream's database, and its in-DB guards
+(loopback, TLS off, private address) still hold. Two traps from the same build: never `import()` a
+harness script to check its syntax, because it RUNS (`node --check` does not); and an in-place restore
+that replays one migration file must become a CHAIN the day a later migration restates one of its
+functions, or every mutant's restore reverts the newer body (`verify-counter-fire-race.mjs` reads each
+restated function from its LAST defining file — the `LATER` map — and `statementFor` patches that file).
 
 ## #255
 

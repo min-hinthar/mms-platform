@@ -407,6 +407,8 @@ describe("getKitchenQueue — an open counter order's Unpaid is the CART's (Code
 const B1 = "3f2a9c10-1111-4aaa-8bbb-000000000001";
 const B2 = "7d0e4b22-2222-4aaa-8bbb-000000000002";
 const BT = "aaaa0000-3333-4aaa-8bbb-000000000003";
+/** A settlement batch as `mms_fire_pending_food` mints it since PD5b: version 8 (character 15). */
+const BS = "aaaa0000-3333-8aaa-8bbb-000000000004";
 
 /** A dine-in table (T4, session s4) whose carts and lines the case supplies. */
 function setupTable(o: { carts?: Row[]; lines: Row[]; sessionStatus?: string; mode?: string }) {
@@ -713,9 +715,10 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
     ]);
   });
 
-  it("settlement food on a paid dine-in cart — fired at or after its order — is never a numbered round (Codex on #328)", async () => {
-    // A hostless table paid at the counter with unsent drafts: the order is written, then the
-    // drafts fire at the settlement on the just-paid cart; the guest's earlier Send came before.
+  it("settlement food — its batch marked by the drain — is never a numbered round (Codex on #328; PD5b)", async () => {
+    // A hostless table paid at the counter with unsent drafts: the order is written, then
+    // `mms_fire_pending_food` fires the drafts on the just-paid cart under a MARKED (version-8) batch;
+    // the guest's earlier Send came before. No order is read: the mark decides.
     tables = {
       qr_cart_items: [
         dine({
@@ -728,7 +731,7 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
         dine({
           id: "p2",
           cart_id: "cart-paid",
-          fire_batch: BT,
+          fire_batch: BS,
           fire_at: at(-2_599),
           state: "in_progress",
         }),
@@ -747,119 +750,20 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
       table_sessions: [
         { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
       ],
-      qr_orders: [
-        {
-          id: "order-00abcdef",
-          cart_id: "cart-paid",
-          status: "paid",
-          created_at: at(-2_600),
-          settled_by: null,
-        },
-      ],
     };
     const t = await tickets();
     expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
-      [BT, { kind: "none" }],
+      [BS, { kind: "none" }],
       [B2, { kind: "n", n: 2 }],
     ]);
   });
 
-  it("an orders leg that answers its cap cannot tell settlement food apart: every round reads UNKNOWN (`kitchen/round-orders-saturation-ignored`)", async () => {
-    const orders = Array.from({ length: 200 }, (_, i) => ({
-      id: `order-${i}`,
-      cart_id: "cart-paid",
-      status: "paid",
-      created_at: at(-2_600 + i),
-      settled_by: null,
-    }));
-    tables = {
-      qr_cart_items: [
-        dine({
-          id: "p1",
-          cart_id: "cart-paid",
-          fire_batch: B1,
-          fire_at: at(-3_000),
-          state: "served",
-        }),
-        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
-      ],
-      qr_carts: [
-        {
-          id: "cart-paid",
-          session_id: "s4",
-          status: "paid",
-          customer_name: null,
-          pickup_slot: null,
-        },
-        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
-      ],
-      table_sessions: [
-        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
-      ],
-      qr_orders: orders,
-    };
-    const t = await tickets();
-    expect(t.map((x) => x.round)).toEqual([{ kind: "unknown" }]);
-  });
-
-  it("a STAFF-settled cart carries no settlement food, so a Send that the settle landed inside its grace is still a numbered round (Codex round 2 on #328; `kitchen/settlement-on-a-staff-settled-cart`)", async () => {
-    // Round 2 sent at -2 607 s (fire_at = its 10 s grace deadline, -2 597 s); Dad took cash at
-    // -2 600 s, three seconds into that grace. Every staff tender refuses unsent dine-in drafts, so
-    // nothing on this cart can be settlement food — the batch after the order is the Send.
-    tables = {
-      qr_cart_items: [
-        dine({
-          id: "p1",
-          cart_id: "cart-paid",
-          fire_batch: B1,
-          fire_at: at(-3_000),
-          state: "served",
-        }),
-        dine({
-          id: "p2",
-          cart_id: "cart-paid",
-          fire_batch: BT,
-          fire_at: at(-2_597),
-          state: "in_progress",
-        }),
-        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
-      ],
-      qr_carts: [
-        {
-          id: "cart-paid",
-          session_id: "s4",
-          status: "paid",
-          customer_name: null,
-          pickup_slot: null,
-        },
-        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
-      ],
-      table_sessions: [
-        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
-      ],
-      qr_orders: [
-        {
-          id: "order-00abcdef",
-          cart_id: "cart-paid",
-          status: "paid",
-          created_at: at(-2_600),
-          settled_by: "staff-dad",
-        },
-      ],
-    };
-    const t = await tickets();
-    expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
-      [BT, { kind: "n", n: 2 }],
-      [B2, { kind: "n", n: 3 }],
-    ]);
-  });
-
-  it("a staff SECURE-TAB close stamps no `settled_by`, so its cart reads as guest-paid: a Send inside the 10 s before the close loses its number — the pinned residual (m5 §H.3, an owner item)", async () => {
-    // The same sequence as the cash case above, closed on the secure card screen instead: the
-    // webhook records that order with `settled_by` null, exactly like a guest's own payment, and
-    // nothing else on the order tells the two apart. The batch after the order reads as settlement
-    // food: round 2 loses its number and the next Send says "Round 2". Pinned so a change to either
-    // side of it is a decision, not a drift.
+  it("THE GRACE RACE: a Send fired after its cart's payment was recorded keeps its number, whoever took the payment — the batch's mark decides, never the paid moment (PD5b; m5 §H.2, §H.3 C3)", async () => {
+    // Round 2 sent at -2 607 s (fire_at = its 10 s grace deadline, -2 597 s); the payment was recorded
+    // at -2 600 s, three seconds into that grace — a guest's own card payment, or a staff SECURE-TAB
+    // close, which the webhook records with `settled_by` null just the same. Read by the paid moment,
+    // the batch after the order was settlement food and lost its number. Its batch is a Send's
+    // (version 4), so it is round 2 and the next Send round 3, and the order row changes nothing.
     tables = {
       qr_cart_items: [
         dine({
@@ -904,8 +808,8 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
     };
     const t = await tickets();
     expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
-      [BT, { kind: "none" }],
-      [B2, { kind: "n", n: 2 }],
+      [BT, { kind: "n", n: 2 }],
+      [B2, { kind: "n", n: 3 }],
     ]);
   });
 
