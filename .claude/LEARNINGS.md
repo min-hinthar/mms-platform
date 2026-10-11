@@ -3918,16 +3918,23 @@ and assert it in the test; a throwaway whose prereq copies the hosted defaults c
 
 ## #257
 
-**"Errors 1 error" after every test passed is a timer that outlived its jsdom file — vitest yields NO
-macrotask between a case's hooks and the next case, or between a file's last hook and its environment
-teardown (2026-10-11, T54).** Measured: a `setTimeout(…, 0)` queued in a file's last `afterEach` had not
-fired in its `afterAll`, 5 of 5 runs. The teardown deletes jsdom's globals and restores Node's own
-(`CustomEvent` among them), so Radix FocusScope's unmount timer — queued by the suite's own
-`afterEach(cleanup)` — builds a Node event and jsdom's `dispatchEvent` refuses it. Whether it lands after
-the teardown is IPC timing: 0 of 70 isolated local runs, one CI run. Don't chase the race. Reproduce
-the mechanism deterministically instead: `builtinEnvironments.jsdom.setup(globalThis, {})` from
-`vitest/environments`, unmount, call its `teardown` at once. Pin the PRECONDITION in-runner: the
-timer's effect has not happened by the next case or by `afterAll`. The fix is one drain in the shared
-`setupFiles` hook. It runs last under the default `sequence.hooks: "stack"`. It waits on a `setTimeout`
-captured at load: on the global one, any case that leaves `vi.useFakeTimers()` on hangs the hook to
-its 10 s timeout.
+**"Errors 1 error" after every test passed is a timer that outlived its jsdom file — no macrotask runs
+between a case's hooks and the next case, or between a file's last `afterEach` and its `afterAll`; the
+race is AFTER `afterAll` (2026-10-11, T54).** Measured in-runner (vitest 4.0.17): a `setTimeout(…, 0)`
+queued in a file's last `afterEach` had not fired in its `afterAll`, 5 of 5 runs. After `afterAll` the
+worker reports the file finished and runs the jsdom teardown only on the pool's `stop` message, so a
+timer still queued races that IPC round trip: one queued in a file's last `afterAll` fired before the
+teardown in 113 of 113 local runs (30 alone, 83 among the full suite), and one CI run lost it. The
+teardown deletes jsdom's globals and restores Node's own (`CustomEvent` among them), so Radix
+FocusScope's unmount timer — queued by the suite's own `afterEach(cleanup)` — builds a Node event and
+jsdom's `dispatchEvent` refuses it. Don't chase the race (the flaking suite reproduced it in 0 of 70
+isolated local runs). Reproduce the mechanism deterministically instead:
+`builtinEnvironments.jsdom.setup(globalThis, {})` from `vitest/environments`, unmount, call its
+`teardown` at once. Pin the PRECONDITION in-runner: the timer's effect has not happened by the next
+case or by `afterAll`. The fix is one drain in the shared `setupFiles` hook, BEFORE its resets: a
+restore runs caller code, and drained after them what it writes is read by the next case (the blind
+pass found that position unpinned; a mutant now moves it). It runs last under the default
+`sequence.hooks: "stack"`. It waits on a `setTimeout` captured at load: on the global one, any case
+that leaves `vi.useFakeTimers()` on hangs the hook to its 10 s timeout. A restore queued on a FAKE
+clock is out of its reach: dropped if that clock is uninstalled before anything advances it, but
+fired by the next case to advance a clock that outlives its case (a `beforeAll` install).

@@ -26039,6 +26039,15 @@ const MUTANTS = [
     replace: "    setTimeout(resolve, 0);\n",
   },
   {
+    id: "setup-teardown/drain-after-resets",
+    file: "apps/qr/lib/test-setup.ts",
+    suite: "lib/test-setup.teardown.test.tsx",
+    why: "the blind pass on #343 — the drain runs BEFORE the per-case resets. Moved below them, an unmount timer still fires inside its case, but what it runs (caller code: a close-restore's focus handler that starts a tracked call) lands after the ledger was emptied, so its hang is read by the next case — a money door there refuses as 'stuck — reload' for a hang that case never made",
+    find: '  if (typeof document !== "undefined") await drainUnmountTimers();\n  resetModuleState();\n',
+    replace:
+      '  resetModuleState();\n  if (typeof document !== "undefined") await drainUnmountTimers();\n',
+  },
+  {
     id: "p2i-setup/listeners-leak",
     file: "apps/qr/lib/settled-view.ts",
     suite: "lib/test-setup.test.ts",
