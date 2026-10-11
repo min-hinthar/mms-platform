@@ -1302,4 +1302,24 @@ in source by the lead).**
 - **Justified, no code:** the seen-set across a station switch (a card that arrived while another
   station's view was up is not announced when the cook switches to it — the switch is the cook's own
   tap, and the card is on screen in its slot); the guide-replaced stamp in `useLayoutEffect` (it must
-  land before the paint that shows the card).
+  land before the paint that shows the card). _Superseded by Codex round 2 below: the seen-set was a
+  real gap._
+
+**#347 Codex round 2 (on `9bd9973`; three P2s, the last triaged round).**
+
+- **A card the station filter hid was marked said** (fixed). The poll marked EVERY open stop said, so a
+  card that arrived while the view showed another station was drawn, on the switch, with no words — no
+  motion and no chime either, so no alarm at all for a screen reader. Now only the cards the view
+  draws are marked said (`stopsSaidAfter`); a hidden card is said on the first read after the view
+  starts drawing it, and once (a card said stays said while it is open). The server render's cards a
+  RESTORED station never draws are unsaid the same way.
+- **A second table inside the first's dwell replaced it** (fixed). Two tables cleared five seconds
+  apart: the second arrival's words took the region before the first's 8 s. Now a wave joins the
+  words still standing (`stopNewsMerged` — each clear once, the newest wave's words winning) under the
+  newest wave's id, so the dwell restarts for the newest table and the earlier ones stand at least
+  until it ends.
+- **The stop read cannot use M182's partial index** (justified, no code — OPEN-ITEMS M272). The read
+  filters `stop_line_ids <> '{}'` (PostgREST cannot express `cardinality(...)`); the index is keyed on
+  `cardinality(stop_line_ids) > 0`, so every poll scans `qr_table_clears` — 0 rows in prod (measured
+  2026-10-11 16:37Z), at most one row per clear. A matching partial index needs a migration with the
+  owner-gated prod apply (or an RPC), so it is filed, to be measured against the row count first.

@@ -222,6 +222,8 @@ const region = () => document.querySelector('.kds-head [role="status"]')!;
 const gotIt = (c: HTMLElement, i = 0) =>
   within(stopCards(c)[i] as HTMLElement).getByRole("button", { name: /Got it/ });
 const STOP3 = tf("en", "kds.stop", { id: 3 });
+/** The board's persisted station (`KdsBoard`'s `STATION_KEY`). */
+const STATION_KEY = "mms.kds.station";
 
 describe("M270 (1) — the stop card stands in its ticket's slot", () => {
   it("between the live tickets by its Send's stamp, struck, named by its warn word, with Got it", async () => {
@@ -686,6 +688,61 @@ describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region"
     await flush(5_000);
     expect(stopCards(container)).toHaveLength(0);
     // MUTATION m270/kds-board/news-every-station: the drinks screen announces a card it never draws.
+    expect(region().textContent).not.toContain(STOP3);
+  });
+
+  it("#347 Codex r2 — a card the filter hid is said on the first read after the view starts drawing it, and only once", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.drinks") }));
+    currentQueue = q([], [stop("c3", 3, -5, "b3", "wok")]);
+    await flush(5_000);
+    expect(region().textContent).not.toContain(STOP3);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.wok") }));
+    expect(stopCards(container)).toHaveLength(1);
+    await flush(5_000);
+    // MUTATION m270/kds-board/hidden-marked-said: the read on the drinks view marked it said, so the
+    // wok view draws it with no words — no motion, no chime, no alarm at all for a screen reader.
+    expect(region().textContent).toBe(STOP3);
+    await flush(10_000);
+    // Said once: the reads after it never say it again.
+    expect(region().textContent).not.toContain(STOP3);
+  });
+
+  it("#347 Codex r2 — a RESTORED station: a server-render card it never drew is said once the view draws it", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(STATION_KEY, "drinks");
+    currentQueue = q([], [stop("c3", 3, -5, "b3", "wok")]);
+    const { container } = mount(currentQueue);
+    await flush();
+    expect(stopCards(container)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.wok") }));
+    await flush(5_000);
+    // MUTATION m270/kds-board/restored-hidden-said: the server render's card counts as said on a
+    // view that never drew it.
+    expect(region().textContent).toBe(STOP3);
+  });
+
+  it("#347 Codex r2 — a second table inside the first's dwell joins it: both said, the first standing until the newest's dwell ends", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    mount(currentQueue);
+    await flush();
+    currentQueue = q([], [stop("c3", 3, -5)]);
+    await flush(5_000);
+    expect(region().textContent).toBe(STOP3);
+    currentQueue = q([], [stop("c3", 3, -5), stop("c4", 4, -4, "b4")]);
+    await flush(5_000);
+    const stop4 = tf("en", "kds.stop", { id: 4 });
+    // MUTATION m270/kds-board/news-wave-replaces: table 4's words replace table 3's before its
+    // dwell — perhaps before a screen reader said them.
+    expect(region().textContent).toBe(`${STOP3} ${stop4}`);
+    // Past table 3's own 8 s, both still stand: the dwell restarted for the newest table.
+    await flush(4_000);
+    expect(region().textContent).toBe(`${STOP3} ${stop4}`);
+    await flush(5_000);
     expect(region().textContent).not.toContain(STOP3);
   });
 

@@ -8,10 +8,12 @@ import {
   stopAckVerdict,
   stopArrivals,
   stopNewsAcked,
+  stopNewsMerged,
   stopNewsText,
   stopReadDegraded,
   stopsForStation,
   stopsKnown,
+  stopsSaidAfter,
   visibleStops,
   withStopAck,
   type StopAcks,
@@ -274,5 +276,62 @@ describe("#347 r2 — the arrival's words: one part per card, retired by its own
     // A Got it for a clear the words never named changes nothing (the same arrival, not a copy).
     expect(stopNewsAcked(news, "c9")).toBe(news);
     expect(stopNewsAcked(null, "c3")).toBeNull();
+  });
+});
+
+describe("#347 Codex r2 — which cards a view has SAID, and a second wave of arrivals", () => {
+  const card = (clearId: string) => ({ ...stop(clearId, 1) });
+  const a = card("A");
+  const b = card("B");
+
+  it("only the cards this view draws are marked said — a hidden one stays unsaid until it is drawn", () => {
+    // MUTATION m270/kds-stop/said-every-open-card: a card the filter hid is marked said, and the
+    // view that later draws it never says it.
+    const said = stopsSaidAfter(new Set(), [a, b], [a]);
+    expect([...said]).toEqual([a.key]);
+    expect(stopArrivals(said, [a, b]).map((s) => s.key)).toEqual([b.key]);
+  });
+
+  it("a card said once stays said while it is open, even on a view that no longer draws it — and leaves when it closes", () => {
+    // MUTATION m270/kds-stop/said-forgotten-off-view: switching away and back says it twice.
+    expect([...stopsSaidAfter(new Set([a.key]), [a, b], [])]).toEqual([a.key]);
+    // MUTATION m270/kds-stop/said-never-pruned: a closed card's key is kept for the board's life.
+    expect([...stopsSaidAfter(new Set([a.key, "gone"]), [a], [])]).toEqual([a.key]);
+  });
+
+  it("a second wave joins the words still standing, each clear once, under the newest wave's id", () => {
+    const first: StopNews = { id: 1, parts: [{ clearId: "c3", text: "Table 3 left" }] };
+    const second: StopNews = {
+      id: 2,
+      parts: [
+        { clearId: "c4", text: "Table 4 left" },
+        { clearId: "c3", text: "Table 3 left (2)" },
+      ],
+    };
+    // MUTATION m270/kds-stop/news-merge-replaces: the first table's words leave before their dwell.
+    // MUTATION m270/kds-stop/news-merge-keeps-old-id: the dwell never restarts for the newest table.
+    // MUTATION m270/kds-stop/news-merge-duplicates: table 3's older words stand beside its newer.
+    expect(stopNewsMerged(first, second)).toEqual({
+      id: 2,
+      parts: [
+        { clearId: "c4", text: "Table 4 left" },
+        { clearId: "c3", text: "Table 3 left (2)" },
+      ],
+    });
+    const third: StopNews = { id: 3, parts: [{ clearId: "c5", text: "Table 5 left" }] };
+    const merged = stopNewsMerged(first, third);
+    expect(merged).toEqual({
+      id: 3,
+      parts: [
+        { clearId: "c3", text: "Table 3 left" },
+        { clearId: "c5", text: "Table 5 left" },
+      ],
+    });
+    // A Got it after the merge still retires only its own clear's words.
+    expect(stopNewsAcked(merged, "c3")).toEqual({
+      id: 3,
+      parts: [{ clearId: "c5", text: "Table 5 left" }],
+    });
+    expect(stopNewsMerged(null, third)).toBe(third);
   });
 });

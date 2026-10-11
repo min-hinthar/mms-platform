@@ -167,8 +167,10 @@ export function shapeKitchenStops(
  * table or dishes leg, logged.
  */
 export async function readKitchenStops(db: Db): Promise<KitchenStop[] | null> {
-  // The partial index `qr_table_clears_stop_open` is this read's: open, with something stopped. The
-  // empty-array refusal is the SQL's, BEFORE the cap — a free clear (a paid table) writes a record
+  // Open, with something stopped. M182's partial index `qr_table_clears_stop_open` is keyed on
+  // `cardinality(stop_line_ids) > 0`, which PostgREST cannot express, so the planner cannot match it
+  // to this `<> '{}'` read: a scan (0 rows in prod today; OPEN-ITEMS M272). The empty-array
+  // refusal is the SQL's, BEFORE the cap — a free clear (a paid table) writes a record
   // with no stopped line and nothing ever acknowledges it, so filtered after the cap those records
   // would crowd the read until it answered no cards over a real stop (M180's lie, again).
   const { data, error } = await db

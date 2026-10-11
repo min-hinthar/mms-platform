@@ -2717,7 +2717,8 @@ Decided in `lib/kds-stop.ts` (what "Got it" answered, which cards draw, where ea
   (the head counts tickets), and the region never says "All clear" while one stands; a new one is said
   in the ONE region (the alarm a screen reader hears, since nothing moves or sounds) for its own dwell
   — it rides beside a transient notice and a standing refusal, never lost to either and never dropping
-  them, and a table's words leave at its own Got it.
+  them; a second table inside its dwell joins it (the dwell restarts for the newest); a table's words
+  leave at its own Got it; and a card a station filter hid is said when the view first draws it.
 - **"Got it" is optimistic and acknowledges the CLEAR.** Every card of that clear leaves at the tap;
   another tablet's acknowledgement (`already`) is the kitchen having it, never a failure; a refusal, a
   throw or a write still out brings the cards back to the confirmed state and a read decides. Focus that

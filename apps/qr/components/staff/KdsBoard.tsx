@@ -92,8 +92,10 @@ import {
   stopReadDegraded,
   stopsForStation,
   stopNewsAcked,
+  stopNewsMerged,
   stopNewsText,
   stopsKnown,
+  stopsSaidAfter,
   visibleStops,
   withStopAck,
   type StopNews,
@@ -454,7 +456,9 @@ export function KdsBoard({
   const stopsSeen = stopsKnown(stopState);
   // Every station's cards (the guide's quiet reads the whole board); the view draws `stops`, below.
   const allStops = useMemo(() => visibleStops(stopState.stops ?? [], stopState.acks), [stopState]);
-  // The stop cards this board has drawn, for saying a NEW one once (the server render's are not news).
+  // The stop cards this board has SAID, for saying a NEW one once (the server render's are not news —
+  // except the ones a restored station never draws, below: `stopsSaidAfter`'s rule at mount).
+  const mountStops = useRef(initial.stops ?? []);
   const seenStops = useRef(new Set((initial.stops ?? []).map((s) => s.key)));
   // Stop reads in a row that did not answer (the server render's counts): past `STOP_MISS_LIMIT`
   // (`stopReadDegraded`) the board says ITS STOP CARDS may be missing (`stopsStale`) — a table that
@@ -642,7 +646,14 @@ export function KdsBoard({
       }))
       .then(({ station: s, rail, size: sz, sound }) => {
         if (!active) return;
-        if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
+        if (s === "wok" || s === "cold" || s === "drinks") {
+          setStation(s);
+          // #347 (Codex r2) — the server render's cards this restored station never draws were
+          // never said: they are said on the first read after the view starts drawing them.
+          const drawn = new Set(stopsForStation(mountStops.current, s).map((st) => st.key));
+          for (const st of mountStops.current)
+            if (!drawn.has(st.key)) seenStops.current.delete(st.key);
+        }
         if (rail === "1") setRailOpen(true);
         setSize(parseKdsSize(sz));
         setSoundWanted(sound);
@@ -763,20 +774,23 @@ export function KdsBoard({
       setStopState((prev) => foldStopRead(prev, queue.stops, seq));
       stopMisses.current = queue.stops === null ? stopMisses.current + 1 : 0;
       if (queue.stops !== null) {
-        // Only the cards THIS view draws are news here (a wok screen is not told about a drinks stop).
-        const arrived = stopsForStation(
-          stopArrivals(seenStops.current, queue.stops),
-          stationRef.current,
-        );
-        seenStops.current = new Set(queue.stops.map((st) => st.key));
-        if (arrived.length > 0)
-          setStopNews({
+        // Only the cards THIS view draws are news here (a wok screen is not told about a drinks stop),
+        // and only they are marked said: a card the filter hides is said on the first read after the
+        // view starts drawing it (`stopsSaidAfter`, Codex r2 on #347).
+        const drawn = stopsForStation(queue.stops, stationRef.current);
+        const arrived = stopArrivals(seenStops.current, drawn);
+        seenStops.current = stopsSaidAfter(seenStops.current, queue.stops, drawn);
+        if (arrived.length > 0) {
+          const next = {
             id: ++stopNewsSeq.current,
             parts: arrived.map((st) => ({
               clearId: st.clearId,
               text: tf(langRef.current, "kds.stop", { id: st.tableNumber ?? st.label }),
             })),
-          });
+          };
+          // A second wave inside the first's dwell joins it — never replaces it (Codex r2 on #347).
+          setStopNews((prev) => stopNewsMerged(prev, next));
+        }
       }
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
       // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.

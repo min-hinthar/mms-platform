@@ -25,8 +25,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **"Got it" is optimistic** (`lib/kds-stop.ts`): every card of that clear leaves at the tap; another
   tablet's acknowledgement is not a failure; a refusal, a throw or a write still out brings the cards
   back and the board re-reads. Focus goes to the board's heading; a new stop card is said in the
-  board's one region for its own dwell — beside a transient notice and a standing refusal, and gone at
-  its own Got it — and the region never says "All clear" while one stands.
+  board's one region for its own dwell — beside a transient notice and a standing refusal, joined by a
+  second table inside the dwell, gone at its own Got it, and said when a station filter that hid it
+  starts drawing it — and the region never says "All clear" while one stands. The stop read cannot
+  use M182's partial index (PostgREST cannot express `cardinality`): filed as M272, 0 rows in prod.
 - **The slip says "tells the kitchen to stop anything still cooking"** — when its look shows a dish
   the kitchen still holds (`clearStopsKitchen`), worded to stay true if that dish is served before the
   commit; two keys, K15-HIGH.
@@ -35,7 +37,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the board's controls for the guide's arm (stamped in a layout effect), so a tap aimed at Next never
   lands on an All done or a "Got it" (m12 §I). Its stop step now says one Got it clears it on every
   screen.
-- 78 `m270/*` mutants; no migration (M182 made the record and the RPC).
+- 87 `m270/*` mutants; no migration (M182 made the record and the RPC).
 
 ### PD10 — the guest's live One Pass, with card and Apple Pay after served built behind the parked flag (2026-10-11, `claude/feat/pd10-live-pass`)
 

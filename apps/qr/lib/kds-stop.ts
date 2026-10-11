@@ -165,12 +165,30 @@ export function boardOrder(
   return out;
 }
 
-/** The stop cards in `stops` the board has not drawn before (`seen`: the keys it has). */
+/** The stop cards in `stops` the board has not said before (`seen`: the keys it has said). */
 export function stopArrivals(
   seen: ReadonlySet<string>,
   stops: readonly KitchenStop[],
 ): KitchenStop[] {
   return stops.filter((s) => !seen.has(s.key));
+}
+
+/**
+ * The keys a view has SAID after a read (#347, Codex r2): the cards it said before that are still
+ * open, plus every card it draws now (`drawn`, this view's `stopsForStation`). A card the station
+ * filter hides stays UNSAID, so the first read after the view starts drawing it says it — a card
+ * with no motion and no chime is never drawn without its words. A card said once stays said while
+ * it is open, so switching away and back never says it twice.
+ */
+export function stopsSaidAfter(
+  said: ReadonlySet<string>,
+  stops: readonly KitchenStop[],
+  drawn: readonly KitchenStop[],
+): Set<string> {
+  const open = new Set(stops.map((s) => s.key));
+  const out = new Set([...said].filter((k) => open.has(k)));
+  for (const s of drawn) out.add(s.key);
+  return out;
 }
 
 /**
@@ -196,6 +214,22 @@ export type StopNews = {
 export function stopNewsText(news: StopNews | null): string | null {
   if (news === null || news.parts.length === 0) return null;
   return [...new Set(news.parts.map((p) => p.text))].join(" ");
+}
+
+/**
+ * A second wave of arrivals inside the first's dwell (#347, Codex r2): the words still standing stay
+ * (`prev` holds only what no Got it has retired), each clear once — the newer wave's words win — and
+ * the merged arrival takes `next`'s id, so the dwell restarts for the newest table and the earlier
+ * ones stand at least until it ends. Never a replacement: two tables cleared five seconds apart are
+ * both said.
+ */
+export function stopNewsMerged(prev: StopNews | null, next: StopNews): StopNews {
+  if (prev === null) return next;
+  const fresh = new Set(next.parts.map((p) => p.clearId));
+  return {
+    id: next.id,
+    parts: [...prev.parts.filter((p) => !fresh.has(p.clearId)), ...next.parts],
+  };
 }
 
 /** `news` once `clearId` is acknowledged: that clear's words leave; the rest keep their dwell. */
