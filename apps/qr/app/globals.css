@@ -13879,18 +13879,305 @@ a.door-sheet-row {
   font-family: var(--font-my);
   font-size: var(--fs-sm);
 }
-.scan-result-dismiss {
+/* ── PD4 · THE PAPER TAG — §27's "paper for recovery" cut as a shop tag ────────────────────────────
+   ONE silhouette for the tag on the lens (a miss) and the tag for the counter (held up for Dad):
+   chamfered left corners, rounded right, a punched hole the GROUND shows through — on the lens that
+   ground is the live camera, the moment's one delight — and a grommet ring. Constant cream with ink
+   in BOTH themes (the house rule for every Dad-facing paper, m4 amendment A2): a shop tag is not a
+   themed surface, so Dad learns one look. The shape is clip-path (the chamfers) + border-radius
+   (the right corners) + a mask (the hole) on the paper; the drop-shadow sits on the WRAPPER so it
+   follows the cut alpha instead of being clipped with it. Never the dotted perforation — a
+   perforation means a pass (round 3). */
+.paper-tag {
+  position: relative;
+  color: var(--ink);
+  filter: drop-shadow(0 1px 1.5px color-mix(in oklab, var(--ink) 7%, transparent))
+    drop-shadow(0 10px 14px color-mix(in oklab, var(--ink) 30%, transparent));
+}
+/* A focus-parking target (a tag with no button): the stage's own ring when focus arrives the
+   keyboard way, nothing on a tap (blind pass on #329 — `outline: none` hid a keyboard user's place). */
+.paper-tag:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+}
+.paper-tag-paper {
+  position: relative;
+  background: var(--on-ink);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 16px 100%, 0 calc(100% - 16px), 0 16px);
+  -webkit-mask: radial-gradient(circle at 17px 50%, transparent 5px, #000 5.5px);
+  mask: radial-gradient(circle at 17px 50%, transparent 5px, #000 5.5px);
+  padding: var(--s2) var(--s3) var(--s2) 34px;
+}
+/* The grommet — a ring around the hole, ink at 30%. */
+.paper-tag-paper::before {
+  content: "";
+  position: absolute;
+  left: calc(17px - 8.5px);
+  top: calc(50% - 8.5px);
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--ink) 30%, transparent);
+  pointer-events: none;
+}
+/* THE TAG ON THE LENS — the result bar's slot, inset 8 at the stage's foot, above the reticle.
+   It GROWS UPWARD when the Burmese wraps (≤375px, large text); text never shrinks or clips. */
+.scan-tag {
+  position: absolute;
+  inset-inline: var(--s2);
+  bottom: var(--s2);
+  z-index: 3;
+}
+.scan-tag-head {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-tight);
+}
+.scan-tag-head-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+  letter-spacing: normal;
+}
+.scan-tag-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s2);
+}
+/* THE ONE PRIMARY — an ink pill: a constant surface takes the constant pair (as .scan-on-ink does
+   the other way round). No icon: the words say it. Its accessible name IS its visible bilingual
+   text (WCAG 2.5.3). */
+.scan-tag-btn {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--on-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--track-tight);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scan-tag-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.scan-tag-btn-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+  letter-spacing: normal;
+}
+/* THE QUIET LINE — not interactive; hierarchy from size and weight, never dimming. */
+.scan-tag-quiet {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+}
+.scan-tag-quiet-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
+}
+/* THE DISC CHIP — in your basket. Enters with POP (RM-gated with .mms-pop). */
+.scan-chip {
+  min-height: 76px;
+  padding: 10px var(--s3);
+}
+.scan-disc {
   flex: none;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-full);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--on-ink);
+  color: var(--ink);
+  box-shadow: 0 0 0 2.5px var(--ok);
+}
+/* A queued offline code: a DASHED ring (provisional — the shared mark), nothing confirmed. */
+.scan-disc-queued {
   background: transparent;
-  color: var(--on-ink);
+  box-shadow: none;
+  border: 2px dashed var(--on-ink);
+}
+/* THE ONE UNDO FORM — in the slot of the act it reverses: --sf with a 1.5px dashed accent edge,
+   never filled, the seconds an aria-hidden leaf. Refused (the arm, a write in flight) keeps FULL
+   ink: the arm is 350 ms, and a dimmed pill under a landing finger would read as a dead control. */
+.scan-undo {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1.5px dashed var(--ac);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--tx);
+  font-family: var(--font-body);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
   cursor: pointer;
+}
+.scan-undo[aria-disabled="true"] {
+  cursor: default;
+}
+.scan-undo:focus-visible {
+  outline: 2px solid var(--on-ink);
+  outline-offset: 2px;
+}
+.scan-undo-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.scan-undo-leaf {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+  color: var(--t2);
+}
+/* G20 — the Burmese name under a basket line's English, as its own block. */
+.grocery-line-my {
+  display: block;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  color: var(--t3);
+  line-height: var(--lh-my);
+}
+/* B10 — the busy result row keeps full ink and SAYS it. */
+.grocery-result-busy {
+  display: block;
+  margin-top: 2px;
+  color: var(--ac-strong);
+  font-weight: var(--fw-bold);
+}
+.grocery-result-busy > [lang="my"] {
+  margin-left: var(--s2);
+  font-family: var(--font-my);
+  font-weight: var(--fw-semibold);
+}
+/* ── PD4 · THE NAME SHEET over the live lens ───────────────────────────────────────────────────── */
+.name-sheet-title-my {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+  line-height: var(--lh-my);
+  letter-spacing: normal;
+}
+.name-sheet-field {
+  margin-top: var(--s3);
+}
+.name-state {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+.name-state-lead {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--tx);
+}
+.name-state-next {
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.name-state-my {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+  line-height: var(--lh-my);
+}
+.name-sheet-next {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+/* THE TAG FOR THE COUNTER — the same paper, lying on the sheet, the Burmese at Dad's reading size. */
+.counter-tag {
+  margin-top: var(--s4);
+  filter: drop-shadow(0 1px 1.5px color-mix(in oklab, var(--ink) 7%, transparent))
+    drop-shadow(0 14px 14px color-mix(in oklab, var(--ink) 14%, transparent));
+}
+.counter-tag .paper-tag-paper {
+  padding: 14px var(--s4) 14px 36px;
+}
+.counter-tag-kicker {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+}
+.counter-tag-kicker > svg {
+  align-self: center;
+}
+.counter-tag-kicker-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.counter-tag-head {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+}
+.counter-tag-my {
+  margin: 0;
+  font-family: var(--font-my);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+}
+.counter-tag-query {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+}
+.counter-tag-query-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-my);
 }
 /* PAPER — the recovery panels grow freely and never clip (the R1 lesson: recovery copy must never
    be cut off). The same height expression, as a MIN, declared twice for the same var() reason. */
