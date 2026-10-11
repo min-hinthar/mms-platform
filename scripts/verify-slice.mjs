@@ -33069,8 +33069,17 @@ const MUTANTS = [
     file: "apps/qr/components/DinerGuide.tsx",
     suite: "components/DinerGuide.test.tsx",
     why: "PD12's Codex r1 rule — a guide a guest opened themselves (Account) is SEEN: the first run never offers it again",
-    find: "          if (markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY)) markGuideSeenOnServer();\n",
+    find: "          markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY);\n",
     replace: "",
+  },
+  {
+    id: "pd11/door/server-mark-gated",
+    file: "apps/qr/components/DinerGuide.tsx",
+    suite: "components/DinerGuide.test.tsx",
+    why: "Codex on #348 — the Account door asks for the server mark even when the phone refused the local one: gated on the local write, a phone that refuses storage keeps no record that the guest read the guide",
+    find: "          markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY);\n",
+    replace:
+      "          if (!markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY)) {\n            setOpen(true);\n            return;\n          }\n",
   },
   {
     id: "pd11/first-run/server-mark-dropped",

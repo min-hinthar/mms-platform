@@ -539,7 +539,10 @@ export function DinerGuideDoor() {
         className="nav-link diner-guide-door"
         aria-haspopup="dialog"
         onClick={() => {
-          if (markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY)) markGuideSeenOnServer();
+          markGuideSeen(dinerGuideDeviceStore, DINER_GUIDE_KEY);
+          // The server mark is asked for even when this phone refused the local one (Codex on
+          // #348): the guest has read the guide, and the cookie is the mark that survives.
+          markGuideSeenOnServer();
           setOpen(true);
         }}
       >

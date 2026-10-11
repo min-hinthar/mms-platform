@@ -346,4 +346,20 @@ describe("DinerGuideDoor — Account's way back in", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     vi.unstubAllGlobals();
   });
+
+  it("a phone that refuses storage still opens the guide from Account, and still asks for the server mark", () => {
+    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    vi.stubGlobal("fetch", fetch);
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("refused", "SecurityError");
+    });
+    render(<DinerGuideDoor />);
+    fireEvent.click(screen.getByRole("button", { name: GUIDE_COPY.accountRow }));
+    expect(heading().textContent).toContain("Mingalaba");
+    // MUTATION (pd11/door/server-mark-gated): the cookie rides only a local write that succeeded, so
+    // this phone keeps no record that the guest read the guide; red.
+    expect(fetch).toHaveBeenCalledWith("/api/guide-seen", { method: "POST", keepalive: true });
+    setItem.mockRestore();
+    vi.unstubAllGlobals();
+  });
 });
