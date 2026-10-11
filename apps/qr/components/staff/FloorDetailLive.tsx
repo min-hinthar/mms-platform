@@ -251,6 +251,11 @@ export function FloorDetailLive({
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
+  // PD7 (m7 B3 · B12) — the clear's loss slip is armed: the settle section's Take cash stands down
+  // to secondary (one hero verb per state), and the slip's own "Take cash" door opens THAT till
+  // through its trigger (`openCash`) — never a second cash sheet.
+  const [clearSlip, setClearSlip] = useState(false);
+  const openCash = useRef<(() => void) | null>(null);
   // P2w — who holds an in-flight payment (the banner below); a missing holder is unsure, never phone.
   const payingHolder = detail.paymentHolder ?? "unsure";
   const payingMsg = inFlightMsg(payingHolder);
@@ -430,6 +435,8 @@ export function FloorDetailLive({
   // Phase 2d · split — the pane's close callback, read through a ref so `refresh` (and with it the
   // 5s poll's interval) keeps its identity when the pane re-renders with a new closure.
   const onClosedRef = useRef(onClosed);
+  // PD7 — set by a CLOSED verdict, read by the clear's window as it unmounts.
+  const tableGone = useRef(false);
   useEffect(() => {
     onClosedRef.current = onClosed;
   }, [onClosed]);
@@ -517,6 +524,10 @@ export function FloorDetailLive({
             fails.current = 0;
             setDegraded(null);
           } else if (res.kind === "closed") {
+            // PD7 — the table is GONE (cleared, merged or swept elsewhere), marked BEFORE anything
+            // below unmounts this detail: the clear's window must never tell the floor it stopped
+            // "when you left" a table that closed underneath it (the second blind pass on #341).
+            tableGone.current = true;
             // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
             // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
             // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
@@ -665,6 +676,9 @@ export function FloorDetailLive({
   // removal). A card-on-file running bill — the bill whose close renders (`settlePrimary`) — offers
   // "remove them if the guest has left"; every other bill says "send them first".
   const runningClose = settlePrimary(detail.tab) === "secureTab";
+  // The settle section is offered (and with it the pane's ONE cash till) — named once, read by the
+  // section and by the clear's slip door.
+  const cashOffered = canWrite && detail.itemCount > 0 && detail.settleTotalCents != null;
   // The gate's line in the ONE region (the settle rank): raised by a refused tap or a server
   // `unsent`, cleared by every other setter, and retired by a LATER read that shows nothing unsent.
   const [settleGate, setSettleGate] = useState<SettleGateNote | null>(null);
@@ -1574,7 +1588,7 @@ export function FloorDetailLive({
           reconcile. Phase 2c · register: ONE primary, FIRST in the DOM (`settlePrimary` — the card on
           file on a secure running bill, cash otherwise), the reader after cash as a secondary, every
           trigger a `@mms/ui` Button (xl, block), and a heading the order pad's `?settle=1` lands on. */}
-        {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
+        {cashOffered && detail.settleTotalCents != null && (
           <section className="staff-settle" aria-labelledby="settle-h">
             {/* `echo={false}`: an aria-labelledby target AND a focus target — both scripts in either
                 would say everything twice. */}
@@ -1599,6 +1613,9 @@ export function FloorDetailLive({
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
+                // Never stood down for the clear's slip: on a secured tab this is the ONE exit the
+                // server accepts for sent food (`secure_tab`), and the slip drops itself the moment
+                // the tab reads secure (`cardOnFile`, the second blind pass on #341).
                 variant="primary"
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
@@ -1621,12 +1638,17 @@ export function FloorDetailLive({
               intendedTipCents={detail.intendedTipCents}
               isTab={detail.tab !== "none"}
               variant={
-                isCounter
-                  ? counterVariant
-                  : settlePrimary(detail.tab) === "cash"
-                    ? "primary"
-                    : "secondary"
+                // PD7 (m7 B12) — while the clear's loss slip is armed, its danger commit is the
+                // one hero: Take cash stands down to secondary.
+                clearSlip
+                  ? "secondary"
+                  : isCounter
+                    ? counterVariant
+                    : settlePrimary(detail.tab) === "cash"
+                      ? "primary"
+                      : "secondary"
               }
+              openRef={openCash}
               // W6a: a counter (register) order always ends in the paid card (#CODE to call out); a
               // table gets the rows-only card when a tender was entered (owner decision 7).
               handoff={isCounter}
@@ -1850,6 +1872,23 @@ export function FloorDetailLive({
               sessionId={sessionId}
               label={tableDisplay(detail).text}
               paymentInFlight={detail.paymentInFlight}
+              // PD7 · M182 — a table's clear takes a fresh look, a counter order keeps its confirm.
+              counterOrder={isCounter}
+              tableNumber={detail.tableNumber}
+              watch={{
+                members: detail.members.map((m) => m.seatId),
+                lines: detail.lines
+                  .filter((l) => l.state !== "voided")
+                  .map((l) => ({ id: l.id, qty: l.qty })),
+                paying: detail.paymentInFlight,
+              }}
+              onSlip={setClearSlip}
+              onTakeCash={cashOffered ? () => openCash.current?.() : undefined}
+              // The second blind pass on #341 — a tab secured under an armed slip drops it (the card
+              // pays), and a table that CLOSED under the window says nothing about leaving it.
+              cardOnFile={detail.tab === "secure"}
+              tableGone={tableGone}
+              headingLevel={inPane ? 3 : 2}
             />
           )}
         </section>

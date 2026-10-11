@@ -1330,6 +1330,24 @@ describe("/api/session — M264: a hostless row closed UNDER a join is never han
     expect(res.status).toBe(503);
   });
 
+  it("a HOSTED party cleared UNDER the join (Codex P1 on #341): the SQL trigger's `session_closed` is the closed-row 409 — no cart, never a cartId on a dead session", async () => {
+    // The membership insert waited on the clear's session lock and was refused once the clear
+    // committed (`mms_refuse_closed_session_join`). It reads exactly as the shell's closed row does:
+    // "try again", which re-resolves the table from the top — never a new existence oracle.
+    // MUTATION: drop the mapping — the refusal surfaces as "Could not join session" (500), an answer
+    // a closed table and a broken plane share, and the client's retry path never runs.
+    sessions = [row("STICKER7", "dinein", OTHER, { table_number: 7 })];
+    members = [{ session_id: "sess-STICKER7", seat_id: OTHER }];
+    memberInsertError = { code: "P0001", message: "session_closed" };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Could not check the table — try again.",
+    );
+    expect(writes).not.toContain("qr_carts:insert");
+    expect(members.filter((m) => m.session_id === "sess-STICKER7")).toHaveLength(1);
+  });
+
   it("a HOSTED party's join skips the re-check: nothing adopts a party (no extra round trip on the common path)", async () => {
     sessions = [row("STICKER7", "dinein", OTHER, { table_number: 7 })];
     const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));

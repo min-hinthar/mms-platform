@@ -19,6 +19,12 @@ type PaneProps = {
   onLostLanded: (sessionId: string, how: LateAnswer) => void;
   onSelect: (id: string, hint: { counter: boolean; display: string }) => void;
 };
+// PD7 — the split now holds the screen's ONE mint lock (its provider's server action is not this
+// suite's subject).
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {} }) }));
+vi.mock("@/lib/register", () => ({
+  openRegisterOrder: () => Promise.resolve({ ok: false, error: "" }),
+}));
 vi.mock("./TablePane", () => ({
   TablePane: ({ onLostWrite, onLostLanded, onSelect }: PaneProps) => (
     <div>

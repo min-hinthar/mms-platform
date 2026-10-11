@@ -38,6 +38,11 @@ type Sess = {
  *  second member" (PD3's follow-up), so a refused join is no existence oracle. */
 const NO_TABLE = "No table found for that code";
 
+/** A row that closed under this join (adopted, cleared): "try again" re-resolves the table from the
+ *  top — a sticker scan finds whoever holds it now, a `?j=` code meets {@link NO_TABLE}. The same
+ *  answer as a transient miss, so it says nothing about whether the row exists. */
+const CLOSED_UNDER_JOIN = "Could not check the table — try again.";
+
 /** W10a — the auth/DB plane is unreachable: 503 "we're down", never a verdict about the diner. */
 const unavailable = () =>
   NextResponse.json(
@@ -659,6 +664,12 @@ export async function POST(req: NextRequest) {
       // session past the check above (a join racing it). The same 404 as a wrong code.
       if (memErr.message?.includes("solo_session"))
         return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+      // Codex P1 on #341 — the SQL refusal (`mms_refuse_closed_session_join`): the row closed under
+      // this join — a staff clear (or any close) that held the session row while the insert waited
+      // on it. Refused BEFORE any cart is found or made: the closed-row 409 below, never a cartId
+      // on a dead session.
+      if (memErr.message?.includes("session_closed"))
+        return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
       if (memErr.message?.includes("party_full"))
         return NextResponse.json(
           { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
@@ -676,7 +687,11 @@ export async function POST(req: NextRequest) {
   // ONE read here is definitive. A closed row is never handed out — its cart is cancelled, and a fresh
   // one minted on it would carry this diner's order on a session every write refuses. The retry
   // re-resolves the table from the top (a sticker scan finds whoever holds N now; a claim meets the
-  // party that adopted it). Hosted rows skip this: nothing adopts a party.
+  // party that adopted it). Hosted rows skip this: nothing adopts a party, and a staff CLEAR of one
+  // racing this join is refused at the membership insert itself (Codex P1 on #341 — the SQL trigger
+  // reads the session FOR SHARE, so an insert that waited on the clear's lock sees it closed: the
+  // `session_closed` 409 above). A member already seated who REJOINS (no insert) as the clear
+  // commits is not covered here: OPEN-ITEMS M270 (8).
   if (wasShell) {
     const { data: live, error: liveErr } = await db
       .from("table_sessions")
@@ -685,10 +700,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (liveErr && isTransportFailure(liveErr)) return unavailable();
     if (liveErr || live?.status !== "active")
-      return NextResponse.json(
-        { error: "Could not check the table — try again." },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing
