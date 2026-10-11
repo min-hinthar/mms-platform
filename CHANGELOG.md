@@ -84,6 +84,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     lock's ORDER, killed by the race harness); the decorative `NUDGE_COOLDOWN_MS` and its
     literal-against-literal test are deleted.
 
+### A solo session refuses a second member — pickup and scan-and-go, in SQL where the membership is written (2026-10-09, PD3 follow-up)
+
+- **The gap (found in #330's second blind pass):** `/api/session` found a `?j=<code>` session by its
+  code, `status` and expiry, never its mode. The member insert checked only the party size, so a
+  second phone could join someone's pickup and pass every `is_member` read and `stampArrival`'s
+  session arm.
+- **The refusal lives where the membership is written.** `mms_refuse_solo_join` is a BEFORE INSERT
+  OR UPDATE OF `session_id` trigger (`20261009120200`), beside the party cap. Dine-in is the one party
+  mode. A solo session takes its first member, and the same seat again is the unique key's 23505;
+  any other seat raises `solo_session`. Pinned by `supabase/tests/pd3_solo_session_refuses_join_test.sql`
+  and nine `verify:mode-authority` mutants (suite `pd3s`). Its first statement,
+  `mms_assert_solo_sessions_single()`, aborts the apply if a solo session already holds a second
+  member (Codex P1 on #339): measured on prod, read-only, 2026-10-09, there are none, so nothing is
+  deleted and the guard is a proven no-op today. The assert runs under a SHARE ROW EXCLUSIVE lock held
+  to COMMIT, so no membership can land between it and the trigger.
+- **The route decides first, before any write** (`soloJoinVerdict`). A refused join answers exactly
+  what a wrong code does ("No table found for that code"), so it is no existence oracle. The minting
+  device rejoins. A device whose anonymous identity was replaced gets its own session instead of
+  being stranded, under a retry-stable key (`soloRemintKey`, a UUID v5 of the stored key and the
+  seat — Codex P2 on #339): a lost response or a second tab lands on the same session and cart, and
+  `useTableSession` adopts the key. A row under that key is accepted only when it is a solo session
+  this seat hosts; anything else holding it is never joined. A dine-in request keeps the server's
+  own join code.
+- **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
+  window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
+
 ### M269 — an approve takes the cart lock before the line (2026-10-09, staff-authority, #337)
 
 - **The defect (filed by #333's last blind pass):** the approve arm of `mms_resolve_approval` locked
