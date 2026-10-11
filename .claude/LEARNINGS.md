@@ -3853,6 +3853,17 @@ case was the keyboard case and the window held to the 60 s cap. The suite must S
 runs on blur). And a `window.setInterval` in a component is jsdom's own timer, not the one
 `vi.useFakeTimers()` replaces; the lane's bare `setInterval` is the shape to copy.
 
+## #253
+
+**A killed `verify:slice` can leave a mutant that `check:mutant-anchors` cannot see (2026-10-08, PD8).**
+The anchors guard proves each mutant's `find` string matches once — but a mutant whose `replace` still
+contains its `find` (a prefix added, a guard wrapped) anchors clean while applied. After a SIGKILL
+(the session restart), check every dirty target file for the REPLACE text too: for each registry mutant
+of that file, `replace` present in the working copy where HEAD had none, and `find` gone. The one hit
+that check raised here was the author's own edit (a third `setWriteError(null)`), told apart by `find`
+still present. And `execSync("git show …")` on the registry needs `maxBuffer` — the default 1 MB
+throws ENOBUFS mid-check, which reads like a parse failure.
+
 ## #255
 
 **Two guards in series, each refusing the same output, need a fixture that trips ONLY the first

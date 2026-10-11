@@ -36,6 +36,7 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
+import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -56,12 +57,23 @@ type SheetError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
   | { kind: "unreadable" }
+  // PD8 — a request this tap did not display (a re-warning, never a block): the page re-draws the
+  // flag card naming it when it can; with no page, the sheet says it and the next tap passes.
+  | { kind: "approvalPending"; dish: string }
+  // PD8 — the pending read could not be made; nothing recorded, the same tap retries.
+  | { kind: "approvalUnreadable" }
   | { kind: "waiting" }
   | { kind: "stalled" };
 
 /** What a settle's answer is read against — every figure captured AT THE TAP, so a late answer
  *  (9e) lands on the attempt the cashier made, never on whatever the sheet shows when it arrives. */
-type SettleTap = { quoted: number; basis: number; tenderAtTap: number | null };
+type SettleTap = {
+  quoted: number;
+  basis: number;
+  tenderAtTap: number | null;
+  /** PD8 — the pending request ids the trigger DISPLAYED when it was tapped: the acknowledgement. */
+  acked: string[];
+};
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
 export type CashSettled = {
@@ -120,6 +132,10 @@ export function CashSettleButton({
   running = false,
   readTicket = 0,
   readsStarted,
+  acknowledgedApprovalIds,
+  onApprovalPending,
+  totalPending = false,
+  describedBy,
 }: {
   sessionId: string;
   totalCents: number;
@@ -170,6 +186,21 @@ export function CashSettleButton({
    *  (its count) once the sheet has closed: the page says why in its one region and moves focus to
    *  the fix (the Send). */
   onBlockedTap?: (units: number | null) => void;
+  /** PD8 (PATH_DESIGN decision 4) — the pending approval-request ids the page is showing above this
+   *  trigger. Captured at the TAP that opens the sheet and sent with the settle: tapping Take cash
+   *  with a flag up IS the acknowledgement. Nothing here is read into an amount. */
+  acknowledgedApprovalIds?: readonly string[];
+  /** PD8 — the server re-warned (`approval_pending`): a request this tap did not display. The sheet
+   *  closes and the page re-draws the flag card with the server's list and says `dishes` — the
+   *  ones this tap did NOT acknowledge (`reWarning`); the next tap acknowledges what the card shows.
+   *  Omitted (no page): the sheet says them and keeps Take armed. */
+  onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
+  /** PD8 — a decision just landed and the page's re-read has not: the trigger reads "Updating the
+   *  total…" (busy, full ink — never dimmed) until the server's figure arrives; amounts are never
+   *  optimistic. */
+  totalPending?: boolean;
+  /** PD8 — an id the trigger is described by FIRST (the flag card's consequence sentence). */
+  describedBy?: string;
   /** Phase 2c · gate — the bill is a card-on-file running bill (the page's ONE binding,
    *  `settlePrimary(tab) === "secureTab"`): a raced refusal in the sheet says the running bill's
    *  sentence, the one the page's note and region say — never a second sentence for one fact. */
@@ -322,6 +353,11 @@ export function CashSettleButton({
   // changes per chip tap, so the dd remounts and plays once.
   const [chipPop, setChipPop] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // PD8 — the pending request ids the trigger displayed at the tap that opened the sheet.
+  const ackedAtTap = useRef<string[]>([]);
+  // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
+  // carried, so its next Take passes (`ackForTap`): never a block. With a page, the page owns it.
+  const warned = useRef<string[]>([]);
   const settleRef = useRef<HTMLButtonElement>(null);
   // "Keep the change" unmounts under its own tap (the readout then says Exact) — focus goes to
   // Settle, the next thing to do (§7). Moved in an effect, after the commit that removed the action.
@@ -392,6 +428,27 @@ export function CashSettleButton({
         setError({ kind: "unreadable" });
         return;
       }
+      if (res.code === "approval_pending") {
+        // PD8 — a request this tap did not display: nothing recorded. A re-warning, never a block:
+        // the page re-draws the flag card naming the dish (its one region says so) and the next
+        // tap acknowledges what it shows. Both name the dishes this tap did NOT acknowledge
+        // (`reWarning`). With no page, the sheet says them and Take stays armed — the next Take
+        // acknowledges everything the refusal carried (`warned`; the rest this tap had acknowledged).
+        const said = reWarning(res.pending, at.acked);
+        if (onApprovalPending) {
+          setConfirming(false);
+          onApprovalPending(res.pending, said.dishes);
+          return;
+        }
+        warned.current = res.pending.map((p) => p.id);
+        setError({ kind: "approvalPending", dish: said.dishes });
+        return;
+      }
+      if (res.code === "approval_unreadable") {
+        // PD8 — the pending read failed; nothing recorded, the freeze released: the same tap retries.
+        setError({ kind: "approvalUnreadable" });
+        return;
+      }
       setError({ kind: "server", text: res.error });
       return;
     }
@@ -457,11 +514,22 @@ export function CashSettleButton({
       quoted: shownTotal,
       basis: totalCents,
       tenderAtTap: tenderedCents != null && tenderedCents > 0 ? tenderedCents : null,
+      // PD8 — the ids the trigger displayed when it was tapped (captured at that tap, below), plus
+      // what this door's own re-warning carried where no page re-draws the flag.
+      acked: ackForTap(ackedAtTap.current, warned.current),
     };
     try {
       // 9b — called OUTSIDE any transition, awaited BOUNDED, handed the RAW action promise (a raced
-      // one would read `threw` at 15s and drop the late answer). `quotedCents` is compare-only.
-      const out = await boundWrite(settleCash({ sessionId, tipCents, quotedCents: at.quoted }));
+      // one would read `threw` at 15s and drop the late answer). `quotedCents` is compare-only;
+      // `acknowledgedApprovalIds` too (PD8).
+      const out = await boundWrite(
+        settleCash({
+          sessionId,
+          tipCents,
+          quotedCents: at.quoted,
+          acknowledgedApprovalIds: at.acked,
+        }),
+      );
       if (out.kind === "answer") {
         land(out.value, at);
         return;
@@ -563,6 +631,10 @@ export function CashSettleButton({
         vars={settleBlockedMsg(m.units, running).vars}
         echo={false}
       />
+    ) : m.kind === "approvalPending" ? (
+      <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: m.dish }} echo={false} />
+    ) : m.kind === "approvalUnreadable" ? (
+      <Chrome lang={lang} k="settle.approvalsUnreadable" echo={false} />
     ) : m.kind === "waiting" ? (
       <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
     ) : m.kind === "stalled" ? (
@@ -591,8 +663,14 @@ export function CashSettleButton({
         variant={variant}
         size="xl"
         block
-        busy={landed}
-        busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
+        busy={landed || totalPending}
+        busyLabel={
+          totalPending && !landed ? (
+            <Chrome lang={lang} k="settle.flag.updating" echo={false} />
+          ) : (
+            <Chrome lang={lang} k="settle.cash.settling" echo={false} />
+          )
+        }
         // Phase 2c · gate — refused while dishes are unsent: the ATTRIBUTE (spread only when set,
         // so the primitive's own busy state is never erased) plus the handler's guard below, never
         // native `disabled`; the page's note is read first.
@@ -600,9 +678,13 @@ export function CashSettleButton({
         // Review a (A1) — held while this cart's own settle is still out past the bound: the
         // attribute plus the handler's own guard (read at the tap), never native `disabled`.
         {...(ownWaiting ? { "aria-disabled": true } : {})}
-        aria-describedby={
-          gateBlocked && blockedNoteId ? `${blockedNoteId} settle-hint` : "settle-hint"
-        }
+        aria-describedby={[
+          describedBy,
+          gateBlocked && blockedNoteId ? blockedNoteId : null,
+          "settle-hint",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         onClick={() => {
           // Review a (A1) — this cart's own settle may still be recorded: no sheet opens over it
           // (the line under the trigger says why, with the reload). It outranks the gate's jump —
@@ -624,6 +706,8 @@ export function CashSettleButton({
           if (!lateUnseen) setError(null);
           setLateUnseen(false);
           unsentJump.current = null;
+          // PD8 — THIS tap is the acknowledgement: exactly the pending ids the page shows now.
+          ackedAtTap.current = [...(acknowledgedApprovalIds ?? [])];
           // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
           // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
           // while the page has not re-read yet (`openQuote`). The tip is kept.
