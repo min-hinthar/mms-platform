@@ -421,7 +421,7 @@ jobs:
           # count is not enough: once a third file lands, deleting or renaming one of these would still
           # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
           # to this list when it becomes load-bearing.
-          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql supabase/tests/p2dd_p2cy_line_guards_test.sql supabase/tests/p2f_counter_cook_before_paid_test.sql supabase/tests/p3c2_table_number_uniq_test.sql supabase/tests/m258_undo_fire_lock_guard_test.sql supabase/tests/m261_undo_fire_cart_lock_test.sql supabase/tests/m263_bind_session_table_test.sql supabase/tests/m184_approval_refuses_when_changed_test.sql supabase/tests/m269_approve_cart_lock_test.sql supabase/tests/pd3_solo_session_refuses_join_test.sql supabase/tests/pd1_send_nudge_test.sql; do
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql supabase/tests/p2dd_p2cy_line_guards_test.sql supabase/tests/p2f_counter_cook_before_paid_test.sql supabase/tests/p3c2_table_number_uniq_test.sql supabase/tests/m258_undo_fire_lock_guard_test.sql supabase/tests/m261_undo_fire_cart_lock_test.sql supabase/tests/m263_bind_session_table_test.sql supabase/tests/m184_approval_refuses_when_changed_test.sql supabase/tests/m269_approve_cart_lock_test.sql supabase/tests/pd3_solo_session_refuses_join_test.sql supabase/tests/pd1_send_nudge_test.sql supabase/tests/pd5b_settlement_batch_and_fold_test.sql; do
             if [ ! -f "$required" ]; then
               echo "::error::Required SQL test missing: $required (renamed or deleted?)"
               exit 1
@@ -484,6 +484,12 @@ jobs:
       # (206 since PD3's follow-up — suite pd3s, nine rows on mms_refuse_solo_join and its apply-time
       # guard, the chain nine files.)
       # (258 with PD1's, M184 · M269's and PD3's follow-up's suites together — the twelve-file chain.)
+      # (241 since PD5b — suite pd5b, 8 rows over `mms_fire_pending_food` and the merge's fold, which
+      # also moves the 18 earlier merge rows onto the pd5b file; the chain twelve files. The full 241
+      # ran green in 632 s on a throwaway PG16 in a loaded container — re-measure if it nears 12 min.)
+      # (266 with PD5b's suite and main's PD1 · M184 · M269 · PD3-follow-up suites together — the
+      # thirteen-file chain. The full 266 ran green in 637 s on a throwaway PG16, a 4-CPU container at
+      # load ~10, 2026-10-11: 83 s inside the timeout.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs
@@ -529,8 +535,11 @@ jobs:
       # send-before-merge · kitchen-fire-before-merge (the merge's counter refusal, decided under its
       # locks) · no-show-before-void · no-show-before-request (the cart locked before the line), and —
       # the Phase 2f self-review — clear-before-resolve · resolve-mid-clear (the Clear locks and
-      # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock).
-      # Commits `reg-P2FR-` / `P2FRT-` fixtures (and runs the sweeper, which closes every expired
+      # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock),
+      # and — PD5b — THE GRACE RACE on a dine-in table: send-before-settlement-fire (the payment waits
+      # on the Send's cart lock — PD1's — then the drain leaves the Send's line and its unmarked batch)
+      # · settlement-fire-before-send.
+      # Commits `reg-P2FR-` / `P2FRT-` / `P2FRD-` fixtures (and runs the sweeper, which closes every expired
       # session in the DB), so the script refuses anything that is not the local stack.
       # ~23s measured locally (the sweep scenarios wait out a 2s expiry, send-before-merge a 10s grace).
       - name: Counter-fire race harness (two concurrent sessions)
@@ -543,10 +552,15 @@ jobs:
       # the void's and the request's cart locks (h, h2), and — the Phase 2f self-review — the Clear's
       # supersede (i) and approvals lock (i2) and the no-show's lines lock (j) — md5-checked apply,
       # byte-identical restore. The first six are verify-mode-authority.mjs's lock survivors; the
-      # other eight it leaves out.
-      # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait).
+      # other eight it leaves out. PD5b adds two on the settlement drain, against the grace race (s ·
+      # s2): its mark dropped (both) and its draft guard dropped (s — it re-stamps the Send's dish).
+      # PD5b restates the merge and the drain, so both join the harness's `LATER` map and every restore
+      # reads them from the pd5b file. Nineteen in all since PD5b (with M184's one and M269's two).
+      # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait); 476s at
+      # sixteen on a loaded 4-CPU container (2026-10-09), 447s at nineteen (2026-10-11), so 12 minutes
+      # for headroom.
       - name: Counter-fire race mutants (can the locks fail?)
-        timeout-minutes: 9
+        timeout-minutes: 12
         run: node scripts/verify-counter-fire-race.mjs --mutants
       # PD1 — the diner Send (`mms_fire_cart`) takes the cart row FIRST, as every add, qty change,
       # merge and undo does (cart → line), and `mms_nudge_host` decides after the same lock. The

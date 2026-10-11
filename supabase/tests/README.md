@@ -116,3 +116,18 @@ with their grants. Every session carries its own code and every case closes what
 adopt's and the claim's shell-cart and shell-session locks) are the suite's documented survivors and
 are falsified by `scripts/verify-bind-race.mjs --mutants`. Red on M263.1 (`raised:42883`) without the
 migration, and on SH.1 against the body before the predicate was factored out.
+
+## pd5b_settlement_batch_and_fold_test.sql (PD5b — settlement food marked; a merge keeps each Send whole)
+
+Pins `20261009120300_pd5b_settlement_batch_and_fold.sql`. PD5B.1 — `mms_fire_pending_food` fires a
+paid cart's drafts under ONE batch minted as a version-8 UUID (character 15 is `8`, the RFC variant
+kept): the mark the kitchen read (`isSettlementBatch`, `apps/qr/lib/kitchen-rounds.ts`) excludes from
+the round numbers. PD5B.2 — a Send (`mms_fire_cart`) and make-it-now (`mms_fire_line`) mint version-4
+batches, so no Send can wear the mark. PD5B.3 — the grace race in order: a Send in its grace, then the
+payment recorded and the drain run; the Send's line keeps its own unmarked batch, and only the food the
+table had not sent is marked. PD5B.4–.9 — the merge's fold: a fired (4) or in-progress (5) portion never
+folds onto another Send's line (it re-parents and keeps its batch); two portions of the SAME batch still
+fold (6); served lines (7), two batchless fired lines (8) and drafts — even two carrying stale batches
+(9) — fold exactly as before. Rolls back. Red on PD5B.1 against the w3 drain and on PD5B.4 against the
+p2f merge; every case is falsified by name in `scripts/verify-mode-authority.mjs` (suite `pd5b`), and
+the drain's order against a concurrent Send by `scripts/verify-counter-fire-race.mjs` (s · s2).
