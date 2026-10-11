@@ -5,6 +5,7 @@ import {
   nextBoardStateOnFailure,
   readBoardRefusal,
   type BoardPollState,
+  FROZEN_TABLES_MS,
 } from "./board-poll";
 
 /**
@@ -154,7 +155,20 @@ describe("nextBoardStateOnFailure — a board with no snapshot must not claim to
     expect(nextBoardStateOnFailure(LIVE, BOARD_FAIL_THRESHOLD, 10)).toEqual({
       kind: "live",
       stale: true,
+      frozenExpired: false,
     });
+  });
+
+  it("PD9 — a stale wall keeps its frozen table passes only for the linger, measured from the last good poll (m9 critic B7; `board-poll/frozen-tables-forever`)", () => {
+    const good: BoardPollState = { kind: "live", stale: false, lastGoodAt: 1_000_000 };
+    // Inside the linger the frozen passes stay; at it they go — a party may have left.
+    expect(
+      nextBoardStateOnFailure(good, BOARD_FAIL_THRESHOLD, 1_000_000 + FROZEN_TABLES_MS - 1),
+    ).toMatchObject({ stale: true, frozenExpired: false });
+    expect(
+      nextBoardStateOnFailure(good, BOARD_FAIL_THRESHOLD + 7, 1_000_000 + FROZEN_TABLES_MS),
+    ).toMatchObject({ stale: true, frozenExpired: true });
+    expect(FROZEN_TABLES_MS).toBe(5 * 60 * 1000);
   });
 });
 

@@ -753,10 +753,9 @@ built.
   ONE rest class every pressed chip outside the KDS root wears — the loss sheet's segment and
   reason rows, the menu browser's categories, the mod sheet's options, the cash settle's tip chips
   — because an INLINE fill beats any class, so five `*On` style objects had kept the rule from ever
-  reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh is
-  `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip, an `<li>` pressed by its class
-  rather than an attribute — it had worn a gold OUTLINE, which is §2's idle idiom, while the band's
-  own comment called it the cap. The eighth is `.floor-card[aria-current="true"] .floor-card-label`
+  reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh was
+  `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip — RETIRED from the list by PD9 with the
+  band it lived in (§35: the wall spends no gold on a table). The eighth is `.floor-card[aria-current="true"] .floor-card-label`
   (Phase 2d · split): the selected table card's NAME — a pick from a live list, so `aria-current`,
   and the cap on the name only, never the card's ground (below). The Phase 2d counter bell's chip is
   a `.staff-chip`, so it wears the sixth. The ninth is `.staff-lang-row[aria-pressed="true"]`
@@ -2586,3 +2585,42 @@ bar circle" narrows to the counter's width reason.
   badge wraps — a Burmese "နောက်ကျ · ဆိုင်မှာ စား" beside a two-digit table four across included; at 390
   the tail is one unwrapped row. A real tablet (Night in-room light, iOS audio — P2bw) is the remaining
   look.
+
+## 35 · The wall: every table's food, and never a nag (PD9 · m9)
+
+The dining-room TV is read from across the room by guests and staff at once. The owner's 2026-10-07
+message reversed the shipped "no dish per table" rule (OPEN-ITEMS K32(b), P6a): each dine-in table with
+food in the kitchen is shown, dish by dish. What that may and may not look like:
+
+- **One pass, rendered, never redrawn.** A table is the `@mms/ui` CounterPass in landscape at the TV
+  tier — the figure once at `--fs-pass` (pinned, never a clamp: density is board-fit's step-down),
+  "စားပွဲ · Table" over it, the 4px dotted seam, constant paper and constant inks. A Ready pickup code is
+  the same pass at the 54px code row. No pass nests; no ✓ on the TV, ever.
+- **The track is the stage.** Each dish row carries the ONE KITCHEN TRACK at the TV row (36×8) and one
+  word in the lead tongue (two scripts cannot stack in a chip); the heading row's KEY teaches the three
+  marks once, in both tongues, at the glyph size, aria-hidden. Dish names keep Burmese on top in both
+  board languages — the house's own names; a dish with no catalog Burmese draws its English alone,
+  unmarked.
+- **The loudness ladder on a wall:** Sent and Cooking are MARK, Served is CALM (green), the pickup
+  Ready pass is the only CALL, and there is no ALARM — lateness is the KDS's alone. Gold is spent only
+  on the pickup call (the Ready heading, the Ready pass's arrival ring) and the sound chip's pressed cap.
+  A table that is all served carries ONE roll-up in its status cell and its rows drop their tracks: no
+  fact is marked twice.
+- **It moves only when food changes state, one thing at a time** (`lib/board-motion.ts`): FILL when a
+  dish advances, ONE TURN per table visit when its last dish is served (after Mom's Undo window, on the
+  server's clock), the Ready arrival on the pass's EDGE (a gold wash over paper vanishes). Never on a
+  first read, a revisit, or the first read after a frozen spell. Base styles are the final frames;
+  reduced motion gets them.
+- **Sorted by number, never by status.** The first ⌈n/2⌉ tables by number fill the left column and the
+  rest the right — by index, never by height, so a pass that collapses moves no other table. Past the
+  fit, the step-down is fixed: collapse the all-served, fold the served dishes, then cut the highest
+  numbers behind "+N more" (tables, never dishes).
+- **What rots goes, what does not stays.** Frozen (two missed polls): codes and dish names stay, drawn as
+  a dashed outline in the page's own inks; every stage, roll-up and arrival goes; and a table's presence
+  rots on the linger clock, so past it the kitchen half keeps only its sentence. An unreadable kitchen
+  says so in place of the key — never "All clear" over a full wok: "All clear" is said only when the
+  server read no food of ANY channel on the wok (the tables are dine-in only), and never on a frozen
+  snapshot.
+- **Privacy is the payload's shape.** A table number and dish names only: no guest name, count, price,
+  clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. The pickup
+  column shows the code alone — no name, no wait — and a collected bag leaves at once.

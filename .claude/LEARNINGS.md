@@ -3863,3 +3863,14 @@ of that file, `replace` present in the working copy where HEAD had none, and `fi
 that check raised here was the author's own edit (a third `setWriteError(null)`), told apart by `find`
 still present. And `execSync("git show …")` on the registry needs `maxBuffer` — the default 1 MB
 throws ENOBUFS mid-check, which reads like a parse failure.
+
+## #255
+
+**Two guards in series, each refusing the same output, need a fixture that trips ONLY the first
+(2026-10-09, PD9).** `/api/board` refuses its tables when the kitchen line read hits its cap, and
+again when the Send-completion read hits its own. The cap fixture made 500 lines that shared one
+`fire_batch`, so the completion read re-read all 500 and refused as well, and the mutant that deleted
+the line-cap guard SURVIVED: the second guard answered for the first. The fix was the fixture, not
+an assertion: one line carries the batch, so the completion read answers one row and only the line cap
+can refuse. When a later read is DERIVED from an earlier one, saturating the first tends to saturate
+the second, so build each guard's fixture to answer short everywhere downstream.

@@ -1,26 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The order-ready board's ONE privacy rule: dine-in never reaches the wall.
+ * The wall TV's read, `/api/board`: what it PUBLISHES and what it refuses to publish when it cannot
+ * tell. These assertions are about the ANSWER, not about copy.
  *
- * `table_number is null` alone does not express it — a dine-in session at an unregistered sticker
- * stamps null too — so the route resolves each order's session mode in a second read and drops the
- * dine-in rows. That second read was fail-OPEN: its `{ error }` was discarded, an unreadable answer
- * left the mode map empty, every `undefined !== "dinein"` passed, and the whole table's
- * diner-chosen first names went up on a screen the dining room can read. A dropped read must never
- * expose MORE than a successful one — the same shape as M108 one surface over, failing the other way.
+ * Two halves, two failure postures — and the difference is what the suite pins:
  *
- * P6 hangs a SECOND section on the same screen (the kitchen pulse) and therefore a second set of
- * reads, with a DIFFERENT failure posture — and the difference is what the last block here pins:
+ *  · the CODE column (pickup and scan-and-go bags as `{ code, status }`) rests on the session-mode
+ *    read, which is fail-CLOSED: its `{ error }` was discarded once, an empty mode map let every
+ *    `undefined !== "dinein"` pass, and a table's guests went up on a screen the dining room reads.
+ *    A dropped read must never expose MORE than a successful one: 503, nothing published.
+ *  · the KITCHEN half (PD9 — every dine-in table's dishes, the owner's 2026-10-07 reversal of the
+ *    shipped boundary, OPEN-ITEMS K32(b) / P6a) is fail-DEGRADED: a failed or saturated kitchen read
+ *    is `tables: null` — never `[]`, which would read "all clear" over a full wok — and the code
+ *    column still publishes. The round read and the name read are advisory below that.
  *
- *  · the session-mode read stays fail-CLOSED (503, nothing published), because its failure would
- *    let dine-in names onto the Ready column;
- *  · the pulse reads are fail-DEGRADED (`pulse: null`, the Ready column still publishes), because
- *    their failure can only remove information — and `null` is NOT zero. A zeroed pulse would draw
- *    an "all clear" band over a full wok, the exact lie `lib/kitchen.ts` refuses one screen over.
- *
- * These assertions are about the ANSWER, not about copy: what the route publishes, and what it
- * refuses to publish when it cannot tell.
+ * ⚠️ THE PIN THIS SUITE REVERSED, KNOWINGLY: until PD9 a case here read "carries the dine-in table
+ * by NUMBER and status, with no name and NO DISH attached to it". The owner's message is the
+ * decision K32(b) was waiting for; the case below now reads "a dish name rides only inside its
+ * table, with no quantity".
  */
 
 vi.mock("server-only", () => ({}));
@@ -29,19 +27,20 @@ type OrderRow = {
   id: string;
   session_id: string | null;
   togo_status: string;
-  customer_name: string | null;
   togo_ready_at: string | null;
-  togo_picked_up_at: string | null;
   created_at: string;
 };
 
 type LineRow = {
+  id: string;
   cart_id: string;
   menu_item_id: string;
   name: string;
-  qty: number;
   state: string;
   fire_at: string | null;
+  fire_batch: string | null;
+  fulfillment: string | null;
+  created_at: string;
   bumped_at: string | null;
 };
 
@@ -52,24 +51,28 @@ type SessionRow = {
   status: string;
   table_number: number | null;
   expires_at: string | null;
+  qr_code: string;
 };
 
-// A FIXED instant, deliberately not "around now". Several assertions below prove the pulse's
-// windows are cut from the DATABASE clock (`mms_now`, mocked to this value) rather than the Node
-// process clock — and a fixture set to the current time would make those two indistinguishable, so
-// the guard would pass whichever clock the route actually used.
+// A FIXED instant, deliberately not "around now": several assertions prove the kitchen windows are
+// cut from the DATABASE clock (`mms_now`, mocked to this value) rather than the Node process clock.
 const NOW_ISO = "2026-09-01T19:00:00.000Z";
 const NOW = Date.parse(NOW_ISO);
 const MIN = 60_000;
 const LIVE = new Date(NOW + 60 * MIN).toISOString(); // a session inside its TTL
+const BATCH = "eeeeeeee-eeee-4eee-8eee-eeeeeeee0005";
 
 let gate: { ok: boolean; reason?: string } = { ok: true };
 let orders: OrderRow[] = [];
 let ordersError: { message: string } | null = null;
 let sessions: SessionRow[] = [];
 let sessionsError: { message: string } | null = null;
+/** What the kitchen LINE read answers. */
 let lines: LineRow[] = [];
 let linesError: { message: string } | null = null;
+/** Lines only the SEND COMPLETION read can see (served before the linger floor). */
+let sendExtra: LineRow[] = [];
+let sendError: { message: string } | null = null;
 let carts: CartRow[] = [];
 let cartsError: { message: string } | null = null;
 let menu: { id: string; name_my: string | null }[] = [];
@@ -79,29 +82,33 @@ vi.mock("@/lib/device-auth", () => ({ authorizeDevice: () => Promise.resolve(gat
 
 /** The ids the route actually asked the session read for — the predicate, not just the shape. */
 let requestedSessionIds: unknown[] = [];
-/**
- * Everything the pulse's LINE read was issued with. Recorded, not applied: `.gte()`/`.not()` are
- * pass-throughs in this mock, so a route that dropped either would still get the configured rows
- * back — which is precisely why each predicate is asserted DIRECTLY below instead of being trusted
- * to show up as a missing row.
- */
-let lineOrFilter: string | null = null;
-let lineGte: [string, unknown][] = [];
-let lineNot: [string, string, unknown][] = [];
-/** The cart-status values the pulse's cart read demanded. */
+/** The statuses the orders read demanded, and its columns. */
+let orderStatuses: unknown[] = [];
+let orderCols = "";
+/** Every column list `qr_cart_items` was read with, and every `.or()` filter the line read used. */
+let lineCols: string[] = [];
+let lineOrFilters: string[] = [];
+/** The cart-status values the kitchen's cart read demanded. */
 let requestedCartStatuses: unknown[] = [];
+/** The session ids the round read was asked for (`null` = never asked). */
+let roundSessions: string[] | null = null;
+let roundsAnswer: ReadonlyMap<
+  string,
+  { ordinals: ReadonlyMap<string, number>; seen: ReadonlySet<string> }
+> | null = new Map();
+
+vi.mock("@/lib/kitchen-round-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kitchen-round-read")>()),
+  readRounds: (_db: unknown, ids: readonly string[]) => {
+    roundSessions = [...ids];
+    return Promise.resolve(roundsAnswer);
+  },
+}));
 
 /**
- * The mock APPLIES the `.in()` predicates rather than ignoring them (Codex round 2, P2). A chain
- * that answers the configured rows for any arguments would keep every allowlist case and the board
- * mutant green while the route queried the wrong ids entirely (`o.id` instead of `o.session_id`) —
- * which in production returns no modes at all and empties the board of every legitimate pickup
- * order. A mock looser than the database cannot express that bug.
- *
- * Per TABLE rather than one shared chain, because the four reads have different terminal calls
- * (`.limit()` for the two scans, `.in()` for the three lookups, and `qr_carts` takes TWO `.in()`s
- * in a row). One chain that answered anything to anything would silently accept a route that asked
- * `qr_carts` for a status set it never meant.
+ * The mock APPLIES the `.in()` predicates rather than ignoring them (Codex round 2, P2): a chain that
+ * answers the configured rows for any arguments would keep every allowlist case green while the
+ * route queried the wrong ids entirely. Per TABLE, because the reads have different terminals.
  */
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
@@ -111,15 +118,23 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => {
       if (table === "qr_orders") {
-        // Honours EVERY `.order()` in sequence, nulls placement included, and LIMIT (A4·1; widened
-        // for Codex round 1): the saturation rule is about which rows a capped read keeps, and a
-        // mock that sorted by one hard-coded column would let a ranking regression pass — a mock
-        // that returned the whole fixture would let ASC and DESC pass the same test.
+        // Honours EVERY `.order()` in sequence, nulls placement included, and LIMIT (A4·1): the
+        // saturation rule is about which rows a capped read keeps.
         const keys: { col: keyof OrderRow; ascending: boolean; nullsFirst: boolean }[] = [];
+        let statuses: unknown[] | null = null;
         const chain: Record<string, unknown> = {
-          select: () => chain,
+          select: (cols: string) => {
+            orderCols = cols;
+            return chain;
+          },
           is: () => chain,
           gte: () => chain,
+          in: (col: string, values: unknown[]) => {
+            if (col !== "togo_status") throw new Error(`unexpected qr_orders filter ${col}`);
+            statuses = values;
+            orderStatuses = values;
+            return chain;
+          },
           or: () => chain,
           order: (col: keyof OrderRow, opts?: { ascending?: boolean; nullsFirst?: boolean }) => {
             keys.push({
@@ -131,40 +146,58 @@ vi.mock("@mms/db/server", () => ({
           },
           limit: (n: number) => {
             if (ordersError) return Promise.resolve({ data: null, error: ordersError });
-            const sorted = [...orders].sort((a, b) => {
-              for (const k of keys) {
-                const av = a[k.col];
-                const bv = b[k.col];
-                if (av === bv) continue;
-                if (av === null) return k.nullsFirst ? -1 : 1;
-                if (bv === null) return k.nullsFirst ? 1 : -1;
-                const c = String(av).localeCompare(String(bv));
-                if (c !== 0) return k.ascending ? c : -c;
-              }
-              return 0;
-            });
+            const sorted = orders
+              .filter((o) => statuses === null || statuses.includes(o.togo_status))
+              .sort((a, b) => {
+                for (const k of keys) {
+                  const av = a[k.col];
+                  const bv = b[k.col];
+                  if (av === bv) continue;
+                  if (av === null) return k.nullsFirst ? -1 : 1;
+                  if (bv === null) return k.nullsFirst ? 1 : -1;
+                  const c = String(av).localeCompare(String(bv));
+                  if (c !== 0) return k.ascending ? c : -c;
+                }
+                return 0;
+              });
             return Promise.resolve({ data: sorted.slice(0, n), error: null });
           },
         };
         return chain;
       }
       if (table === "qr_cart_items") {
+        let batches: unknown[] | null = null;
+        let states: unknown[] | null = null;
         const chain: Record<string, unknown> = {
-          select: () => chain,
-          not: (col: string, op: string, value: unknown) => {
-            lineNot.push([col, op, value]);
-            return chain;
-          },
-          gte: (col: string, value: unknown) => {
-            lineGte.push([col, value]);
+          select: (cols: string) => {
+            lineCols.push(cols);
             return chain;
           },
           or: (filter: string) => {
-            lineOrFilter = filter;
+            lineOrFilters.push(filter);
+            return chain;
+          },
+          in: (col: string, values: unknown[]) => {
+            if (col === "fire_batch") batches = values;
+            else if (col === "state") states = values;
+            else throw new Error(`unexpected qr_cart_items filter ${col}`);
             return chain;
           },
           order: () => chain,
-          limit: () => Promise.resolve({ data: linesError ? null : lines, error: linesError }),
+          limit: (n: number) => {
+            if (batches === null) {
+              // The LINE read.
+              if (linesError) return Promise.resolve({ data: null, error: linesError });
+              return Promise.resolve({ data: lines.slice(0, n), error: null });
+            }
+            // The SEND COMPLETION read: every line of the asked batches, in the asked states.
+            if (sendError) return Promise.resolve({ data: null, error: sendError });
+            const rows = [...lines, ...sendExtra].filter(
+              (l) =>
+                batches!.includes(l.fire_batch) && (states === null || states.includes(l.state)),
+            );
+            return Promise.resolve({ data: rows.slice(0, n), error: null });
+          },
         };
         return chain;
       }
@@ -216,8 +249,7 @@ vi.mock("@mms/db/server", () => ({
         return chain;
       }
       if (table === "grocery_items") {
-        // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table before its
-        // IN-lists; the pulse fixtures use short ids, so it asks here and the answer is empty.
+        // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table.
         const chain: Record<string, unknown> = {
           select: () => chain,
           in: () => Promise.resolve({ data: [], error: null }),
@@ -236,70 +268,106 @@ const req = () =>
     typeof GET
   >[0];
 
-const order = (id: string, sessionId: string | null, name: string): OrderRow => ({
+const order = (id: string, sessionId: string | null, status = "ready"): OrderRow => ({
   id,
   session_id: sessionId,
-  togo_status: "ready",
-  customer_name: name,
-  togo_ready_at: "2026-08-23T00:00:00.000Z",
-  togo_picked_up_at: null,
+  togo_status: status,
+  togo_ready_at: status === "ready" ? "2026-08-23T00:00:00.000Z" : null,
   created_at: "2026-08-23T00:00:00.000Z",
 });
 
 const TOGO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001";
 const DINEIN = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002";
 const DISH = "cccccccc-cccc-4ccc-8ccc-cccccccc0003";
-const OTHER_DISH = "dddddddd-dddd-4ddd-8ddd-dddddddd0004";
 
 type Body = {
-  orders?: { code: string; name: string | null; status: string; readyMinutes?: number | null }[];
-  pulse?: {
-    tickets: number;
-    oldestMinutes: number | null;
-    allDay: { name: string; nameMy: string | null; qty: number }[];
-    allDayMore: number;
-    tables: { table: number; status: string }[];
-  } | null;
+  orders?: { code: string; status: string }[];
+  tables?:
+    | {
+        table: number;
+        out: boolean;
+        rounds: {
+          n: number | null;
+          next: boolean;
+          dishes: { name: string; nameMy: string | null; stage: string; togo: boolean }[];
+        }[];
+      }[]
+    | null;
+  kitchenIdle?: boolean | null;
   reason?: string;
 };
 
 beforeEach(() => {
   gate = { ok: true };
-  orders = [order(TOGO, "sess-togo", "Nilar"), order(DINEIN, "sess-dinein", "Thura")];
+  orders = [order(TOGO, "sess-togo"), order(DINEIN, "sess-dinein")];
   ordersError = null;
   sessions = [
-    { id: "sess-togo", mode: "pickup", status: "active", table_number: null, expires_at: LIVE },
-    { id: "sess-dinein", mode: "dinein", status: "active", table_number: 4, expires_at: LIVE },
+    {
+      id: "sess-togo",
+      mode: "pickup",
+      status: "active",
+      table_number: null,
+      expires_at: LIVE,
+      qr_code: "SESS-TOGO",
+    },
+    {
+      id: "sess-dinein",
+      mode: "dinein",
+      status: "active",
+      table_number: 4,
+      expires_at: LIVE,
+      qr_code: "SESS-DINEIN",
+    },
   ];
   sessionsError = null;
   lines = [];
   linesError = null;
+  sendExtra = [];
+  sendError = null;
   carts = [];
   cartsError = null;
   menu = [];
   menuError = null;
   requestedSessionIds = [];
+  orderStatuses = [];
+  orderCols = "";
+  lineCols = [];
+  lineOrFilters = [];
   requestedCartStatuses = [];
-  lineOrFilter = null;
-  lineGte = [];
-  lineNot = [];
+  roundSessions = null;
+  roundsAnswer = new Map([
+    ["sess-dinein", { ordinals: new Map([[BATCH, 1]]), seen: new Set([BATCH]) }],
+  ]);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-describe("GET /api/board — dine-in never reaches the wall", () => {
+describe("GET /api/board — the code column: a dine-in bag never reaches it, and no name ever does", () => {
   it("resolves modes by the orders' SESSION ids, not their order ids", async () => {
     // Named explicitly because everything else here would survive the substitution: asking for
-    // `o.id` returns no modes, and under the allowlist that empties the board — a total outage of
-    // the wall display that reads exactly like "nothing is ready".
+    // `o.id` returns no modes, and under the allowlist that empties the board.
     await GET(req());
     expect([...requestedSessionIds].sort()).toEqual(["sess-dinein", "sess-togo"]);
   });
 
-  it("publishes the to-go order and drops the dine-in one", async () => {
+  it("publishes the to-go code and drops the dine-in one", async () => {
     const res = await GET(req());
     expect(res.status).toBe(200);
     const body = (await res.json()) as Body;
-    expect(body.orders!.map((o) => o.name)).toEqual(["Nilar"]);
+    expect(body.orders).toEqual([{ code: "AA0001", status: "ready" }]);
+  });
+
+  it("publishes a code and a status ONLY — no name, no wait, no time; the name is never even read (m9 decision 19, critic B4; `board/orders-read-the-name`)", async () => {
+    const body = (await (await GET(req())).json()) as Body;
+    expect(Object.keys(body.orders![0]!).sort()).toEqual(["code", "status"]);
+    expect(orderCols).not.toContain("customer_name");
+    expect(orderCols).not.toContain("picked_up");
+  });
+
+  it("never reads a COLLECTED bag — a handed-over code drawn as a Ready pass would be the room's one call for food someone holds (`board/collected-bags-on-the-wall`)", async () => {
+    orders = [order(TOGO, "sess-togo", "picked_up")];
+    const body = (await (await GET(req())).json()) as Body;
+    expect([...orderStatuses].sort()).toEqual(["preparing", "ready"]);
+    expect(body.orders).toEqual([]);
   });
 
   it("refuses rather than publishing when the mode read FAILS", async () => {
@@ -307,32 +375,31 @@ describe("GET /api/board — dine-in never reaches the wall", () => {
     const res = await GET(req());
     expect(res.status).toBe(503);
     const body = (await res.json()) as Body;
-    // Nothing is published — not the to-go row either, and not the pulse. A partial board on an
-    // unknowable read would be indistinguishable, on the screen, from a complete one.
+    // Nothing is published — not the to-go code, and not the tables.
     expect(body.orders).toBeUndefined();
-    expect(body.pulse).toBeUndefined();
-    // `unavailable` is the reason the board's client folds to retry-and-hold (board-poll.ts). A 401
-    // or a bare 503 would unlink the screen or blank it; this keeps the last snapshot up.
+    expect(body.tables).toBeUndefined();
+    // `unavailable` is the reason the board's client folds to retry-and-hold (board-poll.ts).
     expect(body.reason).toBe("unavailable");
   });
 
   it("publishes scan-and-go as well as pickup — both are board modes", async () => {
-    orders = [order(TOGO, "sess-togo", "Nilar")];
+    orders = [order(TOGO, "sess-togo")];
     sessions = [
-      { id: "sess-togo", mode: "scango", status: "active", table_number: null, expires_at: LIVE },
+      {
+        id: "sess-togo",
+        mode: "scango",
+        status: "active",
+        table_number: null,
+        expires_at: LIVE,
+        qr_code: "SESS-TOGO",
+      },
     ];
-    const res = await GET(req());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Body;
-    expect(body.orders!.map((o) => o.name)).toEqual(["Nilar"]);
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders!.map((o) => o.code)).toEqual(["AA0001"]);
   });
 
   it("a mode this code has never heard of is NOT published", async () => {
-    // The allowlist's whole reason to exist. `table_sessions.mode`'s CHECK admits three values
-    // today; the day it gains a fourth that means table service, `!== "dinein"` would have put those
-    // names on the wall with nobody having decided that. Staff can see a missing name; nobody can
-    // see a name that should not be there.
-    orders = [order(TOGO, "sess-togo", "Nilar")];
+    orders = [order(TOGO, "sess-togo")];
     sessions = [
       {
         id: "sess-togo",
@@ -340,159 +407,129 @@ describe("GET /api/board — dine-in never reaches the wall", () => {
         status: "active",
         table_number: null,
         expires_at: LIVE,
+        qr_code: "SESS-TOGO",
       },
     ];
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
+    const body = (await (await GET(req())).json()) as Body;
     expect(body.orders).toEqual([]);
   });
 
   it("a session whose row is MISSING from a successful read is not published", async () => {
-    // Not the same as a failed read: the read answered, and it did not name a board mode. Publish
-    // what is known to belong on the wall, never what was merely not seen.
     sessions = [
-      { id: "sess-togo", mode: "pickup", status: "active", table_number: null, expires_at: LIVE },
+      {
+        id: "sess-togo",
+        mode: "pickup",
+        status: "active",
+        table_number: null,
+        expires_at: LIVE,
+        qr_code: "SESS-TOGO",
+      },
     ];
-    orders = [order(DINEIN, "sess-dinein", "Thura")];
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
+    orders = [order(DINEIN, "sess-dinein")];
+    const body = (await (await GET(req())).json()) as Body;
     expect(body.orders).toEqual([]);
   });
 
   it("a null session_id is unknowable, not to-go", async () => {
-    // `qr_orders.session_id` is nullable but every insert sources it from `qr_carts.session_id`,
-    // which is NOT NULL — so this cannot happen today. Pinned anyway because the previous version of
-    // this branch published such a row on the strength of a comment that claimed grocery orders
-    // carry a null session, which the schema does not support.
-    orders = [order(TOGO, null, "Nilar")];
+    orders = [order(TOGO, null)];
     sessions = [];
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
+    const body = (await (await GET(req())).json()) as Body;
     expect(body.orders).toEqual([]);
+  });
+
+  it("Ready as the read ranked it (newest readiness first), then Preparing next up first — no instant crosses to the wall", async () => {
+    orders = [
+      {
+        ...order(`${TOGO.slice(0, -4)}0p02`, "sess-togo", "preparing"),
+        created_at: new Date(NOW - 2 * MIN).toISOString(),
+      },
+      {
+        ...order(`${TOGO.slice(0, -4)}0r01`, "sess-togo"),
+        togo_ready_at: new Date(NOW - 9 * MIN).toISOString(),
+      },
+      {
+        ...order(`${TOGO.slice(0, -4)}0p01`, "sess-togo", "preparing"),
+        created_at: new Date(NOW - 7 * MIN).toISOString(),
+      },
+      {
+        ...order(`${TOGO.slice(0, -4)}0r02`, "sess-togo"),
+        togo_ready_at: new Date(NOW - 1 * MIN).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders).toEqual([
+      { code: "AA0R02", status: "ready" },
+      { code: "AA0R01", status: "ready" },
+      { code: "AA0P01", status: "preparing" },
+      { code: "AA0P02", status: "preparing" },
+    ]);
   });
 });
 
-/** A live dine-in ticket at table 4, plus its cart and the session already in `beforeEach`. */
-function seedCookingTable() {
+/** A dine-in Send at table 4: one line on the board's read, its cart, the session in `beforeEach`. */
+function seedCookingTable(over: Partial<LineRow> = {}) {
   lines = [
     {
+      id: "line-1",
       cart_id: "cart-1",
       menu_item_id: DISH,
       name: "Mohinga",
-      qty: 2,
-      state: "fired",
+      state: "in_progress",
       fire_at: new Date(NOW - 6 * MIN).toISOString(),
+      fire_batch: BATCH,
+      fulfillment: "dinein",
+      created_at: new Date(NOW - 7 * MIN).toISOString(),
       bumped_at: null,
+      ...over,
     },
   ];
   carts = [{ id: "cart-1", session_id: "sess-dinein", status: "open" }];
 }
 
-/**
- * Two more PAID takeaway parties, each on its OWN session — the PARTY half of the exposure floor.
- *
- * ⚠️ Own sessions, not one shared: the floor counts `cookingSessions`, so two carts on one session
- * are two tickets and ONE party, and a fixture that shares a session silently shuts the rail. That
- * is how the no-leak property below came to prove its dish clause vacuously.
- *
- * `dish` defaults to the SAME item as the dine-in ticket, which is the attributing frame — one rail
- * row, so the row names whatever the strip shows cooking. Pass a second dish for the published case.
- */
-function seedTwoMoreParties(dish?: { id: string; name: string }) {
-  for (const n of [2, 3]) {
-    lines.push({
-      ...lines[0]!,
-      cart_id: `cart-${n}`,
-      qty: 1,
-      ...(dish ? { menu_item_id: dish.id, name: dish.name } : {}),
-    });
-    carts.push({ id: `cart-${n}`, session_id: `sess-togo-${n}`, status: "paid" });
-    sessions.push({
-      id: `sess-togo-${n}`,
-      mode: "pickup",
-      status: "active",
-      table_number: null,
-      expires_at: LIVE,
-    });
-  }
-}
-
-describe("GET /api/board — the kitchen pulse publishes load, not people", () => {
-  it("carries the dine-in table by NUMBER and status, with no name and no dish attached to it", async () => {
+describe("GET /api/board — PD9: the kitchen half publishes a table number and dish names only", () => {
+  it("a dish name rides only inside its table, with no quantity — the reversal of the shipped pin (K32(b))", async () => {
     seedCookingTable();
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
-    expect(body.pulse!.tables).toEqual([{ table: 4, status: "cooking" }]);
-    expect(body.pulse!.tickets).toBe(1);
-    // The dine-in guest's name is on this very order row and must not appear ANYWHERE in the
-    // response — not in the Ready column it is already excluded from, and not in the new band.
-    expect(JSON.stringify(body)).not.toContain("Thura");
-  });
-
-  it("WITHHOLDS the all-day rail at one live ticket — the rail would be that table's order", async () => {
-    seedCookingTable();
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
-    expect(body.pulse!.allDay).toEqual([]);
-    expect(body.pulse!.allDayMore).toBe(0);
-    expect(JSON.stringify(body)).not.toContain("Mohinga");
-  });
-
-  it("WITHHOLDS the rail when ONE dish would name the cooking table, at any party count", async () => {
-    // ⚠️ THE FRAME THE BLIND PASS FOUND, and this exact fixture used to assert the opposite. Three
-    // parties clears the party floor; every one of them ordered mohinga, so the rail has ONE row —
-    // and one row means every counted party's cooking content is that dish, including the party
-    // whose table number is on the strip beside it. `3 Cooking · Table 4 Cooking · All day —
-    // Mohinga ×4` states what table 4 is having, in a single frame, to anyone who looks. A party
-    // count cannot express that; `PULSE_RAIL_MIN_DISHES` is the term that does.
-    seedCookingTable();
-    seedTwoMoreParties();
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
-    expect(body.pulse!.tickets).toBe(3);
-    expect(body.pulse!.allDay).toEqual([]);
-    expect(body.pulse!.allDayMore).toBe(0);
-    // …asserted on BOTH sections, because the exposure is the JOIN and a rail-only assertion cannot
-    // see it: the strip still names the table, which is exactly why the rail may not.
-    expect(body.pulse!.tables).toEqual([{ table: 4, status: "cooking" }]);
-    expect(JSON.stringify(body)).not.toContain("Mohinga");
-  });
-
-  it("publishes the rail once three parties AND two dishes are cooking, with the catalog's Burmese", async () => {
-    seedCookingTable();
-    // THREE distinct PARTIES, not three carts: the exposure floor counts sessions, because one
-    // table can hold a paid cart beside a fresh open one and two parties must not look like three.
-    // And a SECOND dish, so no rail row is determined by the one number on the strip.
-    seedTwoMoreParties({ id: OTHER_DISH, name: "Tea leaf salad" });
     menu = [{ id: DISH, name_my: "မုန့်ဟင်းခါး" }];
-    const res = await GET(req());
-    const body = (await res.json()) as Body;
-    expect(body.pulse!.tickets).toBe(3);
-    expect(body.pulse!.allDay).toEqual([
-      { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 2 },
-      { name: "Tea leaf salad", nameMy: null, qty: 2 },
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables).toEqual([
+      {
+        table: 4,
+        out: false,
+        rounds: [
+          {
+            n: 1,
+            next: false,
+            dishes: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "cooking", togo: false }],
+          },
+        ],
+      },
     ]);
-    expect(body.pulse!.tables).toEqual([{ table: 4, status: "cooking" }]);
   });
 
-  it("asks the kitchen read for live and just-bumped lines only, bounded by the linger window", async () => {
-    // The route's own predicates, asserted rather than assumed. This mock returns the configured
-    // rows whatever it is asked, so none of these would surface as a missing row: a read that
-    // dropped the `served` arm silently retires every `up` table; one that dropped the `bumped_at`
-    // floor scans an evening of served rows to answer a question about five minutes; one that
-    // dropped the day floor or the `fire_at is not null` guard scans the whole table forever.
+  it("reads only the columns the wall draws — never a quantity, a modifier or a note", async () => {
+    seedCookingTable();
     await GET(req());
-    expect(lineOrFilter).toMatch(/state\.in\.\(fired,in_progress\)/);
-    expect(lineOrFilter).toMatch(/state\.eq\.served/);
-    const floor = /bumped_at\.gte\.([0-9TZ:.-]+)/.exec(lineOrFilter ?? "");
-    expect(floor).not.toBeNull();
-    expect(NOW - Date.parse(floor![1]!)).toBe(5 * 60 * 1000);
-    expect(lineNot).toEqual([["fire_at", "is", null]]);
-    expect(lineGte).toHaveLength(1);
-    expect(lineGte[0]![0]).toBe("fire_at");
-    // …and every window is cut from the DATABASE clock, not the Node process clock. `NOW_ISO` is a
-    // fixed instant nowhere near the runner's own, so the app clock cannot satisfy this by luck.
-    expect(NOW - Date.parse(String(lineGte[0]![1]))).toBe(24 * 60 * 60 * 1000);
+    expect(lineCols.length).toBeGreaterThan(0);
+    for (const cols of lineCols) {
+      expect(cols.split(",")).not.toContain("qty");
+      expect(cols).not.toMatch(/modifier|notes|comped|price/);
+    }
+  });
+
+  it("asks the line read for the KDS's own window and the linger, cut from the DATABASE clock", async () => {
+    await GET(req());
+    // The KDS's M2 arm: a fired line with NO fire time created inside the day floor is on the wall
+    // exactly when it is on the KDS.
+    const window = lineOrFilters.find((f) => f.includes("fire_at.is.null"));
+    expect(window).toMatch(
+      /^fire_at\.gte\.([0-9TZ:.-]+),and\(fire_at\.is\.null,created_at\.gte\.\1\)$/,
+    );
+    const floor = /fire_at\.gte\.([0-9TZ:.-]+)/.exec(window!)![1]!;
+    expect(NOW - Date.parse(floor)).toBe(24 * 60 * 60 * 1000);
+    const live = lineOrFilters.find((f) => f.includes("state.in"));
+    expect(live).toMatch(/state\.in\.\(fired,in_progress\)/);
+    const linger = /bumped_at\.gte\.([0-9TZ:.-]+)/.exec(live ?? "");
+    expect(NOW - Date.parse(linger![1]!)).toBe(5 * 60 * 1000);
   });
 
   it("asks for carts the kitchen may legitimately cook — open or paid, never cancelled", async () => {
@@ -501,140 +538,161 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
     expect([...requestedCartStatuses].sort()).toEqual(["open", "paid"]);
   });
 
-  it("publishes NO identifier of any kind, anywhere in the response", async () => {
-    // The boundary asserted as a property over the whole serialized body rather than as a key-name
-    // check on one object. Every id the pulse READS is given a value that could not appear by
-    // coincidence, and none of them may come back out — not the session, cart or order ids, not the
-    // catalog id behind a rail row, and not the dine-in guest's name.
-    //
-    // ⚠️ AND THE RAIL HAS TO BE OPEN FOR HALF OF IT TO MEAN ANYTHING. The first version of this
-    // fixture put both secret carts on ONE session, so `cookingSessions.size` was 2, the exposure
-    // floor shut the rail, and `allDay` came back `[]` — under which `not.toContain(DISH)` cannot
-    // fail whatever a `PulseDish` carries. Adding a `menuItemId` field to that type would have kept
-    // it green, which is the class of thing this assertion exists to catch. Each secret cart now
-    // gets its own SESSION (the party term) and its own DISH (the diversity term), so the rail
-    // publishes a row derived from `DISH` while `DISH` itself stays off the wire — asserted below.
+  it("a Send stays WHOLE: a dish served long before its round finished is still on the pass (Codex round 4 on #319; `board/send-read-ignored`)", async () => {
     seedCookingTable();
-    for (const n of [2, 3]) {
-      lines.push({
+    sendExtra = [
+      {
         ...lines[0]!,
-        cart_id: `cart-SECRET-${n}`,
-        qty: 1,
-        menu_item_id: `item-SECRET-${n}`,
-        name: `Dish ${n}`,
-      });
-      carts.push({ id: `cart-SECRET-${n}`, session_id: `sess-SECRET-${n}`, status: "paid" });
-      sessions.push({
-        id: `sess-SECRET-${n}`,
-        mode: "pickup",
-        status: "active",
-        table_number: null,
-        expires_at: LIVE,
-      });
-    }
-    const res = await GET(req());
-    const body = JSON.stringify(await res.json());
-    for (const leak of [
-      "cart-1",
-      "cart-SECRET-2",
-      "sess-dinein",
-      "sess-SECRET-2",
-      "item-SECRET-2",
-      DISH,
-      DINEIN,
-      "Thura",
-    ])
-      expect(body).not.toContain(leak);
-    // …while the things it IS for did come through, so this is not passing on an empty payload: the
-    // load count, the table strip, and — the clause that used to be vacuous — a published rail row
-    // whose catalog id is `DISH`.
-    expect(body).toContain('"tickets":3');
-    expect(body).toContain('"table":4');
-    expect(body).toContain('"name":"Mohinga"');
+        id: "line-0",
+        name: "Tea",
+        menu_item_id: "tea",
+        state: "served",
+        bumped_at: new Date(NOW - 40 * MIN).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables![0]!.rounds[0]!.dishes.map((d) => [d.name, d.stage])).toEqual([
+      ["Mohinga", "cooking"],
+      ["Tea", "served"],
+    ]);
   });
 
-  it("a failed KITCHEN read is null, never an empty band — and the Ready column still publishes", async () => {
-    // The whole degrade. `pulse: {tickets: 0}` would draw "all clear" over a full wok; `null` is the
-    // screen's cue to say it cannot read the kitchen. And the customer-facing half is untouched,
-    // because a dropped kitchen read says nothing about which bags are ready.
-    for (const fail of ["lines", "carts"] as const) {
+  it("the round number is the KDS's own read, asked for the wall's DINE-IN sessions only (`board/round-read-for-every-session`)", async () => {
+    seedCookingTable();
+    lines.push({
+      ...lines[0]!,
+      id: "line-p",
+      cart_id: "cart-p",
+      fire_batch: null,
+      fulfillment: "togo",
+    });
+    carts.push({ id: "cart-p", session_id: "sess-togo", status: "paid" });
+    roundsAnswer = new Map([
+      ["sess-dinein", { ordinals: new Map([[BATCH, 2]]), seen: new Set([BATCH]) }],
+    ]);
+    const body = (await (await GET(req())).json()) as Body;
+    expect(roundSessions).toEqual(["sess-dinein"]);
+    expect(body.tables![0]!.rounds[0]!.n).toBe(2);
+  });
+
+  it("a round read that does not answer leaves the round unnumbered — the tables still publish", async () => {
+    seedCookingTable();
+    roundsAnswer = null;
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables![0]!.rounds[0]).toMatchObject({ n: null, next: false });
+  });
+
+  it("no kitchen food at all asks the round read for no session, and publishes an empty kitchen", async () => {
+    const body = (await (await GET(req())).json()) as Body;
+    expect(roundSessions).toEqual([]);
+    expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(true);
+  });
+
+  it('"All clear" is the WHOLE kitchen: a paid pickup bag on the wok draws no table and is NOT idle (the blind pass on #336; `board/idle-read-ignored`)', async () => {
+    seedCookingTable({ cart_id: "cart-togo", fulfillment: "togo" });
+    carts = [{ id: "cart-togo", session_id: "sess-togo", status: "paid" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables).toEqual([]);
+    expect(body.kitchenIdle).toBe(false);
+  });
+
+  it("a failed KITCHEN read is null, never an empty kitchen — and the code column still publishes (`board/tables-on-a-failed-kitchen-read`)", async () => {
+    for (const fail of ["lines", "carts", "send"] as const) {
       seedCookingTable();
       linesError = fail === "lines" ? { message: "connection terminated" } : null;
       cartsError = fail === "carts" ? { message: "connection terminated" } : null;
+      sendError = fail === "send" ? { message: "connection terminated" } : null;
       const res = await GET(req());
       expect(res.status).toBe(200);
       const body = (await res.json()) as Body;
-      expect(body.pulse).toBeNull();
-      expect(body.orders!.map((o) => o.name)).toEqual(["Nilar"]);
+      expect(body.tables, fail).toBeNull();
+      // …and so is "All clear": a kitchen that cannot be read is never idle (`board/idle-on-a-failed-read`).
+      expect(body.kitchenIdle, fail).toBeNull();
+      expect(body.orders!.map((o) => o.code)).toEqual(["AA0001"]);
     }
   });
 
-  it("a failed NAME read degrades to English — a label can never withhold the band", async () => {
+  it("a SATURATED kitchen read is null too — a partial wall is a table missing a round (m9 decision 23; `board/saturated-line-read-publishes-tables`, `board/saturated-send-read-publishes-tables`)", async () => {
     seedCookingTable();
-    seedTwoMoreParties({ id: OTHER_DISH, name: "Tea leaf salad" });
+    // Only ONE of the 500 carries a batch, so the Send-completion read answers one row and is NOT
+    // saturated: the line read's own cap is the only guard that can refuse this wall (a fixture where
+    // every line shared the batch re-read all 500 and let the send guard mask this one).
+    lines = Array.from({ length: 500 }, (_, i) => ({
+      ...lines[0]!,
+      id: `l${i}`,
+      fire_batch: i === 0 ? BATCH : null,
+    }));
+    expect(((await (await GET(req())).json()) as Body).tables).toBeNull();
+    seedCookingTable();
+    sendExtra = Array.from({ length: 500 }, (_, i) => ({
+      ...lines[0]!,
+      id: `s${i}`,
+      state: "served",
+    }));
+    expect(((await (await GET(req())).json()) as Body).tables).toBeNull();
+  });
+
+  it("a failed NAME read degrades to English — a label can never withhold a table", async () => {
+    seedCookingTable();
+    menu = [{ id: DISH, name_my: "မုန့်ဟင်းခါး" }];
     menuError = { message: "connection terminated" };
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables![0]!.rounds[0]!.dishes[0]).toMatchObject({ name: "Mohinga", nameMy: null });
+  });
+
+  it("publishes NO identifier, quantity, modifier, note or time of any kind, anywhere in the response", async () => {
+    // The boundary as a property over the whole serialized body. Every id the route READS has a
+    // value that could not appear by coincidence, and none may come back out.
+    seedCookingTable({ cart_id: "cart-SECRET", id: "line-SECRET", menu_item_id: "item-SECRET" });
+    carts = [{ id: "cart-SECRET", session_id: "sess-dinein", status: "open" }];
     const res = await GET(req());
-    const body = (await res.json()) as Body;
-    expect(body.pulse!.allDay).toEqual([
-      { name: "Mohinga", nameMy: null, qty: 2 },
-      { name: "Tea leaf salad", nameMy: null, qty: 2 },
-    ]);
+    const json = (await res.json()) as Record<string, unknown>;
+    const body = JSON.stringify({ ...json, serverNow: undefined });
+    for (const leak of [
+      "cart-SECRET",
+      "line-SECRET",
+      "item-SECRET",
+      "sess-dinein",
+      BATCH,
+      DINEIN,
+      TOGO,
+    ])
+      expect(body).not.toContain(leak);
+    const keys = new Set<string>();
+    const walk = (v: unknown) => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object")
+        for (const [k, x] of Object.entries(v)) {
+          keys.add(k);
+          walk(x);
+        }
+    };
+    walk(json);
+    for (const k of [
+      "qty",
+      "quantity",
+      "modifiers",
+      "notes",
+      "name_my",
+      "customer_name",
+      "readyMinutes",
+      "readyAt",
+      "id",
+    ])
+      expect(keys.has(k), k).toBe(false);
+    // …while what it IS for did come through, so this is not passing on an empty payload.
+    expect(body).toContain('"table":4');
+    expect(body).toContain('"name":"Mohinga"');
   });
 });
 
-describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock, and a full read refuses", () => {
-  it("derives readyMinutes from `mms_now`, never from the wall's own clock", async () => {
-    // MUTATION: `Date.now()` in place of `dbNowMs` → the fixture's DB clock is 2026-09-01 and the
-    // process clock is not, so the count is off by days; a wall that subtracted a shipped instant
-    // from its own clock would have the same defect, one screen later.
-    orders = [
-      {
-        ...order(TOGO, "sess-togo", "Nilar"),
-        togo_ready_at: new Date(NOW - 5 * MIN - 20_000).toISOString(),
-      },
-    ];
-    const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders).toHaveLength(1);
-    expect(body.orders?.[0]).toMatchObject({ name: "Nilar", status: "ready", readyMinutes: 5 });
-  });
-
-  it("a preparing bag has no shelf time — null, not 0", async () => {
-    orders = [
-      { ...order(TOGO, "sess-togo", "Nilar"), togo_status: "preparing", togo_ready_at: null },
-    ];
-    const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders?.[0]).toMatchObject({ status: "preparing", readyMinutes: null });
-  });
-
-  it("a ready stamp AHEAD of the clock (app-clock fallback skew) floors at 0, never negative", async () => {
-    orders = [
-      { ...order(TOGO, "sess-togo", "Nilar"), togo_ready_at: new Date(NOW + 30_000).toISOString() },
-    ];
-    const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders?.[0]?.readyMinutes).toBe(0);
-  });
-
-  it("a collected bag has NO wait — a picked-up row lingers under Ready without a climbing count", async () => {
-    // Blind pass, CRITICAL 4. MUTATION: derive the wait from `togo_ready_at` alone → "13 min" on a
-    // bag someone took ten minutes ago.
-    orders = [
-      {
-        ...order(TOGO, "sess-togo", "Nilar"),
-        togo_status: "picked_up",
-        togo_ready_at: new Date(NOW - 8 * MIN).toISOString(),
-        togo_picked_up_at: new Date(NOW - 2 * MIN).toISOString(),
-      },
-    ];
-    const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders?.[0]).toMatchObject({ status: "ready", readyMinutes: null });
-  });
-
+describe("K32 (A4·1) — a full orders read keeps the newest readiness and publishes", () => {
   it("a read that came back FULL keeps the NEWEST bags and publishes — never a 503, never an empty wall", async () => {
-    // Blind pass, CRITICAL 3: untapped `ready` rows accumulate (picked_up is a manual tap), so the
-    // cap WILL be reached on a busy day. MUTATION: oldest-first → the bag that just came up is the
-    // one dropped. The mock honours order + limit, so this fixture of 61 separates the two.
+    // Untapped `ready` rows accumulate (picked_up is a manual tap), so the cap WILL be reached on a
+    // busy day. MUTATION: oldest-first → the bag that just came up is the one dropped.
     orders = Array.from({ length: 61 }, (_, i) => ({
-      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo"),
       created_at: new Date(NOW - (61 - i) * MIN).toISOString(),
     }));
     const res = await GET(req());
@@ -642,25 +700,19 @@ describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock
     const body = (await res.json()) as Body;
     expect(body.orders?.length).toBe(60);
     const codes = body.orders?.map((o) => o.code) ?? [];
-    expect(codes).toContain("AA0060"); // the newest bag is on the wall
+    expect(codes).toContain("AA0060"); // the newest bag is on the wall, first
+    expect(codes[0]).toBe("AA0060");
     expect(codes).not.toContain("AA0000"); // the oldest untapped one fell off
-    // and the wall still reads oldest-first within what it shows
-    expect(codes[0]).toBe("AA0001");
   });
 
   it("a scheduled bag placed early and readied LAST survives the cap — the wall ranks by readiness, not creation (Codex round 1 on A4·1)", async () => {
-    // Sixty bags placed and readied through the afternoon, plus one placed at breakfast for a six
-    // o'clock pickup that came up a moment ago. Under `created_at DESC` it is the oldest creation
-    // on the wall and the row the cap drops — a guest at the counter with no name on the wall.
-    // Under `togo_ready_at DESC` it is the newest readiness and the first row kept; the row that
-    // falls off is the one readied longest ago.
     const afternoon = Array.from({ length: 60 }, (_, i) => ({
-      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo"),
       created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
       togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
     }));
     const scheduled = {
-      ...order(`${TOGO.slice(0, -4)}5chd`, "sess-togo", "Nilar"),
+      ...order(`${TOGO.slice(0, -4)}5chd`, "sess-togo"),
       created_at: new Date(NOW - 6 * 60 * MIN).toISOString(),
       togo_ready_at: new Date(NOW - 30_000).toISOString(),
     };
@@ -672,35 +724,9 @@ describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock
     expect(codes).not.toContain("AA0000");
   });
 
-  it("a lingered handoff never evicts a bag still waiting — active rows rank ahead of collected ones (Codex's per-head round on A4·1)", async () => {
-    // Sixty bags still waiting, plus one collected a minute ago that rides along for the linger
-    // window — and its readiness is the NEWEST on the wall. Ranked by readiness alone it takes a slot
-    // and the bag readied longest ago, still waiting, falls off. Active rows (`togo_picked_up_at`
-    // null) sort ahead of every collected one, so the sixty waiting bags all publish and the
-    // collected name is the row that yields.
-    const waiting = Array.from({ length: 60 }, (_, i) => ({
-      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
-      created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
-      togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
-    }));
-    const collected = {
-      ...order(`${TOGO.slice(0, -4)}d0ne`, "sess-togo", "Nilar"),
-      togo_status: "picked_up",
-      created_at: new Date(NOW - 3 * MIN).toISOString(),
-      togo_ready_at: new Date(NOW - 90_000).toISOString(),
-      togo_picked_up_at: new Date(NOW - 60_000).toISOString(),
-    };
-    orders = [collected, ...waiting];
-    const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders?.length).toBe(60);
-    const codes = body.orders?.map((o) => o.code) ?? [];
-    expect(codes).toContain("AA0000"); // the bag waiting longest is still on the wall
-    expect(codes).not.toContain("AAD0NE"); // the collected name is the row that yielded
-  });
-
   it("one under the cap is a complete read and publishes every row", async () => {
     orders = Array.from({ length: 59 }, (_, i) => ({
-      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo"),
       created_at: new Date(NOW - (59 - i) * MIN).toISOString(),
     }));
     const res = await GET(req());
