@@ -232,7 +232,7 @@ export function unsavedNoteFrom(
  * page and the server refuse on (`staffSettleBlockedByUnsent`); its sentence is in `SETTLE_REASON`,
  * a `Record` over this union.
  */
-export type PadSettleBlock = "paying" | "note" | "waiting" | "unsent" | "empty";
+export type PadSettleBlock = "paying" | "note" | "waiting" | "unsent" | "empty" | "unpriced";
 
 /** Take payment's life after a tap: waiting on a dish still on its way, saving a typed counter name,
  *  then opening the table's payment section. */
@@ -294,7 +294,14 @@ export function padSettle(i: PadSettleInput): PadSettle {
           ? "unsent"
           : i.itemCount === 0 && inFlight === 0
             ? "empty"
-            : null;
+            : // PD6 (m6 graft 2) — ranked LAST: lines are on the order and every amount is settled,
+              // yet the read priced nothing (`settleTotalCents` null). The till tray never opens
+              // on a null total: the door reads bare "Take cash", `aria-disabled`, and says to
+              // reload the order. While an add is pending the figure is merely withheld
+              // (`showAmount`), not unpriced — so only a settled read with no total holds here.
+              i.settleTotalCents === null && padAmountsSettled(i.pending, i.lines)
+              ? "unpriced"
+              : null;
   return {
     variant: i.variantOverride ?? variant,
     // A tap while an add FLIES is accepted: the pad drains the add chain, then goes.
@@ -330,6 +337,8 @@ const SETTLE_REASON: { readonly [B in PadSettleBlock]: (c: PadReasonCtx) => Staf
   empty: () => ({ k: "pad.reason.empty" }),
   // Phase 2c · gate — the table page's own sentence (one fact, one sentence): the fix is the Send.
   unsent: (c) => settleBlockedMsg(c.unsent, false),
+  // PD6 — the total could not be read: the way out is the ticket's own "Reload the order".
+  unpriced: () => ({ k: "pad.reason.unpriced" }),
 };
 
 /** The sentence for a refused Take payment — its hint, and what a tap on it says (§17). */

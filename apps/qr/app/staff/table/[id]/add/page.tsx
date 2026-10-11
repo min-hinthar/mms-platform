@@ -45,9 +45,15 @@ export default async function StaffAddItems({
   const res = await getTableDetail(id);
   if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
-  // The floor BY NAME: a bare `/staff` resolves by the door cookie, and a kitchen door would land a
-  // server who was adding to a table on the kitchen board (the tablet fix, applied here too).
-  if (res.kind === "closed") redirect(STAFF_DOOR_TARGET.counter);
+  // PD6 (m6 decision 24 · Codex correction 4) — a CLOSED counter order (its verdict carries the
+  // `handoff` key, null or not — a table's never does) goes to its own table page: the server card,
+  // in the seal's geometry, which adopts THIS tab's stash for the same order — so a reload or an
+  // unlock right after the pad's walk-up landing still shows Cash received and Change. A refunded or
+  // unreadable one is named there too. Anything else closed: the floor BY NAME (a bare `/staff`
+  // resolves by the door cookie, and a kitchen door would land a server who was adding to a table
+  // on the kitchen board — the tablet fix, applied here too).
+  if (res.kind === "closed")
+    redirect(res.handoff !== undefined ? `/staff/table/${id}` : STAFF_DOOR_TARGET.counter);
   const detail = res.detail;
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
@@ -90,6 +96,9 @@ export default async function StaffAddItems({
     // An APP SHELL (§17): the bar on top, the pad's panes scrolling beneath it.
     <main className="staff-main pad-main">
       <OrderPad
+        // PD6 — a fresh pad per order: a Walk-up from the seal lands on a NEW id, and nothing of the
+        // last sale's seal may carry over.
+        key={id}
         sessionId={id}
         initialDetail={detail}
         catalog={catalog}

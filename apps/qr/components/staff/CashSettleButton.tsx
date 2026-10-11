@@ -1,5 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { settleCash } from "@/lib/staff-cart";
 import {
   boundWrite,
@@ -24,10 +31,25 @@ import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { haptic } from "@/lib/haptics";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import type { SettleOutcome } from "@/lib/floor-pane";
-import { Button, Sheet, type ButtonVariant } from "@mms/ui";
+import { Button, Icon, Sheet, type ButtonVariant } from "@mms/ui";
+import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
+import {
+  TILL_LEDGER_CLEAN,
+  TILL_MEDIA,
+  tillCancelSays,
+  tillDoubts,
+  tillHeroTier,
+  tillLedgerAfter,
+  tillLedgerRead,
+  tillSlipDiverged,
+  type TillEvent,
+  type TillLedger,
+  type TillSlipLine,
+} from "@/lib/till";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
+import { SealEcho } from "./HandoffCard";
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
 import { useReloadHold } from "./useReloadHold";
@@ -87,6 +109,40 @@ export type CashSettled = {
 };
 
 /**
+ * PD6 (K39) — the ORDER PAD re-hosts this control as a counter order's dock door, so the walk-up
+ * sale never leaves the pad (m6: "Take cash · $X" opens the crowned till tray in place; DESIGN-LANGUAGE
+ * §28's "Take payment navigates" takes its one exception here). The pad hands this contract in:
+ * its own holds and busy phases on the door, a gate that runs AT THE TAP before the tray opens, and
+ * its ONE live region for the two sentences this control would otherwise mount a region for.
+ */
+export type TillDoor = {
+  /** The pad's hold (`padSettle.block`): the door is `aria-disabled`, described by the pad's own
+   *  hint (`noteId`), and a tap hands up instead of opening — the pad says why, once. */
+  held: { noteId: string; onTap: () => void } | null;
+  /** The pad's busy phase while a tap drains the adds or saves the name: the door is busy with that
+   *  phase's own words ("Waiting for the last dish…", "Saving the name…"); null when idle. */
+  busy: ReactNode | null;
+  /** Whether the door may name its figure (`padSettle.showAmount`): false while an add or a line
+   *  write is pending (§23 — amounts are never intent) or the read priced nothing ("unpriced") —
+   *  the door then reads bare "Take cash", never a stale or invented figure. */
+  showAmount: boolean;
+  /** Runs AT THE TAP, before the tray opens — the pad's holds re-decided from refs, the add chain
+   *  drained, a typed name saved, the note re-read. Resolves true to open; false when the pad
+   *  refused (it said why and moved focus). A throw reads as a refusal. */
+  beforeOpen: () => Promise<boolean>;
+  /** B7 — a tap on the door HELD on this cart's own unanswered settle: the pad's one region says
+   *  `settle.cash.waiting` (this control mounts no `role="alert"` on the pad host). */
+  onHeldTap: () => void;
+  /** m6 graft 5 — after the tray is gone and the page is un-hidden, the pad's Toast says "Nothing was
+   *  taken — the order is still here.", only when `tillCancelSays` holds for the till's ledger. */
+  onCancelClean: () => void;
+  /** The blind pass on #334 (CRITICAL 1) — whether the HOST still holds a settle outcome it was told
+   *  is unknown (`onOutcomeUnknown(true)`) that nothing has resolved. Read at the cancel: while it
+   *  holds, nothing is said — the host's view covers a ledger this control lost (a remount). */
+  outcomeOpen: () => boolean;
+};
+
+/**
  * Cash settle ("pay a human", S1.3). Two-step confirm showing the authoritative all-in total
  * (POS-priced lines + tax — W16a retired the service charge). The cash tip the cashier types IS
  * recorded (W17c-2: `p_tip_cents`); the charge itself is server-derived — this button never sends
@@ -124,6 +180,7 @@ export function CashSettleButton({
   onSettled,
   onChanged,
   onOutcomeUnknown,
+  openReadAt,
   onSettleOutcome,
   // Named `gateBlocked` inside: `blocked` below is the SHEET's binding (`cashSettleBlocked`).
   blocked: gateBlocked = false,
@@ -132,13 +189,18 @@ export function CashSettleButton({
   running = false,
   readTicket = 0,
   readsStarted,
+  slip,
+  door,
   acknowledgedApprovalIds,
   onApprovalPending,
   totalPending = false,
   describedBy,
 }: {
   sessionId: string;
-  totalCents: number;
+  /** The page's all-in total, or null when its read priced nothing (the blind pass on #334, C2): the
+   *  tray NEVER opens on null — its quote is a number by type, and the freeze refuses an unpriced
+   *  read (the host's gate has already said why) — and the trigger draws no figure. */
+  totalCents: number | null;
   /** W17c-3 — the tip BASE (subtotal − discount, BEFORE tax) the quick-tip chips offer percentages
    *  against. NOT `totalCents`, which is tax-inclusive: the review's HIGH was that a "20%" chip
    *  computed off the tax-inclusive total charges ~9% more than the identically-labelled chip at
@@ -165,11 +227,21 @@ export function CashSettleButton({
   /** The parent's own detail refresh (debounced). Replaces a `router.refresh()` that updated nothing
    *  this control reads — the detail lives in `FloorDetailLive`'s state, not the RSC payload. */
   onChanged?: () => void;
-  /** Whether a settle's outcome is UNKNOWN right now: `true` when the action rejected (the response
-   *  was lost — it may have landed), `false` the moment any later attempt gets an answer. The page
-   *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
-   *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
+  /** Whether a settle's outcome is UNKNOWN. `true` each time an attempt's answer is LOST (the action
+   *  rejected — on time, or late after the bound) or goes OUT past the bound: the host's mark then
+   *  ADVANCES to now (the newest doubt — never kept at an earlier one), and only a host read that
+   *  started after it could land and shows the order open clears it (`settleUnknownAfterRead`).
+   *  `false` only when no doubt is left: a LANDED answer (the payment is recorded), or the late
+   *  REFUSAL of the attempt that was out when the till holds no other doubt once the host's latest
+   *  open read (`openReadAt`) is applied (`tillLedgerRead`). An on-time refusal hands nothing up — it
+   *  answers no doubt. The page holds a counter order's closed-bounce on it (critic finding: a
+   *  landed counter settle closes the session behind it, and the bounce yanked the cashier to the
+   *  floor mid-sheet). */
   onOutcomeUnknown?: (unknown: boolean) => void;
+  /** #334 (the last blind pass) — the START (device ms) of the host's latest committed read that
+   *  showed this order OPEN, or null. Both hosts feed it; the till resolves its doubts with it by the
+   *  hosts' own rule (`tillLedgerRead` → `settleUnknownAfterRead`), so the two can never disagree. */
+  openReadAt?: () => number | null;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's settle, as it lands. The page says it where this control
    *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
@@ -211,9 +283,37 @@ export function CashSettleButton({
   /** The last detail read STARTED (the page's ref) — called when a refusal lands, never in render:
    *  a read already in the air then may predate the move, so it cannot settle the refusal. */
   readsStarted?: () => number;
+  /** PD6 (Codex round 3 on m6) — the order's lines as the tray's slip (`tillSlipFrom`), LIVE from the
+   *  host's read. The sheet FREEZES it with the quote at open and draws the frozen copy; a live cart
+   *  that diverges (a colleague's add, a removal, a quantity) marks the slip "The order changed — tap
+   *  to update" and holds Take until that tap re-freezes it (`tillSlipDiverged`). Cash is never
+   *  collected against a screen whose items and total disagree; the server's moved refusal stays
+   *  the backstop, not the first notice. Omitted: no slip, no hold. */
+  slip?: readonly TillSlipLine[];
+  /** PD6 (K39) — the pad host's contract; absent on the table page and the pane. */
+  door?: TillDoor;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
+  // PD6 — the crowned till tray from the width its grid really fits (`TILL_MEDIA`, computed in
+  // lib/till.ts from the spec's columns; the stylesheet's `.till-sheet` block is pinned to the same
+  // string), read HERE — one viewport predicate, never the host's say (m6 appendix A2 · B3). Below
+  // it the single-column §29 sheet serves. `false` on the server and the first client render.
+  const till = useMediaQuery(TILL_MEDIA);
+  // PD6 — the slip FROZEN at open, beside the quote (null while closed, or with no slip).
+  const [slipAtOpen, setSlipAtOpen] = useState<readonly TillSlipLine[] | null>(null);
+  // PD6 (m6 graft 5) — the till's LEDGER (`tillLedgerAfter`): the last attempt, and WHEN each doubt
+  // arose — STICKY across attempts and openings (the blind passes on #334, CRITICAL 1).
+  const ledgerRef = useRef<TillLedger>(TILL_LEDGER_CLEAN);
+  const track = (e: TillEvent) => {
+    ledgerRef.current = tillLedgerAfter(ledgerRef.current, e);
+  };
+  // At a decision (a late refusal, the cancel): the host's latest open read resolves each doubt by
+  // the hosts' own rule (`tillLedgerRead`) — the till holds no count and no clock of its own.
+  const readLedger = (): TillLedger =>
+    (ledgerRef.current = tillLedgerRead(ledgerRef.current, openReadAt?.() ?? null));
+  // PD6 — the pad's `beforeOpen` is async: a second tap while it runs opens nothing twice.
+  const opening = useRef(false);
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
   // BOUNDED await — never a transition's `pending`. Inside a modal sheet every exit is refused while
   // `busy` holds, behind a trapped focus scope, so a flag that does not clear is a keyboard trap —
@@ -261,6 +361,11 @@ export function CashSettleButton({
   // trigger and carried into the next open's alert — never wiped by that reopen. `sheetOpen` is
   // the sheet's state as of the last commit, for an answer that lands in a later render.
   const [lateUnseen, setLateUnseen] = useState(false);
+  // PD6 — the same fact for a tap whose open awaited the pad's gate (its closure is a render old).
+  const lateUnseenRef = useRef(false);
+  useEffect(() => {
+    lateUnseenRef.current = lateUnseen;
+  }, [lateUnseen]);
   const sheetOpen = useRef(false);
   // Codex round 1 on #310 (CX3) — a tap on the HELD trigger (its own settle still out past the
   // bound). A fresh object per tap: `useResaid` keys the held-tap alert's content with it, so every
@@ -279,7 +384,7 @@ export function CashSettleButton({
   // Render-time adjustment (React's guarded set-during-render, as FloorDetailLive's `seenDetail`):
   // the page caught up with the server's figure, so a later move BACK reads as the move it is.
   // Phase 2c · review (R1) — and a read that began after a refusal settles the refusal's figure.
-  const reconciled = reconcileQuote(quote, totalCents, readTicket);
+  const reconciled = totalCents === null ? quote : reconcileQuote(quote, totalCents, readTicket);
   // Codex round 2 (P2) — the tip base the percentage chips read is frozen WITH the quote: a
   // subtotal or discount moving under an open sheet must not move "20% · $8.42" while every other
   // figure holds. It follows the prop only where the quote itself moves (open, adopt, reconcile).
@@ -288,13 +393,43 @@ export function CashSettleButton({
     setQuote(reconciled);
     setTipBaseAtOpen(tipBaseCents);
   }
+  // PD6 — the FREEZE runs in the render after the tap that opens (the sanctioned set-during-render,
+  // as above), never from the tap's closure: on the pad host the door's gate awaits a read that
+  // started after the last write, so the figures frozen are THAT read's — the live figure, or the
+  // server's figure a refusal handed back while the page has not re-read yet (`openQuote`) — and
+  // the slip and the tip base freeze with them.
+  const [freezing, setFreezing] = useState(false);
+  if (freezing) {
+    setFreezing(false);
+    if (totalCents === null) {
+      // #334 C2 — the read the gate waited for priced nothing: the tray never opens over an
+      // invented due. The host's gate re-decides the hold on that read and says why; this is the
+      // type's own backstop (a quote is a number). An unread late word stays unread: it is said
+      // under the trigger again, never dropped by an opening that did not happen (#334, the open
+      // question — `lateUnseen` is cleared only by the freeze that opens).
+      setConfirming(false);
+    } else {
+      setQuote(openQuote(reconciled, totalCents));
+      setTipBaseAtOpen(tipBaseCents);
+      setSlipAtOpen(slip ?? null);
+      setLateUnseen(false);
+    }
+  }
   const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;
   // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
-  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
-    .cents;
+  const figure =
+    confirming && reconciled
+      ? reconciled
+      : totalCents === null
+        ? null
+        : openQuote(reconciled, totalCents);
+  // Unpriced and closed, no figure exists: the trigger reads bare (below) and the tray cannot open,
+  // so the 0 here only keeps the arithmetic total — it is never drawn (#334 C2).
+  const priced = figure !== null;
+  const shownTotal = figure?.cents ?? 0;
   // The page's total moved off the quote while the sheet is open: said in the sheet's one alert,
   // naming both figures, and the next tap ADOPTS the new figure (it records nothing).
-  const drift = confirming ? quoteDrift(reconciled, totalCents) : null;
+  const drift = confirming && totalCents !== null ? quoteDrift(reconciled, totalCents) : null;
   const [tendered, setTendered] = useState("");
   // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
   // by a human, because nothing on the server can derive it: only the person who took the cash knows
@@ -345,8 +480,16 @@ export function CashSettleButton({
   const keepCents = changeAsTipCents(shownTotal, tenderedCents, tipCents);
   // A tip is already typed: "Keep the change" names the tip the tap makes, not the change alone.
   const keepNamesTip = tipCents > 0;
+  // PD6 — the live slip diverged from the frozen one: the slip's own line says so and is the
+  // control that re-freezes it; until then Take is held (the ONE binding below reads it first).
+  const slipChanged =
+    confirming && slipAtOpen !== null && slip !== undefined && tillSlipDiverged(slipAtOpen, slip);
+  const shownSlip = confirming ? slipAtOpen : (slip ?? null);
   // §22 — the ONE binding: Settle's aria-disabled, its aria-describedby and `confirm` read it.
-  const blocked = cashSettleBlocked(tipOverlong ? null : tipCents, tender);
+  // PD6 — the slip outranks the money rules: the order itself is in doubt before any figure is.
+  const blocked: "slip" | "tipCap" | "short" | null = slipChanged
+    ? "slip"
+    : cashSettleBlocked(tipOverlong ? null : tipCents, tender);
   const tipValid = blocked !== "tipCap";
   const canSettle = !busy && blocked === null;
   // `.mms-pop` on the change figure only when a CHIP filled the field (typing never pops): the key
@@ -365,6 +508,12 @@ export function CashSettleButton({
   useEffect(() => {
     if (kept > 0) settleRef.current?.focus();
   }, [kept]);
+  // PD6 (#334 a11y) — the slip's "tap to update" unmounts under its own tap (the slip re-frozen, no
+  // change left to mark): focus goes to Take, the next thing to do — Keep the change's rule.
+  const [requoted, setRequoted] = useState(0);
+  useEffect(() => {
+    if (requoted > 0) settleRef.current?.focus();
+  }, [requoted]);
   // Phase 2c · gate — a server `unsent` refusal (a guest's dish landed after the page's last read)
   // is said INSIDE the sheet (its one alert: the page's region is hidden behind the modal), and the
   // jump to the Send waits for the sheet to close — the close hands focus to the fix instead of back
@@ -380,12 +529,19 @@ export function CashSettleButton({
    * regardless: a settle that landed after the detail unmounted still hands its card up, since the
    * parent renders it outside the open-cart conditional this control lives in.
    */
-  function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap) {
-    // An answer came back: whatever it says, the outcome is KNOWN again — on a late answer too,
-    // and even after unmount (the page's closed-bounce hold must not outlive the question).
-    onOutcomeUnknown?.(false);
+  function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap, late = false) {
     if (!res.ok) {
-      onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
+      // A definite refusal: THIS attempt recorded nothing. It answers the doubt only when it is the
+      // late answer of the attempt that was out, and no other attempt's lost answer is left once
+      // the host's latest open read is applied — a refusal after a lost answer ("That table is
+      // closed.") is that settle LANDING, never "nothing" (the blind passes on #334, CRITICAL 1).
+      // Only then is the page's closed-bounce hold let go.
+      track({ k: "refused", late });
+      const left = readLedger();
+      if (late && !tillDoubts(left)) onOutcomeUnknown?.(false);
+      // And the pane hears the same truth: while a doubt is left, "didn't go through" would be a
+      // lie about a payment that may have landed — it hears `unknown` (#334, the open question).
+      onSettleOutcome?.(tillDoubts(left) ? "unknown" : "refused");
       // The sheet stays open with the refusal inside it — the cashier reads why where they
       // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
       // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
@@ -455,6 +611,10 @@ export function CashSettleButton({
     // The write is recorded — the sheet goes (unmounted, not closed: an exiting sheet with a
     // re-armed Settle inside it, or one held busy for a re-fetch this control does not own, is the
     // trap §16 names) and the trigger reads busy until the paid state lands.
+    // The payment is recorded: every doubt is answered — on a late answer too, and even after
+    // unmount (the page's closed-bounce hold must not outlive the question).
+    track({ k: "landed" });
+    onOutcomeUnknown?.(false);
     setLanded(true);
     setConfirming(false);
     if (handoff || at.tenderAtTap != null) {
@@ -474,8 +634,25 @@ export function CashSettleButton({
     onChanged?.();
   }
 
+  /** PD6 — the slip's "tap to update": re-freeze the slip, and adopt a drifted total with it (the
+   *  moved sentence stays, naming both figures, exactly as Take's own adoption does); records
+   *  nothing. A quote the SERVER raised (its basis still unread) is kept — the page's read settles it. */
+  function requote() {
+    haptic("pick");
+    setSlipAtOpen(slip ?? null);
+    setRequoted((n) => n + 1);
+    if (drift) {
+      setQuote({ cents: drift.to, basis: drift.to });
+      setTipBaseAtOpen(tipBaseCents);
+      setError({ kind: "moved", from: drift.from, to: drift.to });
+    }
+  }
+
   async function confirm() {
     if (inFlight.current) return;
+    // PD6 — the ONE binding, read first: a diverged slip refuses the tap outright (the slip's own
+    // line is the way on), before a drifted total could be adopted under it.
+    if (blocked === "slip") return;
     if (drift && !busy) {
       // The total moved while the sheet was open: this tap ADOPTS the new figure explicitly — the
       // label, the chips and the readout re-derive from it in front of the cashier, the sentence
@@ -500,6 +677,7 @@ export function CashSettleButton({
       "stalled",
     );
     if (refused !== null) {
+      track({ k: "tapRefused", as: refused }); // PD6 — refused at the tap: nothing was sent
       setError({ kind: refused });
       return;
     }
@@ -512,7 +690,8 @@ export function CashSettleButton({
     // captured at the tap, so a refusal can name the one and keep the other as the quote's basis.
     const at: SettleTap = {
       quoted: shownTotal,
-      basis: totalCents,
+      // The prop the page read; an unpriced read under an open tray keeps the figure shown.
+      basis: totalCents ?? shownTotal,
       tenderAtTap: tenderedCents != null && tenderedCents > 0 ? tenderedCents : null,
       // PD8 — the ids the trigger displayed when it was tapped (captured at that tap, below), plus
       // what this door's own re-warning carried where no page re-draws the flag.
@@ -541,6 +720,7 @@ export function CashSettleButton({
         // control away; if not, Settle is live again (a retry cannot record twice — the cart is
         // no longer open once it has been paid).
         console.error("[CashSettleButton] settle rejected — outcome unknown", out.error);
+        track({ k: "threw", late: false, at: Date.now() });
         setError({ kind: "unknown" });
         onOutcomeUnknown?.(true);
         onSettleOutcome?.("unknown");
@@ -554,6 +734,7 @@ export function CashSettleButton({
       // truth; and it is FIFO, not FloorDetailLive's SETTLE_MAY_LAND_MS, that bounds a settle which
       // was queued unsent behind a hung head (register-math.ts `settleUnknownAfterRead`).
       ownLate.current = true;
+      track({ k: "out", at: Date.now() });
       setError({ kind: "waiting" });
       onOutcomeUnknown?.(true);
       onSettleOutcome?.("unknown");
@@ -563,8 +744,11 @@ export function CashSettleButton({
         // `late` never rejects. A late ANSWER (ok or refusal) is applied exactly as an on-time one
         // — a late ok LANDS (the sheet unmounts and hands its card over) — and clears the unknown
         // even after unmount. A late THROW is still no answer: the outcome stays unknown.
-        if (late.kind === "answer") land(late.value, at);
+        if (late.kind === "answer") land(late.value, at, true);
         else {
+          // A NEW doubt, learned now: the host's mark advances to it (`onOutcomeUnknown`'s contract).
+          track({ k: "threw", late: true, at: Date.now() });
+          onOutcomeUnknown?.(true);
           setError({ kind: "unknown" });
           // Codex r2 on #310 (A1) — and handed UP again: the bound's `unknown` reached a detail that
           // was still MOUNTED (it ignores one then — this control's own line said it), so if the
@@ -587,13 +771,15 @@ export function CashSettleButton({
   }
 
   const settleReasons =
-    blocked === "tipCap"
-      ? "cash-tip-cap"
-      : blocked === "short"
-        ? "cash-readout cash-short-hint"
-        : tender.kind !== "none"
-          ? "cash-readout"
-          : undefined;
+    blocked === "slip"
+      ? "till-slip-changed"
+      : blocked === "tipCap"
+        ? "cash-tip-cap"
+        : blocked === "short"
+          ? "cash-readout cash-short-hint"
+          : tender.kind !== "none"
+            ? "cash-readout"
+            : undefined;
   // While the figures disagree, Settle is described by the alert that names both (what its tap does).
   const settleDescribedBy = drift
     ? ["cash-alert", settleReasons].filter(Boolean).join(" ")
@@ -653,19 +839,336 @@ export function CashSettleButton({
   // set-during-render, as `quote` above), so no commit ever pairs a new hold with an old tap.
   if (!waitNote && heldTap !== null) setHeldTap(null);
 
+  // PD6 — the body's pieces, laid out once per layout below (never two copies of a control).
+  const question = (
+    <>
+      <Chrome lang={lang} k="settle.cash.take" vars={{ m: fmt(dueCents) }} echo="stack" />{" "}
+      {tipCents > 0 && (
+        <>
+          <Chrome
+            lang={lang}
+            k="settle.cash.tipBreakdown"
+            vars={{ m: fmt(shownTotal), tip: fmt(tipCents) }}
+            // A money label, which the echo policy gives an echo; "inline" rather than
+            // "stack" so it does not add a third block line to the confirm question.
+            echo="inline"
+          />{" "}
+        </>
+      )}
+    </>
+  );
+  const closes = (
+    <Chrome
+      lang={lang}
+      k={isTab ? "settle.cash.closesTab" : "settle.cash.closesOrder"}
+      echo="stack"
+    />
+  );
+  // PD6 (Codex round 3 on m6) — the slip diverged: a MARK that is also the control re-freezing it
+  // (an `id` Take's description names). Drawn on every layout the host passes a slip to.
+  const slipChangedCtl = slipChanged ? (
+    <button
+      type="button"
+      id="till-slip-changed"
+      className="staff-btn staff-chip till-slip-changed"
+      onClick={requote}
+    >
+      <Icon name="alert" size={18} aria-hidden />
+      <Chrome lang={lang} k="settle.cash.slipChanged" echo="stack" />
+    </button>
+  ) : null;
+  // W17c-2 — the tip is asked for BEFORE the tendered amount, because the change is owed against
+  // the tipped total; asking after would invite entering change from the wrong figure. Shown on
+  // every cash settle, not just the counter handoff.
+  const tipColumn = (
+    <div style={{ display: "grid", gap: "var(--s2)" }}>
+      <label htmlFor="cash-tip" style={fieldLabel}>
+        <Chrome lang={lang} k="settle.cash.tipLabel" echo="stack" />
+      </label>
+      {/* W17c-3 — the house ladder as one-tap chips, so a cashier is not doing percentage
+        arithmetic at the counter. They fill the field (they do not settle), so the amount
+        stays visible and adjustable before anything is recorded. */}
+      <div role="group" aria-label={sx(lang, "settle.a11y.tipQuick")} style={tipChipRow}>
+        {/* Withheld while the base is unknown (a server figure awaiting its read) — "None" stays. */}
+        {(shownTipBase === null ? [] : tipPresets(shownTipBase))
+          .filter((p) => tipWithinAmountCap(Math.round((shownTipBase ?? 0) * p.rate)))
+          .map((p) => {
+            // The SAME base and the SAME rounding the diner and kiosk use, so an identical
+            // label means an identical amount wherever the guest happens to be standing.
+            const cents = Math.round((shownTipBase ?? 0) * p.rate);
+            // Lit while the FIELD holds this chip's amount — the field is the single source of
+            // the value (the chip only fills it), so the pressed state is derived, never stored,
+            // and hand-editing the field unlights the chip the moment they diverge (the
+            // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
+            // Compared by VALUE: "8,00" typed by hand is the $8.00 chip's amount too.
+            const on = parseMoneyCents(tip) === cents;
+            return (
+              <button
+                key={p.label}
+                type="button"
+                // manager-7 — `.staff-chip`: the lit chip is the console's ONE cap through the
+                // shared pressed rule, not the ring-and-wash this file used to draw itself.
+                className="staff-btn staff-chip"
+                aria-pressed={on}
+                style={tipChip}
+                onClick={() => {
+                  tipTouched.current = true;
+                  haptic("pick");
+                  setTip(centsToField(cents));
+                }}
+              >
+                {p.label}
+                <span className="staff-chip-amount">{fmt(cents)}</span>
+              </button>
+            );
+          })}
+        {/* An ACTION (clears the field), not a state — no aria-pressed: the emptied field is
+          its own visible answer, and a "pressed None" lying beside a typed amount would
+          claim two truths at once. */}
+        <button
+          type="button"
+          className="staff-btn staff-chip"
+          style={tipChip}
+          onClick={() => {
+            tipTouched.current = true;
+            setTip("");
+          }}
+        >
+          <Chrome lang={lang} k="settle.cash.tipNone" echo={false} />
+        </button>
+      </div>
+      <input
+        id="cash-tip"
+        className="ui-field-control"
+        inputMode="decimal"
+        autoComplete="off"
+        placeholder={tf(lang, "settle.cash.example", { x: "5" })}
+        value={tip}
+        onChange={(e) => {
+          tipTouched.current = true;
+          setTip(sanitizeMoneyInput(e.target.value));
+        }}
+        aria-describedby={
+          !tipValid ? "cash-tip-cap" : intentShown != null ? "cash-tip-kiosk" : undefined
+        }
+        aria-invalid={!tipValid || undefined}
+      />
+      {/* Says WHERE the number came from. A pre-filled amount with no explanation reads as an
+        app-invented charge; naming the guest's choice makes it something to confirm. */}
+      {intentShown != null && (
+        <p id="cash-tip-kiosk" style={note}>
+          {intentShown > 0 ? (
+            <Chrome
+              lang={lang}
+              k="settle.cash.kioskChose"
+              vars={{ m: fmt(intentShown) }}
+              echo="stack"
+            />
+          ) : (
+            <Chrome lang={lang} k="settle.cash.kioskNoTip" echo="stack" />
+          )}
+        </p>
+      )}
+      {!tipValid && (
+        <p id="cash-tip-cap" style={{ ...note, color: "var(--warn)" }}>
+          {/* The cap FIGURE is the same literal this sentence always carried — it is quoted,
+            never derived, so no money value moves. It rides an {m} slot only so the
+            dictionary value can stay free of digits. */}
+          <Chrome lang={lang} k="settle.cash.overCap" vars={{ m: "$1,000.00" }} echo="stack" />
+        </p>
+      )}
+    </div>
+  );
+  /* A DESCRIPTION of Settle, never a live region (the sheet's one alert is the only
+      announcement here). Its height is reserved, so nothing jumps as it fills. In the till it
+      rides the band — the money corner, where a double-tap of the door lands on inert text. */
+  const readout = (
+    <div id="cash-readout" className="reg-change">
+      {tender.kind === "change" && (
+        <dl className="checkout-leader-row reg-change-row">
+          <dt>
+            {/* PD6 decision 12 — the till has room for the K15-HIGH word's English. */}
+            <Chrome lang={lang} k="settle.cash.changeLabel" echo={till ? "inline" : false} />
+          </dt>
+          <dd key={chipPop ?? "typed"} className={chipPop != null ? "mms-pop" : undefined}>
+            {fmt(tender.changeCents)}
+          </dd>
+        </dl>
+      )}
+      {tender.kind === "short" && (
+        <dl className="checkout-leader-row reg-change-row reg-change-short">
+          <dt>
+            <Chrome lang={lang} k="settle.cash.shortLabel" echo={false} />
+          </dt>
+          <dd>{fmt(tender.shortCents)}</dd>
+        </dl>
+      )}
+      {tender.kind === "exact" && (
+        <p className="reg-change-exact">
+          <Chrome lang={lang} k="settle.cash.exactNone" echo={till ? "stack" : false} />
+        </p>
+      )}
+    </div>
+  );
+  /* Phase 2c · register — the tender, OPTIONAL, on every cash settle. Chips first (the
+    taps), then the field: no money input is ever autofocused, so the decimal pad never
+    rises over Settle. The chips re-derive from what is due, so a tip change can unlight
+    one — honest, and the readout then says Short. */
+  const tenderColumn = (
+    <div style={{ display: "grid", gap: "var(--s2)" }}>
+      <label htmlFor="cash-tendered" style={fieldLabel}>
+        <Chrome lang={lang} k="settle.cash.tenderedLabel" echo="stack" />
+      </label>
+      <div role="group" aria-label={sx(lang, "settle.a11y.cashQuick")} className="reg-tender-grid">
+        {[dueCents, ...quickCashTenders(dueCents)].map((cents, i) => (
+          <button
+            key={i === 0 ? "exact" : cents}
+            type="button"
+            className="staff-btn staff-chip staff-chip-cash"
+            // PD6 — the Exact tile keeps the word's size and sets its figure a tier under the notes.
+            data-exact={i === 0 ? "" : undefined}
+            // A state — lit while the field holds this amount (by VALUE), through the shared
+            // lit-cap rule; `.staff-chip-cash` declares no fill of its own.
+            aria-pressed={tenderedCents === cents}
+            onClick={() => {
+              haptic("pick");
+              setTendered(centsToField(cents));
+              setChipPop((n) => (n ?? 0) + 1);
+            }}
+          >
+            {i === 0 ? (
+              <>
+                {/* PD6 appendix C — in the till every money word carries its English. */}
+                <Chrome lang={lang} k="settle.cash.exact" echo={till ? "inline" : false} />{" "}
+                <span className="staff-chip-amount">{fmt(cents)}</span>
+              </>
+            ) : (
+              noteLabel(cents)
+            )}
+          </button>
+        ))}
+      </div>
+      <input
+        id="cash-tendered"
+        className="ui-field-control"
+        inputMode="decimal"
+        autoComplete="off"
+        placeholder={tf(lang, "settle.cash.example", { x: "40" })}
+        value={tendered}
+        onChange={(e) => {
+          setTendered(sanitizeMoneyInput(e.target.value));
+          setChipPop(null); // typing never pops
+        }}
+      />
+      {!till && readout}
+      {tender.kind === "short" && (
+        <p id="cash-short-hint" style={{ ...note, color: "var(--warn)" }}>
+          <Chrome lang={lang} k="settle.cash.shortHint" echo="stack" />
+        </p>
+      )}
+      {/* An ACTION (no aria-pressed): a FILL of the tip field — the new tip shows in the field
+          and in Settle's label before anything is recorded. With the tip field empty {m} is
+          the change being kept (the readout's own figure, and the new tip); with a tip
+          already typed it names the tip the tap MAKES (`keepNamesTip` — critic finding: "·
+          $3.00" beside a field that became 5.00 read as a $3 tip). */}
+      {keepCents != null && tender.kind === "change" && (
+        <button
+          type="button"
+          className="staff-btn staff-chip"
+          style={keepBtn}
+          onClick={() => {
+            tipTouched.current = true;
+            haptic("pick");
+            setTip(centsToField(keepCents));
+            setKept((n) => n + 1);
+          }}
+        >
+          <Chrome
+            lang={lang}
+            k={keepNamesTip ? "settle.cash.keepChangeTip" : "settle.cash.keepChange"}
+            vars={{ m: fmt(keepNamesTip ? keepCents : tender.changeCents) }}
+            echo={false}
+          />
+        </button>
+      )}
+    </div>
+  );
+  /* The ONE alert on this control, inside the sheet where the tap was — a second copy
+      under the trigger would mount at the start of the exit, under the sheet's own
+      `aria-hidden`, unannounced (the blind pass); the trigger clears it — except a late
+      one that landed with the sheet closed and unread (F2), which this alert says. */
+  const alert = alertMsg && (
+    <p
+      id="cash-alert"
+      role="alert"
+      className={till ? "till-band-alert" : undefined}
+      style={{ ...hint, margin: 0, color: "var(--warn)" }}
+    >
+      <span key={said}>{sayError(alertMsg)}</span>
+    </p>
+  );
+  /* Phase 2h — both sentences say "reload the page", and the console is installed
+      standalone (no browser reload button): the reload sits BESIDE the one alert,
+      never inside it, and carries no live role of its own. */
+  const reload = (alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (
+    <div className={till ? "till-band-reload" : undefined}>
+      <ReloadButton lang={lang} block={!till} />
+    </div>
+  );
+  const actions = (
+    <>
+      {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
+          `disabled`, and not the primitive's `disabled` prop either, so the handler (and
+          a mutant) is what refuses (K35's measure counts `disabled=` literally). Spread
+          only when set: the primitive's own aria-disabled while busy must not be erased. */}
+      <Button
+        variant="secondary"
+        size="lg"
+        {...(busy ? { "aria-disabled": true } : {})}
+        onClick={() => {
+          if (busy) return;
+          setConfirming(false);
+        }}
+      >
+        <Chrome lang={lang} k="settle.cancel" echo={false} />
+      </Button>
+      {/* The dim rides `.ui-btn[aria-disabled="true"]`; the label stays a stated word. */}
+      <Button
+        ref={settleRef}
+        variant="primary"
+        size="xl"
+        className={till ? "till-take" : undefined}
+        style={{ flex: 1 }}
+        {...(blocked !== null ? { "aria-disabled": true } : {})}
+        busy={busy}
+        busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
+        aria-describedby={settleDescribedBy}
+        onClick={confirm}
+      >
+        <Chrome lang={lang} k="settle.cash.settleAmount" vars={{ m: fmt(dueCents) }} echo="stack" />
+      </Button>
+    </>
+  );
+  // PD6 — the pad host (`door`) drops the idle hint under the door (decision 26: the receipt right
+  // above it already says Tax); the line still carries a late word or the own-wait sentence.
+  const showHintLine = !door || lateNote !== null || waitNote;
+
   return (
     <div>
       {/* §17 — after a landed settle the trigger stays, says "Taking payment…" and refuses (Button's
           busy: aria-disabled + aria-busy on one predicate), never a live-looking control that
-          silently does nothing. */}
+          silently does nothing. PD6 — on the pad host the door is busy in the PAD's own phase too
+          (draining the adds, saving the name), with that phase's words. */}
       <Button
         ref={triggerRef}
         variant={variant}
         size="xl"
         block
-        busy={landed || totalPending}
+        busy={landed || door?.busy != null || totalPending}
         busyLabel={
-          totalPending && !landed ? (
+          door?.busy != null && !landed ? (
+            door.busy
+          ) : totalPending && !landed ? (
             <Chrome lang={lang} k="settle.flag.updating" echo={false} />
           ) : (
             <Chrome lang={lang} k="settle.cash.settling" echo={false} />
@@ -678,13 +1181,19 @@ export function CashSettleButton({
         // Review a (A1) — held while this cart's own settle is still out past the bound: the
         // attribute plus the handler's own guard (read at the tap), never native `disabled`.
         {...(ownWaiting ? { "aria-disabled": true } : {})}
-        aria-describedby={[
-          describedBy,
-          gateBlocked && blockedNoteId ? blockedNoteId : null,
-          "settle-hint",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        // PD6 — the pad's own hold (paying · note · waiting · unsent · empty · unpriced).
+        {...(door?.held ? { "aria-disabled": true } : {})}
+        aria-describedby={
+          [
+            // PD8 — the flag card's consequence sentence describes the trigger FIRST.
+            describedBy ?? null,
+            door?.held?.noteId ?? null,
+            gateBlocked && blockedNoteId ? blockedNoteId : null,
+            showHintLine ? "settle-hint" : null,
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
         onClick={() => {
           // Review a (A1) — this cart's own settle may still be recorded: no sheet opens over it
           // (the line under the trigger says why, with the reload). It outranks the gate's jump —
@@ -692,8 +1201,10 @@ export function CashSettleButton({
           if (ownLate.current) {
             // CX3 — said, not silent: the line under the trigger is its DESCRIPTION, never a live
             // region, and @mms/ui's Button forwards a caller-held click (its inert guard is only
-            // its own `disabled` / `busy`) — so the refusal is this handler's to say.
-            setHeldTap({});
+            // its own `disabled` / `busy`) — so the refusal is this handler's to say. PD6 (B7) —
+            // on the pad host, through the pad's ONE region.
+            if (door) door.onHeldTap();
+            else setHeldTap({});
             return;
           }
           if (gateBlocked) {
@@ -701,29 +1212,28 @@ export function CashSettleButton({
             onBlockedTap?.(null);
             return;
           }
-          // A refusal read in the last sheet is not this attempt's — but one that landed while the
-          // sheet was closed was never read: it opens with this sheet, in its one alert (F2).
-          if (!lateUnseen) setError(null);
-          setLateUnseen(false);
-          unsentJump.current = null;
-          // PD8 — THIS tap is the acknowledgement: exactly the pending ids the page shows now.
-          ackedAtTap.current = [...(acknowledgedApprovalIds ?? [])];
-          // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
-          // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
-          // while the page has not re-read yet (`openQuote`). The tip is kept.
-          setTendered("");
-          setQuote(openQuote(reconciled, totalCents));
-          setTipBaseAtOpen(tipBaseCents);
-          setChipPop(null);
-          setConfirming(true);
+          // PD6 — the pad's hold: opens nothing, the pad says why (and moves focus to the fix).
+          if (door?.held) {
+            door.held.onTap();
+            return;
+          }
+          void openTray();
         }}
       >
-        <Chrome
-          lang={lang}
-          k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
-          vars={{ m: fmt(shownTotal) }}
-          echo="stack"
-        />
+        {(door && !door.showAmount) || !priced ? (
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
+            echo="stack"
+          />
+        ) : (
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
+            vars={{ m: fmt(shownTotal) }}
+            echo="stack"
+          />
+        )}
       </Button>
       {/* Unmounted, not closed, once the settle landed (see the docblock). The opener is restored
           by hand: WebKit does not focus a tapped button, so the primitive's captured activeElement
@@ -731,17 +1241,33 @@ export function CashSettleButton({
       {!landed && (
         <Sheet
           open={confirming}
+          // PD6 — the crowned till tray: a CSS variant of the one Sheet, never a new primitive.
+          className={till ? "till-sheet" : undefined}
           // M82 — STATE cleared in a bounded `finally` (9a; see `busy` above), parsed by the guard.
           busy={busy}
           onOpenChange={(next) => {
             if (!next) setConfirming(false);
           }}
           title={
-            <Chrome
-              lang={lang}
-              k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
-              echo="stack"
-            />
+            till ? (
+              <span className="till-title">
+                {/* The cash state's glyph beside its word (never colour alone). */}
+                <span className="till-glyph" aria-hidden="true">
+                  <Icon name="cash" size={22} strokeWidth={1.75} />
+                </span>
+                <Chrome
+                  lang={lang}
+                  k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
+                  echo="stack"
+                />
+              </span>
+            ) : (
+              <Chrome
+                lang={lang}
+                k={isTab ? "settle.cash.titleTab" : "settle.cash.title"}
+                echo="stack"
+              />
+            )
           }
           closeLabel={sheetCloseLabel(lang)}
           onCloseAutoFocus={(e) => {
@@ -756,308 +1282,97 @@ export function CashSettleButton({
               return;
             }
             triggerRef.current?.focus();
+            // PD6 (m6 graft 5) — the tray is gone and the page is un-hidden: the pad's Toast
+            // reassures, only where an attempt came to nothing recorded and no attempt left a
+            // doubt (`tillCancelSays`, after the host's latest open read: `readLedger`) — and the
+            // host itself holds no unknown outcome (#334, C1).
+            if (door && !door.outcomeOpen() && tillCancelSays(readLedger())) door.onCancelClean();
           }}
         >
-          <div style={confirmBody}>
-            <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-              <Chrome lang={lang} k="settle.cash.take" vars={{ m: fmt(dueCents) }} echo="stack" />{" "}
-              {tipCents > 0 && (
-                <>
-                  <Chrome
-                    lang={lang}
-                    k="settle.cash.tipBreakdown"
-                    vars={{ m: fmt(shownTotal), tip: fmt(tipCents) }}
-                    // A money label, which the echo policy gives an echo; "inline" rather than
-                    // "stack" so it does not add a third block line to the confirm question.
-                    echo="inline"
-                  />{" "}
-                </>
-              )}
-              <Chrome
-                lang={lang}
-                k={isTab ? "settle.cash.closesTab" : "settle.cash.closesOrder"}
-                echo="stack"
-              />
-            </p>
-            {/* W17c-2 — the tip is asked for BEFORE the tendered amount, because the change is owed
-              against the tipped total; asking after would invite entering change from the wrong
-              figure. Shown on every cash settle, not just the counter handoff. */}
-            <div style={{ display: "grid", gap: "var(--s2)" }}>
-              <label htmlFor="cash-tip" style={fieldLabel}>
-                <Chrome lang={lang} k="settle.cash.tipLabel" echo="stack" />
-              </label>
-              {/* W17c-3 — the house ladder as one-tap chips, so a cashier is not doing percentage
-                arithmetic at the counter. They fill the field (they do not settle), so the amount
-                stays visible and adjustable before anything is recorded. */}
-              <div role="group" aria-label={sx(lang, "settle.a11y.tipQuick")} style={tipChipRow}>
-                {/* Withheld while the base is unknown (a server figure awaiting its read) — "None" stays. */}
-                {(shownTipBase === null ? [] : tipPresets(shownTipBase))
-                  .filter((p) => tipWithinAmountCap(Math.round((shownTipBase ?? 0) * p.rate)))
-                  .map((p) => {
-                    // The SAME base and the SAME rounding the diner and kiosk use, so an identical
-                    // label means an identical amount wherever the guest happens to be standing.
-                    const cents = Math.round((shownTipBase ?? 0) * p.rate);
-                    // Lit while the FIELD holds this chip's amount — the field is the single source of
-                    // the value (the chip only fills it), so the pressed state is derived, never stored,
-                    // and hand-editing the field unlights the chip the moment they diverge (the
-                    // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
-                    // Compared by VALUE: "8,00" typed by hand is the $8.00 chip's amount too.
-                    const on = parseMoneyCents(tip) === cents;
-                    return (
-                      <button
-                        key={p.label}
-                        type="button"
-                        // manager-7 — `.staff-chip`: the lit chip is the console's ONE cap through the
-                        // shared pressed rule, not the ring-and-wash this file used to draw itself.
-                        className="staff-btn staff-chip"
-                        aria-pressed={on}
-                        style={tipChip}
-                        onClick={() => {
-                          tipTouched.current = true;
-                          haptic("pick");
-                          setTip(centsToField(cents));
-                        }}
-                      >
-                        {p.label}
-                        <span className="staff-chip-amount">{fmt(cents)}</span>
-                      </button>
-                    );
-                  })}
-                {/* An ACTION (clears the field), not a state — no aria-pressed: the emptied field is
-                  its own visible answer, and a "pressed None" lying beside a typed amount would
-                  claim two truths at once. */}
-                <button
-                  type="button"
-                  className="staff-btn staff-chip"
-                  style={tipChip}
-                  onClick={() => {
-                    tipTouched.current = true;
-                    setTip("");
-                  }}
-                >
-                  <Chrome lang={lang} k="settle.cash.tipNone" echo={false} />
-                </button>
-              </div>
-              <input
-                id="cash-tip"
-                className="ui-field-control"
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder={tf(lang, "settle.cash.example", { x: "5" })}
-                value={tip}
-                onChange={(e) => {
-                  tipTouched.current = true;
-                  setTip(sanitizeMoneyInput(e.target.value));
-                }}
-                aria-describedby={
-                  !tipValid ? "cash-tip-cap" : intentShown != null ? "cash-tip-kiosk" : undefined
-                }
-                aria-invalid={!tipValid || undefined}
-              />
-              {/* Says WHERE the number came from. A pre-filled amount with no explanation reads as an
-                app-invented charge; naming the guest's choice makes it something to confirm. */}
-              {intentShown != null && (
-                <p id="cash-tip-kiosk" style={note}>
-                  {intentShown > 0 ? (
-                    <Chrome
-                      lang={lang}
-                      k="settle.cash.kioskChose"
-                      vars={{ m: fmt(intentShown) }}
-                      echo="stack"
-                    />
-                  ) : (
-                    <Chrome lang={lang} k="settle.cash.kioskNoTip" echo="stack" />
-                  )}
-                </p>
-              )}
-              {!tipValid && (
-                <p id="cash-tip-cap" style={{ ...note, color: "var(--warn)" }}>
-                  {/* The cap FIGURE is the same literal this sentence always carried — it is quoted,
-                    never derived, so no money value moves. It rides an {m} slot only so the
-                    dictionary value can stay free of digits. */}
-                  <Chrome
-                    lang={lang}
-                    k="settle.cash.overCap"
-                    vars={{ m: "$1,000.00" }}
-                    echo="stack"
-                  />
-                </p>
-              )}
-            </div>
-            {/* Phase 2c · register — the tender, OPTIONAL, on every cash settle. Chips first (the
-              taps), then the field: no money input is ever autofocused, so the decimal pad never
-              rises over Settle. The chips re-derive from what is due, so a tip change can unlight
-              one — honest, and the readout then says Short. */}
-            <div style={{ display: "grid", gap: "var(--s2)" }}>
-              <label htmlFor="cash-tendered" style={fieldLabel}>
-                <Chrome lang={lang} k="settle.cash.tenderedLabel" echo="stack" />
-              </label>
-              <div
-                role="group"
-                aria-label={sx(lang, "settle.a11y.cashQuick")}
-                className="reg-tender-grid"
-              >
-                {[dueCents, ...quickCashTenders(dueCents)].map((cents, i) => (
-                  <button
-                    key={i === 0 ? "exact" : cents}
-                    type="button"
-                    className="staff-btn staff-chip staff-chip-cash"
-                    // A state — lit while the field holds this amount (by VALUE), through the shared
-                    // lit-cap rule; `.staff-chip-cash` declares no fill of its own.
-                    aria-pressed={tenderedCents === cents}
-                    onClick={() => {
-                      haptic("pick");
-                      setTendered(centsToField(cents));
-                      setChipPop((n) => (n ?? 0) + 1);
-                    }}
+          {till ? (
+            <>
+              <div className="till-body">
+                {/* OWE — what is owed, and for what. The hero is aria-hidden: the question below
+                    carries the figure, so a screen reader hears it once. */}
+                <div className="till-owe">
+                  <p
+                    className="till-hero"
+                    aria-hidden="true"
+                    data-tier={tillHeroTier(fmt(dueCents), "pass")}
                   >
-                    {i === 0 ? (
-                      <>
-                        <Chrome lang={lang} k="settle.cash.exact" echo={false} />{" "}
-                        <span className="staff-chip-amount">{fmt(cents)}</span>
-                      </>
-                    ) : (
-                      noteLabel(cents)
-                    )}
-                  </button>
-                ))}
-              </div>
-              <input
-                id="cash-tendered"
-                className="ui-field-control"
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder={tf(lang, "settle.cash.example", { x: "40" })}
-                value={tendered}
-                onChange={(e) => {
-                  setTendered(sanitizeMoneyInput(e.target.value));
-                  setChipPop(null); // typing never pops
-                }}
-              />
-              {/* A DESCRIPTION of Settle, never a live region (the sheet's one alert is the only
-                  announcement here). Its height is reserved, so nothing jumps as it fills. */}
-              <div id="cash-readout" className="reg-change">
-                {tender.kind === "change" && (
-                  <dl className="checkout-leader-row reg-change-row">
-                    <dt>
-                      <Chrome lang={lang} k="settle.cash.changeLabel" echo={false} />
-                    </dt>
-                    <dd
-                      key={chipPop ?? "typed"}
-                      className={chipPop != null ? "mms-pop" : undefined}
-                    >
-                      {fmt(tender.changeCents)}
-                    </dd>
-                  </dl>
-                )}
-                {tender.kind === "short" && (
-                  <dl className="checkout-leader-row reg-change-row reg-change-short">
-                    <dt>
-                      <Chrome lang={lang} k="settle.cash.shortLabel" echo={false} />
-                    </dt>
-                    <dd>{fmt(tender.shortCents)}</dd>
-                  </dl>
-                )}
-                {tender.kind === "exact" && (
-                  <p className="reg-change-exact">
-                    <Chrome lang={lang} k="settle.cash.exactNone" echo={false} />
+                    {fmt(dueCents)}
                   </p>
-                )}
+                  <p className="till-question">{question}</p>
+                  <p className="till-closes">{closes}</p>
+                  {slipChangedCtl}
+                  {shownSlip !== null && shownSlip.length > 0 && (
+                    <>
+                      <hr className="till-rule" aria-hidden="true" />
+                      {/* THE SLIP: qty × dish, no amounts — the one figure is the frozen due
+                          above, so there is never a second total beside it (decision 9). */}
+                      {/* The list's NAME (`aria-labelledby`): one script — the echo beside it is
+                          visual only (`SealEcho`, aria-hidden), never both tongues in one name. */}
+                      <p id="till-slip-h" className="till-slip-h">
+                        <Chrome lang={lang} k="pad.ticket.title" echo={false} />
+                        <SealEcho lang={lang} k="pad.ticket.title" className="till-slip-echo" />
+                      </p>
+                      <ul role="list" aria-labelledby="till-slip-h" className="till-slip">
+                        {shownSlip.map((l) => (
+                          <li key={l.id}>
+                            <span className="staff-qty">{l.qty}×</span>
+                            <span lang={l.lead.lang}>{l.lead.text}</span>
+                            {l.echo && (
+                              <span className="chrome-en" lang={l.echo.lang}>
+                                {l.echo.text}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+                {/* The spoken next step, in glyph form: OWE → TIP → GAVE (aria-hidden). */}
+                <span className="till-arrow" aria-hidden="true">
+                  →
+                </span>
+                <div className="till-tip">{tipColumn}</div>
+                <span className="till-arrow" aria-hidden="true">
+                  →
+                </span>
+                <div className="till-gave">{tenderColumn}</div>
               </div>
-              {tender.kind === "short" && (
-                <p id="cash-short-hint" style={{ ...note, color: "var(--warn)" }}>
-                  <Chrome lang={lang} k="settle.cash.shortHint" echo="stack" />
-                </p>
-              )}
-              {/* An ACTION (no aria-pressed): a FILL of the tip field — the new tip shows in the field
-                  and in Settle's label before anything is recorded. With the tip field empty {m} is
-                  the change being kept (the readout's own figure, and the new tip); with a tip
-                  already typed it names the tip the tap MAKES (`keepNamesTip` — critic finding: "·
-                  $3.00" beside a field that became 5.00 read as a $3 tip). */}
-              {keepCents != null && tender.kind === "change" && (
-                <button
-                  type="button"
-                  className="staff-btn staff-chip"
-                  style={keepBtn}
-                  onClick={() => {
-                    tipTouched.current = true;
-                    haptic("pick");
-                    setTip(centsToField(keepCents));
-                    setKept((n) => n + 1);
-                  }}
-                >
-                  <Chrome
-                    lang={lang}
-                    k={keepNamesTip ? "settle.cash.keepChangeTip" : "settle.cash.keepChange"}
-                    vars={{ m: fmt(keepNamesTip ? keepCents : tender.changeCents) }}
-                    echo={false}
-                  />
-                </button>
-              )}
-            </div>
-            {/* Critic finding — the actions PIN to the sheet's bottom (`.reg-settle-actions`, the
-                `.item-cta-bar` pattern): the cash moment made the body tall (tip chips, four tender
-                tiles, the readout, keep-the-change), and on a 390px phone in Burmese Take fell
-                below the fold, under the decimal pad once a tender was typed. The ONE alert rides
-                the same band, right above the button it explains. */}
-            <div className="reg-settle-actions">
-              {/* The ONE alert on this control, inside the sheet where the tap was — a second copy
-                  under the trigger would mount at the start of the exit, under the sheet's own
-                  `aria-hidden`, unannounced (the blind pass); the trigger clears it — except a late
-                  one that landed with the sheet closed and unread (F2), which this alert says. */}
-              {alertMsg && (
-                <p
-                  id="cash-alert"
-                  role="alert"
-                  style={{ ...hint, margin: 0, color: "var(--warn)" }}
-                >
-                  <span key={said}>{sayError(alertMsg)}</span>
-                </p>
-              )}
-              {/* Phase 2h — both sentences say "reload the page", and the console is installed
-                  standalone (no browser reload button): the reload sits BESIDE the one alert,
-                  never inside it, and carries no live role of its own. */}
-              {(alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (
-                <ReloadButton lang={lang} block />
-              )}
-              <div style={buttonRow}>
-                {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
-                    `disabled`, and not the primitive's `disabled` prop either, so the handler (and
-                    a mutant) is what refuses (K35's measure counts `disabled=` literally). Spread
-                    only when set: the primitive's own aria-disabled while busy must not be erased. */}
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  {...(busy ? { "aria-disabled": true } : {})}
-                  onClick={() => {
-                    if (busy) return;
-                    setConfirming(false);
-                  }}
-                >
-                  <Chrome lang={lang} k="settle.cancel" echo={false} />
-                </Button>
-                {/* The dim rides `.ui-btn[aria-disabled="true"]`; the label stays a stated word. */}
-                <Button
-                  ref={settleRef}
-                  variant="primary"
-                  size="xl"
-                  style={{ flex: 1 }}
-                  {...(blocked !== null ? { "aria-disabled": true } : {})}
-                  busy={busy}
-                  busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
-                  aria-describedby={settleDescribedBy}
-                  onClick={confirm}
-                >
-                  <Chrome
-                    lang={lang}
-                    k="settle.cash.settleAmount"
-                    vars={{ m: fmt(dueCents) }}
-                    echo="stack"
-                  />
-                </Button>
+              {/* THE BAND, pinned to the tray's foot on the body's own tracks: the alert and the
+                  reload over OWE + TIP, Cancel and Take under them, the inert readout in the
+                  money corner (lib/till.ts: a second tap of the door lands here, never on Take). */}
+              <div className="reg-settle-actions till-band-row">
+                {alert}
+                {reload}
+                <div className="till-band-actions">{actions}</div>
+                {readout}
+              </div>
+            </>
+          ) : (
+            <div style={confirmBody}>
+              <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
+                {question}
+                {closes}
+              </p>
+              {slipChangedCtl}
+              {tipColumn}
+              {tenderColumn}
+              {/* Critic finding — the actions PIN to the sheet's bottom (`.reg-settle-actions`, the
+                  `.item-cta-bar` pattern): the cash moment made the body tall (tip chips, four tender
+                  tiles, the readout, keep-the-change), and on a 390px phone in Burmese Take fell
+                  below the fold, under the decimal pad once a tender was typed. The ONE alert rides
+                  the same band, right above the button it explains. */}
+              <div className="reg-settle-actions">
+                {alert}
+                {reload}
+                <div style={buttonRow}>{actions}</div>
               </div>
             </div>
-          </div>
+          )}
         </Sheet>
       )}
       {/* Static helper text (a description, not a status) — linked to the trigger, never a live
@@ -1066,23 +1381,28 @@ export function CashSettleButton({
           OPEN-ITEMS P2r); this element is not one. Critic F2 — a LATE refusal that landed with the
           sheet closed has no alert to speak in and no page line while this detail is mounted, so
           it takes this line (still the trigger's description, still no live role) until the
-          trigger is tapped — and the sheet that opens says it in its alert. */}
-      <p id="settle-hint" style={lateNote || waitNote ? { ...hint, color: "var(--warn)" } : hint}>
-        {lateNote ? (
-          sayError(lateNote)
-        ) : waitNote ? (
-          <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
-        ) : (
-          <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
-        )}
-      </p>
+          trigger is tapped — and the sheet that opens says it in its alert. PD6 — the pad host
+          draws it only with a late or waiting word (no idle hint under the door). */}
+      {showHintLine && (
+        <p id="settle-hint" style={lateNote || waitNote ? { ...hint, color: "var(--warn)" } : hint}>
+          {lateNote ? (
+            sayError(lateNote)
+          ) : waitNote ? (
+            <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
+          ) : (
+            <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
+          )}
+        </p>
+      )}
       {/* Review a (A1) — the waiting line says "reload the page" and the console is installed
           standalone: the reload sits beside it, never inside it (no live role of its own). */}
       {waitNote && <ReloadButton lang={lang} block />}
       {/* CX3 — the held tap's ONE alert. It only SPEAKS (`.sr-only`): the sentence is already drawn
           by the line above, and drawing it twice would show one fact as two. Mounted with its words
           by the tap (an inserted alert is announced), and its content keyed by `heldSaid`, so a
-          second tap replaces the node and is announced again. */}
+          second tap replaces the node and is announced again. PD6 (B7) — never on the pad host:
+          its tap hands the sentence to the pad's ONE region (`door.onHeldTap`) and sets no
+          `heldTap`, so this never mounts there. */}
       {waitNote && heldTap !== null && (
         <p role="alert" className="sr-only">
           <span key={heldSaid}>
@@ -1092,6 +1412,42 @@ export function CashSettleButton({
       )}
     </div>
   );
+
+  /** The trigger's tap, past every hold: on the pad host the pad's gate runs first (drain, the
+   *  name, the note — refusing says why there), then the tray opens on a frozen quote and slip. */
+  async function openTray() {
+    if (door) {
+      if (opening.current) return;
+      opening.current = true;
+      try {
+        if (!(await door.beforeOpen())) return;
+      } catch (e) {
+        // Deliberate: the pad's gate threw — read as a refusal (the pad owns its own sentence);
+        // nothing opens over a gate that could not decide.
+        console.error("[CashSettleButton] beforeOpen threw", e);
+        return;
+      } finally {
+        opening.current = false;
+      }
+    }
+    // A refusal read in the last sheet is not this attempt's — but one that landed while the
+    // sheet was closed was never read: it opens with this sheet, in its one alert (F2). Read
+    // NOW (a ref): the door's gate may have awaited a read while a late word landed.
+    const lateUnseenNow = lateUnseenRef.current;
+    if (!lateUnseenNow) setError(null);
+    unsentJump.current = null;
+    // PD8 — THIS tap is the acknowledgement: exactly the pending ids the page showed at the tap (the
+    // render's own props, closed over before the door's gate awaited anything).
+    ackedAtTap.current = [...(acknowledgedApprovalIds ?? [])];
+    // A new opening starts its own last attempt — and KEEPS every earlier doubt (#334, C1).
+    track({ k: "opened" });
+    // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
+    // the quote FREEZES with the open (`freezing`, in the next render). The tip is kept.
+    setTendered("");
+    setFreezing(true);
+    setChipPop(null);
+    setConfirming(true);
+  }
 }
 
 // Layout only — the surface, the head and the horizontal inset are the sheet's.
