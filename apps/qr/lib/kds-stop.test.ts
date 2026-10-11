@@ -9,6 +9,7 @@ import {
   stopArrivals,
   stopNewsAcked,
   stopNewsMerged,
+  stopNewsWithin,
   stopNewsText,
   stopReadDegraded,
   stopsForStation,
@@ -295,6 +296,20 @@ describe("#347 r2 — the arrival's words: one part per card, retired by its own
     // A Got it for a clear the words never named changes nothing (the same arrival, not a copy).
     expect(stopNewsAcked(news, "c9")).toBe(news);
     expect(stopNewsAcked(null, "c3")).toBeNull();
+  });
+
+  it("a read that no longer holds a clear (acknowledged on another tablet) takes its words — Codex r4", () => {
+    // MUTATION m270/kds-stop/news-within-ignored: "Table 3 left — stop cooking" keeps standing over a
+    // card another tablet's Got it already retired.
+    expect(stopNewsWithin(news, new Set(["c4"]))).toEqual({
+      id: 7,
+      parts: [{ clearId: "c4", text: "Table 4 left" }],
+    });
+    // MUTATION m270/kds-stop/news-within-kept-empty: an empty arrival keeps its dwell running.
+    expect(stopNewsWithin(news, new Set())).toBeNull();
+    // Every clear still open: the same arrival, not a copy (no re-render, the dwell untouched).
+    expect(stopNewsWithin(news, new Set(["c3", "c4", "c9"]))).toBe(news);
+    expect(stopNewsWithin(null, new Set(["c3"]))).toBeNull();
   });
 });
 

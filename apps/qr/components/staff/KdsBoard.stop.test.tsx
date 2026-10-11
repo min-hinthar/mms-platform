@@ -666,6 +666,23 @@ describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region"
     expect(region().textContent).not.toContain(STOP3);
   });
 
+  it("Codex r4 — a Got it on ANOTHER tablet: the next read takes the table's words with its card", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    mount(currentQueue);
+    await flush();
+    currentQueue = q([], [stop("c3", 3, -5), stop("c4", 4, -4, "b4")]);
+    await flush(5_000);
+    const stop4 = tf("en", "kds.stop", { id: 4 });
+    expect(region().textContent).toBe(`${STOP3} ${stop4}`);
+    // Table 3 is acknowledged at the bar's tablet; this one only reads it, inside the 8 s dwell.
+    currentQueue = q([], [stop("c4", 4, -4, "b4")]);
+    await flush(5_000);
+    // MUTATION m270/kds-board/remote-ack-unsaid: "Table 3 left — stop cooking" keeps standing over a
+    // card that is gone; table 4, still open, keeps its words.
+    expect(region().textContent).toBe(stop4);
+  });
+
   it("two tables arrive in one poll: a Got it retires only its own table's words", async () => {
     vi.useFakeTimers();
     currentQueue = q([], []);

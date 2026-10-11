@@ -93,6 +93,7 @@ import {
   stopsForStation,
   stopNewsAcked,
   stopNewsMerged,
+  stopNewsWithin,
   stopNewsText,
   stopsKnown,
   stopsSaidAfter,
@@ -777,6 +778,10 @@ export function KdsBoard({
         // Only the cards THIS view draws are news here (a wok screen is not told about a drinks stop),
         // and only they are marked said: a card the filter hides is said on the first read after the
         // view starts drawing it (`stopsSaidAfter`, Codex r2 on #347).
+        // A table whose clear this read no longer holds was acknowledged elsewhere: its words leave
+        // the region now, as they would at this tablet's own Got it (Codex r4 on #347).
+        const open = new Set(queue.stops.map((st) => st.clearId));
+        setStopNews((prev) => stopNewsWithin(prev, open));
         const drawn = stopsForStation(queue.stops, stationRef.current);
         const arrived = stopArrivals(seenStops.current, drawn);
         seenStops.current = stopsSaidAfter(seenStops.current, queue.stops, drawn);

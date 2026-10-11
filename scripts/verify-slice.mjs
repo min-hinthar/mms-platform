@@ -33145,6 +33145,22 @@ const MUTANTS = [
       "  return stops.filter(\n    (s) => s.lines.length === 0 || s.lines.some((l) => l.station === null || l.station === station),\n  );\n",
   },
   {
+    id: "m270/kds-stop/news-within-ignored",
+    file: "apps/qr/lib/kds-stop.ts",
+    suite: "lib/kds-stop.test.ts",
+    why: "#347 Codex r4 — an answered stop read takes the words of every clear it no longer holds: ignored, the region keeps saying stop cooking over a card another tablet already acknowledged",
+    find: "  const parts = news.parts.filter((p) => open.has(p.clearId));\n",
+    replace: "  const parts = news.parts.filter((p) => p.clearId.length >= 0);\n",
+  },
+  {
+    id: "m270/kds-stop/news-within-kept-empty",
+    file: "apps/qr/lib/kds-stop.ts",
+    suite: "lib/kds-stop.test.ts",
+    why: "#347 Codex r4 — once no clear it named is open, the arrival is none: kept empty, its dwell keeps running over nothing",
+    find: "  return parts.length > 0 ? { ...news, parts } : null;\n",
+    replace: "  return { ...news, parts };\n",
+  },
+  {
     id: "m270/kds-stop/news-ack-drops-all",
     file: "apps/qr/lib/kds-stop.ts",
     suite: "lib/kds-stop.test.ts",
@@ -33329,6 +33345,14 @@ const MUTANTS = [
     why: "#347 r2 — on an empty board the unknown empty state already says it: the static stop line beside it says it twice",
     find: "        {stopsStale && items.length > 0 && (\n",
     replace: "        {stopsStale && (\n",
+  },
+  {
+    id: "m270/kds-board/remote-ack-unsaid",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.stop.test.tsx",
+    why: "#347 Codex r4 — a Got it on another tablet takes the table's words at this board's next read: without it, stop cooking stands over a card that is gone",
+    find: "        setStopNews((prev) => stopNewsWithin(prev, open));\n",
+    replace: "",
   },
   {
     id: "m270/kds-board/stale-unsaid",

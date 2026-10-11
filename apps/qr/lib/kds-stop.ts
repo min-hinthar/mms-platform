@@ -241,6 +241,19 @@ export function stopNewsMerged(prev: StopNews | null, next: StopNews): StopNews 
   };
 }
 
+/**
+ * `news` against a stop read that ANSWERED (`open`, the clears it still holds): a table's words leave
+ * once its clear is no longer open — acknowledged on ANOTHER tablet (Codex r4 on #347), as they leave
+ * at this tablet's own Got it (`stopNewsAcked`). Without it the region keeps saying "stop cooking"
+ * over a card that is gone, and the next arrival's merge would say it again.
+ */
+export function stopNewsWithin(news: StopNews | null, open: ReadonlySet<string>): StopNews | null {
+  if (news === null) return null;
+  const parts = news.parts.filter((p) => open.has(p.clearId));
+  if (parts.length === news.parts.length) return news;
+  return parts.length > 0 ? { ...news, parts } : null;
+}
+
 /** `news` once `clearId` is acknowledged: that clear's words leave; the rest keep their dwell. */
 export function stopNewsAcked(news: StopNews | null, clearId: string): StopNews | null {
   if (news === null) return null;
