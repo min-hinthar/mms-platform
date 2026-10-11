@@ -1951,6 +1951,7 @@ export type Database = {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
       }
+      mms_assert_solo_sessions_single: { Args: never; Returns: undefined }
       mms_bind_session_table: {
         Args: { p_session: string; p_shell?: string; p_table: number }
         Returns: {

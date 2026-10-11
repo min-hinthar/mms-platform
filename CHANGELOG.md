@@ -77,6 +77,50 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   re-anchored: the cash sheet's, the receipt stack's (now `ReceiptStack.tsx`) and the strip's owed mark.
   Burmese drafts: OPEN-ITEMS `K15 · counter-floor`.
 
+### A solo session refuses a second member — pickup and scan-and-go, in SQL where the membership is written (2026-10-09, PD3 follow-up)
+
+- **The gap (found in #330's second blind pass):** `/api/session` found a `?j=<code>` session by its
+  code, `status` and expiry, never its mode. The member insert checked only the party size, so a
+  second phone could join someone's pickup and pass every `is_member` read and `stampArrival`'s
+  session arm.
+- **The refusal lives where the membership is written.** `mms_refuse_solo_join` is a BEFORE INSERT
+  OR UPDATE OF `session_id` trigger (`20261009120200`), beside the party cap. Dine-in is the one party
+  mode. A solo session takes its first member, and the same seat again is the unique key's 23505;
+  any other seat raises `solo_session`. Pinned by `supabase/tests/pd3_solo_session_refuses_join_test.sql`
+  and nine `verify:mode-authority` mutants (suite `pd3s`). Its first statement,
+  `mms_assert_solo_sessions_single()`, aborts the apply if a solo session already holds a second
+  member (Codex P1 on #339): measured on prod, read-only, 2026-10-09, there are none, so nothing is
+  deleted and the guard is a proven no-op today. The assert runs under a SHARE ROW EXCLUSIVE lock held
+  to COMMIT, so no membership can land between it and the trigger.
+- **The route decides first, before any write** (`soloJoinVerdict`). A refused join answers exactly
+  what a wrong code does ("No table found for that code"), so it is no existence oracle. The minting
+  device rejoins. A device whose anonymous identity was replaced gets its own session instead of
+  being stranded, under a retry-stable key (`soloRemintKey`, a UUID v5 of the stored key and the
+  seat — Codex P2 on #339): a lost response or a second tab lands on the same session and cart, and
+  `useTableSession` adopts the key. A row under that key is accepted only when it is a solo session
+  this seat hosts; anything else holding it is never joined. A dine-in request keeps the server's
+  own join code.
+- **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
+  window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
+
+### M269 — an approve takes the cart lock before the line (2026-10-09, staff-authority, #337)
+
+- **The defect (filed by #333's last blind pass):** the approve arm of `mms_resolve_approval` locked
+  only the line and read the cart's status, pay lock and settle freeze through its snapshot. A cash
+  settle's freeze and `mms_fulfill_cash_order` update the cart row, and the fulfillment copies the
+  lines without a line lock. So an approve racing the settle could record an approved void on a dish
+  the order charged.
+- **The fix:** `20261009120100_m269_approve_cart_lock.sql` restates M184's function with one lock. An
+  approve takes the line's cart `FOR SHARE` before the request and the line (the Clear's and the
+  merge's order), then reads the cart's freshness. Deny and close are unchanged; there is no new
+  answer and no TS change. It is NOT applied: one file, after M184.
+- **Proof:** `verify-counter-fire-race.mjs` gains (k) approve-before-settle and (k2)
+  settle-before-approve, with two `m269/*` mutants caught. (i2) now takes M269's first two locks, and
+  `p2f/clear-counter-approvals-lock-dropped` becomes a documented survivor there, checked green on
+  every order. `supabase/tests/m269_approve_cart_lock_test.sql` (M269.1–4) is in ci.yml.
+  `verify-mode-authority` gains suite `m269` (three killed, two documented lock survivors), and
+  M184's resolve mutants now patch M269's text.
+
 ### PD8 — a dish needs a manager: the flag only where a decision is made, and payment never blocked (2026-10-08, staff-authority)
 
 - **The spec:** `docs/path-design-2026-10-07/m8-manager-approval.md` (PATH_DESIGN decision 4; round 3 D2 ·
