@@ -1,4 +1,7 @@
 export { Sheet } from "./sheet";
+// PD4 (D1(d)) — the Sheet's opt-in first stop, decided in a pure helper the ui suite pins
+export { sheetInitialFocusTarget } from "./sheet-focus";
+export type { SheetInitialFocus } from "./sheet-focus";
 // M76 — hold a sheet's subject through its exit (a parent that unmounts on close cuts the animation)
 export { useSheetSubject, holdSubject } from "./sheet-subject";
 export type { SheetSubjectState } from "./sheet-subject";

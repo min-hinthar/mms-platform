@@ -69,6 +69,7 @@ const line = (barcode: string, name: string, qty: number): GroceryLine => ({
   lineId: `line-${barcode}`,
   barcode,
   name,
+  nameMy: null,
   qty,
   unitPriceCents: 275,
   compareAtCents: null,
