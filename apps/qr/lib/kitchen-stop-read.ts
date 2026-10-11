@@ -224,26 +224,23 @@ export async function readKitchenStops(db: Db): Promise<KitchenStop[] | null> {
   // the options' Burmese through the one loader. Kitchen lines are always menu dishes (grocery never
   // fires), but the soft ref is uuid-filtered first, as every menu read here does.
   const menuIds = [...new Set(dishes.map((l) => l.menu_item_id).filter(isUuid))];
-  const [menuRes, options] = await Promise.all([
-    menuIds.length
-      ? db.from("menu_items").select("id,name_my,menu_categories(slug)").in("id", menuIds)
-      : Promise.resolve({
-          data: [] as {
-            id: string;
-            name_my: string | null;
-            menu_categories: { slug: string } | null;
-          }[],
-          error: null,
-        }),
+  // The menu read is chunked like the dishes read (#347 r2): one IN-list per `STOP_ID_CHUNK` dishes.
+  const [menuReads, options] = await Promise.all([
+    Promise.all(
+      chunkIds(menuIds).map((chunk) =>
+        db.from("menu_items").select("id,name_my,menu_categories(slug)").in("id", chunk),
+      ),
+    ),
     loadLineNames(db, dishes, { tag: "kitchen/stops", menu: "skip" }),
   ]);
-  if (menuRes.error)
+  const menuError = menuReads.find((r) => r.error)?.error;
+  if (menuError)
     console.error("[kitchen] stop read (menu) failed — names English, stations unknown", {
-      message: menuRes.error.message,
+      message: menuError.message,
     });
-  const stations = menuRes.error ? null : new Map<string, KitchenStation>();
+  const stations = menuError ? null : new Map<string, KitchenStation>();
   const nameMyByRef = new Map<string, string | null>();
-  for (const m of menuRes.error ? [] : (menuRes.data ?? [])) {
+  for (const m of menuError ? [] : menuReads.flatMap((r) => r.data ?? [])) {
     stations?.set(m.id, stationForCategory(m.menu_categories?.slug));
     nameMyByRef.set(m.id, m.name_my);
   }

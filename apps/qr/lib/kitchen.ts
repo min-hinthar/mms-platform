@@ -104,7 +104,9 @@ const OWING_LINE_CAP = 500;
  *      (`roundOrdinals`). A failed or saturated read makes every round `unknown`, never `outage`.
  *   7) M270 (1) — beside the served rail, SOFT like it: the open stop records and, when any, their
  *      tables + struck dishes (+ names) — `lib/kitchen-stop-read.ts`, bounded by its own budget. A
- *      failed or late read answers `stops: null`, never `outage`: the board keeps its last cards.
+ *      failed or late read answers `stops: null`, never `outage`: the board keeps its last cards,
+ *      and stop reads that keep failing are said by the board's OWN stop line — never its
+ *      not-updating state, because the tickets this read answers are still live (#347).
  *
  * Channel rules (W3a): dine-in tickets require an ACTIVE session (a cleared table drops off) and hide
  * lines still inside the 10s undo grace (fire_at > now — the diner may still pull the send back).

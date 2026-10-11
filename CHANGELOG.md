@@ -11,19 +11,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   each Send that was still cooking turns into a `KdsStopCard` in the slot its ticket stood in — the Late
   tint without the pulse, its dishes struck, the warn word — until a cook taps "Got it · ရပြီ"
   (`mms_ack_table_clear_stop`, acknowledged as the signed-in person). No timer. A station's view draws a
-  stop card only when it stopped that station's dishes (the tickets' station rule, now
-  `lib/kitchen-station.ts`); one Got it clears it on every screen (per-station acknowledgement: M271).
+  stop card only when it stopped one of that station's dishes (the tickets' station rule, now
+  `lib/kitchen-station.ts`), and draws it WHOLE — one Got it clears the whole clear on every screen, so
+  no cook acknowledges a dish not shown (per-station acknowledgement: M271).
   The read (`lib/kitchen-stop-read.ts`) takes the open records newest first, capped, refusing a record
   with nothing stopped in the SQL before the cap; it chunks the dishes read (≤ 100 ids a request) and
   never cuts a record; it fails soft — a failed or late read keeps the cards the board last drew, and
-  the queue is answered regardless. **Unknown is never none:** until a stop read has answered, the
-  board never says All clear, never stands "Nothing to cook" ("Couldn’t check for tables that left…"),
-  never offers its guide, and two misses in a row are its "not updating" line.
+  the queue is answered regardless; the menu read (stations, Burmese) is chunked the same way.
+  **Unknown is never none:** until a stop read has answered, the board never says All clear, never
+  stands "Nothing to cook" ("Couldn’t check for tables that left…"), never offers its guide; two misses
+  in a row make it unknown again (the same refusals) and are said by its own stop line — never its
+  "not updating" state, since the tickets still land (their chimes, hint and bar stay true).
 - **"Got it" is optimistic** (`lib/kds-stop.ts`): every card of that clear leaves at the tap; another
   tablet's acknowledgement is not a failure; a refusal, a throw or a write still out brings the cards
   back and the board re-reads. Focus goes to the board's heading; a new stop card is said in the
-  board's one region for its own dwell — above a transient notice, beside a standing refusal — and the
-  region never says "All clear" while one stands.
+  board's one region for its own dwell — beside a transient notice and a standing refusal, and gone at
+  its own Got it — and the region never says "All clear" while one stands.
 - **The slip says "tells the kitchen to stop anything still cooking"** — when its look shows a dish
   the kitchen still holds (`clearStopsKitchen`), worded to stay true if that dish is served before the
   commit; two keys, K15-HIGH.
@@ -32,7 +35,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the board's controls for the guide's arm (stamped in a layout effect), so a tap aimed at Next never
   lands on an All done or a "Got it" (m12 §I). Its stop step now says one Got it clears it on every
   screen.
-- 64 `m270/*` mutants; no migration (M182 made the record and the RPC).
+- 78 `m270/*` mutants; no migration (M182 made the record and the RPC).
 
 ### G25 — a delivered offline replay records its charge, and no record outlives its line (2026-10-11)
 

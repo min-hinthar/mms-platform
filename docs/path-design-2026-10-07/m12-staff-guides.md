@@ -1679,5 +1679,7 @@ conditions, re-checked at the flip:
   not a mutant (the #261 rule).
 - **The step's sentence was false on a kitchen with more than one screen** (blind C1): "— it stays
   until you do" became "— it stays until the kitchen does, and one Got it clears it on every screen"
-  (Burmese re-drafted; K15 · kitchen-ops). A station's view now draws a stop card only for its own
-  dishes; per-station acknowledgement is OPEN-ITEMS M271.
+  (Burmese re-drafted; K15 · kitchen-ops). A station's view now draws a stop card only where it
+  stopped one of that station's dishes, and WHOLE — every dish on it, since the one Got it retires them
+  all (#347 round 2; round 1 trimmed it to the station's own); per-station acknowledgement is OPEN-ITEMS
+  M271.

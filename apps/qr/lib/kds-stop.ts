@@ -85,28 +85,23 @@ export function stopReadDegraded(misses: number): boolean {
 }
 
 /**
- * The stop cards a station's view draws (C1 on #347): a card only when its stopped dishes include
- * that station's — the tickets' own derivation, `stationForCategory` — and then only those dishes,
- * as a ticket's own lines are filtered. A dish whose station is unknown (`null`) counts on EVERY
- * station, and a card with no dishes at all (its rows were never read) shows everywhere: unknown is
- * never "not mine". The all-stations view draws every card whole. ONE "Got it" still acknowledges the
- * whole clear for every tablet (the record is the clear's; per-station acknowledgement is M271).
+ * The stop cards a station's view draws (C1 on #347; the last blind pass's C1): a card stands on a
+ * station's view when it stopped ANY dish of that station — the tickets' own derivation,
+ * `stationForCategory` — or any dish whose station is unknown (`null`), and it stands WHOLE, every
+ * dish it stopped. Never trimmed to the station's own dishes: ONE "Got it" acknowledges the whole
+ * clear for every tablet, so a drinks cook who saw only the juice would retire the noodles card on
+ * the wok's screen unseen. A card that stopped only other stations' dishes stays off the view; a
+ * card with no dishes read shows everywhere (unknown is never "not mine"). The all-stations view
+ * draws every card. Per-station acknowledgement is M271.
  */
 export function stopsForStation(
   stops: readonly KitchenStop[],
   station: "all" | KitchenStation,
 ): KitchenStop[] {
   if (station === "all") return [...stops];
-  const out: KitchenStop[] = [];
-  for (const s of stops) {
-    if (s.lines.length === 0) {
-      out.push(s);
-      continue;
-    }
-    const mine = s.lines.filter((l) => l.station === null || l.station === station);
-    if (mine.length > 0) out.push({ ...s, lines: mine });
-  }
-  return out;
+  return stops.filter(
+    (s) => s.lines.length === 0 || s.lines.some((l) => l.station === null || l.station === station),
+  );
 }
 
 /**
@@ -185,3 +180,28 @@ export function stopArrivals(
  * refusal, never replaced by either (`ERR_DWELL_MS`'s length: a sentence still being read).
  */
 export const STOP_NEWS_MS = 8_000;
+
+/**
+ * The arrival sentence the region is saying (#347 r2): one part per arriving card, keyed by its
+ * clear, so a "Got it" retires ONLY its own table's words (`stopNewsAcked`) and a second table that
+ * arrived in the same poll keeps its alarm. `id` names the arrival, so the dwell is not restarted by
+ * an acknowledgement that only trims it.
+ */
+export type StopNews = {
+  readonly id: number;
+  readonly parts: readonly { readonly clearId: string; readonly text: string }[];
+};
+
+/** What the region says for `news`, each table once; `null` when there is nothing left to say. */
+export function stopNewsText(news: StopNews | null): string | null {
+  if (news === null || news.parts.length === 0) return null;
+  return [...new Set(news.parts.map((p) => p.text))].join(" ");
+}
+
+/** `news` once `clearId` is acknowledged: that clear's words leave; the rest keep their dwell. */
+export function stopNewsAcked(news: StopNews | null, clearId: string): StopNews | null {
+  if (news === null) return null;
+  const parts = news.parts.filter((p) => p.clearId !== clearId);
+  if (parts.length === news.parts.length) return news;
+  return parts.length === 0 ? null : { ...news, parts };
+}

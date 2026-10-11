@@ -7,12 +7,15 @@ import {
   stopAckStatusOf,
   stopAckVerdict,
   stopArrivals,
+  stopNewsAcked,
+  stopNewsText,
   stopReadDegraded,
   stopsForStation,
   stopsKnown,
   visibleStops,
   withStopAck,
   type StopAcks,
+  type StopNews,
   type StopState,
 } from "./kds-stop";
 
@@ -179,7 +182,7 @@ describe("#347 — an UNKNOWN stop read is never none", () => {
   });
 });
 
-describe("#347 (C1) — a station's view draws a stop card only for its own dishes", () => {
+describe("#347 (C1 · r2 C1) — a station's view draws a stop card WHOLE, only where it stopped that station's dishes", () => {
   const line = (id: string, station: KitchenStation | null) => ({
     id,
     name: id,
@@ -208,24 +211,68 @@ describe("#347 (C1) — a station's view draws a stop card only for its own dish
     ]);
   });
 
-  it("a station's view: only cards with its dishes, and only those dishes", () => {
+  it("a station's view: only cards that stopped one of its dishes", () => {
     // MUTATION m270/kds-stop/station-ignored: the drinks screen shows the wok's stop, and its one Got
     // it retires the card on the wok screen that is actually cooking.
-    expect(keys(stopsForStation([wok, mixed], "drinks"))).toEqual(["M:lime"]);
-    expect(keys(stopsForStation([wok, mixed], "wok"))).toEqual(["W:mohinga", "M:noodles"]);
+    expect(keys(stopsForStation([wok, mixed], "drinks"))).toEqual(["M:noodles,lime"]);
+    expect(keys(stopsForStation([wok, mixed], "wok"))).toEqual(["W:mohinga", "M:noodles,lime"]);
     expect(stopsForStation([wok, mixed], "cold")).toEqual([]);
+  });
+
+  it("a MIXED clear stands WHOLE on each station it stopped — one Got it retires every dish, so the cook sees every dish", () => {
+    // MUTATION m270/kds-stop/lines-trimmed: the drinks cook sees only the juice, taps Got it, and the
+    // noodles' stop leaves the wok's screen unseen.
+    expect(stopsForStation([mixed], "drinks")[0]!.lines.map((l) => l.id)).toEqual([
+      "noodles",
+      "lime",
+    ]);
+    expect(stopsForStation([mixed], "wok")[0]!.lines.map((l) => l.id)).toEqual(["noodles", "lime"]);
   });
 
   it("a dish whose station is unknown counts on EVERY station — unknown is never 'not mine'", () => {
     // MUTATION m270/kds-stop/unknown-station-hidden: a dish the menu read could not place is shown on
     // no station screen at all.
     expect(keys(stopsForStation([unknown], "cold"))).toEqual(["U:mystery"]);
-    expect(keys(stopsForStation([mixed, unknown], "drinks"))).toEqual(["M:lime", "U:mystery"]);
+    expect(keys(stopsForStation([mixed, unknown], "cold"))).toEqual(["U:mystery"]);
+    // A card with one unknown dish beside another station's stands whole on every station.
+    const half = card("H", [line("noodles", "wok"), line("mystery", null)]);
+    expect(keys(stopsForStation([half], "drinks"))).toEqual(["H:noodles,mystery"]);
   });
 
   it("a card with no dishes read shows everywhere — it can still be acknowledged", () => {
     // MUTATION m270/kds-stop/lineless-hidden: a record whose rows were never read vanishes from
     // every station view.
     expect(keys(stopsForStation([bare], "drinks"))).toEqual(["B:"]);
+  });
+});
+
+describe("#347 r2 — the arrival's words: one part per card, retired by its own Got it", () => {
+  const news: StopNews = {
+    id: 7,
+    parts: [
+      { clearId: "c3", text: "Table 3 left" },
+      { clearId: "c3", text: "Table 3 left" },
+      { clearId: "c4", text: "Table 4 left" },
+    ],
+  };
+
+  it("says each table once, and nothing when there is nothing", () => {
+    expect(stopNewsText(news)).toBe("Table 3 left Table 4 left");
+    expect(stopNewsText(null)).toBeNull();
+    expect(stopNewsText({ id: 1, parts: [] })).toBeNull();
+  });
+
+  it("a Got it takes only its own clear's words, keeps the dwell's id, and leaves nothing behind", () => {
+    // MUTATION m270/kds-stop/news-ack-drops-all: one table's Got it silences every table's alarm.
+    expect(stopNewsAcked(news, "c3")).toEqual({
+      id: 7,
+      parts: [{ clearId: "c4", text: "Table 4 left" }],
+    });
+    // MUTATION m270/kds-stop/news-ack-kept-empty: the last table's Got it leaves an empty arrival
+    // standing (and its dwell running) instead of none.
+    expect(stopNewsAcked(stopNewsAcked(news, "c3"), "c4")).toBeNull();
+    // A Got it for a clear the words never named changes nothing (the same arrival, not a copy).
+    expect(stopNewsAcked(news, "c9")).toBe(news);
+    expect(stopNewsAcked(null, "c3")).toBeNull();
   });
 });

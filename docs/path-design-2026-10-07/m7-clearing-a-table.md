@@ -1252,20 +1252,23 @@ bounds the read, and newest-first keeps a fresh clear from being crowded out.
   past its 2.5 s budget) was coerced to "no stops" — All clear, "Nothing to cook", the guide claimed —
   for as long as reads kept failing. Now the board holds it UNKNOWN until a stop read answers: no All
   clear, an error-tone line in place of the empty state ("Couldn’t check for tables that left — a “stop
-  cooking” card may be missing."), no guide; two stop reads in a row that do not answer wear the board's
-  "not updating" line, and the first that answers ends it.
+  cooking” card may be missing."), no guide; two stop reads in a row that do not answer are said by the
+  board's own stop line (round 2 below — round 1 wore the board's "not updating" line, which froze
+  tickets still landing), and the first that answers ends it.
 - **A station sees its own stops** (blind C1). The first cut drew every stop card on every station's
   view, so a drinks screen's Got it retired a wok stop on the wok screen still cooking it. A station's
-  view now draws a card only when it stopped that station's dishes, and only those dishes — the
-  tickets' own station rule (`stationForCategory`, moved to `lib/kitchen-station.ts`); a dish the menu
-  read cannot place counts everywhere. ONE Got it still retires the clear on every screen, and the
+  view now draws a card only when it stopped one of that station's dishes — WHOLE, every dish it
+  stopped (round 2 below; round 1 trimmed it to the station's own dishes) — the tickets' own station
+  rule (`stationForCategory`, moved to `lib/kitchen-station.ts`); a dish the menu read cannot place
+  counts everywhere. ONE Got it still retires the clear on every screen, and the
   kitchen guide now says so ("…it stays until the kitchen does, and one Got it clears it on every
   screen"); per-station acknowledgement needs a migration and a design question (OPEN-ITEMS M271).
 - **The slip's clause is true under the race** (Codex P2). The slip reads a LOOK: a dish served during
   the slip or the six-second window commits with nothing to stop. The clause now says "tells the
   kitchen to stop anything still cooking", and `clearStopsKitchen` no longer claims it never over-says.
-- **A stop card's arrival is never lost** (a11y): its sentence stands its own 8 s, outranks a bump's
-  notice, and rides beside a standing refusal — still the board's ONE region.
+- **A stop card's arrival is never lost** (a11y): its sentence stands its own 8 s and rides beside a
+  standing refusal — still the board's ONE region (round 2: beside a bump's notice too, and gone at its
+  own Got it).
 - **The dishes read is chunked** (≤ 100 ids a request, in parallel) and **never cuts a record**: a record
   larger than the 500-line budget is read whole (one Got it retires it, so a partial card would retire
   dishes nobody saw).
@@ -1273,3 +1276,30 @@ bounds the read, and newest-first keeps a fresh clear from being crowded out.
   measured empty); the stop and line reads are not one snapshot (a millisecond, one poll); two stop
   cards for one table (the device sitting, #12). **Open:** a stop card whose ticket stood on page 2 stays on page 2
   (said in the region; the "N new" pill counts tickets only) — the device sitting (#12) is the look.
+
+**#347 round 2 (the last capped blind pass over the round-1 commits — REJECT, both criticals verified
+in source by the lead).**
+
+- **A station's card is WHOLE** (C1). Round 1 trimmed a card to the station's own dishes, but ONE Got
+  it acknowledges the whole clear: on a MIXED clear (noodles + a lime juice) the drinks cook saw only
+  the juice, tapped Got it, and the noodles' card left the wok's screen unseen. Now a card stands on a
+  station's view when it stopped ANY of that station's dishes (or one nobody can place), with EVERY
+  dish it stopped; a card that stopped only other stations' dishes stays off (`stopsForStation`). The
+  whole-clear acknowledgement itself is still M271.
+- **Stop misses never touch the board's "not updating" state** (C2). Round 1 routed two stop reads in a
+  row that did not answer into `degraded` — over tickets that were still landing, so the frozen line,
+  "take orders on paper", the bar's not-updating and the muted re-chimes were all false. Now the board
+  says it in its own stop line under the region ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing.", static text, never a second region; the empty board's unknown line
+  already says it there), and the tickets keep their chimes, hint and bar. Those misses make the stops
+  UNKNOWN again (`stopsUnknown`), so the refusals round 1's degrade carried stay: no All clear, no
+  "Nothing to cook", no guide.
+- **The arrival's words** ride beside a bump's notice in the one region (neither dropped), and each
+  table's words leave at its own Got it (`stopNewsAcked` — a second table that arrived in the same poll
+  keeps its alarm).
+- **The menu read is chunked** like the dishes read (≤ 100 ids a request); any chunk failing makes every
+  station unknown, never some placed and some guessed.
+- **Justified, no code:** the seen-set across a station switch (a card that arrived while another
+  station's view was up is not announced when the cook switches to it — the switch is the cook's own
+  tap, and the card is on screen in its slot); the guide-replaced stamp in `useLayoutEffect` (it must
+  land before the paint that shows the card).

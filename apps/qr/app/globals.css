@@ -9484,14 +9484,12 @@ a .chrome-en {
   font-weight: var(--fw-regular);
 }
 
-/* ── PD5 / m7 — "Table N left — stop cooking" (the shape, reserved; PATH_DESIGN reconciliation 1) ──
-   TODAY nothing draws it — a cleared table's cards leave the board on the next poll. Once PD7 mounts
-   it, a per-Send card whose table was cleared while it still cooked is drawn ONLY as this card: ALARM
-   tier WITHOUT motion — the strip takes the Late tint but never the pulse — struck dish rows, the
-   one warn word in the strip, and "Got it" in the bump's slot, until the cook taps it. Never
-   dashed (held), never cream (the pill), never a stub (m5 B1): the board's four marks never
-   overlap. Its durable stop record lands with the table-clear migration (PD7); until then the
-   component (`KdsStopCard.tsx`) renders from props and nothing mounts it. */
+/* ── PD5 / m7 — "Table N left — stop cooking" (PATH_DESIGN reconciliation 1; M270 (1)) ──
+   A per-Send card whose table was cleared while it still cooked is drawn ONLY as this card, read
+   from the durable stop record PD7's clear writes (`KdsBoard`, M270 (1)): ALARM tier WITHOUT motion —
+   the strip takes the Late tint but never the pulse — struck dish rows, the one warn word in the
+   strip, and "Got it" in the bump's slot, until the cook taps it. Never dashed (held), never cream
+   (the pill), never a stub (m5 B1): the board's four marks never overlap. */
 .kds-ticket-stop {
   border-color: var(--warn);
 }
@@ -9534,6 +9532,17 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   border: 2px solid var(--warn);
+}
+/* #347 r2 — stop reads that keep failing: the board's own warning line under its one region (static
+   text, never a region), in the region's own size and the warn ink — the tickets still land, so
+   nothing else on the board changes face. */
+.kds-stop-stale {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--kfs-meta);
+  color: var(--warn);
 }
 
 /* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits

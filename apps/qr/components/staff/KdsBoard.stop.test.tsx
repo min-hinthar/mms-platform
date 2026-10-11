@@ -77,6 +77,30 @@ const stop = (
     },
   ],
 });
+/** #347 r2 — ONE clear that stopped a wok dish AND a drinks dish (the common case). */
+const mixedStop = (clearId: string, table: number, min: number): KitchenStop => ({
+  ...stop(clearId, table, min, "bm", "wok"),
+  lines: [
+    {
+      id: `${clearId}-noodles`,
+      name: "Shan Noodles",
+      nameMy: null,
+      qty: 1,
+      modifiers: [],
+      modifiersMy: [],
+      station: "wok",
+    },
+    {
+      id: `${clearId}-lime`,
+      name: "Lime Juice",
+      nameMy: null,
+      qty: 1,
+      modifiers: [],
+      modifiersMy: [],
+      station: "drinks",
+    },
+  ],
+});
 const q = (tickets: KitchenTicket[], stops: KitchenStop[] | null): KitchenQueue => ({
   tickets,
   serverNow: NOW,
@@ -113,23 +137,31 @@ vi.mock("@/lib/menu-availability", () => ({
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 vi.mock("@/lib/useFloorRealtime", () => ({ useFloorRealtime: () => {} }));
 vi.mock("@/lib/useWakeLock", () => ({ useWakeLock: () => {} }));
+// #347 r2 — an armable chime, so a case can hear the re-chime (`played`); off by default.
+// The context RUNS only once an arm settles (the real engine's contract): `armed` is false until then.
+let armOk = false;
+let ctxRunning = false;
+const played = vi.fn();
 vi.mock("@/lib/kds-sound", () => ({
   SOFT_LEVEL: 0.4,
   KDS_DEFAULT_VOLUME: 0.8,
   KdsChime: class {
     arm() {
-      return Promise.resolve(false);
+      ctxRunning = armOk;
+      return Promise.resolve(armOk);
     }
     armWithin() {
       return this.arm();
     }
     get armed() {
-      return false;
+      return ctxRunning;
     }
     subscribe() {
       return () => {};
     }
-    play() {}
+    play(...a: unknown[]) {
+      played(...a);
+    }
   },
   getKdsSoundWanted: () => false,
   setKdsSoundWanted: () => {},
@@ -154,6 +186,9 @@ afterEach(() => {
   getKitchenQueue.mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
   ackTableClearStop.mockReset();
   ackTableClearStop.mockImplementation(() => Promise.resolve({ ok: true, status: "ok" }));
+  armOk = false;
+  ctxRunning = false;
+  played.mockReset();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -207,7 +242,7 @@ describe("M270 (1) — the stop card stands in its ticket's slot", () => {
     expect(card.querySelector(".kds-flash")).toBeNull();
   });
 
-  it("#347 (C1) — a station's view draws a stop card only for its own dishes; All draws every card; an unplaced dish shows everywhere", async () => {
+  it("#347 (C1) — a station's view draws a stop card only when it stopped one of its dishes (or one nobody can place); All draws every card", async () => {
     currentQueue = q(
       [ticket(1, -10)],
       [
@@ -230,6 +265,23 @@ describe("M270 (1) — the stop card stands in its ticket's slot", () => {
     expect(gridOrder(container)).toEqual(["stop:Table 5", "stop:Table 7"]);
     fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.wok") }));
     expect(gridOrder(container)).toEqual(["Table 1", "stop:Table 3", "stop:Table 7"]);
+  });
+
+  it("#347 r2 (C1) — one MIXED clear: the wok view and the drinks view each draw the WHOLE card — every dish it stopped", async () => {
+    currentQueue = q([], [mixedStop("c4", 4, -5)]);
+    const { container } = mount(currentQueue);
+    await act(async () => {});
+    const dishes = () =>
+      [...stopCards(container)[0]!.querySelectorAll(".kds-stop-line")].map((l) =>
+        l.textContent!.includes("Lime") ? "lime" : "noodles",
+      );
+    for (const st of ["kds.station.drinks", "kds.station.wok"] as const) {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", st) }));
+      expect(stopCards(container)).toHaveLength(1);
+      // MUTATION m270/kds-stop/lines-trimmed: the drinks cook sees only the juice, taps Got it — which
+      // acknowledges the whole clear — and the noodles leave the wok's screen unseen.
+      expect(dishes()).toEqual(["noodles", "lime"]);
+    }
   });
 
   it("a stop read that did not answer keeps the cards — a card never leaves without a Got it", async () => {
@@ -430,17 +482,80 @@ describe("#347 (Codex P1 · blind C2) — an UNKNOWN first stop read is never 'n
     expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
   });
 
-  it("stop reads that keep failing wear the board's 'not updating' line; the first that answers ends it and makes the board known", async () => {
+  it("#347 r2 (C2) — stop reads that keep failing get the board's OWN stop line; the tickets stay live — no 'not updating', the re-chime still plays", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(NOW));
+    armOk = true;
+    // A ticket nobody has started, 20 minutes old, on a board whose stop read has never answered.
+    const base = q([ticket(1, -20)], null);
+    currentQueue = { ...base, thresholds: { ...base.thresholds, rechimeSec: 30 } };
+    // The server's clock moves with the test's (each poll re-seeds the board's clock from it).
+    getKitchenQueue.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        queue: { ...currentQueue, serverNow: new Date(Date.now()).toISOString() },
+      }),
+    );
+    const { container } = mount(currentQueue);
+    await flush();
+    // Sound on (the circle's own tap arms it).
+    await act(async () => {
+      fireEvent.click(container.querySelector("[data-kds-sound]")!);
+    });
+    await flush(1_000);
+    const stale = () => container.querySelector(".kds-stop-stale");
+    // The server render's read missed (1): not yet a pattern.
+    expect(stale()).toBeNull();
+    await flush(5_000);
+    // MUTATION m270/kds-board/stop-misses-unsaid: a board that cannot hear a table leave keeps a
+    // quiet face for as long as the reads fail.
+    expect(stale()!.textContent).toBe(ts("en", "kds.stops.unknown"));
+    // MUTATION m270/kds-board/misses-to-degraded: the WHOLE board freezes over tickets that still
+    // land — the frozen line, "take orders on paper", the bar's not-updating, the re-chime muted.
+    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    expect(stale()!.closest('[role="status"], [role="alert"], [aria-live]')).toBeNull();
+    played.mockClear();
+    await flush(30_000);
+    expect(played).toHaveBeenCalledWith("dinein", true);
+    // The first stop read that answers ends it.
+    currentQueue = { ...currentQueue, stops: [] };
+    await flush(5_000);
+    expect(stale()).toBeNull();
+  });
+
+  it("#347 r2 — stops known, then reads that keep failing on an EMPTY board: never All clear, never 'Nothing to cook' — the unknown line, said once", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    expect(region().textContent).toBe(ts("en", "kds.allclear"));
+    currentQueue = q([], null);
+    await flush(5_000);
+    await flush(5_000);
+    // MUTATION m270/kds-board/stale-read-as-known: All clear and "Nothing to cook" over a kitchen
+    // that cannot hear a table leave — round 1's degrade said it; without it nothing would.
+    expect(region().textContent).toBe(tf("en", "kds.open.many", { n: 0 }));
+    expect(document.getElementById("kds-empty-h")!.textContent).toBe(ts("en", "kds.stops.unknown"));
+    expect(screen.queryByText(ts("en", "kds.empty"))).toBeNull();
+    expect(container.querySelector(".kds-stop-stale")).toBeNull();
+    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    currentQueue = q([], []);
+    await flush(5_000);
+    expect(region().textContent).toBe(ts("en", "kds.allclear"));
+  });
+
+  it("on an EMPTY unknown board the line is the empty state's own — never said twice", async () => {
     vi.useFakeTimers();
     currentQueue = q([], null);
-    mount(currentQueue);
-    await flush();
-    // The server render's read missed (1): not yet a pattern.
-    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    const { container } = mount(currentQueue);
     await flush(5_000);
-    // MUTATION m270/kds-board/stop-misses-unsaid: a board that cannot hear a table leave keeps its
-    // quiet live face for as long as the reads fail.
-    expect(region().textContent).toContain(ts("en", "out.head.notUpdating"));
+    expect(document.getElementById("kds-empty-h")!.textContent).toBe(ts("en", "kds.stops.unknown"));
+    // MUTATION m270/kds-board/stale-said-twice: the static line repeats the empty state's own words.
+    expect(container.querySelector(".kds-stop-stale")).toBeNull();
+    // ONE live region: the unknown-stops empty state (its error tone) is no second one.
+    expect(document.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(
+      1,
+    );
     currentQueue = q([], []);
     await flush(5_000);
     expect(region().textContent).toBe(ts("en", "kds.allclear"));
@@ -502,7 +617,7 @@ describe("#347 — guard integrity", () => {
 });
 
 describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region", () => {
-  it("it outranks a later transient notice, and rides beside a standing refusal", async () => {
+  it("a later transient notice rides BESIDE it — neither the alarm nor the notice is dropped", async () => {
     vi.useFakeTimers();
     currentQueue = q([ticket(1, -10)], []);
     const { container } = mount(currentQueue);
@@ -519,6 +634,59 @@ describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region"
     // MUTATION m270/kds-board/news-under-notice: "Table 1 bumped" replaces the only alarm a screen
     // reader would hear.
     expect(region().textContent).toContain(STOP3);
+    // MUTATION m270/kds-board/notice-dropped-under-news: the bump's own confirmation is lost.
+    expect(region().textContent).toContain(tf("en", "kds.live.bumped", { x: "Table 1" }));
+  });
+
+  it("the arrival leaves the region the moment its own card is acknowledged", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    currentQueue = q([], [stop("c3", 3, -5)]);
+    await flush(5_000);
+    expect(region().textContent).toBe(STOP3);
+    currentQueue = q([], []);
+    await act(async () => {
+      fireEvent.click(gotIt(container));
+    });
+    // MUTATION m270/kds-board/news-outlives-ack: "Table 3 left — stop cooking" stands 8 s over a
+    // table already acknowledged.
+    expect(region().textContent).not.toContain(STOP3);
+  });
+
+  it("two tables arrive in one poll: a Got it retires only its own table's words", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    currentQueue = q([], [stop("c3", 3, -5), stop("c4", 4, -4, "b4")]);
+    await flush(5_000);
+    const stop4 = tf("en", "kds.stop", { id: 4 });
+    expect(region().textContent).toBe(`${STOP3} ${stop4}`);
+    currentQueue = q([], [stop("c4", 4, -4, "b4")]);
+    const card3 = [...stopCards(container)].findIndex((li) =>
+      li.textContent!.includes(tf("en", "kds.table", { id: 3 })),
+    );
+    await act(async () => {
+      fireEvent.click(gotIt(container, card3));
+    });
+    // MUTATION m270/kds-board/news-ack-drops-all: one Got it silences table 4's alarm too, a card
+    // nobody has acknowledged.
+    expect(region().textContent).toBe(stop4);
+  });
+
+  it("a stop card this station's view does not draw is not news here", async () => {
+    vi.useFakeTimers();
+    currentQueue = q([], []);
+    const { container } = mount(currentQueue);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "kds.station.drinks") }));
+    currentQueue = q([], [stop("c3", 3, -5, "b3", "wok")]);
+    await flush(5_000);
+    expect(stopCards(container)).toHaveLength(0);
+    // MUTATION m270/kds-board/news-every-station: the drinks screen announces a card it never draws.
+    expect(region().textContent).not.toContain(STOP3);
   });
 
   it("with a refusal already standing, the arrival is said beside it — still ONE region", async () => {
@@ -540,6 +708,8 @@ describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region"
     // MUTATION m270/kds-board/news-lost-under-err: the refusal hides the arrival entirely.
     expect(region().textContent).toContain(refused);
     expect(region().textContent).toContain(STOP3);
-    expect(document.querySelectorAll('[role="status"], [aria-live]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(
+      1,
+    );
   });
 });

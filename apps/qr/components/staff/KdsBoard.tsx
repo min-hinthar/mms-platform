@@ -91,9 +91,12 @@ import {
   stopArrivals,
   stopReadDegraded,
   stopsForStation,
+  stopNewsAcked,
+  stopNewsText,
   stopsKnown,
   visibleStops,
   withStopAck,
+  type StopNews,
   type StopState,
 } from "@/lib/kds-stop";
 import {
@@ -442,7 +445,8 @@ export function KdsBoard({
   // revert to confirmed + re-read). #347 (Codex P1 · blind C2) — a stop read that never answered,
   // the server render's included, is UNKNOWN (`stops: null`), never "none": until one answers the
   // board never says All clear, never stands its empty state and never offers its guide, and reads
-  // that keep failing wear the board's "not updating" line (`stopReadDegraded`, below).
+  // that keep failing get the board's own STOP warning (`stopsStale`, below) — never its "not
+  // updating" state: the tickets still land, so their chimes, hint and bar stay true.
   const [stopState, setStopState] = useState<StopState>(() => ({
     stops: initial.stops,
     acks: new Map(),
@@ -452,12 +456,22 @@ export function KdsBoard({
   const allStops = useMemo(() => visibleStops(stopState.stops ?? [], stopState.acks), [stopState]);
   // The stop cards this board has drawn, for saying a NEW one once (the server render's are not news).
   const seenStops = useRef(new Set((initial.stops ?? []).map((s) => s.key)));
-  // Stop reads in a row that did not answer (the server render's counts): past `STOP_MISS_LIMIT` the
-  // board is not updating — a table that leaves cannot reach this kitchen while it lasts.
+  // Stop reads in a row that did not answer (the server render's counts): past `STOP_MISS_LIMIT`
+  // (`stopReadDegraded`) the board says ITS STOP CARDS may be missing (`stopsStale`) — a table that
+  // leaves cannot reach this kitchen while it lasts. Never `degraded` (the blind pass's C2): the
+  // tickets are still landing, so the frozen line, "take orders on paper", the bar's not-updating
+  // and the muted re-chimes would all be false.
   const stopMisses = useRef(initial.stops === null ? 1 : 0);
-  // #347 (a11y) — a NEW stop card's sentence, the region's ALARM: it outranks a transient notice and
-  // rides beside a standing refusal for `STOP_NEWS_MS`, never replaced by either.
-  const [stopNews, setStopNews] = useState<string | null>(null);
+  const [stopsStale, setStopsStale] = useState(false);
+  // Unknown is never none — the first read never answered, OR the reads since keep failing: no All
+  // clear, no "Nothing to cook", no guide (round 1's degrade said this through `degraded`).
+  const stopsUnknown = !stopsSeen || stopsStale;
+  // #347 (a11y) — a NEW stop card's sentence, the region's ALARM: it rides BESIDE a transient notice
+  // and a standing refusal for `STOP_NEWS_MS`, never replaced by either — and a table's words leave
+  // the moment its own clear is acknowledged (`stopNewsAcked`), never standing over a card gone.
+  const [stopNews, setStopNews] = useState<StopNews | null>(null);
+  const stopNewsSeq = useRef(0);
+  const stopNewsSaid = stopNewsText(stopNews);
   // The device language for the poll's announcement: `refresh` is stable for the board's life, so a
   // closure would keep the language the console started in (the `onBumped` lesson, below).
   const langRef = useRef(lang);
@@ -479,13 +493,13 @@ export function KdsBoard({
     () =>
       kitchenGuideQuiet({
         tickets: snap.tickets.length + allStops.length,
-        degraded: !stopsSeen,
+        degraded: stopsUnknown,
         failed: err !== null,
       }),
   );
   const guideQuiet = kitchenGuideQuiet({
     tickets: snap.tickets.length + allStops.length,
-    degraded: degraded !== null || !stopsSeen,
+    degraded: degraded !== null || stopsUnknown,
     failed: err !== null,
   });
   // How the guide left, for where focus goes (the effect sits after the focus catch-all, below).
@@ -756,15 +770,13 @@ export function KdsBoard({
         );
         seenStops.current = new Set(queue.stops.map((st) => st.key));
         if (arrived.length > 0)
-          setStopNews(
-            [
-              ...new Set(
-                arrived.map((st) =>
-                  tf(langRef.current, "kds.stop", { id: st.tableNumber ?? st.label }),
-                ),
-              ),
-            ].join(" "),
-          );
+          setStopNews({
+            id: ++stopNewsSeq.current,
+            parts: arrived.map((st) => ({
+              clearId: st.clearId,
+              text: tf(langRef.current, "kds.stop", { id: st.tableNumber ?? st.label }),
+            })),
+          });
       }
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
       // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.
@@ -774,11 +786,10 @@ export function KdsBoard({
         setErr(null);
       }
       fails.current = 0;
-      // #347 — the tickets answered, but stop reads that keep failing are still a board that cannot
-      // hear a table leave: it says so in the board's own words, never a quiet live face.
-      if (stopReadDegraded(stopMisses.current))
-        setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
-      else setDegraded(null);
+      setDegraded(null);
+      // #347 — the tickets answered, but stop reads that keep failing are a board that cannot hear a
+      // table leave: it says so in its OWN stop line, never by freezing the tickets that do land.
+      setStopsStale(stopReadDegraded(stopMisses.current));
     } catch (e) {
       // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
@@ -849,11 +860,13 @@ export function KdsBoard({
     return () => clearTimeout(id);
   }, [notice]);
   // #347 — a stop card's arrival stands its own dwell, never the notice's 4 s.
+  // Keyed by the arrival, so an acknowledgement that only trims it never restarts the dwell.
+  const stopNewsId = stopNews?.id ?? null;
   useEffect(() => {
-    if (stopNews === null) return;
+    if (stopNewsId === null) return;
     const id = setTimeout(() => setStopNews(null), STOP_NEWS_MS);
     return () => clearTimeout(id);
-  }, [stopNews]);
+  }, [stopNewsId]);
 
   // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a ticket unmounts the
   // control that held focus. Edge-triggered — restore to the board heading only when focus HAD been on
@@ -1432,6 +1445,8 @@ export function KdsBoard({
     say.clear();
     ackOut.current.add(id);
     setStopState((p) => ({ ...p, acks: withStopAck(p.acks, id, { phase: "out" }) }));
+    // The arrival's words leave with its card: never an alarm over a table already acknowledged.
+    setStopNews((n) => stopNewsAcked(n, id));
     const label = tf(lang, "kds.table", { id: s.tableNumber ?? s.label });
     let answered = false;
     try {
@@ -1598,12 +1613,12 @@ export function KdsBoard({
               back to paper. Elapsed clocks keep ticking on the frozen cards: the food really has
               been waiting that long — that's the truth, not fake liveness. */}
           {/* #347 (a11y) — a NEW stop card's sentence (`stopNews`) is the one ALARM with no motion and
-              no chime: it rides BESIDE a standing refusal and a frozen line (one region, both said),
-              and outranks a transient notice — never lost to either. */}
+              no chime: it rides BESIDE a standing refusal, a frozen line and a transient notice (one
+              region, all said) — never lost to any of them. */}
           {err ? (
             <>
               <MsgText lang={lang} msg={err} />
-              {stopNews !== null && <span lang={lang}> {stopNews}</span>}
+              {stopNewsSaid !== null && <span lang={lang}> {stopNewsSaid}</span>}
             </>
           ) : (
             <span lang={lang}>
@@ -1614,16 +1629,18 @@ export function KdsBoard({
                     nowMs - degraded.since,
                     "what.queue",
                     degraded.cause,
-                  ) + (stopNews === null ? "" : ` ${stopNews}`)
-                : (stopNews ??
-                  notice ??
-                  // M270 (1) — never "All clear" over a stop card still waiting for its Got it, nor
-                  // while no stop read has answered (#347: unknown is never none): the count then
-                  // says the open tickets as they are (a stop card is not one).
-                  (count === 0 && stops.length === 0 && stopsSeen
-                    ? ts(lang, "kds.allclear")
-                    : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
-                      (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
+                  ) + (stopNewsSaid === null ? "" : ` ${stopNewsSaid}`)
+                : stopNewsSaid !== null
+                  ? // The arrival, and beside it any notice that lands in its dwell (#347 r2).
+                    stopNewsSaid + (notice === null ? "" : ` ${notice}`)
+                  : (notice ??
+                    // M270 (1) — never "All clear" over a stop card still waiting for its Got it,
+                    // nor while the stops are unknown (#347: unknown is never none): the count then
+                    // says the open tickets as they are (a stop card is not one).
+                    (count === 0 && stops.length === 0 && !stopsUnknown
+                      ? ts(lang, "kds.allclear")
+                      : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
+                        (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
             </span>
           )}
         </p>
@@ -1634,6 +1651,16 @@ export function KdsBoard({
           <div className="mms-rise">
             <ReloadButton lang={lang} />
           </div>
+        )}
+        {/* #347 r2 (the blind pass's C2) — stop reads that keep failing: the board's OWN stop
+            warning, static text beside the one region (never a second region, never the board's
+            "not updating" state — the tickets still land). Not drawn where the empty board already
+            says it (the unknown-stops line below). */}
+        {stopsStale && items.length > 0 && (
+          <p className="kds-stop-stale">
+            <Icon name="alert" size={18} aria-hidden />
+            <Chrome lang={lang} k="kds.stops.unknown" />
+          </p>
         )}
 
         <div className="kds-controls">
@@ -1707,10 +1734,11 @@ export function KdsBoard({
       <div className="kds-body">
         {items.length === 0 ? (
           <div style={{ flex: 1 }}>
-            {!stopsSeen ? (
-              // #347 (Codex P1 · blind C2) — no stop read has answered: the board cannot say
-              // "Nothing to cook" over a table that may have left. It says it could not look (the
-              // empty state's `error` tone), and repeated misses add the board's "not updating" line.
+            {stopsUnknown ? (
+              // #347 (Codex P1 · blind C2) — no stop read has answered, or the reads since keep
+              // failing: the board cannot say "Nothing to cook" over a table that may have left. It
+              // says it could not look (the empty state's `error` tone) — the board's own stop line,
+              // here, never its "not updating" state.
               <EmptyState
                 titleId="kds-empty-h"
                 tone="error"

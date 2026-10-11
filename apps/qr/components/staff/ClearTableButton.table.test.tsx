@@ -446,6 +446,29 @@ describe("food SENT and unpaid — the loss slip, only after Clear was reached f
     expect(body).not.toContain("tells the kitchen to stop");
   });
 
+  it("#347 r2 — ONE dish still cooking: the slip's literal English promises no particular stop either", async () => {
+    const one: ClearPreview = {
+      ...LOSS,
+      sent: [{ ...LOSS.sent[0]!, qty: 1, amountCents: 1400 }],
+      lossCents: 1400,
+      units: 1,
+      droppedUnits: 0,
+      lines: ["l1:1:dinein:sent"],
+    };
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: one });
+    mount();
+    await tap(trigger());
+    await tap(screen.getByRole("button", { name: ts("en", "settle.clear.walkout") }));
+    const commit = screen.getByRole("button", { name: /Clear · \$14\.00 loss/ });
+    const body = document.getElementById(commit.getAttribute("aria-describedby")!)!.textContent;
+    // The shipped words, written out — never read back from the catalog they test. MUTATION
+    // m270/i18n/slip-one-promises-a-stop: "tells the kitchen to stop" alone, false the moment the
+    // kitchen serves that dish before the commit.
+    expect(body).toContain(
+      "Clearing tells the kitchen to stop anything still cooking and puts 1 dish on the owner’s loss list as not approved.",
+    );
+  });
+
   it("the dishes, their menu price, 'Did Table 4 pay?' — and nothing commits until 'No' is taken and armed", async () => {
     getClearPreview.mockResolvedValue({ kind: "preview", preview: LOSS });
     clearTable.mockResolvedValue({ ok: true, dishes: 3, lossCents: 4100 });

@@ -394,4 +394,40 @@ describe("#347 — the dishes read is chunked; a record is never cut", () => {
     // draws 200 of its 250 dishes.
     expect(await readKitchenStops(db)).toBeNull();
   });
+
+  // #347 r2 — the menu read (each dish's station + Burmese) is chunked the same way.
+  const menuDishes = (n: number) => {
+    const ids = big(n);
+    return {
+      qr_table_clears: [clear(1, ids)],
+      qr_cart_items: ids.map((id, i) => line(id, { menu_item_id: uuid(1000 + i) })),
+      table_sessions: [session],
+      menu_items: ids.map((_, i) => ({
+        id: uuid(1000 + i),
+        name_my: null,
+        menu_categories: { slug: "drinks" },
+      })),
+    };
+  };
+
+  it("205 distinct dishes: the menu read goes in IN-lists of at most STOP_ID_CHUNK, and every chunk's answer counts", async () => {
+    tables = menuDishes(205);
+    const lines = (await readKitchenStops(db))!.flatMap((s) => s.lines);
+    // MUTATION m270/stop-read/menu-chunk-unbounded: one IN-list of 205 uuids (~7.6 KB of query string).
+    expect(inSizes.menu_items).toEqual([100, 100, 5]);
+    // MUTATION m270/stop-read/menu-chunks-dropped: only the first chunk's rows are read, and dishes
+    // 101–205 read as unknown-station.
+    expect(lines).toHaveLength(205);
+    expect(lines.every((l) => l.station === "drinks")).toBe(true);
+  });
+
+  it("ANY menu chunk failing: every station is UNKNOWN — never some placed and some guessed", async () => {
+    tables = menuDishes(205);
+    failNth = { table: "menu_items", n: 2 };
+    const lines = (await readKitchenStops(db))!.flatMap((s) => s.lines);
+    // MUTATION m270/stop-read/menu-chunk-error-swallowed: only the first chunk's error is read; the
+    // stations stand on two of three chunks as if the read had answered.
+    expect(lines).toHaveLength(205);
+    expect(lines.every((l) => l.station === null)).toBe(true);
+  });
 });
