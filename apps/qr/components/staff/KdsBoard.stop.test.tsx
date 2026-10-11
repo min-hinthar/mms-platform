@@ -657,7 +657,10 @@ describe("#347 (a11y) — a stop card's arrival is never lost in the ONE region"
     currentQueue = q([], [stop("c3", 3, -5)]);
     await flush(5_000);
     expect(region().textContent).toBe(STOP3);
-    currentQueue = q([], []);
+    // The server still holds the record when the tap lands (its acknowledgement is the write the
+    // tap starts): a read answered now still names table 3, so only the TAP's own retirement can
+    // take the words — the read-side retirement (`stopNewsWithin`) cannot stand in for it. With the
+    // queue emptied here the re-read after the ack took them too, and the mutant below survived.
     await act(async () => {
       fireEvent.click(gotIt(container));
     });
