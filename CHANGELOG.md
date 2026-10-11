@@ -37,7 +37,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Measured, not estimated:** headless Chromium with the production CSS and fonts at 390×844,
   375×667 and 320×568, 100% and 200% root text — every picture inside its tray, the dock in view, no
   sideways scroll (36 cases; the measurement fixed four layout defects — LEARNINGS #263).
-- 52 `pd11/*` mutants, each CAUGHT with `--only=`; DESIGN-LANGUAGE §37; OPEN-ITEMS PD11 built and a
+- 59 `pd11/*` mutants, each CAUGHT with `--only=`; DESIGN-LANGUAGE §37; OPEN-ITEMS PD11 built and a
   `K15 · diner-guide` row (no new Burmese — the English the guide adds is listed for the sitting).
 
 ### PD10 — the guest's live One Pass, with card and Apple Pay after served built behind the parked flag (2026-10-11, `claude/feat/pd10-live-pass`)

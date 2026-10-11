@@ -1106,7 +1106,7 @@ delegation (decided by: the PD11 stream)").
   focus back on the row. A guide opened here is SEEN on this phone (PD12's Codex round 1 rule).
 - **Page 1's Invite line follows GuestList's own `atCap`** (E1): the one rule moved to
   `lib/guest-list.ts` (`guestListSeats`, `guestListAtCap`), which GuestList now reads too.
-- **52 `pd11/*` mutants**, each run with `--only=` and CAUGHT; PD12's two arm mutants re-anchored to
+- **59 `pd11/*` mutants**, each run with `--only=` and CAUGHT; PD12's two arm mutants re-anchored to
   the arm's new local name.
 
 **Taken from the appendix.** A1 (the track's colours are `lib/kitchen-track.ts`'s, Cooking in ink —
@@ -1192,3 +1192,47 @@ tender is stated, below).
 re-typed). The English it adds is listed English-only for the native sitting (OPEN-ITEMS `K15 ·
 diner-cart`, the PD11 segment), and the staff words it puts on a guest surface — ရှေ့ဆက် · နောက်သို့
 (`help.next` · `help.back`) and the ✕'s ပိတ် — are listed there for the guest-register check.
+
+### H2 · The blind pass on #348 (2026-10-11) — the lead verified each finding against source
+
+Fixed on the branch (each with a red row and a mutant run with `--only=`):
+
+1. **The Account door taught Invite to a full table.** The door knows no table, so it passed
+   `atCap={false}` and page 1 said "Tap Invite to add a phone" whatever the guest's row showed. The cap
+   fact is tri-state now (`atCap: boolean | null`): `guideInviteLine` returns no line for `true` AND
+   for `null` (unknown); the first run passes its live `guestListAtCap`, the door passes `null`.
+   `lib/guest-list.ts`'s docblock no longer claims the guide follows the row "once it is" drawn — it
+   says what `false` means (not full; with no seat, no row at all) and who says `null`.
+2. **The page scrolls but held nothing focusable** (WCAG 2.1.1; axe `scrollable-region-focusable`):
+   on WebKit a keyboard user could not reach the words under the picture on a short screen or at 200%
+   text. `.diner-guide-page` takes `tabIndex={0}` (it is already a `role="group"` named by its
+   heading) and its `:focus-visible` ring is `--ac`, from the token, outside the box.
+3. **The first run's Invite below the cap, the joined-with-error case and the cookie's `Secure` flag**
+   had no row that could fail; each has one now (the cap fixtures read `MAX_PARTY_SIZE`).
+4. **Page 5's pointer was half true.** Help & contact lives on Account's **You** panel, and Account
+   opens on Orders (`accountPanel`'s default). The sentence is now "Find your order under Order, and
+   this guide under Account, then You." — English-only, its "You" pinned to the panel's own label
+   (`ACCOUNT_PANELS`). The spec body above keeps the old sentence as the record of what was drawn.
+5. **The door test's title claimed "44px"**, which jsdom cannot measure; the size rests on the
+   `.diner-guide-door` rule, and the title says so.
+6. **The headless recipe** (LEARNINGS #263) binds the local server to `127.0.0.1` and says why
+   `--no-sandbox` is there (the agent container runs as root).
+7. **A focus flake in `DinerGuideFirstRun.test.tsx`** (red on `99b354e` in CI, green on `fbed8d4`, no
+   change to the file). Radix moves the dialog's close-time focus in a `setTimeout(0)` after the
+   content unmounts; the suite's `settle()` resolves through React's `setImmediate` hop, so on a fast
+   runner the read came before the timer. The COMPONENT was not racing: the Sheet hands Radix's close
+   event to the first run alone, which prevents the default restore and focuses the heading — one
+   step, one mover. Reproduced red on demand (zero-delay timers held back), and the suite now waits on
+   the outcome with the same exact assertion (`waitFor`), with the held-back-timer case kept as a row.
+   LEARNINGS #264.
+
+Not fixed, recorded: a cross-site POST to `/api/guide-seen` can only set the "seen" mark in the
+victim's own browser — it hides a first-run guide that Account still reopens; nothing is read or
+granted.
+
+Settled questions: dine-in is always a group (`isGroup = mode === "dinein"` in the provider); the ring
+glyph in page 2's heading is `aria-hidden` (a decorative `KitchenTrack`); no `.staff-guide-dot*` names
+remain after the dots became `GuideDots`. **Can `me` be null while the cart id and the view are set?**
+No: the provider derives `me` from the same `session` its `cartId` comes from (`me` is null exactly
+when `session` is; `cartId` is `session?.cartId ?? null`; a session always carries its seat), so the
+first run never decides with a cart and no seat — its live boolean stands.

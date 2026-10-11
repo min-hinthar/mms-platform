@@ -1,11 +1,12 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WelcomeBack } from "@/lib/rewards";
-import { DINER_GUIDE_COOKIE, DINER_GUIDE_KEY } from "@/lib/diner-guide";
+import { DINER_GUIDE_COOKIE, DINER_GUIDE_KEY, GUIDE_COPY } from "@/lib/diner-guide";
+import { MAX_PARTY_SIZE } from "@/lib/limits";
 
 /**
  * PD11 — the FIRST RUN's wiring: the guide opens by itself exactly when the provider's facts AT THE
@@ -140,6 +141,14 @@ describe("the first run — once, at the moment the session answers", () => {
     expect(localStorage.getItem(DINER_GUIDE_KEY)).toBeNull();
   });
 
+  it("never over an error standing beside a joined, read session (the provider's own error fact)", async () => {
+    // MUTATION (pd11/first-run/join-error-not-read): the claim reads `joinError: false` — a session
+    // that joined and then holds an error opens the guide over it; red.
+    await arrive({ error: "Couldn’t join this table." });
+    expect(guide()).toBeNull();
+    expect(localStorage.getItem(DINER_GUIDE_KEY)).toBeNull();
+  });
+
   it("never on pickup, never for a known diner", async () => {
     await arrive({}, { mode: "pickup" });
     expect(guide()).toBeNull();
@@ -177,17 +186,53 @@ describe("the first run — once, at the moment the session answers", () => {
   });
 
   it("at the party cap, page 1 teaches no Invite", async () => {
-    const members = Array.from({ length: 12 }, (_, i) => ({ seat: `p${i}`, name: `P${i}` }));
+    // The viewer plus MAX_PARTY_SIZE − 1 tablemates: exactly at the cap (read, never typed).
+    const members = Array.from({ length: MAX_PARTY_SIZE - 1 }, (_, i) => ({
+      seat: `p${i}`,
+      name: `P${i}`,
+    }));
     await arrive({ members });
     expect(guide()!.textContent).not.toMatch(/Invite/);
   });
 
-  it("every exit lands on the menu's heading — the first run took focus from nowhere a guest chose", async () => {
+  it("below the cap, page 1 teaches Invite in the guest row's own words", async () => {
+    // MUTATION (pd11/first-run/cap-forced-full): `atCap={true}` hard-wired — a table with room is
+    // never taught how a tablemate joins; red.
+    const members = Array.from({ length: MAX_PARTY_SIZE - 2 }, (_, i) => ({
+      seat: `p${i}`,
+      name: `P${i}`,
+    }));
+    await arrive({ members });
+    expect(guide()!.textContent).toContain(GUIDE_COPY.invite.en);
+  });
+
+  /**
+   * The landing is ONE step: the Sheet hands Radix's close-time focus event to the first run alone
+   * (`onCloseAutoFocus`), which prevents Radix's default restore and focuses the heading. Radix runs
+   * that step in a `setTimeout(0)` after the content unmounts — so the suite waits on the OUTCOME,
+   * never on a tick: `settle()` resolves through React's `setImmediate` hop, which on a fast runner
+   * wins against that timer (the #348 CI flake — red on `99b354e`, reproduced below by holding the
+   * zero-delay timers back).
+   */
+  const exitLandsOnHeading = async () => {
     await arrive({});
     fireEvent.keyDown(guide()!, { key: "Escape" });
     await settle();
     expect(guide()).toBeNull();
-    expect(document.activeElement).toBe(document.querySelector(MENU_HEADING_SELECTOR));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.querySelector(MENU_HEADING_SELECTOR)),
+    );
+  };
+
+  it("every exit lands on the menu's heading — the first run took focus from nowhere a guest chose", async () => {
+    await exitLandsOnHeading();
+  });
+
+  it("…however late the sheet's close step runs (the fast runner's order: the timer comes due after the read)", async () => {
+    const real = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) =>
+      real(fn, ms ? ms : 5)) as unknown as typeof setTimeout);
+    await exitLandsOnHeading();
   });
 });
 

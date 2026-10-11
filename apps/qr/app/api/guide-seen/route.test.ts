@@ -5,6 +5,7 @@ import {
   DINER_GUIDE_COOKIE_MAX_AGE,
   DINER_GUIDE_KEY,
   cookieMarked,
+  dinerGuideCookieOptions,
 } from "@/lib/diner-guide-mark";
 import { POST } from "./route";
 
@@ -31,5 +32,12 @@ describe("POST /api/guide-seen", () => {
     expect(cookieMarked(pair, DINER_GUIDE_COOKIE)).toBe(true);
     expect(DINER_GUIDE_COOKIE).toBe(DINER_GUIDE_KEY.replace(/:/g, "."));
     expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("is Secure in production — and only there (local http would refuse a Secure cookie)", () => {
+    // MUTATION (pd11/cookie/secure-dropped): `secure: false` — production sends the mark over any
+    // scheme; red.
+    expect(dinerGuideCookieOptions(true).secure).toBe(true);
+    expect(dinerGuideCookieOptions(false).secure).toBe(false);
   });
 });

@@ -4012,14 +4012,32 @@ write the defence (and its residual's reachability) against that path.
 
 **There IS a headless Chromium in the agent environment — measure a screen instead of estimating it
 (PD11, 2026-10-11).** PD12's record said "no browser in the agent environment"; Playwright's
-`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell` runs (`--no-sandbox`).
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell` runs — with
+`--no-sandbox`, needed only because the agent container runs as root (Chromium refuses its sandbox
+as root; on a normal user account drop the flag).
 The recipe that needs no dev server and no database: render the component in its own jsdom suite and
 write `document.body.innerHTML` per state; build once (`pnpm turbo build --filter=@mms/qr`); wrap each
 dump in a page that links `.next/static/chunks/*.css` and puts next/font's `*__variable` classes on
-`<html>`; serve a dir whose `_next` is a symlink to `.next` (`python3 -m http.server`); run the shell
+`<html>`; serve a dir whose `_next` is a symlink to `.next` (`python3 -m http.server --bind
+127.0.0.1`, never on every interface); run the shell
 with `--force-prefers-reduced-motion --window-size=W,H --virtual-time-budget=3000` and either
 `--screenshot` or `--dump-dom` over an inline script that writes its measurements (rects, overflow,
 `scrollWidth`) into the DOM. It found four layout defects the jsdom suites could not (a key that
 collided three-across, a picture that overflowed its tray, a grid row that centred a tall child low,
 a wrapped Burmese label). Caveat: raising the root font-size does not move `em` media queries, so it
 approximates text zoom without exercising breakpoints.
+
+## #264
+
+**Radix moves a dialog's close-time focus in a `setTimeout(0)`, and `await act(async () => {})`
+resolves through `setImmediate` — so a suite that reads `document.activeElement` right after closing
+a Sheet reads a moment, not the outcome (PD11, #348's CI flake).** FocusScope's unmount effect
+queues the `onCloseAutoFocus` step on a zero-delay timer (Node: 1 ms); React's async `act` exits via
+`enqueueTask` → `setImmediate`. When less than 1 ms has passed by the loop's next timers phase, the
+immediate runs first and the read sees `<body>` — green on a loaded laptop, red on a fast CI runner
+(`DinerGuideFirstRun.test.tsx` passed on `fbed8d4`, failed on `99b354e` with no change to it).
+Reproduce it on demand by holding zero-delay timers back (`vi.spyOn(globalThis, "setTimeout")`
+→ `real(fn, ms || 5)`), then wait on the OUTCOME with the exact assertion
+(`await waitFor(() => expect(document.activeElement).toBe(target))`), never a tick count. The
+component was never racing: the Sheet hands Radix's close event to ONE handler, which prevents the
+default restore and moves focus itself.

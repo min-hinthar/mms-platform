@@ -186,8 +186,9 @@ export const GUIDE_COPY = {
   keyName: "What each mark means",
   /** Page 4 (after the flip) — the quiet human fallback, last. */
   orCounter: EN("Or pay at the counter."),
-  /** Page 5. */
-  where: EN("Find your order under Order, and this guide under Account."),
+  /** Page 5. The guide's door is on Account's YOU panel (Help & contact), and Account opens on
+   *  Orders (`accountPanel`'s default) — so the pointer names both steps (the blind pass on #348). */
+  where: EN("Find your order under Order, and this guide under Account, then You."),
 } as const;
 
 /** The after-flip pay sentence, from the proven wallets ONLY (the critic's B2). */
@@ -195,13 +196,17 @@ export function guidePhonePayLine(wallets: readonly string[]): GuideText {
   return EN(`Then pay right here on your phone — ${guideTenders(wallets)}.`);
 }
 
-/** Page 1's quiet line: none at the cap (the row says "Table’s full"); the sticker clause only for a
- *  table with a number. */
+/**
+ * Page 1's quiet line: only while the guest row DRAWS Invite — never at the cap (the row says
+ * "Table’s full"), and never when the cap is UNKNOWN (`null`: the Account door knows no table, and
+ * a guide that cannot see the row must not teach a control the row may not have — the blind pass on
+ * #348). The sticker clause only for a table with a number.
+ */
 export function guideInviteLine(f: {
-  atCap: boolean;
+  atCap: boolean | null;
   tableNumber: number | null;
 }): GuideText | null {
-  if (f.atCap) return null;
+  if (f.atCap !== false) return null;
   return f.tableNumber != null ? GUIDE_COPY.invite : GUIDE_COPY.inviteNoSticker;
 }
 
@@ -258,8 +263,9 @@ export type GuideContext = {
   /** The table's number, or null (not bound yet, or opened from Account with no table). */
   tableNumber: number | null;
   role: "host" | "guest" | null;
-  /** `guestListAtCap` — the guest row's own rule. */
-  atCap: boolean;
+  /** `guestListAtCap` — the guest row's own rule; `null` when this host cannot see the row (the
+   *  Account door), which teaches no Invite. */
+  atCap: boolean | null;
   payVariant: GuidePayVariant;
 };
 

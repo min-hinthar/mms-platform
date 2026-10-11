@@ -20,8 +20,14 @@ export function guestListSeats(me: GuestSeat, members: readonly GuestSeat[]): Gu
   return [...bySeat.values()];
 }
 
-/** The table is full: the row draws "Table’s full" in Invite's place. No viewer seat yet → not full
- *  (the row is not drawn at all, and the guide's Invite line follows the row once it is). */
+/**
+ * The table is full: the row draws "Table’s full" in Invite's place. With no viewer seat this
+ * answers false, and the row draws NOTHING (GuestList renders no party row before the session) —
+ * so `false` here is "not full", never "Invite is on screen". A reader that cannot see the row says
+ * so with `null` instead (PD11's Account door, `guideInviteLine`): the guide's first run reads this
+ * only once the session has joined, when the provider's `me` exists (it is derived from the same
+ * session as the cart id — `TableCartProvider`).
+ */
 export function guestListAtCap(
   me: GuestSeat | null | undefined,
   members: readonly GuestSeat[],

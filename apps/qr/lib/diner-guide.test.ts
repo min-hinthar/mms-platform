@@ -15,6 +15,7 @@ import { DINER_STAGE_WORD } from "./line-state-copy";
 import { PAY_OPENS_SERVED } from "./checkout-verb";
 import { SURFACES } from "./surfaces";
 import { passRowStage, passHead } from "./live-pass";
+import { ACCOUNT_PANELS, accountPanel } from "./account-hub";
 import {
   DINER_GUIDE_ARM_MS,
   DINER_GUIDE_COOKIE,
@@ -199,6 +200,14 @@ describe("the five pages — every title a shipped key, whole", () => {
     );
   });
 
+  it("an UNKNOWN cap (null — the Account door sees no table) teaches no Invite (the blind pass on #348)", () => {
+    // MUTATION (pd11/invite/unknown-reads-below-cap): null read as "below the cap" — Account teaches
+    // "Tap Invite" to a guest whose table may be full; red.
+    expect(guideInviteLine({ atCap: null, tableNumber: null })).toBeNull();
+    expect(guideInviteLine({ atCap: null, tableNumber: 7 })).toBeNull();
+    expect(guidePages({ ...CTX, atCap: null })[0]!.quiet).toBeNull();
+  });
+
   it("page 1 names the guest's REAL table — and only page 1 (the rest are samples)", () => {
     const pages = guidePages(CTX);
     expect(pages[0]!.stageLabel).toBe("Your table’s pass: Table 7");
@@ -225,8 +234,15 @@ describe("the five pages — every title a shipped key, whole", () => {
     expect(GUIDE_COPY.track.en).not.toMatch(/timer|reach/i);
   });
 
-  it("page 5 is titled by the Order page's own heading and names where the guide lives", () => {
-    expect(guidePages(CTX)[4]!.lines.map(en)).toEqual([GUIDE_COPY.where.en]);
+  it("page 5 is titled by the Order page's own heading and names where the guide lives — Account, then You", () => {
+    expect(guidePages(CTX)[4]!.lines.map(en)).toEqual([
+      "Find your order under Order, and this guide under Account, then You.",
+    ]);
+    // The blind pass on #348: Help & contact is on the You panel, and Account opens on Orders — so
+    // the pointer names the panel by its own label.
+    expect(accountPanel({})).toBe("orders");
+    const you = ACCOUNT_PANELS.find((p) => p.key === "you")!.label;
+    expect(GUIDE_COPY.where.en.endsWith(`under Account, then ${you}.`)).toBe(true);
   });
 });
 

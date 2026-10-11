@@ -17869,6 +17869,14 @@ html[data-reloading] body::after {
   flex-direction: column;
   gap: var(--s5);
   padding-top: var(--s2);
+  border-radius: var(--r-sm);
+  outline: none;
+}
+/* The scrolling page is a keyboard stop (the blind pass on #348): its ring is the house's focus ink,
+   drawn inside the sheet's gutter so the sheet's own clip never shaves it. */
+.diner-guide-page:focus-visible {
+  outline: 2.5px solid var(--ac);
+  outline-offset: 2px;
 }
 /* The stage: a sunken tray (cards carry dots — `.card-textured`), ONE height, the picture centred. It
    shrinks first on a short screen; the picture follows by one scale. Measured headless (Chromium,

@@ -1,5 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/lib/i18n";
 import {
@@ -94,6 +96,26 @@ describe("DinerGuide — one dialog, five pages", () => {
     expect(pass.getAttribute("aria-hidden")).toBe("true");
     expect(pass.textContent).toContain("7");
     expect(dialog().textContent).toContain(GUIDE_COPY.invite.en);
+  });
+
+  it("the page is a keyboard stop: it scrolls on a short screen, so it takes focus itself, named by its heading", () => {
+    render(<Guide />);
+    const page = within(dialog()).getByRole("group", { name: /^Mingalaba/ });
+    expect(page.classList.contains("diner-guide-page")).toBe(true);
+    // MUTATION (pd11/guide/page-not-focusable): no tabIndex — WebKit keyboard users cannot reach the
+    // words under the picture (WCAG 2.1.1; axe scrollable-region-focusable); red.
+    expect(page.getAttribute("tabindex")).toBe("0");
+    // Its ring is the house's focus ink, from a token — parsed from the sheet, comments stripped.
+    const css = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(
+      (m) => m[1]!.trim() === ".diner-guide-page:focus-visible",
+    );
+    expect(rule).toHaveLength(1);
+    expect(rule[0]![2]).toMatch(/outline:\s*[\d.]+px solid var\(--ac\)/);
+    expect(rule[0]![2]).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 
   it("at the party cap page 1 says nothing about Invite (the row says 'Table’s full')", () => {
@@ -321,7 +343,7 @@ describe("DinerGuideDoor — Account's way back in", () => {
     vi.unstubAllGlobals();
   });
 
-  it("a 44px row button opens the guide at page 1, marks this phone seen, and its last primary is Close", async () => {
+  it("a row button (its 44px is the `.diner-guide-door` rule) opens the guide at page 1, marks this phone seen, and its last primary is Close", async () => {
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal("fetch", fetch);
     render(<DinerGuideDoor />);
@@ -329,9 +351,12 @@ describe("DinerGuideDoor — Account's way back in", () => {
     expect(row.getAttribute("aria-haspopup")).toBe("dialog");
     fireEvent.click(row);
     expect(heading().textContent).toContain("Mingalaba");
-    // No table: the pass reads "Your table" and the Invite line drops the sticker clause.
+    // No table: the pass reads "Your table", and the door cannot see the guest row — the cap is
+    // UNKNOWN, so page 1 teaches no Invite (the blind pass on #348).
     expect(stage().getAttribute("aria-label")).toBe("Your table’s pass");
-    expect(dialog().textContent).toContain(GUIDE_COPY.inviteNoSticker.en);
+    expect(dialog().textContent).toContain(GUIDE_COPY.shared.en);
+    // MUTATION (pd11/door/cap-assumed-open): the door passes `atCap={false}`; red.
+    expect(dialog().textContent).not.toMatch(/Invite/);
     // MUTATION (pd11/door/unmarked): a guide read from Account would be offered again on the next
     // dine-in arrival; red.
     expect(localStorage.getItem(DINER_GUIDE_KEY)).toBe("1");

@@ -94,8 +94,9 @@ export function DinerGuide({
   source: "auto" | "account";
   tableNumber: number | null;
   role: "host" | "guest" | null;
-  /** `guestListAtCap` — page 1 teaches Invite only while the guest row draws it. */
-  atCap: boolean;
+  /** `guestListAtCap` — page 1 teaches Invite only while the guest row draws it; `null` (unknown —
+   *  the Account door has no table) teaches none. */
+  atCap: boolean | null;
   /** Where focus lands when it closes (the first run: the menu's heading). Default: the opener. */
   onCloseAutoFocus?: (e: Event) => void;
 }) {
@@ -251,7 +252,11 @@ function GuideBody({
         downAt.current = Date.now();
       }}
     >
-      <div className="diner-guide-page" role="group" aria-labelledby={titleId}>
+      {/* The page SCROLLS on a short screen or at 200% text, and holds nothing focusable — so it
+          takes the keyboard's stop itself (WCAG 2.1.1; axe `scrollable-region-focusable`): a
+          keyboard user on WebKit can then reach the words below the picture. Named by its heading;
+          its focus ring is `.diner-guide-page:focus-visible`. */}
+      <div className="diner-guide-page" role="group" aria-labelledby={titleId} tabIndex={0}>
         <Stage page={page} tableNumber={tableNumber} motion={motion} first={step === 1} />
         <div className="diner-guide-words">
           <h3 id={titleId} className="diner-guide-title">
@@ -554,7 +559,7 @@ export function DinerGuideDoor() {
         source="account"
         tableNumber={null}
         role={null}
-        atCap={false}
+        atCap={null}
       />
     </>
   );
