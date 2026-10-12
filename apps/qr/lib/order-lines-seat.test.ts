@@ -98,7 +98,7 @@ beforeEach(() => {
 
 /**
  * A draft sibling modelling EVERY column the lookup filters on — cart_id, menu_item_id, fulfillment,
- * state, notes, by_seat, added_by, unit_price_cents — plus the two it selects. `by_seat`/`added_by`
+ * state, comped (T25), notes, by_seat, added_by, unit_price_cents — plus the two it selects. `by_seat`/`added_by`
  * follow the path under test, since the diner arm filters them with `.eq` and the staff arm `.is`.
  *
  * Override exactly the one column a case is about, so "it did not merge" can only be attributed to
@@ -111,6 +111,7 @@ const sibling = (bySeat: string | null, over: Record<string, unknown> = {}) => (
   menu_item_id: LINE.menuItemId,
   fulfillment: LINE.fulfillment,
   state: "draft",
+  comped: false,
   notes: null,
   by_seat: bySeat,
   added_by: bySeat,
