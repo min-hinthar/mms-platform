@@ -2239,25 +2239,23 @@ describe("a refused tap re-says its reason on every tap (review open question)",
   });
 
   it("a refused tap is never masked by a standing pay error — it clears it, as every handler does", async () => {
-    // A failed counter ask leaves a pay error in the region; then a tablemate's payment lands.
+    // A failed counter ask leaves a pay error in the region; then the diner taps the held Pay. (PD2's
+    // lift: the counter no longer dims over an unsent dish, and a tablemate's lock landing clears
+    // the error on its own edge — so the refused tap here is Pay's, held by the kitchen, D5.)
     mount({ splitContext: TABLE, initialItems: [{ ...ITEM, lineState: "fired" }] });
     h.requestCounterPay.mockRejectedValueOnce(new Error("fetch failed"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
     });
     expect(regionText()).toContain("Couldn’t reach the counter just now");
-    h.getCartView.mockResolvedValue(
-      view({ items: [{ ...ITEM, lineState: "fired" }], locked: true, lockedBy: PEER_SEAT }),
-    );
-    await syncFromServer();
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const pay = screen.getByRole("button", { name: /^Pay( the whole order)? · \$12\.00/ });
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
     await act(async () => {
-      fireEvent.click(counter);
+      fireEvent.click(pay);
     });
     // MUTATION (p2c-reg2/checkout-refusal-under-a-pay-error): keep the pay error — the region
     // renders `payError ?? status`, so the tap's reason is hidden behind a stale failure; red.
-    expect(regionText()).toContain("Waiting for Tin to finish");
+    expect(regionText()).toContain("Pay opens once everything’s served.");
     expect(regionText()).not.toContain("Couldn’t reach the counter just now");
   });
 
