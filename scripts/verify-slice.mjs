@@ -1434,13 +1434,16 @@ const MUTANTS = [
     replace: "        fresh = [];",
   },
   {
-    id: "refusal/qty-refusal-goes-unpublished",
+    // T41 RETIRED `refusal/qty-refusal-goes-unpublished`, whose subject \u2014 the stepper publishing a
+    // REFUSAL \u2014 no longer exists: `setItemQty`'s recovery maps every reading but "at our target" to
+    // `unconfirmed`, so `refused` is unreachable there and the publish fork was deleted with it. Its
+    // anchor would be STALE (a failure, not a skip); this is the mutant for the rule that replaced it.
+    id: "t41/qty-non-landing-reads-as-refused",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING: its test asserted a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot. \u26a0\ufe0f THE FIND SPANS THE WHOLE if/else PAIR, and the #254 blind pass is why: the first draft cut only the `if`, leaving `});` followed by a bare `else` \u2014 a SyntaxError. `suitePasses` is an exit-code check, so a file that will not PARSE reddens the suite and scores `caught` while proving nothing. A mutation must remain valid code or it measures the parser",
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
-    replace:
-      '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    why: "T41 \u2014 `setQty` is ABSOLUTE, so a peer can forge a NON-landing but never a landing: our set to 2 commits, an authorized host moves the line inside the round trip, and the re-read reads a number that is not ours. Mapping that reading to `false` answers `refused`, whose `mayRetry` is TRUE for a write that landed \u2014 the STATE the row filed, which #254's hedged sentence never reached. Only \u201cthe line sits at our target\u201d establishes anything; a freeze on the re-read does not either (Codex round 2 on #255)",
+    find: "          landed: atTarget ? true : null,",
+    replace: "          landed: atTarget,",
   },
   {
     id: "refusal/add-refusal-goes-unpublished",
@@ -1458,8 +1461,10 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 — `setQty` is absolute, which is what makes its recovery attribution exact: the line sits AT `qty`, or is gone when the tap was a remove. Weakening that to “the line exists” reports every refused decrement as a landing, so the stepper keeps a quantity the server rejected and the next queued write derives from it",
-    find: "          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,",
-    replace: "          landed: fresh === null ? null : line !== undefined,",
+    // T41 — RE-ANCHORED, same mutation: the at-target test moved into its own binding, which the
+    // landing now reads as `atTarget ? true : null`.
+    find: "        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);",
+    replace: "        const atTarget = fresh !== null && line !== undefined;",
   },
   {
     id: "usual/committed-write-retried",

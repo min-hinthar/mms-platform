@@ -1432,63 +1432,52 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
+        // The re-read's freeze classification is not read here (T41, below) — `explainCaught` still
+        // runs for the re-read, the snap-back it applies, and the re-mint on the unreadable arm.
+        const { fresh, viewIsCurrent } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read is the evidence: the line at `qty`, or
         // gone when the tap was a remove.
         //
-        // ⚠️ THE ATTRIBUTION IS ONE-SIDED, AND THE OLD NOTE HERE CLAIMED IT BOTH WAYS (blind
-        // adversarial pass on this PR). `setQty` is absolute, so no peer write can forge a LANDING:
-        // the line reads `qty` only if something set it there. It can absolutely forge a
-        // NON-landing — our set to 3 commits, an authorized host sets the same line to 5 inside the
-        // round trip, and `line?.qty === qty` answers false for a write that landed. There is
-        // therefore no `unknown` arm here not because the evidence is stronger than `add`'s, but
-        // because this path has no third value to return; `add` reaches `unconfirmed` through
-        // `classifyAddLanding`'s own `unknown`, and this one cannot.
+        // ⚠️ T41 — THE EVIDENCE IS ONE-SIDED, SO THE VERDICT IS TOO. `setQty` is absolute, so no
+        // peer write can forge a LANDING: the line reads `qty` only if something set it there. It
+        // can absolutely forge a NON-landing — our set to 3 commits, an authorized host sets the
+        // same line to 5 inside the round trip, and the re-read reads 5. This path used to answer
+        // `refused` there, so `mayRetry` was TRUE for a write that landed; the `unknown` cause's
+        // hedged opener shrank the SENTENCE and left the STATE wrong (Codex round 2 on #255).
         //
-        // ⚠️ AND THE COST IS NOT BOUNDED TO THE SENTENCE — the previous note here said it was, and
-        // Codex round 2 on #255 falsified that twice over. `recoveredWrite` answers `refused`, so
-        // `mayRetry` is TRUE for a write that landed: the STATE is wrong, not just the copy. Nor is
-        // the hedge a containment: it rides the `unknown` CAUSE, and this same ordering reaches
-        // `frozen` whenever the host starts checkout after overwriting (`cart-freeze.ts`), where the
-        // opener is assertive.
+        // So only "the line sits at our target" maps to a landing, and EVERY other reading —
+        // including one under a freeze — maps to `landed: null`, i.e. `unconfirmed`:
         //
-        // Giving this path a real `unknown` arm is OPEN-ITEMS T41. The old note called that a trade
-        // of "a hedged sentence for a lost view" — ALSO WRONG, and worth deleting rather than
-        // softening, because it was the stated reason not to fix this: `AddButton`'s queue reads
-        // `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)`, so the stale
-        // snapshot is reachable ONLY for a FIRST op; a following op with no view sends nothing
-        // (Codex round 6 on #251 closed exactly that). Routing here to `unconfirmed` cannot
-        // re-create the P1 it was said to risk.
+        //   • "the line sits at the PRE-write value → refused" is unsound: a host RESTORING that
+        //     value after our write landed reads exactly the same (the T43 ordering, on this path);
+        //   • "the cart is frozen → refused" is unsound: a freeze describes the cart at RE-READ time,
+        //     so a host who overwrites our line and THEN starts checkout reads as a refusal of a
+        //     write that committed. The freeze is still TOLD — the lock/settle banner speaks it on
+        //     the edge this re-read applied — it just is not offered as the reason this write failed.
         //
-        // ⚠️ The obvious third arm is ALSO unsound: "the line sits at the PRE-write value → refused"
-        // fails when a host RESTORES that value after our write landed — the same restoration
-        // ordering that makes `classifyAddLanding` answer `none` on the add path (T43). Only "the
-        // line sits at our target" establishes anything; everything else is honestly `unknown`.
+        // ⚠️ THIS DOES NOT RE-CREATE #251's STALE-ABSOLUTE-QUANTITY P1, which is what kept the row
+        // filed: `AddButton`'s queue reads `threaded ?? refreshed ?? (prior === null ? itemsRef.current
+        // : null)`, so an `unconfirmed` op (no view) makes the NEXT op re-read, and sends nothing when
+        // that read fails too (Codex round 6 on #251). And no consumer re-sends a `setItemQty` — the
+        // stepper is the only caller — so `refused` bought nothing here that `unconfirmed` loses.
         const line = fresh?.find((i) => i.id === cartItemId);
+        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);
         const result = recoveredWrite({
           reread: fresh,
-          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
+          landed: atTarget ? true : null,
           viewIsCurrent,
         });
-        if (result.state === "refused" && refusal) publishRefusal(refusal);
-        else if (result.state === "unconfirmed") publishUnconfirmed();
+        // `refused` is unreachable on this path by construction (the landing is `true` or `null`),
+        // so a write that is not confirmed is retracted — never explained as a refusal.
+        if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [
-      cartId,
-      applyView,
-      readView,
-      explainCaught,
-      flash,
-      forgetRefusal,
-      publishRefusal,
-      publishUnconfirmed,
-    ],
+    [cartId, applyView, readView, explainCaught, flash, forgetRefusal, publishUnconfirmed],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

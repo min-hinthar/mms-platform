@@ -15,6 +15,7 @@ import {
   mayRetry,
   namedUnconfirmedWriteNotice,
   threadableView,
+  unconfirmedWriteNotice,
 } from "@/lib/write-outcome";
 import { pillAddClaim, sheetAddClaim } from "@/lib/add-feedback";
 import { DRAIN_MAX_MS, DRAIN_TIMED_OUT_NOTICE } from "@/lib/write-ledger";
@@ -790,7 +791,18 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     h.getCartView.mockResolvedValue(view({ items: [line(3)] }));
   });
 
-  it("publishes a refusal when the re-read shows the line did not move", async () => {
+  /**
+   * T41 — `setQty` is ABSOLUTE, so a peer can forge a NON-landing but never a landing: our set to 2
+   * commits, an authorized host moves the same line inside the round trip, and the re-read shows a
+   * number that is not ours. Only "the line sits at our target" establishes anything; every other
+   * reading is ignorance, and ignorance is `unconfirmed` — never `refused`, whose `mayRetry` says a
+   * write that landed may be sent again.
+   *
+   * ⚠️ THE FREEZE IS NOT EVIDENCE EITHER (Codex round 2 on #255). A lock on the re-read describes
+   * the cart at READ time: the host overwrites our line and THEN starts checkout, and the old fork
+   * answered `frozen` with the assertive "That didn’t go through" over a write that committed.
+   */
+  it("T41 — a line that is NOT at our target is UNCONFIRMED, even under a freeze", async () => {
     mount();
     await waitFor(() => expect(ctl.items).toEqual([line(3)]));
     h.setQty.mockRejectedValue(new Error("redacted"));
@@ -798,15 +810,58 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
     const result = await ctl.setItemQty("line-1", 2);
 
-    expect(result.state).toBe("refused");
-    // The refusal carries the recovery read — the freshest cart anyone has. Withholding it sent the
-    // caller back to a stale local snapshot, and `setQty` is ABSOLUTE, so a stale baseline writes a
-    // WRONG NUMBER over a concurrent host edit rather than losing a tap (Codex round 2 on #251).
-    expect(threadableView(result)).toEqual([line(3)]);
-    // ⚠️ ON `lastRefusalClause`, NOT ON THE REGION. `publishRefusal` is this value's ONLY writer, so
-    // this reddens if the stepper's refusal publication is deleted — which a region assertion does
-    // not, because the lock-transition announcement lands in the same slot from another effect.
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(result.state).toBe("unconfirmed");
+    expect(mayRetry(result)).toBe(false);
+    // No view crosses the seam: the next queued op re-reads rather than threading (AddButton).
+    expect(threadableView(result)).toBeNull();
+    // Never the refusal's assertive opener, which this reading cannot support — and the freeze is
+    // still TOLD: no refusal latched it, so the lock banner this re-read's edge raised speaks.
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain(NOTICE.peerLock);
+    expect(spoken()).toContain("is checking out");
+  });
+
+  it("T41 — a host overwrite inside the round trip is UNCONFIRMED, not a refusal", async () => {
+    // The row's own ordering, with no freeze to hide behind: our set to 2 commits, the host sets 5,
+    // the re-read reads 5. Before T41 this answered `refused` → `mayRetry` true for a landed write.
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
+    h.setQty.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(view({ items: [line(5)] }));
+
+    const result = await ctl.setItemQty("line-1", 2);
+
+    expect(result.state).toBe("unconfirmed");
+    expect(mayRetry(result)).toBe(false);
+    await waitFor(() => expect(spoken()).toBe(unconfirmedWriteNotice()));
+  });
+
+  it("T41 — a REMOVE whose line is still there is UNCONFIRMED, not refused", async () => {
+    // The remove's target is ABSENCE. A line still present may be ours un-removed or a host's
+    // restore after our delete landed — the same forgeable reading, one arm over.
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
+    h.setQty.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(view({ items: [line(3)] }));
+
+    const result = await ctl.setItemQty("line-1", 0);
+
+    expect(result.state).toBe("unconfirmed");
+    expect(mayRetry(result)).toBe(false);
+  });
+
+  it("T41 — a REMOVE whose line is gone IS a landing", async () => {
+    // The separating twin of the case above: same remove, one reading changed. Without it an
+    // implementation that never answers `applied` on this path passes every T41 case.
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
+    h.setQty.mockRejectedValue(new Error("trailing read failed"));
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+
+    const result = await ctl.setItemQty("line-1", 0);
+
+    expect(result.state).toBe("applied");
+    expect(threadableView(result)).toEqual([]);
   });
 
   it("reports UNCONFIRMED, not refused, when the re-read could not see the cart", async () => {
