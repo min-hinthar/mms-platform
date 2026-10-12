@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The path-design wave's handoff (2026-10-11, docs only)
+
+- **The wave's retrospective is measured** (`docs/RETRO_PATH_DESIGN_WAVE_2026-10-11.md`). Read-only measurers pulled GitHub, Actions, git replays and the prod signals; three designers proposed changes and an adversarial critic sequenced them. It holds the baselines the next wave must beat, the next ten PRs, the feedback → issues → fixes loop and the owner decisions it waits on.
+- **HANDOFF's new top block records the wave as built.** It holds the owner's directives and what the
+  2026-10-09 delegation covered, the merged PRs by moment, the eight prod migrations in apply order,
+  the decisions and the gate and merge calls for the owner to ratify, the open PRs and branches, and
+  the next tasks. It also says the delegation covered this wave only. The 2026-10-09
+  in-flight block moves verbatim to HANDOFF_ARCHIVE. CLAUDE.md's "Where things stand" points there and
+  carries the sql lane's 2026-10-11 re-measure. OPEN-ITEMS adds M276 (M182's invoker clear relies on
+  the hosted default privileges) and T55 (`verify-mode-authority` toward its 15-minute timeout), and
+  its stale statuses are swept to the registry's status legend. Nine fully delivered rows move to the
+  top of Closed as DONE (PR, merge SHA and, where they have one, the migration's prod apply): PD11 ·
+  M182 · M268 · PD5 · P2do · PD3 · M269 · PD8 · M184. Five stay open with a "⚑ partial" line naming
+  what shipped and what is left: K44 · PD4 · PD6 · PD7 · PD12. P2hf stays open, because its server
+  guard is built but PD7's held clear is the owner's to ratify against ruling #6. Eight rows'
+  now-false sentences are restated: "NOT applied", "prod apply on the owner's go", "Merges after the
+  device sitting", and PD12's "no browser in the agent environment" (LEARNINGS #264). The sweep moved
+  rows but added and lost none; M276 and T55 are this PR's only new rows. LEARNINGS adds #266–#269.
+
 ### PD11 — the diner's first-visit guide: five pages, once per phone, re-openable from Account (2026-10-11, `claude/feat/pd11-diner-guide`)
 
 - **"Your Pass, Explained"** (PATH_DESIGN decision 12; `docs/path-design-2026-10-07/m11-diner-guide.md`,

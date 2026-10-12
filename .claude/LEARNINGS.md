@@ -4057,3 +4057,53 @@ Reproduce it on demand by holding zero-delay timers back (`vi.spyOn(globalThis, 
 (`await waitFor(() => expect(document.activeElement).toBe(target))`), never a tick count. The
 component was never racing: the Sheet hands Radix's close event to ONE handler, which prevents the
 default restore and moves focus itself.
+
+## #266
+
+**A second path to the same outcome can turn an old mutant into a survivor. After adding the path,
+re-run the module's WHOLE mutant set, not only the new ids (#347, 2026-10-11).** Round 4 on #347 gave
+the kitchen's stop words a read-side exit: `stopNewsWithin` retires a table's words on every answered
+stop read, beside the Got it's own retirement (`setStopNews((n) => stopNewsAcked(n, id))`). The fixture
+for `m270/kds-board/news-outlives-ack`, the mutant that deletes that Got-it line, emptied the queue
+before the tap. So the re-read after the ack took the words too, and the mutant SURVIVED in CI
+(`verify-slice` shard 6 on `7e21a03`). Every new id passed; only the old one, in the same suite, showed
+that the fixture no longer separated the two paths. The fix was the fixture, not an assertion: the read
+still names the table when the tap lands, so only the tap's own retirement can take the words. When a
+change adds a second way to reach an outcome a mutant guards, run `--only=` over every id prefix of
+that module before the push, and make each fixture reach the outcome through exactly one path.
+
+## #267
+
+**`apply_migration` stalled on a prod migration with a top-level `DROP` / `DELETE`. That is an
+observation, and the mechanism is not established (the path-design wave, 2026-10-09 to 10-11).** The
+Supabase MCP `apply_migration` is the one path a QR migration takes to prod (CLAUDE.md, M125), and it
+stalled on a file that carried a top-level DROP / DELETE. The wave's later migrations were written
+without either, and their headers give the authors' reading, not a measured cause:
+`20261009120400_m182_table_clear.sql` ("no DROP: the MCP apply path cannot confirm one") and
+`20261011123000_pd1_nudge_line_lock.sql` ("No `drop`, no `delete`: the MCP apply path stalls on a
+destructive statement"). The rule: `create or replace` covers a restate under the same signature only.
+A migration that must drop something (an overload's retirement, or the withdrawal of a grant that
+already exists) goes to the owner as a decision. The `revoke … from public` that ships with every NEW
+`SECURITY DEFINER` function is not such a drop: it stays mandatory, in the same file (CLAUDE.md's
+Pre-PR sweep). It is never disguised inside a `DO` block and never silently left out. After an apply,
+verify that no old overload survives (`pg_proc` by name), not only the objects the file creates.
+
+## #268
+
+**A migration that changes a lock order re-runs EVERY race harness, not only its own (PD1 × PD5b,
+#340, 2026-10-11).** PD1 (#335) made `mms_fire_cart` and `mms_nudge_host` lock the cart first (cart →
+line). PD5b's grace-race scenario in `verify-counter-fire-race.mjs` then hung, which would have timed
+CI's sql lane out. Codex caught it on #340's merge with `main`. The scenario was rewritten for the new
+lock order, and every race harness ran against the throwaway Postgres 16 (LEARNINGS #95 · #243) before
+the push. When a migration moves a lock order, run all of the harnesses
+(`pnpm verify:*-race[:mutants]`, `pnpm verify:mode-authority`), not only the one beside the change.
+
+## #269
+
+**Mark a PR ready only once its head's `CI` run has started (the path-design wave, 2026-10-08 to
+10-11).** The race between a push and a mark-ready right after it was observed this wave; its
+mechanism is not recorded here. The rule: after pushing a PR's final head, read
+`GET /repos/min-hinthar/mms-platform/actions/runs?head_sha=<sha>`, and mark the PR ready only once it
+lists a run named `CI` (`ci.yml`) for that SHA. "Require docs/progress update", "Require Codex
+review" and "Ensure Vercel preview" start on the same push, so a listed run of any of them does not
+satisfy the rule.

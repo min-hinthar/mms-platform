@@ -7,6 +7,7 @@ gets a line here in the PR that adds it.
 ## Start here — live state (read every session)
 
 - [HANDOFF.md](HANDOFF.md) — the pickup point: where the build stands and the next tasks.
+- [RETRO_PATH_DESIGN_WAVE_2026-10-11.md](RETRO_PATH_DESIGN_WAVE_2026-10-11.md) — the path-design wave measured: baselines, what to keep, what hurt, the next ten PRs, and the staff and guest feedback → issues → fixes loop.
 - [OPEN-ITEMS.md](OPEN-ITEMS.md) — the single open-work registry; sweep it in every PR. IDs never change.
 - [WORKFLOW.md](WORKFLOW.md) — the loop, the CI lanes, the review and the merge ritual (§Review step 5 is normative, the Codex-out-of-quota rule included).
 - [OWNER_RULINGS_2026-10-07.md](OWNER_RULINGS_2026-10-07.md) — the owner's binding rulings (the 2026-10-07 brief and later gate decisions); they win over a stream card.
