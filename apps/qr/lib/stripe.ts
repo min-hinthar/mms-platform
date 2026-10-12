@@ -28,10 +28,11 @@ const DEFAULT_API_VERSION = "2026-05-27.dahlia" satisfies StripeApiVersion;
  *
  * ⚠️ `STRIPE_TIMEOUT_MS` is an UPPER BOUND chosen without a measurement, not a sized value. Owner
  * ruling #23 sizes it from the Stripe round trip measured from `pdx1`, and that measurement cannot
- * be taken from a build or an agent sandbox. It is set well above any healthy call so it fires only
- * on a stalled one, and a premature timeout costs latency, never money: every POST this app sends
- * is idempotency-keyed — explicitly at its call site, or by the SDK itself (see below) — so the
- * retry or the caller's next attempt replays the first request instead of repeating it.
+ * be taken from a build or an agent sandbox. It is chosen generously, on the expectation that a
+ * healthy call finishes far inside it — the measurement is what confirms that or tightens it — and
+ * a premature timeout costs time, never a second charge: every POST this app sends is idempotency-keyed —
+ * explicitly at its call site, or by the SDK itself (see below) — so the retry or the caller's next
+ * attempt replays the first request instead of repeating it.
  *
  * ⚠️ `STRIPE_MAX_NETWORK_RETRIES` must stay at least one, and the reason is an SDK fact, not a
  * preference: stripe@22 generates an `Idempotency-Key` for a POST only when retries are allowed,
