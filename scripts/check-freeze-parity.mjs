@@ -33,7 +33,10 @@
  * which satisfied both presence checks) → fails the constant-operand rule; a NEW local write helper
  * called before the refusal → fails rule 2, because the helper set is derived rather than named;
  * a new authorize-and-write module with no lock binding at all → appears in `extra:` instead of
- * being invisible.
+ * being invisible. Two more when T44 closed the one-hop writer reach: a new authorize-and-write
+ * function whose ONLY write goes through a wrapper of a writer (`releasePayAttemptSafely`) → appears
+ * in `extra:` (it printed clean before); that same two-hop write placed above a subject's lock
+ * refusal → fails rule 2 (it printed clean before).
  */
 import { readFileSync, readdirSync } from "node:fs";
 import ts from "typescript";
@@ -361,7 +364,160 @@ for (const { sf } of ALL_LIB)
     });
     if (writes) WRITERS.add(name);
   }
-const isWriteCall = makeIsWriteCall(WRITERS);
+
+/**
+ * ── WHICH TABLE A WRITE WRITES, and the closure that makes possible (OPEN-ITEMS T44) ────────────
+ *
+ * `WRITERS` above reaches ONE hop: a function whose OWN body writes. `releasePayLock` called
+ * `releasePayAttempt` (a direct `.update`) and was in reach; M151 (#257) put
+ * `releasePayAttemptSafely` (cancel the intent at Stripe, THEN `releasePayAttempt`) in between and
+ * it left the subject set with no symptom but its exemption going dead. A lock-bearing mutation
+ * that writes through two hops was invisible to this guard.
+ *
+ * Closing `WRITERS` under routing was MEASURED wrong (#257): "a write" there is any
+ * `.update/.insert/.upsert/.delete/.rpc` of anything, so `assertCartMember` became a writer through
+ * `maybeRenewSession`'s SESSION update and `assertMutationRate` through `withinRate`'s rate-limit
+ * rpc — "authorizes and writes" collapsed into "authorizes", four reads owed refusals, and every
+ * subject's `writeAt` landed on the rate-limit call it makes before its `if (locked)`.
+ *
+ * So the closure runs over a narrower, TABLE-BOUND predicate: a PostgREST write whose receiver IS
+ * `.from("<table>")` — the write and its table bound on ONE chain, `db.from("qr_carts").update(…)`
+ * — for a table in `CART_TABLES`. A session row, a rate counter, an audit row and an `.rpc` (whose
+ * table lives in SQL this file does not read) do not seed it. Every function that calls such a
+ * writer — resolved by IMPORT IDENTITY (`./lock` + `releasePayAttempt`, a module-local function
+ * first), never by a bare name that two modules could share — is a cart writer too, to a fixpoint.
+ * `isWriteCall` keeps its one-hop arm unchanged and gains this one: ONE predicate still, used by
+ * discovery and by the ordering rule alike (LEARNINGS #65).
+ *
+ * ⚠️ STATED LIMITS: an rpc that writes a cart table seeds nothing (a two-hop rpc route stays
+ * one-hop, as before); a builder held in a variable (`const q = db.from(t); q.update(…)`), a table
+ * named by a non-literal, a namespace import and a dynamic `import()` are not followed — each an
+ * under-reach, the closed direction for discovery. `CART_WRITER_FLOOR` below and `releasePayLock`'s
+ * EXEMPT entry (which only FIRES through two hops) fail loudly if the closure stops reaching.
+ */
+const CART_TABLES = new Set(["qr_carts", "qr_cart_items"]);
+
+/** The table a direct PostgREST write writes, when its receiver IS `.from(<literal>)` — or null. */
+const writtenTable = (n) => {
+  if (!isDirectWrite(n) || n.expression.name.text === "rpc") return null;
+  const recv = unwrap(n.expression.expression);
+  if (
+    !ts.isCallExpression(recv) ||
+    !ts.isPropertyAccessExpression(recv.expression) ||
+    recv.expression.name.text !== "from"
+  )
+    return null;
+  const [table] = recv.arguments;
+  return table && (ts.isStringLiteral(table) || ts.isNoSubstitutionTemplateLiteral(table))
+    ? table.text
+    : null;
+};
+
+const LIB_FILES = new Set(ALL_LIB.map(({ rel }) => rel));
+/** `@/lib/lock` or `./lock` → `apps/qr/lib/lock.ts`, or null outside `apps/qr/lib`. */
+const resolveLib = (spec, fromRel) => {
+  let base;
+  if (spec.startsWith("@/")) base = `apps/qr/${spec.slice(2)}`;
+  else if (spec.startsWith(".")) base = path.posix.join(path.posix.dirname(fromRel), spec);
+  else return null;
+  for (const cand of [base, `${base}.ts`, `${base}/index.ts`]) if (LIB_FILES.has(cand)) return cand;
+  return null;
+};
+
+/**
+ * Per lib file, what a bare callee name DENOTES there, as a `<module>#<function>` key: a function
+ * declared in the file (it wins, as a local binding shadows an import), or a NAMED import resolved
+ * to the module and the symbol it exports. `export { a as b } from "./x"` is an alias followed by
+ * `canonical`. Anything else denotes nothing.
+ */
+const denotes = new Map();
+const reexports = new Map();
+const fnsByKey = new Map();
+for (const { rel, sf } of ALL_LIB) {
+  const m = new Map();
+  for (const st of sf.statements) {
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+      const to = resolveLib(st.moduleSpecifier.text, rel);
+      const nb = st.importClause?.namedBindings;
+      if (to && !st.importClause?.isTypeOnly && nb && ts.isNamedImports(nb))
+        for (const el of nb.elements)
+          if (!el.isTypeOnly) m.set(el.name.text, `${to}#${(el.propertyName ?? el.name).text}`);
+    }
+    if (
+      ts.isExportDeclaration(st) &&
+      st.moduleSpecifier &&
+      ts.isStringLiteral(st.moduleSpecifier) &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    ) {
+      const to = resolveLib(st.moduleSpecifier.text, rel);
+      if (to)
+        for (const el of st.exportClause.elements)
+          reexports.set(`${rel}#${el.name.text}`, `${to}#${(el.propertyName ?? el.name).text}`);
+    }
+  }
+  for (const { fn, name } of namedFunctionsIn(sf)) {
+    m.set(name, `${rel}#${name}`);
+    const key = `${rel}#${name}`;
+    if (!fnsByKey.has(key)) fnsByKey.set(key, []);
+    fnsByKey.get(key).push(fn);
+  }
+  denotes.set(rel, m);
+}
+const canonical = (key) => {
+  for (let hop = 0; hop < 8 && reexports.has(key); hop++) key = reexports.get(key);
+  return key;
+};
+/** The function a call's bare callee denotes in its own file, as a key — or null. */
+const calleeKey = (n) => {
+  if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return null;
+  const key = denotes.get(n.getSourceFile().fileName)?.get(n.expression.text);
+  return key ? canonical(key) : null;
+};
+
+const CART_WRITERS = new Set();
+const bodyHas = (fns, pred) =>
+  fns.some((fn) => {
+    let hit = false;
+    walk(fn, (n) => {
+      if (!hit && pred(n)) hit = true;
+    });
+    return hit;
+  });
+for (const [key, fns] of fnsByKey)
+  if (bodyHas(fns, (n) => CART_TABLES.has(writtenTable(n)))) CART_WRITERS.add(key);
+for (let grew = true; grew; ) {
+  grew = false;
+  for (const [key, fns] of fnsByKey) {
+    if (CART_WRITERS.has(key)) continue;
+    if (bodyHas(fns, (n) => CART_WRITERS.has(calleeKey(n)))) {
+      CART_WRITERS.add(key);
+      grew = true;
+    }
+  }
+}
+
+/**
+ * A FLOOR, not the definition — the same role `WRITE_HELPER_FLOOR` plays for the one-hop set: a
+ * direct cart writer (the seed) and the two-hop wrapper T44 was filed over (the closure). If either
+ * drops out, the DERIVATION broke — the table binding, the import resolution or the fixpoint — and
+ * this fails rather than letting the reach shrink back to one hop in silence.
+ */
+const CART_WRITER_FLOOR = [
+  "apps/qr/lib/lock.ts#releasePayAttempt",
+  "apps/qr/lib/supersede.ts#releasePayAttemptSafely",
+];
+const missingCartFloor = CART_WRITER_FLOOR.filter((k) => !CART_WRITERS.has(k));
+if (missingCartFloor.length)
+  fail(
+    `the derived cart-writer closure no longer contains: ${missingCartFloor.join(", ")}.\n  ` +
+      "These write `qr_carts` — the first directly, the second through it — so their absence means\n  " +
+      "the DERIVATION broke (the `.from()` binding, the import resolution or the fixpoint), and a\n  " +
+      "mutation that writes through a wrapper is invisible again (T44). Fix the derivation.",
+  );
+
+const isOneHopWrite = makeIsWriteCall(WRITERS);
+const isWriteCall = (n) => isOneHopWrite(n) || CART_WRITERS.has(calleeKey(n));
 
 const authorizesAndWrites = (sf) => {
   let authorizes = false;
@@ -638,25 +794,34 @@ process.stdout.write("freeze parity — the client mirrors the server's lock gua
 // The cost of this definition is that deleting the `locked` binding drops a function OUT of the set
 // rather than failing it — so EXPECTED_SUBJECTS below names the set and fails on any disappearance,
 // which a count could not do.
-// (`releasePayLock` has no entry, for the SECOND time, and the arc is worth keeping. It destructures
-// only `uid`, never `locked`, so it is not a subject through the first arm; it entered through the
-// second — authorizes-and-writes — only as far as the writer derivation reaches, which is ONE hop:
-// a function whose own body writes. It called `releasePayAttempt` (a direct `.update`) and was a
-// subject; M151 (#257) put `releasePayAttemptSafely` in between — a wrapper that cancels the live
-// intent at Stripe and THEN calls `releasePayAttempt` — and it silently left the set. The
-// dead-exemption rule below is the only reason anyone noticed, on the first CI run.
+// (`releasePayLock` has an entry AGAIN, and the arc is worth keeping. It destructures only `uid`,
+// never `locked`, so it is not a subject through the first arm; it enters through the second —
+// authorizes-and-writes — only as far as the writer derivation reaches. That was ONE hop: it called
+// `releasePayAttempt` (a direct `.update`) and was in reach; M151 (#257) put
+// `releasePayAttemptSafely` in between — a wrapper that cancels the live intent at Stripe and THEN
+// calls `releasePayAttempt` — and it silently left the set. The dead-exemption rule below was the
+// only reason anyone noticed, and the entry was deleted rather than left dead.
 //
-// The obvious fix — close `WRITERS` under routing to a fixpoint — was tried and MEASURED wrong:
-// `assertCartMember` became a writer through `maybeRenewSession`'s session-renew UPDATE and
-// `assertMutationRate` through `withinRate`'s rpc, so "authorizes and writes" collapsed into
-// "authorizes", four READS entered the subject set owing refusals, and the ordering rule then
-// placed `writeAt` on the rate-limit call every mutation makes before its `if (locked)` — all
-// twelve subjects red on a change with no behavioural content. A closure needs a write predicate
-// that knows WHICH table is written (`qr_carts`/`qr_cart_items`, not a session or a counter),
-// which this file does not have: OPEN-ITEMS T44. Until then the reach is one hop, `releasePayLock`
-// is outside it, and an exemption for a function the selector cannot see is exactly the dead entry
-// the rule below forbids.)
+// The obvious fix — close `WRITERS` under routing to a fixpoint — was tried and MEASURED wrong
+// (the authz helper and the rate limiter became "writers" through a session UPDATE and an rpc).
+// T44 closed it with a TABLE-BOUND closure (`CART_WRITERS`, beside `WRITERS` above): only a write
+// whose chain names `qr_carts`/`qr_cart_items` seeds it, so `assertCartMember` and
+// `assertMutationRate` stay outside and every other subject's `writeAt` is unchanged — measured
+// before trusting it: the subject set grew by `releasePayLock` alone and the file set not at all.
+// Its entry is now the CANARY for that closure: it is the one exemption that fires only through two
+// hops, so if the closure stops reaching, this entry goes dead and the rule below fails.)
 const EXEMPT = new Map([
+  [
+    "releasePayLock",
+    "the RELEASE side of the pay-window lock — the diner's own 'Edit order'. Refusing it on " +
+      "`locked` would make the lock unreleasable by the attempt that holds it, so it deliberately " +
+      "reads only `uid`. Its one cart write is `releasePayAttempt`'s single statement scoped to the " +
+      "caller's seat AND era (a superseded tab matches zero rows and is told so), reached through " +
+      "`releasePayAttemptSafely`, which cancels this attempt's own intent at Stripe first and " +
+      "REFUSES (`paying`) on a captured one, so a charging cart stays frozen. It moves no line and " +
+      "no price, so the client's `cartFreeze` has nothing to mirror. Fires only through TWO hops — " +
+      "the T44 closure's canary.",
+  ],
   [
     "getCartView",
     "a READ. It destructures `locked` precisely to return it to the client — that value is what " +
