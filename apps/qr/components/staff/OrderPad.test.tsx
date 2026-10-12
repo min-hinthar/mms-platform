@@ -1254,9 +1254,7 @@ describe("Phase 3d · counter — the ticket speaks receipt, and its Total is Ta
     );
     // The pre-tax note left with the pre-tax figure.
     // LITERALS, not keys: K44 retired both keys, so the absence is asserted on the retired words.
-    expect(
-      screen.queryByText("Running pre-tax subtotal — tax is added when they pay."),
-    ).toBeNull();
+    expect(screen.queryByText("Running pre-tax subtotal — tax is added when they pay.")).toBeNull();
     expect(screen.queryByText("subtotal so far", { exact: false })).toBeNull();
     // A list named as the receipt's totals — never a region (the pad's one Toast stays the one).
     const list = document.querySelector(".pad-receipts")!;
