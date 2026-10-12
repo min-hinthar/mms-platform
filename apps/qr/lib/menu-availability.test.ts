@@ -210,4 +210,33 @@ describe("setItemSoldOut — the first thing that can ever set is_sold_out", () 
     expect(updates).toHaveLength(1);
     if (!r.ok) expect(r.error).toContain("is sold out");
   });
+
+  /**
+   * P2au — the unlogged answer is its OWN code, and it carries the flag that landed. It used to be
+   * `code: "sentence"`, the outage's code, so no caller could tell "nothing changed" from "the dish
+   * is off the menu and only the record failed": the KDS showed the dish sold out after its refresh
+   * and offered no 6-second Undo for an 86 that had landed.
+   */
+  it("P2au — names the unlogged landing apart from an outage, carrying the flag that landed", async () => {
+    auditError = { message: "insert failed" };
+    const r = await flip(true);
+    expect(r).toMatchObject({ ok: false, code: "unlogged", soldOut: true });
+  });
+
+  it("P2au — the put-back's unlogged landing carries `false`, the flag IT landed", async () => {
+    itemRow = { id: ITEM, name_en: "Mohinga", is_sold_out: true };
+    auditError = { message: "insert failed" };
+    const r = await flip(false);
+    expect(r).toMatchObject({ ok: false, code: "unlogged", soldOut: false });
+    if (!r.ok) expect(r.error).toContain("back on");
+  });
+
+  it("P2au — an OUTAGE stays `sentence`: only a landed flag earns the unlogged code", async () => {
+    // The separating twin: the write itself failing changed nothing, so it must never read as the
+    // landed-but-unlogged answer a caller now records and offers an Undo for.
+    updateError = { message: "network" };
+    const r = await flip(true);
+    expect(r).toMatchObject({ ok: false, code: "sentence" });
+    expect(r).not.toHaveProperty("soldOut");
+  });
 });
