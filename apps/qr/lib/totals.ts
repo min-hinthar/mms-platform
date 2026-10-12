@@ -4,33 +4,6 @@ import type { CartTotals } from "@mms/db";
 import { computeTotals } from "./totals-math";
 
 /**
- * The single authoritative totals engine (cents). NOT a Server Action — it's an internal server
- * function so it can't be POSTed directly by a client (avoids an IDOR cart-totals read). It is
- * called by:
- *   • the member-gated `create-intent` route (which authorizes the caller first), and
- *   • the signature-verified Stripe `webhook` (server-to-server, no diner session) to reconcile
- *     the breakdown against the actual charge before fulfilling.
- * So this function deliberately does NOT authorize — its callers own that decision.
- *
- * W10c (M30) — it THROWS on an unreadable cart, and that is load-bearing in both callers. Every one
- * of the three reads below used to destructure only `{ data }`, which is not a "missing check" in the
- * usual sense: postgrest-js RESOLVES fetch failures into `{ data: null, error }` rather than
- * rejecting, so a total platform outage produced a confident, perfectly-shaped answer of ZERO —
- * silently, on the money path.
- *
- * The two ways that cashes out:
- *   • In the Stripe webhook's `payment_intent.succeeded` branch, an outage made the derived total
- *     disagree with the (real) charge, so the event was triaged as TAMPERING — the wrong alarm, the
- *     wrong `refunds_needed` reason, and no retry. Throwing routes it to the branch that already
- *     exists there ("Totals lookup failed; will retry", 500) so Stripe redelivers for up to 72h.
- *   • In `create-intent` a PARTIAL failure is worse than a total one: if the items read succeeds but
- *     `mms_promo_discount` fails, the discount silently becomes 0 and the diner is charged MORE than
- *     the cart in front of them shows. Failing the mint is the only honest option.
- *
- * So: never return a total we are not certain of. A thrown error is recoverable (Stripe retries, the
- * client retries); a wrong number is not.
- */
-/**
  * M123 (b) — WHICH promo figure a reader is handed. Two bases, told apart by who reads the number.
  *
  * `charge` (the default) — what a door CHARGES or a webhook RECONCILES: `mms_promo_discount`, the
@@ -73,6 +46,33 @@ function promoDiscountRpc(
   return basis === "quote" && !liveIntentId ? "mms_promo_discount_live" : "mms_promo_discount";
 }
 
+/**
+ * The single authoritative totals engine (cents). NOT a Server Action — it's an internal server
+ * function so it can't be POSTed directly by a client (avoids an IDOR cart-totals read). It is
+ * called by:
+ *   • the member-gated `create-intent` route (which authorizes the caller first), and
+ *   • the signature-verified Stripe `webhook` (server-to-server, no diner session) to reconcile
+ *     the breakdown against the actual charge before fulfilling.
+ * So this function deliberately does NOT authorize — its callers own that decision.
+ *
+ * W10c (M30) — it THROWS on an unreadable cart, and that is load-bearing in both callers. Every one
+ * of the three reads below used to destructure only `{ data }`, which is not a "missing check" in the
+ * usual sense: postgrest-js RESOLVES fetch failures into `{ data: null, error }` rather than
+ * rejecting, so a total platform outage produced a confident, perfectly-shaped answer of ZERO —
+ * silently, on the money path.
+ *
+ * The two ways that cashes out:
+ *   • In the Stripe webhook's `payment_intent.succeeded` branch, an outage made the derived total
+ *     disagree with the (real) charge, so the event was triaged as TAMPERING — the wrong alarm, the
+ *     wrong `refunds_needed` reason, and no retry. Throwing routes it to the branch that already
+ *     exists there ("Totals lookup failed; will retry", 500) so Stripe redelivers for up to 72h.
+ *   • In `create-intent` a PARTIAL failure is worse than a total one: if the items read succeeds but
+ *     `mms_promo_discount` fails, the discount silently becomes 0 and the diner is charged MORE than
+ *     the cart in front of them shows. Failing the mint is the only honest option.
+ *
+ * So: never return a total we are not certain of. A thrown error is recoverable (Stripe retries, the
+ * client retries); a wrong number is not.
+ */
 export async function getCartTotals(
   cartId: string,
   tipRate = 0,
