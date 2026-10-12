@@ -6,13 +6,13 @@ import type { CallbackOutcome } from "./oauth-callback";
  * ⚠️ WHY THE URL IS NOT A STORE. `AccountUpgrade` derived the whole recovery live from
  * `useSearchParams()` and then, one effect later, cleaned the query with
  * `window.history.replaceState(null, "", pathname)` — on the strength of a comment asserting that
- * Next's search params do not react to it. They do. Next 16.2.9 PATCHES `window.history.replaceState`
- * (`next/dist/client/components/app-router.js`) and only bails to the original when the state object
- * carries `__NA` or `_N`; a `null` state with a truthy url runs `applyUrlFromHistoryPushReplace`,
- * which feeds `canonicalUrl` — and `useSearchParams()` is built from exactly that. So the message was
- * erased, the button reverted from "Sign in with Google" to "Continue with Google", and its handler
- * reverted to the `linkIdentity` call that had just been refused. A returning diner saw a flash and
- * then a dead button.
+ * Next's search params do not react to it. They do. Next (16.2.9; re-read unchanged in 16.3.8)
+ * PATCHES `window.history.replaceState` (`next/dist/client/components/app-router.js`) and only
+ * bails to the original when the state object carries `__NA` or `_N`; a `null` state with a truthy
+ * url runs `applyUrlFromHistoryPushReplace`, which feeds `canonicalUrl` — and `useSearchParams()`
+ * is built from exactly that. So the message was erased, the button reverted from "Sign in with
+ * Google" to "Continue with Google", and its handler reverted to the `linkIdentity` call that had
+ * just been refused. A returning diner saw a flash and then a dead button.
  *
  * sessionStorage rather than localStorage on purpose: a bounce belongs to THIS browsing session and to
  * this tab's attempt. It must not still be sitting there tomorrow, and it must not follow a device

@@ -369,7 +369,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   the fixture so it separates the paths (LEARNINGS #266; #347's `m270/kds-board/news-outlives-ack`).
 - **Test infra.** The Radix/jsdom timer flake (#343, LEARNINGS #257): `apps/qr/lib/test-setup.ts`
   drains real timers after each jsdom case, before the resets. Radix's close-time focus timing is
-  #348's (LEARNINGS #265). Next 16.2.9 serializes server actions, and only a navigate
+  #348's (LEARNINGS #265). Next 16.2.9 (and 16.3.8) serializes server actions, and only a navigate
   or restore starts early (LEARNINGS #262).
 - **Give `git log --since` a time.** A bare `--since=2026-10-08` starts at that day's current clock
   time: run at 2026-10-11 ~22:54Z, it dropped every merge of 2026-10-08 (#319, #320, #324, #325 and

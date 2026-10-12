@@ -80,7 +80,8 @@ The single highest-leverage fix for "assembled → choreographed."
 - **Shared-element continuity** at the three highest-traffic cuts: menu item photo → item-sheet hero;
   CartBar total → checkout hero-total; checkout receipt → `/track` receipt panel.
 - **Vendor decision (evidence-checked against the installed stack):** Next 16.2.9 _has_ the
-  `experimental.viewTransition` flag, but it rides React's experimental `<ViewTransition>` — and our
+  `experimental.viewTransition` flag (16.3 removed the flag: its guide says view transitions "work in
+  the App Router with no configuration"), but either way it rides React's experimental `<ViewTransition>` — and our
   stable React 19.2.7 doesn't export it (verified) — so the native path would mean a React canary in a
   money app: **disqualified**. Primary: **`next-view-transitions`** (~2KB, works on stable React by
   wrapping `document.startViewTransition` around App Router nav; shared elements via plain CSS

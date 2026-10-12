@@ -1434,7 +1434,7 @@ every in-service bar. The rules as built:
   pick wins (§4.2) with ONE refresh at the end; the cap moves at the tap and snaps back to the
   CONFIRMED mode on every failure (§4.4); every write is `raceTimeout(…, 15 000)` inside try/catch,
   so a refusal, a rejected Server Action and a hang all end as the failure line — never the error
-  boundary. A write the timeout gave up on is not cancelled — Next (16.2.9, read from its source)
+  boundary. A write the timeout gave up on is not cancelled — Next (16.2.9, read from its source; re-read unchanged in 16.3.8)
   sends Server Actions one at a time through the router's single queue, and a cookie write's own
   response re-renders the page — so the chain KEEPS it (review C1): when it lands and is still the
   newest write on the tab, a landing that carried the person's latest pick clears the failure line

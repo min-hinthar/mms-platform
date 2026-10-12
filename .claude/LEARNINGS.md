@@ -3929,7 +3929,8 @@ teardown deletes jsdom's globals and restores Node's own (`CustomEvent` among th
 FocusScope's unmount timer — queued by the suite's own `afterEach(cleanup)` — builds a Node event and
 jsdom's `dispatchEvent` refuses it. Don't chase the race (the flaking suite reproduced it in 0 of 70
 isolated local runs). Reproduce the mechanism deterministically instead:
-`builtinEnvironments.jsdom.setup(globalThis, {})` from `vitest/environments`, unmount, call its
+`builtinEnvironments.jsdom.setup(globalThis, {})` from `vitest/environments` (vitest 4.1 warns that path
+is deprecated: import it from `vitest/runtime`), unmount, call its
 `teardown` at once. Pin the PRECONDITION in-runner: the timer's effect has not happened by the next
 case or by `afterAll`. The fix is one drain in the shared `setupFiles` hook, BEFORE its resets: a
 restore runs caller code, and drained after them what it writes is read by the next case (the blind
@@ -4107,3 +4108,26 @@ mechanism is not recorded here. The rule: after pushing a PR's final head, read
 lists a run named `CI` (`ci.yml`) for that SHA. "Require docs/progress update", "Require Codex
 review" and "Ensure Vercel preview" start on the same push, so a listed run of any of them does not
 satisfy the rule.
+
+## #270
+
+**A Dependabot bump of a package that `pnpm-workspace.yaml` overrides changes nothing (#323,
+2026-10-12).** Dependabot raised `apps/qr`'s `next` from 16.2.9 to 16.3.8, but the workspace's
+single-version override still read `next: 16.2.9`. The override wins, so the lockfile kept 16.2.9
+(`next@16.2.9` in Dependabot's own `pnpm-lock.yaml`), and none of the advisory fixes the PR's title
+promised would have shipped. The rule: judge a dependency PR by the lockfile's resolved version, never
+the `package.json` diff, and bump an overridden package in `overrides:` as well. The same PR also
+failed every job at `pnpm install --frozen-lockfile` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`:
+pnpm 11 refuses lockfile entries younger than 24 h (29 rollup 4.64.2 entries, the run's cutoff being
+its own start minus a day). Such a PR goes green once every entry ages past the cutoff, or after a
+fresh `pnpm install` regenerates the lockfile.
+
+The same PR re-read every behaviour the code states as measured on Next 16.2.9 or vitest 4.0.17
+against the 16.3.8 / 4.1.11 sources, side by side. All of them hold: the patched `replaceState` feeding
+`useSearchParams()`, the one serialized action queue (#181 · #200 · #262, `bounded-write.ts`,
+`useLangModeWrite`), a cookie write's own re-render (P2fd), the iOS meta (M62), the stale-build hard
+navigation, and the jsdom drain's hook sequencing (#257, `test-setup.ts`). What changed was citation
+only: `server-action-reducer.js` line numbers, and the `experimental.viewTransition` flag 16.3
+removed (TransitionNav, JOURNEY_PLAN). 16.3.8 also mends the queue's tail. On 16.2.9 a navigation that
+discarded the only pending action left `last` on the discarded node, so an action dispatched next was
+linked behind it, and nothing ever started it.

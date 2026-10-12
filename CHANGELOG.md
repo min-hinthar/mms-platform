@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Next 16.3.8, vitest 4.1.11 and esbuild 0.28: Dependabot #323 made real (2026-10-12)
+
+- **Next 16.2.9 → 16.3.8** brings the advisory fixes of 16.3.6 and 16.3.8, among them
+  GHSA-vcvr-r3jv-pc5j (`next/og`) and GHSA-cjq9-62q9-8jv4 (the image optimizer). Dependabot raised
+  `apps/qr`'s `next`, but `pnpm-workspace.yaml`'s single-version override still pinned 16.2.9. The
+  lockfile kept 16.2.9, so the bump would have shipped nothing (LEARNINGS #270). The override and
+  `eslint-config-next` now read 16.3.8.
+  - Measured exposure: the app's `next/og` images are prerendered from literal JSX (no request input
+    reaches them), and on Vercel `next/image` runs through Vercel's own optimizer. Neither vulnerable
+    path was reachable in production, and the upgrade closes both.
+- **vitest 4.0.17 → 4.1.11** (the first version patched for GHSA-82fw-gwwq-j7x9). The repo imports no
+  `mockerPlugin`/`interceptorPlugin`, so the path was not exercised.
+- **esbuild ^0.27.2 → ^0.28.1** (GHSA-g7r4-m6w7-qqqr, Windows serve mode only). `build-sw.mjs`
+  imports only `build`.
+- **`agentRules: false` in next.config.** 16.3's `next dev` writes `apps/qr/AGENTS.md` and
+  `apps/qr/CLAUDE.md` whenever it detects an AI agent in the shell, and it did in an agent session.
+  The new `lib/next-config.test.ts` executes the config and pins the flag; it went red with the line
+  removed.
+- **Measured, not assumed:**
+  - The full gate (`lint typecheck build test`) and every fast-lane guard are green on 16.3.8.
+  - `check-build-stamp` is green on a cold build and on a WARM rebuild. 16.3 turns on Turbopack's build
+    filesystem cache, and the second build still inlined a fresh stamp, with no chunk keeping the old
+    one.
+  - Under vitest 4.1, `verify:slice --only=totals` caught 19/19 and `--only=m270/kds-board` 31/31
+    (jsdom), so its JSON parsing holds.
+  - The lockfile was regenerated with pnpm 11.7 under its 24 h release-age policy. Dependabot's head
+    had failed install on it: on 10-08, 29 rollup entries were less than a day old.
+- **Every behaviour the code states as measured on Next 16.2.9 or vitest 4.0.17 was re-read against
+  the new sources, side by side, and holds.** The citations change where 16.3 moved them:
+  `bounded-write.ts`'s reducer line numbers, and the `experimental.viewTransition` flag 16.3 removed
+  (TransitionNav, JOURNEY_PLAN). The version notes in AccountHub, AccountUpgrade, oauthCallbackStore,
+  useLangModeWrite, test-setup, DESIGN-LANGUAGE, HANDOFF, OPEN-ITEMS (P2ey · P2fd · P2fe · M62) and
+  LEARNINGS #257 say so. 16.3.8 also mends the action queue's tail after a navigation discards the
+  pending action: on 16.2.9 the next action could be linked behind the discarded node and never start
+  (LEARNINGS #270).
+- **Follow-ups that break nothing go to OPEN-ITEMS T56:**
+  - the 15 `no-location-assign-relative-destination` warnings;
+  - the instrumentation comment that still calls the proxy Edge;
+  - preview checks for the router defaults 16.3 flipped.
+
 ### The path-design wave's handoff (2026-10-11, docs only)
 
 - **The wave's retrospective is measured** (`docs/RETRO_PATH_DESIGN_WAVE_2026-10-11.md`). Read-only measurers pulled GitHub, Actions, git replays and the prod signals; three designers proposed changes and an adversarial critic sequenced them. It holds the baselines the next wave must beat, the next ten PRs, the feedback → issues → fixes loop and the owner decisions it waits on.

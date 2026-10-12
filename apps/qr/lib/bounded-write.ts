@@ -4,8 +4,9 @@
  * a component, a hook and a plain lib module (`staff-outage.ts`'s `raceTimeout`, `poll-gate.ts`) all
  * read ONE clock and ONE ledger.
  *
- * WHY A SECOND PRIMITIVE BESIDE `raceTimeout`. Three facts, measured in Chromium against Next 16.2.9
- * (LEARNINGS #200; the probe is in the Phase 2g CHANGELOG entry):
+ * WHY A SECOND PRIMITIVE BESIDE `raceTimeout`. Three facts, measured in Chromium against Next
+ * 16.2.9 (LEARNINGS #200; the probe is in the Phase 2g CHANGELOG entry; the source path re-read
+ * unchanged in 16.3.8):
  *  1. Next runs Server Actions ONE AT A TIME per tab. A queued action is not even SENT until the one
  *     ahead of it settles, and the action fetch takes no signal and has no timeout.
  *  2. A `raceTimeout` frees the CALLER at the bound — never the action. The raw promise stays in the
@@ -57,9 +58,9 @@ export function settleLate<T>(raw: Promise<T>): Promise<Late<T>> {
  * for it agree about one moment instead of disagreeing for a millisecond.
  *
  * ⚠️ An `answer` does NOT prove the queue is free: the action's revalidation navigate can still be
- * running after the caller has its value (server-action-reducer.js:237 → 293/301; the P2fc critic,
- * adjustment 9). That is why the ledger tracks the RAW promise, and why a caller never reads
- * "answered" as "the tablet is clear" — it reads `stalledSince`.
+ * running after the caller has its value (server-action-reducer.js:237 → 293/301 on 16.2.9, :263 →
+ * 320/330 on 16.3.8; the P2fc critic, adjustment 9). That is why the ledger tracks the RAW promise,
+ * and why a caller never reads "answered" as "the tablet is clear" — it reads `stalledSince`.
  *
  * ⚠️ Hand it the RAW action promise, never a raced one: `boundWrite(raceTimeout(x))` loses to the
  * race's own timer — at 15s the race REJECTS, so the caller reads `threw` ("couldn't confirm") where

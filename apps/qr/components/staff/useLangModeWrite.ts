@@ -67,7 +67,7 @@ export type LangModeWrite = {
  * modal for fifteen seconds. The host owns the hook, so closing the sheet never cancels the write.
  *
  * A WRITE THE TIMEOUT GAVE UP ON CAN STILL LAND (review C1), and the chain answers it when it does.
- * Measured in the installed Next (16.2.9), not inferred:
+ * Measured in the installed Next (16.2.9; re-read unchanged in 16.3.8), not inferred:
  *   · a Server Action cannot be cancelled, and Next sends them ONE AT A TIME, in order — every call
  *     goes through the router's single action queue (`next/dist/client/app-call-server.js` →
  *     `dispatchAction` in `next/dist/client/components/app-router-instance.js`, which appends any
@@ -177,9 +177,10 @@ export function useLangModeWrite({
     setBusy(false);
     setPick(out.cap);
     setAlert(out.alert);
-    // The cookie is httpOnly: the new mode arrives only by re-rendering on the server. On Next 16.2.9
-    // the action's own response already carries that render (see the docblock), so this refresh is
-    // a second one — kept as the chain's single, testable "the page re-reads now" signal.
+    // The cookie is httpOnly: the new mode arrives only by re-rendering on the server. On Next
+    // 16.2.9/16.3.8 the action's own response already carries that render (see the docblock), so
+    // this refresh is a second one — kept as the chain's single, testable "the page re-reads now"
+    // signal.
     if (out.refresh) router.refresh();
     onSettled?.({ wrote, alert: out.alert, confirmed: confirmed.current });
   }
