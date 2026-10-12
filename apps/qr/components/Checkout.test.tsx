@@ -3847,9 +3847,10 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
    * Before F20 every promo refusal was a sentence in the review step's one region, below the tip
    * and the totals, with nothing tying it to the box. A refusal of the CODE (lib/promo-field.ts) is
    * now drawn under the box, which is `aria-invalid` and described by it, and it is said ONCE: focus
-   * moves to the box when Apply was pressed (the description speaks; the region stays quiet), and
-   * the region speaks it — hidden — when focus was already in the box (Enter). A refusal about the
-   * ORDER stays the region's, drawn, with the box left alone.
+   * moves to the box when Apply was pressed from the KEYBOARD (the description speaks; the region
+   * stays quiet), and the region speaks it — hidden — otherwise: Enter in the box (focus is already
+   * there) and a TAP on Apply (focus in the box would hide the docked door, PD2, with no keyboard to
+   * make room for). A refusal about the ORDER stays the region's, drawn, with the box left alone.
    */
   // The served Bill at a table (PD2's fixture): the promo form is on screen there.
   const FIRED: CartItem = { ...ITEM, lineState: "fired" };
@@ -3865,20 +3866,29 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
   const box = () => screen.getByRole("textbox", { name: /promo/i }) as HTMLInputElement;
   const described = (el: HTMLElement) =>
     document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  async function apply(code: string, via: "button" | "enter") {
+  /** `keyboard` — Apply focused the keyboard way; `tap` — Apply focused by a pointer; `enter` —
+   *  Enter in the box. jsdom has no input-modality heuristic (it answers `:focus-visible` like
+   *  `:focus`), so the button answers the pseudo-class the way the browser would for each. */
+  async function apply(code: string, via: "keyboard" | "tap" | "enter") {
     fireEvent.change(box(), { target: { value: code } });
     const btn = screen.getByRole("button", { name: /^Apply/ });
+    if (via !== "enter") {
+      const real = Element.prototype.matches;
+      vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+        return sel === ":focus-visible" ? via === "keyboard" : real.call(this, sel);
+      });
+    }
     await act(async () => {
-      (via === "button" ? btn : box()).focus();
+      (via === "enter" ? box() : btn).focus();
       fireEvent.submit(btn.closest("form")!);
     });
     await settle();
   }
 
-  it("Apply pressed: the refusal is drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
+  it("Apply pressed from the keyboard: drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
     vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
     bill();
-    await apply("NOPE", "button");
+    await apply("NOPE", "keyboard");
     // MUTATION uia11y/f20-promo-refusal-off-the-box: red.
     await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
     expect(described(box())).toBe("That code isn’t valid.");
@@ -3887,6 +3897,21 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     // MUTATION uia11y/f20-promo-region-repeats-the-box: red.
     expect(regionText()).not.toContain("That code isn’t valid.");
     expect(screen.getAllByText("That code isn’t valid.")).toHaveLength(1);
+  });
+
+  it("a TAP on Apply: drawn under the box, focus left where it was (the docked door stays), the region says it hidden", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-tap-steals-focus: a pointer Apply moved focus into the box, and the
+    // Bill's ONE docked door hid with no keyboard to make room for; red.
+    expect(document.activeElement).not.toBe(box());
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code isn’t valid.");
   });
 
   it("Enter in the box: focus stays, and the region SAYS it once — hidden, since the box already shows it", async () => {
@@ -3906,7 +3931,7 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
   it("a refusal about the ORDER stays the region's, drawn, and leaves the box alone", async () => {
     vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "locked" });
     bill();
-    await apply("SAVE10", "button");
+    await apply("SAVE10", "tap");
     await waitFor(() => expect(regionText()).toContain("Someone’s checking out"));
     expect(box().getAttribute("aria-invalid")).toBeNull();
     expect(described(box())).toBe("");
@@ -3915,12 +3940,12 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
   it("retyping clears the refusal; an applied code is said in the region with the box valid", async () => {
     vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: false, reason: "invalid" });
     bill();
-    await apply("NOPE", "button");
+    await apply("NOPE", "tap");
     await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
     fireEvent.change(box(), { target: { value: "SAVE10" } });
     expect(box().getAttribute("aria-invalid")).toBeNull();
     vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: true, discountCents: 100 });
-    await apply("SAVE10", "button");
+    await apply("SAVE10", "tap");
     await waitFor(() => expect(regionText()).toContain("Promo applied."));
     expect(box().getAttribute("aria-invalid")).toBeNull();
   });

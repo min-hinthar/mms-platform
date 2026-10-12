@@ -26,7 +26,16 @@ import {
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, EmptyState, Field, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
+import {
+  Avatar,
+  EmptyState,
+  Field,
+  Icon,
+  matchesFocusVisible,
+  NumberFlow,
+  Stepper,
+  useSheetSubject,
+} from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -558,11 +567,14 @@ export function Checkout({
   }, []);
   /**
    * F20 — a refusal of the CODE (lib/promo-field.ts says which), drawn under the promo box by the
-   * `@mms/ui` Field and tied to it (`aria-describedby`, `aria-invalid`). It is said ONCE: when the
-   * Apply came from the button, focus moves to the box and its description speaks (the region stays
-   * quiet); when focus was already in the box (Enter), moving it says nothing, so the view's one
-   * region speaks it — visually hidden, since the words are already under the box. The voice is
-   * decided at the submit, in the handler. Cleared by retyping the code or by the next Apply.
+   * `@mms/ui` Field and tied to it (`aria-describedby`, `aria-invalid`). It is said ONCE: when Apply
+   * was pressed from the KEYBOARD (`:focus-visible` on it), focus moves to the box and its
+   * description speaks (the region stays quiet); otherwise the view's one region speaks it —
+   * visually hidden, since the words are already under the box. That covers Enter in the box (focus
+   * is already there) and a TAP on Apply: focus in this box hides the docked door (PD2's
+   * `promoFocused`), and a tap's programmatic focus raises no keyboard to make room for, so the
+   * door would vanish for nothing. The voice is decided at the submit, in the handler. Cleared by
+   * retyping the code or by the next Apply.
    */
   const [promoRefusal, setPromoRefusal] = useState<{
     text: string;
@@ -2269,7 +2281,11 @@ export function Checkout({
     // submits the form directly. The refusal has to live here, or the "disabled" promo control would
     // still fire a write the server rejects — the exact silent-refusal this slice exists to retire.
     if (editsFrozen) return;
-    const voice = document.activeElement === promoEl.current ? "region" : "focus";
+    const at = document.activeElement;
+    const voice =
+      at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)
+        ? "focus"
+        : "region";
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result

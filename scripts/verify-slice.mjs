@@ -6099,6 +6099,14 @@ const MUTANTS = [
     replace: "                {false && promoRefusal !== null && (",
   },
   {
+    id: "uia11y/f20-promo-tap-steals-focus",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — only a KEYBOARD Apply moves focus into the promo box; a tap's programmatic focus raises no keyboard, yet focus in this box hides the Bill's one docked door (PD2), so the door vanished for nothing",
+    find: "      at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)",
+    replace: "      at instanceof HTMLElement && at !== promoEl.current",
+  },
+  {
     id: "oauth-store/attempt-marker-reports-success-it-did-not-have",
     file: "apps/qr/lib/oauthCallbackStore.ts",
     suite: "lib/oauthCallbackStore.test.tsx",
