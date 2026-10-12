@@ -2800,6 +2800,23 @@ const MUTANTS = [
     find: '  siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);',
     replace: "  siblingQuery = siblingQuery;",
   },
+  // ── T25 · M188 — the sibling read that picks MERGE or FRESH LINE ──────────────────────────────
+  {
+    id: "order-lines/comped-sibling-swallows-an-add",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-sibling.test.ts",
+    why: 'T25 (Codex round 2 on #250) — `mms_cart_item_inc_qty` skips comped rows and still answers success on an open cart, so an add that matched the diner\'s own comped draft line was a successful no-op: no line grew, no error, and the optimistic "Added to your order" stood over a dish that was never added. Without the predicate the read hands the bump exactly that row',
+    find: '    .eq("comped", false)\n',
+    replace: "",
+  },
+  {
+    id: "order-lines/sibling-read-error-inserts-a-twin",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-sibling.test.ts",
+    why: 'M188 — an unbound read error made `siblings` null, `dup` undefined, and the INSERT branch ran: a second line for the same item. The Browse grid keys a card by barcode and shows one of the two, so the shopper tapped −, was told "Removed", and was still charged for the twin. An unreadable merge target is an outage; nothing may be written on it',
+    find: "  if (siblingsErr) throw new ItemUnreadableError(line.menuItemId);",
+    replace: "  if (false) throw new ItemUnreadableError(line.menuItemId);",
+  },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {
     id: "refund-view/partial-reads-as-paid-in-full",
@@ -4453,6 +4470,41 @@ const MUTANTS = [
     why: "M119 (d) — and NOT merely a wrong sentence. `unknown_barcode` sits in grocery-queue.ts's REJECT_REASONS, so the offline queue treats it as definitive: dequeue, tell the shopper, never retry. An unreadable catalog read answering `unknown_barcode` therefore PERMANENTLY DISCARDS a queued scan during a reconnect drain — while the queue's own fall-through comment names `unreadable` as the retry bucket for exactly this case",
     find: "  if (itemError) {",
     replace: "  if (false) {",
+  },
+  // ── M187 · M189 — what the market basket shows, and which carts may hold it ─────────────────
+  {
+    id: "grocery/comped-line-shown-in-the-basket",
+    file: "apps/qr/lib/grocery.ts",
+    suite: "lib/grocery-lines.test.ts",
+    why: "M187 — the page, the checkout CTA's name and the kiosk sum `unitPriceCents * qty` over these lines, and `computeTotals` bills `state <> voided AND NOT comped`. Filtering only `voided` kept a line staff comped in the basket at full price, so the figure on the phone read higher than the card would be charged, by exactly that line",
+    find: '    .neq("state", "voided")\n    .eq("comped", false)\n',
+    replace: '    .neq("state", "voided")\n',
+  },
+  {
+    id: "grocery/market-line-on-a-dine-in-cart",
+    file: "apps/qr/lib/grocery.ts",
+    suite: "lib/grocery-scan.test.ts",
+    why: "M189 (owner ruling 2026-10-07: market items only on scan-and-go carts) — `scanAdd` is directly POST-able and never read `mode`, so grocery lines landed in a dine-in cart, where the split weights them and create-share-intent tips on them with no grocery term while single-pay forces a grocery-only tip to zero: one cart, two tip rules (the M100 shape)",
+    find: '  if (mode !== "scango") return { ok: false as const, reason: "unreadable" as const };',
+    replace: '  if (false) return { ok: false as const, reason: "unreadable" as const };',
+  },
+  {
+    id: "grocery/market-gate-only-refuses-dine-in",
+    file: "apps/qr/lib/grocery.ts",
+    suite: "lib/grocery-scan.test.ts",
+    why: "M189 — the ruling names TWO carts a market line never goes on: a dine-in order AND a plain online to-go one. A gate written as a deny-list of dine-in admits every pickup cart (and any mode it has never heard of); only the one named mode may pass",
+    find: '  if (mode !== "scango") return { ok: false as const, reason: "unreadable" as const };',
+    replace:
+      '  if (mode === "dinein") return { ok: false as const, reason: "unreadable" as const };',
+  },
+  {
+    id: "grocery/market-refusal-reads-as-a-catalog-verdict",
+    file: "apps/qr/lib/grocery.ts",
+    suite: "lib/grocery-scan.test.ts",
+    why: "M189 — the refusal's REASON is load-bearing: `unknown_barcode` is in grocery-queue's REJECT_REASONS, so the offline queue would discard the scan for good and the page would tell the shopper a real product is not in the app. The cart-level answer a non-member gets (`unreadable`, Retry only) is the one that claims nothing",
+    find: '  if (mode !== "scango") return { ok: false as const, reason: "unreadable" as const };',
+    replace:
+      '  if (mode !== "scango") return { ok: false as const, reason: "unknown_barcode" as const };',
   },
   {
     id: "reorder/unverified-availability-reads-an-empty-map",

@@ -221,6 +221,12 @@ export async function insertOrIncLine(
     .eq("menu_item_id", line.menuItemId)
     .eq("fulfillment", line.fulfillment) // S4: a for-here add must NOT merge into a to-go line (different routing/tax)
     .eq("state", "draft")
+    // T25 (Codex round 2 on #250): a COMPED line is never a merge target. `mms_cart_item_inc_qty`
+    // skips comped rows (`not ci.comped` — a comp is immutable to everyone, S2-audit B1) and still
+    // answers success on an open cart, so matching one made the add a silent no-op: nothing grew,
+    // nothing failed, and the optimistic "Added to your order" stood. Excluded here, the add inserts
+    // a fresh line — what the diner asked for. `eq`, not `is`: the column is `not null default false`.
+    .eq("comped", false)
     // W3b: a NOTED line never merges, in either direction — folding "no peanuts" into a plain sibling
     // (or a plain add into a noted line) would silently apply/erase an allergy instruction on units the
     // diner didn't annotate. Notes are per-line by construction: noted adds always insert fresh, and
@@ -274,10 +280,22 @@ export async function insertOrIncLine(
   // price they were quoted" — still holds exactly. The diner simply sees two lines, which the cart,
   // the split and the totals all sum per line already.
   siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);
-  const { data: siblings } = await siblingQuery;
+  const { data: siblings, error: siblingsErr } = await siblingQuery;
+  // M188 — an unreadable merge target is an OUTAGE, never "no sibling". Unbound, a failed read made
+  // `siblings` null and fell through to the INSERT: a second line for the same item. On /grocery the
+  // Browse card keys by barcode and shows one of the two, so the shopper tapped −, was told
+  // "Removed", and was still charged for the twin. Nothing has been written at this point, so it
+  // throws the read-failure type `priceItem` already uses for the same fact: the reorder loop skips
+  // the line as `unreadable` (not "tap to choose"), `scanAdd` re-derives the cart's state and keeps
+  // the transport path (Retry), and the staff pad's write phase reads it `unconfirmed` — over-careful,
+  // never a false "nothing landed".
+  if (siblingsErr) throw new ItemUnreadableError(line.menuItemId);
   const dup = line.notes
     ? undefined
     : (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
+  // ⚠️ A comp that lands BETWEEN this read and the bump below still makes the bump a silent no-op
+  // (the RPC answers success on a comped draft). Closing that window needs the RPC to report the
+  // delta it applied (OPEN-ITEMS T27) — a signature change and a migration, not a predicate here.
   if (dup) {
     // ATOMIC `qty = least(qty + p_by, 99)` requiring status='open' and qty<99 (can't lose an increment,
     // can't bump a paid line, can't inflate the Stripe amount). RAISES on a closed cart or an out-of-range

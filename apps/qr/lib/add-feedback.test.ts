@@ -63,7 +63,7 @@ describe("createRevertCue — only a DEFINITE non-landing is drawn as one", () =
     expect(createRevertCue({ state: "refused", lineVisible: false })).toBe(true);
   });
 
-  it("cues an applied write whose current view shows no own line (the T25 no-op)", () => {
+  it("cues an applied write whose current view shows no own line (a comp racing the bump)", () => {
     expect(createRevertCue({ state: "applied", lineVisible: false })).toBe(true);
   });
 

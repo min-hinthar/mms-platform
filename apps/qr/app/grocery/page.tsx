@@ -1875,7 +1875,9 @@ export default function Grocery() {
       {tab === "scan" && lines.length > 0 && (
         <div className="grocery-total mms-rise" aria-hidden>
           {/* Phase 1c — the honest-label half of M187: this is Σ unit × qty, PRE-TAX (the retail
-              non-food SKUs are taxed at checkout). Only the words change; the figure is the same. */}
+              non-food SKUs are taxed at checkout). Only the words change; the figure is the same.
+              The lines exclude comped ones (`readGroceryLines`, M187), so this is the charge
+              authority's own subtotal (`computeTotals`). */}
           <span className="grocery-total-label">Subtotal · before tax</span>
           <span className="grocery-total-figure">
             <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
