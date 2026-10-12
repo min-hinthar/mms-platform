@@ -17,12 +17,7 @@ import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
-import {
-  counterTakesCard,
-  counterUnsentTapCopy,
-  sameAsk,
-  splitBoardShown,
-} from "@/lib/counter-pay-state";
+import { counterTakesCard, sameAsk, splitBoardShown } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -139,7 +134,9 @@ import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-h
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
 import {
   billDoorLabel,
+  counterDoorBlock,
   counterHoldCopy,
+  counterRestLine,
   orderStageHero,
   payBlock,
   payBlockCopy,
@@ -149,13 +146,7 @@ import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
-import {
-  alreadyNudgedCopy,
-  hostSendsCopy,
-  nudgeCopy,
-  staffCanSendCopy,
-  TABLE_STARTER,
-} from "@/lib/confirm-copy";
+import { alreadyNudgedCopy, hostSendsCopy, nudgeCopy, staffCanSendCopy } from "@/lib/confirm-copy";
 import {
   chosenName,
   HOST_NAME_ASK,
@@ -3129,12 +3120,11 @@ export function Checkout({
     graceOpen,
     undoInFlight: grace.pending,
   });
-  // PD10 · D5 — THE COUNTER IS NEVER GATED BY SERVED: the docked counter door's own hold is the same
-  // precedence with the kitchen taken out (a tablemate's lock, the Send still owed, the undo window).
-  const counterBlock = payBlock({
+  // PD10 · D5 — THE COUNTER IS NEVER GATED BY SERVED, and since PD2's lift (m2 decision 12, after
+  // P2do) never by the Send still owed either — the ask CARRIES unsent dishes to the counter. Its own
+  // hold is a tablemate's lock or this device's undo window (`counterDoorBlock`, lib's).
+  const counterBlock = counterDoorBlock({
     frozenByPeer: payFrozen,
-    unsentBlocks: sendBlocksPay,
-    servedHold: null,
     graceOpen,
     undoInFlight: grace.pending,
   });
@@ -3366,8 +3356,8 @@ export function Checkout({
       ? { en: blockCopy, my: block === "grace" ? t("my", "payOpensAfterUndo") : null }
       : { en: "Ready to pay.", my: null };
   // The counter's OWN held reason (never the kitchen's — D5), drawn and described on the dock (the
-  // capped blind pass on #346, C3): the register mid-settle, the Send still owed (the host is told to
-  // send, a guest who does), a tablemate's lock, the undo window — `counterHoldCopy`, lib's.
+  // capped blind pass on #346, C3): the register mid-settle, a tablemate's lock, the undo window —
+  // `counterHoldCopy`, lib's. Never the Send still owed: the ask carries those dishes (PD2's lift).
   const counterReason: { en: string; my: string | null } | null = settling
     ? { en: T("registerSettling"), my: t("my", "registerSettling") }
     : counterBlock
@@ -4012,9 +4002,9 @@ export function Checkout({
                 မပို့ရသေး") while each waiting dish wears its own ring: the state is said once per
                 fact, never twice on one screen. The NEXT STEP is said once, in the dock's one line
                 slot (the door's held reason). What stays here is the HOST's quiet way back to the
-                Send (m10 STATES, "Unsent dishes": "← Back to send them"); a guest cannot send, and
-                the slot tells them who does. The ask over unsent dishes stays refused until
-                counter-floor's P2do lands (PD2 decision 12). */}
+                Send (m10 STATES, "Unsent dishes": "← Back to send them"). A guest cannot send; the
+                dock's line tells everyone the counter will check the dishes with the table — the ask
+                over unsent dishes is LIVE since counter-floor's P2do shipped (PD2 decision 12). */}
             {billMounted && canSendToKitchen && kitchenDraftQty > 0 && (
               <p className="checkout-unsent-mark">
                 <button type="button" className="nav-link" onClick={backToOrder}>
@@ -5012,38 +5002,39 @@ export function Checkout({
 
             {/* PD2 (m2 screen 1, appendix A1 · B1) — THE ONE DOOR, docked in the CartBar's own
                 slot, with the Bill's one line slot directly above it: at rest "The counter takes
-                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason —
-                dishes still to send, the send's undo window, or the register mid-settle — never
-                both. Held states are `aria-disabled` with the reason as the description, and every
-                blocked tap re-says it through the view's one region. No amount on the door: it
-                charges nothing, and the total sits on the slip above. */}
+                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason — the
+                send's undo window, a tablemate's lock, or the register mid-settle — never both.
+                Dishes nobody has sent no longer hold it (m2 STATES "Unsent dishes", decision 12 —
+                lifted once counter-floor's P2do shipped): the door stays LIVE for host, guest and
+                hostless table alike, the ask carries them, and the line says what the counter does
+                with them. Held states are `aria-disabled` with the reason as the description, and
+                every blocked tap re-says it through the view's one region. No amount on the door:
+                it charges nothing, and the total sits on the slip above. */}
             {dockShown && (
               <PayAtCounterDock
-                lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
-                // The COUNTER door's own hold (`counterBlock`): parked, the served gate is null, so
-                // this is the same precedence it always was — and never the kitchen (D5).
+                line={counterRestLine({
+                  unsentDishes: kitchenDraftQty > 0,
+                  takesCard: counterCard,
+                })}
+                // The COUNTER door's own hold (`counterDoorBlock`): never the kitchen (D5), never the
+                // Send still owed (PD2's lift). The undo window speaks the parked Bill's own
+                // bilingual line (there is no Pay here for "Pay opens…" to be confused with); any
+                // other hold is said in the counter's words (`counterHoldCopy`), never silently live.
                 reason={
                   settling
                     ? { en: T("registerSettling"), my: t("my", "registerSettling") }
-                    : counterBlock === "unsent"
-                      ? {
-                          en: counterUnsentTapCopy(
-                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
-                          ),
-                          my: null,
-                        }
-                      : counterBlock === "grace"
-                        ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
-                        : counterBlock === "peer"
-                          ? {
-                              en: payBlockCopy("peer", {
-                                lockedByName,
-                                canSend: canSendToKitchen,
-                                hostName,
-                              }),
-                              my: null,
-                            }
-                          : null
+                    : counterBlock === "grace"
+                      ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
+                      : counterBlock
+                        ? {
+                            en: counterHoldCopy(counterBlock, {
+                              lockedByName,
+                              canSend: canSendToKitchen,
+                              hostName,
+                            }),
+                            my: null,
+                          }
+                        : null
                 }
                 busy={counterBusy}
                 hidden={promoFocused}

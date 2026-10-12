@@ -1565,7 +1565,7 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
 });
 
 // ── Phase 2c · gate ──
-describe("the Bill's other door — Pay at the counter keeps the 'Everything sent' rule", () => {
+describe("the Bill's other door — Pay at the counter CARRIES unsent dishes (PD2's lift); Pay keeps 'Everything sent'", () => {
   const HOST = {
     mode: "dinein",
     mySeat: MY_SEAT,
@@ -1575,46 +1575,31 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     sessionId: SESSION_ID,
   };
 
-  it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
+  it("while a dish is unsent, Pay is held with its reason — and the counter stays LIVE: the ask carries the dish", async () => {
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    // MUTATION (checkout/unsent-counter-door-open): gate the button on the freeze alone — the family
-    // is sent to the register over dishes nobody is cooking, a door the Pay button keeps shut; red.
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
-    expect(counter.hasAttribute("disabled")).toBe(false);
-    // The diner sees why while this button is the visible action: the dock's one line slot
-    // (PD10 — the served-gated Bill's dock; the unsent reason is D5's).
+    // Pay keeps its rule: the dock's one line slot is Pay's unsent reason (D5's words).
     expect(document.getElementById("pay-line")?.textContent).toBe(
       "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
-    // …and the COUNTER says its OWN reason, tied to it (the capped blind pass on #346, C3): Pay's
-    // line ends "Pay opens once everything’s served.", which is never the counter's (D5).
-    // MUTATION (pay-dock/counter-reason-not-drawn): the counter's own line never drawn — the held
-    // counter's description points at nothing, and Pay's served line reads as the counter's; red.
-    // MUTATION (pay-dock/counter-described-by-nothing): the held counter carries no description; red.
-    const counterReason = counter.getAttribute("aria-describedby");
-    expect(counterReason).toBe("pay-counter-line");
-    expect(document.getElementById(counterReason!)?.textContent).toBe(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
-    expect(screen.getByRole("button", { name: /^Pay · / }).getAttribute("aria-describedby")).toBe(
+    expect(screen.getByRole("button", { name: /^Pay · /i }).getAttribute("aria-describedby")).toBe(
       "pay-line",
     );
+    // The counter does not: m2 decision 12, lifted once counter-floor's P2do shipped (#334).
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    // MUTATION (pdrem/checkout-counter-held-over-unsent): the counter's hold wired back to Phase 2c's
+    // `payBlock` with the unsent rule — the door is shut over a dish the ask would carry; red.
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    expect(counter.getAttribute("aria-describedby")).toBeNull();
+    expect(document.getElementById("pay-counter-line")).toBeNull();
     await act(async () => {
       fireEvent.click(counter);
     });
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // MUTATION (checkout/unsent-counter-tap-silent): the dimmed counter's tap says nothing — the
-    // diner taps a button that does nothing and reads nothing new; red.
-    expect(document.body.textContent).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("then pay at the counter");
   });
 
-  it("a GUEST's tap on the dimmed counter button says who sends — never tells them to send", async () => {
-    // Critic finding: the refusal told a guest to "Send everything to the kitchen" — only the host
-    // can; the note above already names the host.
+  it("a GUEST's counter is live over the host's unsent dishes too — Pay says who sends, nobody is told to send", async () => {
     mount({
       splitContext: {
         ...HOST,
@@ -1627,27 +1612,16 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
     expect(document.getElementById("pay-line")?.textContent).toBe(
       "Aye sends them — Pay opens once everything’s served.",
     );
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
       fireEvent.click(counter);
     });
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // The PD10 dock's counter says who sends (`counterHoldCopy`; its mutant
-    // `checkout/dock-counter-guest-told-to-send` is owned by lib/checkout-verb.test.ts). The parked
-    // dock's twin is `checkout/unsent-counter-guest-told-to-send`, pinned in the PD2 describe.
-    expect(document.getElementById("pay-counter-line")?.textContent).toBe(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
-    expect(document.body.textContent).toContain(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
-    expect(document.body.textContent).not.toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("Send everything to the kitchen first — then");
   });
 
   it("a fully sent table may still ask for the counter", async () => {
@@ -2227,14 +2201,31 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     };
   }
 
+  // PD2's lift: an unsent dish no longer holds the counter, so these pin the re-say on the hold that
+  // still does — a tablemate's payment in flight (the same freeze refuses the ask on the server).
+  const TABLE = {
+    ...HOST,
+    members: [
+      { seat: MY_SEAT, name: "Me", role: "host" as const },
+      { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+    ],
+  };
+  const LOCKED_BY_TIN = { initialLocked: true, initialLockedBy: PEER_SEAT };
+
   it("a SECOND tap on the dimmed 'Pay at the counter' changes the region again — the same sentence is said twice", async () => {
-    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
-    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    mount({
+      splitContext: TABLE,
+      initialItems: [{ ...ITEM, lineState: "fired" }],
+      ...LOCKED_BY_TIN,
+    });
     const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    const said = "Send everything to the kitchen first — then pay at the counter.";
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const said = "Waiting for Tin to finish";
     await act(async () => {
       fireEvent.click(counter);
     });
+    // MUTATION (checkout/unsent-counter-tap-silent): the dock counter's refused tap says nothing —
+    // no region carries the reason to watch; red.
     const w = watchRegion(said);
     await act(async () => {
       fireEvent.click(counter);
@@ -2248,14 +2239,16 @@ describe("a refused tap re-says its reason on every tap (review open question)",
   });
 
   it("a refused tap is never masked by a standing pay error — it clears it, as every handler does", async () => {
-    // A failed counter ask leaves a pay error in the region; then a guest's dish lands unsent.
-    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    // A failed counter ask leaves a pay error in the region; then a tablemate's payment lands.
+    mount({ splitContext: TABLE, initialItems: [{ ...ITEM, lineState: "fired" }] });
     h.requestCounterPay.mockRejectedValueOnce(new Error("fetch failed"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
     });
     expect(regionText()).toContain("Couldn’t reach the counter just now");
-    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "draft" }] }));
+    h.getCartView.mockResolvedValue(
+      view({ items: [{ ...ITEM, lineState: "fired" }], locked: true, lockedBy: PEER_SEAT }),
+    );
     await syncFromServer();
     const counter = screen.getByRole("button", { name: /Pay at the counter/i });
     expect(counter.getAttribute("aria-disabled")).toBe("true");
@@ -2264,9 +2257,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     });
     // MUTATION (p2c-reg2/checkout-refusal-under-a-pay-error): keep the pay error — the region
     // renders `payError ?? status`, so the tap's reason is hidden behind a stale failure; red.
-    expect(regionText()).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(regionText()).toContain("Waiting for Tin to finish");
     expect(regionText()).not.toContain("Couldn’t reach the counter just now");
   });
 
@@ -2539,40 +2530,78 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(screen.getByText("Total")).toBeTruthy();
   });
 
-  it("a dish still to send HOLDS the door with the reason in the slot, never a count — and the host's tap re-says it", async () => {
+  it("a dish still to send: the door stays LIVE, the slot says the counter checks them with the table — never a count — and the ask carries them", async () => {
+    // m2 STATES "Unsent dishes" (decision 12), lifted once counter-floor's P2do shipped (#334).
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, qty: 2 }, FIRED] });
     await press("Total · $12.00 — View bill");
     const door = screen.getByRole("button", { name: /^Pay at the counter/ });
-    expect(door.getAttribute("aria-disabled")).toBe("true");
-    expect(door.hasAttribute("disabled")).toBe(false);
-    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
-    expect(dockLine()).toContain("Send everything to the kitchen first — then pay at the counter.");
-    // PD10 — the mark is the PASS's head now (the roll-up's hollow ring and the console's two
-    // words), said once for the table; the waiting dish wears its own ring. No number
-    // (DESIGN-LANGUAGE §21).
+    // MUTATION (pdrem/checkout-counter-held-over-unsent): the old hold wired back — the door is
+    // dimmed over a dish the ask would carry; red.
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+    expect(door.getAttribute("aria-describedby")).toBeNull();
+    // MUTATION (pdrem/checkout-dock-line-ignores-unsent): the dishes not handed to the line — it says
+    // only the tender, and nobody is told the counter checks the unsent dishes; red.
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+    // PD10 — the mark is the PASS's head (the roll-up's hollow ring and the console's two words),
+    // said once for the table; the waiting dish wears its own ring. No number (DESIGN-LANGUAGE §21).
     const head = document.querySelector(".ui-pass-status .ui-track")!;
     expect(head.getAttribute("data-stage")).toBe("unsent");
     expect(head.textContent).toContain("Not sent yet");
     expect(document.body.textContent).not.toMatch(/\d+ items? (haven’t|not sent)/);
+    // The host keeps the quiet way back to the Send.
     expect(screen.getByRole("button", { name: /Back to send them/ })).toBeTruthy();
     await press(/^Pay at the counter/);
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    await settle();
-    expect(regionText()).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
   });
 
-  it("a GUEST's held door names who sends (checkout/unsent-counter-guest-told-to-send)", async () => {
+  it("a GUEST's door over the host's unsent dishes is live with the same line — and no way back to a Send they do not have", async () => {
     mount({ splitContext: GUEST, initialItems: [ITEM, FIRED] });
     // A guest with drafts WAITS (PD1 — "Show a server" is the hero): the Total door is the quiet one.
     await press("Total · $12.00 — View bill");
-    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
-    // a guest is told to send dishes only Aye can; red.
-    expect(dockLine()).toContain(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+    expect(document.body.textContent).not.toContain("sends everything to the kitchen first");
     expect(screen.queryByRole("button", { name: /Back to send them/ })).toBeNull();
+    await press(/^Pay at the counter/);
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+  });
+
+  it("a HOSTLESS table's unsent dishes read the same — the console sends them before the register takes the cash", async () => {
+    mount({
+      splitContext: { ...GUEST, members: [{ seat: MY_SEAT, name: "Me", role: "guest" as const }] },
+      initialItems: [ITEM, FIRED],
+    });
+    await press(/View bill/);
+    expect(
+      screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+  });
+
+  it("everything sent, the line is the register's tender again", async () => {
+    mount({ splitContext: GUEST, initialItems: [FIRED] });
+    expect(dockLine()).toContain("The counter takes cash.");
+  });
+
+  it("a tablemate's payment still HOLDS the door — said in the counter's words, and every tap re-says it", async () => {
+    mount({
+      splitContext: GUEST,
+      initialItems: [FIRED],
+      initialLocked: true,
+      initialLockedBy: PEER_SEAT,
+    });
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    // MUTATION (pdrem/checkout-parked-hold-said-silently): only the undo window holds the parked
+    // door — a family is sent to the register while Aye's card is mid-payment, the double-collect
+    // the lock exists to stop (the server refuses it as `paying`); red.
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
+    expect(dockLine()).toBe("Waiting for Aye to finish");
+    await press(/^Pay at the counter/);
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    await settle();
+    expect(regionText()).toContain("Waiting for Aye to finish");
   });
 
   it("the Order stage's door reads 'View bill', never '& pay', while phone pay is parked (checkout/door-ignores-the-parked-door)", async () => {

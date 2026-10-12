@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { TABLE_STARTER } from "./confirm-copy";
+import { t } from "./i18n";
 import {
   billDoorLabel,
   COUNTER_AFTER_UNDO,
+  counterDoorBlock,
   counterHoldCopy,
+  counterRestLine,
   orderStageHero,
   payBlock,
   payBlockCopy,
@@ -273,18 +276,13 @@ describe("counterHoldCopy — the dock counter says ITS OWN reason, never the ki
     expect(counterHoldCopy("grace", ctx)).not.toContain("Pay opens");
   });
 
-  it("the Send still owed: the host is told to send; a guest is told WHO sends — then the counter", () => {
-    // MUTATION (checkout/dock-counter-guest-told-to-send): the host's sentence for every role — a
-    // guest's tap on the dock's counter tells them to send dishes only the host can; red.
-    expect(counterHoldCopy("unsent", ctx)).toBe(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
-    expect(counterHoldCopy("unsent", { ...ctx, canSend: false })).toBe(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
-    // A table that cannot name its host says the role, never a name invented.
+  it("the Send still owed never reaches the counter (PD2's lift) — handed in anyway, it HOLDS and says Pay's reason", () => {
+    // Phase 2c's "Send everything to the kitchen first — then pay at the counter." is retired: the ask
+    // carries unsent dishes (m2 decision 12, after P2do). A caller that still hands the counter an
+    // `unsent` block is held and SAYS so, in Pay's words (the role named, never a name invented).
+    expect(counterHoldCopy("unsent", ctx)).toBe(payBlockCopy("unsent", ctx));
     expect(counterHoldCopy("unsent", { ...ctx, canSend: false, hostName: null })).toBe(
-      `${TABLE_STARTER} sends everything to the kitchen first — then pay at the counter.`,
+      `${TABLE_STARTER} sends them — Pay opens once everything’s served.`,
     );
   });
 
@@ -294,5 +292,49 @@ describe("counterHoldCopy — the dock counter says ITS OWN reason, never the ki
 
   it("a served-gate reason handed in by mistake still HOLDS the counter and says so — never silently live", () => {
     expect(counterHoldCopy("kitchen", ctx)).toBe("Pay opens once everything’s served.");
+  });
+});
+
+describe("counterDoorBlock — the counter is held only by a tablemate's lock or this device's undo window (PD2's lift; D5)", () => {
+  const none = { frozenByPeer: false, graceOpen: false, undoInFlight: false };
+  it("nothing holds it: live — whatever is still to send (the ask carries it) and whatever the kitchen is doing", () => {
+    // The door has no unsent or served input at all: neither can hold it.
+    expect(counterDoorBlock(none)).toBeNull();
+  });
+  it("a tablemate's lock holds it, and outranks the undo window", () => {
+    expect(counterDoorBlock({ ...none, frozenByPeer: true })).toBe("peer");
+    expect(counterDoorBlock({ ...none, frozenByPeer: true, graceOpen: true })).toBe("peer");
+  });
+  it("this device's undo window — open, or an undo still answering — holds it", () => {
+    // MUTATION (pdrem/counter-door-grace-dropped): the narrowing drops the grace arm — the counter is
+    // asked inside the window an Undo can still pull the dishes back through; red.
+    expect(counterDoorBlock({ ...none, graceOpen: true })).toBe("grace");
+    expect(counterDoorBlock({ ...none, undoInFlight: true })).toBe("grace");
+  });
+});
+
+describe("counterRestLine — the parked dock's one line while the door is live (PD2, m2 STATES)", () => {
+  it("with dishes nobody has sent: m2's lifted line, verbatim — English-only until K15", () => {
+    // MUTATION (pdrem/counter-rest-line-hides-unsent): the unsent arm dropped — the door is live over
+    // unsent dishes and the line says only the tender, so nobody is told the counter checks them; red.
+    expect(counterRestLine({ unsentDishes: true, takesCard: false })).toEqual({
+      en: "You can still ask — the counter will check them with your table.",
+      my: null,
+    });
+    expect(counterRestLine({ unsentDishes: true, takesCard: true }).en).toBe(
+      "You can still ask — the counter will check them with your table.",
+    );
+  });
+  it("otherwise the register's tender: cash-only says so; a register that takes a card asks", () => {
+    expect(counterRestLine({ unsentDishes: false, takesCard: false })).toEqual({
+      en: t("en", "counterTakesCash"),
+      my: t("my", "counterTakesCash"),
+    });
+    // MUTATION (pdrem/counter-rest-line-ignores-the-reader): the reader ignored — "The counter
+    // takes cash." beside a configured card reader; red.
+    expect(counterRestLine({ unsentDishes: false, takesCard: true })).toEqual({
+      en: t("en", "readyForBill"),
+      my: t("my", "readyForBill"),
+    });
   });
 });

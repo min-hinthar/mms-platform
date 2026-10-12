@@ -296,6 +296,9 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     // reason, tied to it, and Pay's kitchen line never stands alone as the counter's (the capped
     // blind pass on #346, C3).
     const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    // MUTATION (pdrem/checkout-counter-grace-not-held): the counter's reason drawn for a tablemate's
+    // lock only — inside the window an Undo can still pull the dish back, the counter is asked
+    // anyway (PD2's lift left the undo window as one of the counter's two holds); red.
     expect(counter.getAttribute("aria-disabled")).toBe("true");
     const counterLineId = counter.getAttribute("aria-describedby");
     expect(counterLineId).toBe("pay-counter-line");

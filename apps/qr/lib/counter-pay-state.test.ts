@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  COUNTER_ASK_CARRIES_UNSENT,
   COUNTER_CARD_OUTSIDE_APP,
   COUNTER_PAY_REFUSAL_COPY,
   REGISTER_SETTLING_COPY,
@@ -9,7 +10,6 @@ import {
   counterPayRefusal,
   counterPayRefusalCopy,
   counterTakesCard,
-  counterUnsentTapCopy,
 } from "./counter-pay-state";
 
 /**
@@ -24,7 +24,6 @@ const base = {
   locked: false,
   settling: false,
   itemCount: 2,
-  unsentBlocks: false,
 };
 
 describe("counterPayRefusal", () => {
@@ -60,48 +59,30 @@ describe("counterPayRefusal", () => {
   });
 
   it("every refusal has a diner-facing sentence", () => {
-    for (const r of ["not_dinein", "paying", "settling", "empty", "unsent"] as const) {
+    for (const r of ["not_dinein", "paying", "settling", "empty"] as const) {
       expect(COUNTER_PAY_REFUSAL_COPY[r].length).toBeGreaterThan(10);
       expect(COUNTER_PAY_REFUSAL_COPY[r]).not.toMatch(/_/); // never a code
     }
   });
 });
 
-// ── Phase 2c · gate ──
-describe("counterPayRefusal — the ask is refused while the table's dishes are unsent", () => {
-  it("unsent dishes refuse the ask; a sent table may ask", () => {
-    // MUTATION (counter-pay-state/unsent-ask-allowed): drop the rule — the family is told to walk to
-    // the register while dishes nobody is cooking sit on their bill, and the register's own settle
-    // gate then refuses them at the counter; red.
-    expect(counterPayRefusal({ ...base, unsentBlocks: true })).toBe("unsent");
-    expect(counterPayRefusal({ ...base, unsentBlocks: false })).toBeNull();
+// ── PD2 (m2 STATES "Unsent dishes", decision 12) — the ask CARRIES unsent dishes ──
+describe("counterPayRefusal — unsent dishes never refuse the ask (PD2's lift, after P2do)", () => {
+  it("the refusals are the four table states — Phase 2c's `unsent` is gone, so no sentence can name it", () => {
+    // The copy table is a `Record` over the refusal union: its keys ARE the refusals that exist.
+    expect(Object.keys(COUNTER_PAY_REFUSAL_COPY).sort()).toEqual(
+      ["empty", "not_dinein", "paying", "settling"].sort(),
+    );
+    expect(Object.values(COUNTER_PAY_REFUSAL_COPY).join(" ")).not.toMatch(/kitchen first/);
   });
 
-  it("is named AFTER the wider states — a frozen or empty table says that first", () => {
-    expect(counterPayRefusal({ ...base, unsentBlocks: true, settling: true })).toBe("settling");
-    expect(counterPayRefusal({ ...base, unsentBlocks: true, locked: true })).toBe("paying");
-    expect(counterPayRefusal({ ...base, unsentBlocks: true, mode: "pickup" })).toBe("not_dinein");
-  });
-
-  it("the server's sentence goes to EVERY member, so it tells nobody to do what only the host can", () => {
-    // Critic finding: "Send everything to the kitchen first" reached a guest who cannot send (the
-    // server returns it to whoever asked). True for both roles: nothing in it is an order to send.
-    expect(COUNTER_PAY_REFUSAL_COPY.unsent).toBe(
-      "Everything has to go to the kitchen first — then pay at the counter.",
+  it("the dock says what the counter does with them — m2's words, verbatim, telling nobody to send", () => {
+    expect(COUNTER_ASK_CARRIES_UNSENT).toBe(
+      "You can still ask — the counter will check them with your table.",
     );
-    expect(COUNTER_PAY_REFUSAL_COPY.unsent).not.toMatch(/^Send\b/);
-  });
-
-  it("a tap on the dimmed counter button names the fix to the host and WHO sends to a guest", () => {
-    // The host can send: told to.
-    expect(counterUnsentTapCopy(null)).toBe(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
-    // MUTATION (counter-pay-state/unsent-guest-told-to-send): the host's sentence for everyone — a
-    // guest is told to send dishes only the host can send; red.
-    expect(counterUnsentTapCopy("Aye")).toBe(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
+    // It goes to host, guest and hostless table alike, so it orders nobody to send (only the host
+    // can) and promises no time.
+    expect(COUNTER_ASK_CARRIES_UNSENT).not.toMatch(/^Send\b|minute|soon/i);
   });
 });
 
@@ -128,7 +109,7 @@ describe("PD2 (m2 decision 15) — the settling sentence names who holds the fre
   });
   it("with the split OPEN the shipped split sentence stands, and every other refusal is unchanged either way", () => {
     expect(counterPayRefusalCopy("settling", true)).toBe(COUNTER_PAY_REFUSAL_COPY.settling);
-    for (const r of ["not_dinein", "paying", "empty", "unsent"] as const) {
+    for (const r of ["not_dinein", "paying", "empty"] as const) {
       expect(counterPayRefusalCopy(r, false)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
       expect(counterPayRefusalCopy(r, true)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
     }

@@ -18,11 +18,9 @@ export type CounterPayRefusal =
   /** A split-tender freeze is open — every payer's hold rides it; a cash settle would strand them. */
   | "settling"
   /** Nothing to settle: the ask on an empty table would light the floor for no reason. */
-  | "empty"
-  /** Phase 2c · gate — dishes the table can send have not gone to the kitchen. The register would
-   *  refuse the settle anyway (the staff gate), and a family walking up to pay for dishes nobody is
-   *  cooking is the Bill's own Pay rule (`payBlockedByUnsent`) broken at its other door. */
-  | "unsent";
+  | "empty";
+// (PD2, m2 decision 12 — Phase 2c's `unsent` refusal is LIFTED: the ask carries unsent dishes to the
+// counter since counter-floor's P2do shipped (#334). lib/counter-pay says why the lift moves no money.)
 
 export type CounterPayInput = {
   /** The session mode as `assertCartMember` reports it (a `text` column, so `string`). */
@@ -30,9 +28,6 @@ export type CounterPayInput = {
   locked: boolean;
   settling: boolean;
   itemCount: number;
-  /** Phase 2c · gate — `payBlockedByUnsent(mode, kitchenDraftUnits, hostPresent)`: the SAME binding
-   *  the Bill's Pay button and create-intent read, computed by the caller (which owns the reads). */
-  unsentBlocks: boolean;
 };
 
 /**
@@ -45,7 +40,6 @@ export function counterPayRefusal(input: CounterPayInput): CounterPayRefusal | n
   if (input.settling) return "settling";
   if (input.locked) return "paying";
   if (input.itemCount <= 0) return "empty";
-  if (input.unsentBlocks) return "unsent";
   return null;
 }
 
@@ -55,9 +49,6 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
   settling: "The table’s splitting the bill right now — finish or cancel that first.",
   paying: "Someone’s paying on their phone — wait for that to finish.",
   empty: "Nothing to pay yet — add something first.",
-  // Phase 2c · gate — the server returns this to WHOEVER asked, host or guest, so it orders nobody
-  // to send (only the host can); the Bill's own tap names who does (`counterUnsentTapCopy`).
-  unsent: "Everything has to go to the kitchen first — then pay at the counter.",
 };
 
 /**
@@ -104,15 +95,15 @@ export function counterTakesCard(readerConfigured: boolean): boolean {
 }
 
 /**
- * Phase 2c · gate — what a tap on the Bill's dimmed "Pay at the counter" says: the host is told the
- * fix (they can send), a guest is told WHO sends (they cannot) — the unsent note's own split above
- * the button. `sender` is null for the person who can send, else the name the note uses.
+ * PD2 (m2 STATES "Unsent dishes", decision 12) — the line the parked Bill's dock says at rest while
+ * the table holds dishes nobody has sent: the door stays LIVE (the ask carries them — lib/counter-pay)
+ * and the line says what happens to them, for host, guest and hostless table alike. m2's words,
+ * verbatim. English-only until the K15 sitting: the spec's Burmese draft is listed for it, never
+ * invented or shipped here before it. It replaced Phase 2c's held sentence ("Send everything to the
+ * kitchen first — then pay at the counter."), which the lift made false.
  */
-export function counterUnsentTapCopy(sender: string | null): string {
-  return sender === null
-    ? "Send everything to the kitchen first — then pay at the counter."
-    : `${sender} sends everything to the kitchen first — then pay at the counter.`;
-}
+export const COUNTER_ASK_CARRIES_UNSENT =
+  "You can still ask — the counter will check them with your table.";
 
 /**
  * Whether a `counter_requested_at` stamp counts as a live ask. There is no TTL by design: a family
