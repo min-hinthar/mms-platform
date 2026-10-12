@@ -301,6 +301,8 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     // anyway (PD2's lift left the undo window as one of the counter's two holds); red.
     expect(counter.getAttribute("aria-disabled")).toBe("true");
     const counterLineId = counter.getAttribute("aria-describedby");
+    // MUTATION (pay-dock/counter-reason-not-drawn): the counter's own line never drawn — its
+    // description points at nothing, and Pay's served line reads as the counter's; red.
     expect(counterLineId).toBe("pay-counter-line");
     expect(document.getElementById(counterLineId!)?.textContent).toBe(
       "Pay at the counter once the undo window closes.",

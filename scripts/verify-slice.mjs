@@ -34502,8 +34502,8 @@ const MUTANTS = [
   {
     id: "pay-dock/counter-reason-not-drawn",
     file: "apps/qr/components/PayDock.tsx",
-    suite: "components/Checkout.test.tsx",
-    why: "PD10 · D5 (the capped blind pass on #346, C3) — the held counter's own reason is drawn when the slot does not say it; never drawn, Pay's served line reads as the counter's (D5: the counter is never gated by served) and the counter's description points at nothing",
+    suite: "components/Checkout.grace.test.tsx",
+    why: "PD10 · D5 (the capped blind pass on #346, C3) — the held counter's own reason is drawn when the slot does not say it; never drawn, Pay's served line reads as the counter's (D5: the counter is never gated by served) and the counter's description points at nothing. Owned by the grace suite since PD2's lift: the undo window (counter) beside the kitchen (Pay) is now the only state where the two reasons differ",
     find: "      {counterLine && (",
     replace: "      {false && (",
   },
