@@ -14178,11 +14178,19 @@ a.door-sheet-row {
   filter: drop-shadow(0 1px 1.5px color-mix(in oklab, var(--ink) 7%, transparent))
     drop-shadow(0 10px 14px color-mix(in oklab, var(--ink) 30%, transparent));
 }
-/* A focus-parking target (a tag with no button): the stage's own ring when focus arrives the
-   keyboard way, nothing on a tap (blind pass on #329 — `outline: none` hid a keyboard user's place). */
+/* A focus-parking target (a tag with no button): a ring when focus arrives the keyboard way, nothing
+   on a tap (blind pass on #329 — a bare `outline: none` hid a keyboard user's place). The ring is
+   drawn ON the paper, inset, in the tag's own ink — the pair its button's ring already uses — so it
+   never meets the camera image. Outside the tag it sat on the dimmed live video, where `--ac` over a
+   white label measures 1.94:1 in light and 1.19:1 in Night (composite-contrast "the paper tag"). */
 .paper-tag:focus-visible {
-  outline: 2px solid var(--ac);
-  outline-offset: 3px;
+  outline: none;
+}
+.paper-tag:focus-visible > .paper-tag-paper {
+  outline-width: var(--focus-w);
+  outline-style: solid;
+  outline-color: var(--ink);
+  outline-offset: -4px;
 }
 .paper-tag-paper {
   position: relative;
