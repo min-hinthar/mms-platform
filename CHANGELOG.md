@@ -4,6 +4,49 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Refusals on their own box, one voice on /menu, and the guide foot (2026-10-12)
+
+- **F20: the account card's email and code boxes and the checkout's promo box are `@mms/ui`
+  Fields.** A refusal of the typed address or code is drawn under its box, the box is `aria-invalid`
+  and described by it, and the refusal is said once: focus moves to the box after a button press, and
+  after Enter the card's one region says it, visually hidden.
+  - Only a refusal that names the value is bound (Codex round 1). `lib/auth-field-refusal.ts` lists
+    them: no account for the address, GoTrue refusing the address, a wrong or expired code. OTP
+    switched off, a rate limit or a dropped request stays the card's status line and focus stays put.
+    On the checkout, `lib/promo-field.ts` keeps the order's refusals (someone is checking out, too
+    many tries, the order is being paid) in the region, as before.
+  - On the checkout, focus moves into the promo box only for a keyboard Apply. After a tap the region
+    says the refusal, because focus in that box hides PD2's docked door with no keyboard on screen.
+  - What diners see: the account labels take the Field label style; the promo gains a visible
+    "Promo code" label in both languages (the existing keys, no new Burmese); a refused code or
+    address shows under its box in `--warn` with a warn border, not in the line at the bottom.
+- **F31: /menu speaks through its one live region.** The empty-search card and the diet sheet's match
+  count lose their own `role="status"`. Each speaks once, as a quiet claim, through the cart
+  provider's Toast: the card when the list turns empty, the count when it changes while the sheet is
+  open. Opening the sheet says nothing new.
+- **M214: a signed-in diner whose Google round trip bounces back to /account is told so.** One line on
+  You ("You're already signed in — that Google step didn't finish, and it doesn't need to."), and the
+  raw error leaves the address bar through the guest card's own strip, now shared from
+  `lib/oauth-callback.ts`. It shows only when the server knows the session is signed in.
+- **K44: the four retired pre-tax keys and their plural pair are gone from the staff dictionary.**
+  Nothing had rendered them since PD6; the negative tests now assert the retired words themselves.
+- **M127: `--surface-elevated` and `--oa` are pinned by what they are, not only by a ratio.** Night's
+  six-rung ground ladder must stay evenly spaced (its first test), light's elevated surface matches
+  `--cd-raised`, light's `--oa` is the house cream, and Night's `--oa` tracks the floor.
+- **PD4 (partial): contrast rows for the paper tag and the CounterPass.** One cream for both, the tag's
+  ink and button, and the pass stub's ground in both themes. The tag's keyboard focus ring sat on the
+  live camera at 1.19:1 (Night) and 1.94:1 (light); it is now drawn inside the paper in ink. Left: the
+  device-sitting checks and the Undo home for a panel-opened sheet.
+- **PD12 (partial): the counter guide's foot no longer covers the step.** The headless measurement at
+  1366 and in the 34rem Help sheet (100 states, both languages, 100% and 200% text) found Next in view
+  everywhere, but the pane's sticky foot sat 96px too high and covered the title and sentence on every
+  counter step. It now sits at the card's end in every host. Left: kitchen step 5's "Got it" is cropped
+  out of the sheet's picture well (K48), the K15-HIGH candidates and the device sitting.
+- **New copy is English only:** M214's line and F31's spoken sentence (the empty card's own two
+  lines). No new Burmese, so nothing joins the K15 ledger.
+- **Filed:** K48 (kitchen step 5's crop) and F37 (a screen-reader device check of the one-voice
+  refusal).
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
