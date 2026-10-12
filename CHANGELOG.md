@@ -4,6 +4,64 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### One host source and refusal words for the session mint; the promo quote follows the live intent (2026-10-12)
+
+- **M169: `/api/session` keeps one host source.** `table_sessions.host_seat` decides who hosts, and
+  the route now keeps `session_members.role` in step with it. When `host_seat` names the seat and the
+  member row does not say host, the row is promoted, and the write is checked by the row it returns.
+  The row is never demoted. A guest who joined a server's table by invite and later claimed it from
+  the sticker can now fire a round and open a split. Before, the phone said "host" and every server
+  gate refused it. Rows that diverged before this fix heal on that seat's next dine-in join.
+- **The W6a host claim's error and the membership read's error are no longer thrown away.** A
+  transport failure answers 503 and any other error answers "try again", both before any membership
+  is written. A failed or empty promotion is refused the same way, never answered "host" over a
+  guest row.
+- **J16: every `/api/session` refusal carries a machine `reason`.** The 13 words live in one list,
+  `lib/session-refusal.ts`. `useTableSession` exposes the word as `errorReason`, and GuestList picks
+  its way out through `joinFailureArm` (`lib/guest-list.ts`), never by searching the English. The
+  response body only gains a field: `kind: "unavailable"` is kept.
+- **What a diner sees on a failed join changes.** The seated race and a retired or unregistered table
+  now show the route's own sentence and the code entry, not "Couldn’t join this table" and a retry
+  that could only fail again. A code that joins nothing offers the code entry without "Try again":
+  since W10a an unreadable table answers 503, so the 404 is a verdict. A kiosk order, a held table
+  and a staff-only code show their own sentence with no retry. A full table stays terminal. A
+  transient failure, or no word at all, keeps the generic line and the retry.
+- **M123 (b): the review step and the floor's settle quote show the promo pin only while a payment
+  intent is live.** `getCartTotals` gained a `quote` basis, read only by `getCartView` and
+  `getTableDetail`. It quotes the pin while `live_payment_intent_id` is set and the live discount
+  otherwise. An unreadable link throws instead of reading as unlinked. Every charge path stays on the
+  default `charge` basis, unchanged. What a guest and staff see changes when a dead card attempt left
+  a pin: they now see the discount the counter will actually charge, not the stale one, and the cash
+  sheet no longer refuses that figure as `moved`.
+- **M123 (a′): the split door releases a dead attempt's pin under its own freeze before it prices the
+  shares** (`releaseStalePinUnderFreeze`, `lib/supersede.ts`). Before, a pin an abandoned attempt left
+  priced the grand total and every share. The release can cancel an intent at Stripe, but only one
+  linked to an unlocked cart: a locked cart, fresh or stale, is still refused before it. A charging
+  intent answers with create-intent's own sentence, "That payment is already going through — give it
+  a moment." The door is still parked (`SURFACES.selfServeSplit`), so production is unaffected until
+  it reopens.
+- **M211: a settled order longer than 500 lines says so.** The settled line read fetches one row past
+  `ORDER_LINE_CAP`, renders the first 500 and carries `settledLinesTruncated`. The floor pane then
+  shows "Showing the first N lines — this order has more." under the list, and the list names the note
+  in `aria-describedby`. The note is English only (`lang="en"`); no Burmese was written for it.
+- **M221: one `/staff` render reads the day's refund ledger once.** `readDayLedger`
+  (`lib/refund-ledger-day.ts`) wraps the read in React's request-scoped `cache()`, keyed on the day
+  floor. The settled list and the register's drawer both read through it, so a refund committing
+  between them can no longer land in one answer and not the other. A failed read is shared too: both
+  zones show the outage together. This is the codebase's first use of `cache()`.
+- **Proof:** 48 new `verify:slice` mutants (`hostsrc` 9, `j16-reason` 14, `m123` 14, `m211` 7, `m221`
+  4), every one caught. The battery is 4219 mutants over 344 modules. Red-first suites in the route,
+  the hook, GuestList, `guest-list`, `session-refusal`, `totals`, `split`, `settle-stale-pin`,
+  `floor-settled-detail`, FloorDetailLive, `refund-ledger-day` and `refunds`. No migration and no SQL
+  change.
+- **Left open:** a linked intent whose diner walked away is still quoted at its pin while the counter
+  supersedes it and charges live; the cash sheet refuses `moved` once and the next quote is live
+  (M277, never a wrong charge). The M211 note needs a Burmese string and a native check (K47). The
+  seated and retired-table sentences say "pick another", and the dine-in menu has no table picker to
+  pick from (J55). OPEN-ITEMS closes M169, J16, M123, M211 and M221 and files M277, K47 and J55.
+- **No new Burmese.** The one new string, the M211 note, is English only; every other sentence shown
+  is an existing route string or `BIND_COPY`.
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
