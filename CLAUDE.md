@@ -29,7 +29,7 @@ the merges went in before Codex had reviewed their head. Whether that instructio
 owner's open G3 question, recorded in HANDOFF and not settled here. It grants nothing to any later
 session: the rules below (G3 · G4) govern every merge from here on. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
 migrations in order, and the decisions and gate calls for the owner to ratify. Its next tasks include
-the PD10 flip's conditions, M276 · T55, and the rows ready to move to Closed.
+the PD10 flip's conditions and M276 · T55.
 
 - **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
   with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and

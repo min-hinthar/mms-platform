@@ -14,11 +14,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   in-flight block moves verbatim to HANDOFF_ARCHIVE. CLAUDE.md's "Where things stand" points there and
   carries the sql lane's 2026-10-11 re-measure. OPEN-ITEMS adds M276 (M182's invoker clear relies on
   the hosted default privileges) and T55 (`verify-mode-authority` toward its 15-minute timeout), and
-  its stale statuses are swept. Fourteen status cells now say built and merged (PR and SHA) or applied
-  to prod via the MCP. P2hf stays open, because its server guard is built but PD7's held clear is the
-  owner's to ratify against ruling #6. Seven rows' now-false sentences ("NOT applied", "prod apply on the owner's go",
-  "Merges after the device sitting") are restated. The sweep moved, added and lost no row; M276 and
-  T55 are this PR's only new rows. LEARNINGS adds #266–#269.
+  its stale statuses are swept to the registry's status legend. Nine fully delivered rows move to the
+  top of Closed as DONE (PR, merge SHA and, where they have one, the migration's prod apply): PD11 ·
+  M182 · M268 · PD5 · P2do · PD3 · M269 · PD8 · M184. Five stay open with a "⚑ partial" line naming
+  what shipped and what is left: K44 · PD4 · PD6 · PD7 · PD12. P2hf stays open, because its server
+  guard is built but PD7's held clear is the owner's to ratify against ruling #6. Eight rows'
+  now-false sentences are restated: "NOT applied", "prod apply on the owner's go", "Merges after the
+  device sitting", and PD12's "no browser in the agent environment" (LEARNINGS #264). The sweep moved
+  rows but added and lost none; M276 and T55 are this PR's only new rows. LEARNINGS adds #266–#269.
 
 ### PD11 — the diner's first-visit guide: five pages, once per phone, re-openable from Account (2026-10-11, `claude/feat/pd11-diner-guide`)
 

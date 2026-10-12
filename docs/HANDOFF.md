@@ -219,20 +219,31 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 **Start from the retrospective:** [`RETRO_PATH_DESIGN_WAVE_2026-10-11.md`](RETRO_PATH_DESIGN_WAVE_2026-10-11.md). It holds the wave's measured baselines and the next ten PRs in order. In that order: ledger conflicts made impossible; one sanctioned merge path; memory that loads; mutants where they pay; the SQL lane as a matrix; reviewers in the order they pay; the playbook as a skill; `pnpm retro`; migration safety; deterministic jsdom timing. It also covers the staff and guest feedback → issues → fixes loop, and the owner decisions the plan waits on.
 
 1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
-2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
-   merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
-   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · K44 · PD3 ·
-   PD4 · PD5 · PD6 · PD7 · PD8 · PD11 · PD12. The rows' now-false sentences were restated too ("NOT applied",
-   "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device sitting",
-   "Waits on PD7"), in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39. Every open follow-up stayed open, and
-   no row was moved. Left to the streams: M269, P2do, PD3 and PD8 say in their text that they close on
-   a merge (for PD8, also M184's apply) that has now happened. K44's and PD6's old status said "closes
-   on merge" too. Each of these can move to Closed.
+2. **The registry's stale statuses were swept in this handoff's PR**, to the status legend at the top
+   of OPEN-ITEMS.
+   - **Nine fully delivered rows moved to the top of `## Closed`** as `DONE — #PR sha` (with the
+     migration's prod apply where the row had one): PD11 · M182 · M268 · PD5 · P2do · PD3 · M269 · PD8 ·
+     M184. Each kept its whole text, its severity, its section and its Source.
+   - **Five stay `open`** with a "⚑ partial" line naming what shipped and what is left:
+     - K44: retiring four keys that are no longer rendered.
+     - PD4: the A2 contrast rows, the device-sitting checks, and a home for the round-4 Undo.
+     - PD6: the device sitting's checks.
+     - PD7: M270 (2)–(9) and the ruling #6 tension.
+     - PD12: the 1366 and sheet measurements, runnable headless per LEARNINGS #264, and the K15-HIGH
+       call.
+   - **P2hf stays `open`:** its server guard is built, but PD7's held clear is the owner's to ratify
+     against ruling #6.
+   - **Now-false sentences were restated** in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39 · PD12: "NOT
+     applied", "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device
+     sitting", "Waits on PD7", and PD12's "no browser in the agent environment".
+   - **The set check:** every row is still present (the moved ones in Closed), and the sweep added
+     none. M276 and T55 are the only new rows.
 3. **What the delegated follow-ups still need** (their rows and spec notes):
-   - **M269** (#337, applied): its row says it closes on #337's merge (item 2). Its text notes the card
-     doors' webhook fulfillment was not traced.
-   - **M268** (#338, applied): nothing beyond its row's status.
-   - **The pickup-join refusal** (#339, applied): it closes with PD3's row. m3 §H6 lists nothing left.
+   - **M269** (#337, applied): closed, moved to Closed (item 2). Its text notes the card doors' webhook
+     fulfillment was not traced.
+   - **M268** (#338, applied): closed, moved to Closed (item 2).
+   - **The pickup-join refusal** (#339, applied): closed with PD3's row (item 2). m3 §H6 lists nothing
+     left.
    - **PD5b** (#340, applied): batches fired before the migration carry no mark. A table live across
      the deploy that had earlier settlement food can read one round high until its session ends (m5
      §H.4). This ends on its own and is recorded. Nothing is left to build.
@@ -258,18 +269,19 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
      name ask (m1 decision 16); `showServerStatus` delegating to `lib/kitchen-track.ts`.
    - **PD2:** the ask over unsent dishes, refused until P2do (P2do was built in #334).
    - **PD4:** the composite-contrast rows for the constant-cream tag and for the CounterPass over a
-     live image (m4 amendment A2); the device-sitting checks.
+     live image (m4 amendment A2); the device-sitting checks; a home off the live lens for the Undo of
+     an add from a panel-opened sheet (round 4).
    - **PD6:** it merged (#334) before the device sitting (#12), so the sitting's till-tray checks still
      stand (item 2; "Gate and merge calls made under the delegation").
-   - **PD7:** M270 (2)–(9).
+   - **PD7:** M270 (2)–(9), and the ruling #6 tension (P2hf).
    - **PD9:** a station nobody bumps pins its table; burn-in and the TURN's frame rate on the TV; the
      read's p95 (m9 §G); an "All clear" wording question for the native sitting.
    - **PD10:** item 4.
-   - **PD11:** its row names nothing left (#348 PD11 → `73c34c9`).
-   - **PD12:** the headless measurement at 1366 and in the 34rem sheet (m12 risk 9), and the K15-HIGH
-     candidates (for staff-authority or the owner).
+   - **PD11:** closed (item 2; #348 PD11 → `73c34c9`).
+   - **PD12:** the measurement at 1366 and in the 34rem sheet (m12 risk 9), runnable headless
+     (LEARNINGS #264) and not yet run, and the K15-HIGH candidates (for staff-authority or the owner).
    - **PD13:** `gated`. It is not built, and its reopen trigger is unchanged.
-   - **PD3 · PD5 · PD8:** their rows name nothing left (item 2).
+   - **PD3 · PD5 · PD8:** closed (item 2).
 8. **ROADMAP's open Phase 3 slices:** 3e and 3f. (3d · counter's cash-sheet re-host is ticked.)
 9. **Owner-gated:** the device sitting (#12), the native Burmese check (K15), live Stripe keys (C2) and
    branch protection (C28: none in effect, above).
