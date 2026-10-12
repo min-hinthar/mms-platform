@@ -17696,11 +17696,16 @@ html[data-reloading] body::after {
   font-size: var(--fs-lead);
 }
 /* The foot — the dots, the pager, the footer — STICKS to the bottom of its scroller, so Next never
-   scrolls away under a large Burmese title (m12 risk 9). Opaque card ground, a hairline on top. In
-   the counter's pane it sits above the pane's own reserve for the lane's thumb-zone pill. */
+   scrolls away under a large Burmese title (m12 risk 9). Opaque card ground, a hairline on top.
+   ⚠️ `bottom: 0` in EVERY host, the counter's pane included. A sticky box's limit is its scroller's
+   CONTENT edge — the pane's own bottom padding (the reserve for the lane's thumb-zone pill) is
+   already outside it — so the 96px inset the pane used to add counted that reserve twice: measured
+   headless at 1366×1024 (PD12, 2026-10-12), the foot rode 96px above the card's own end and covered
+   the title and sentence on every counter step, unreachable even at the pane's scroll end
+   (lib/staff-guide-foot.test.ts). */
 .staff-guide-foot {
   position: sticky;
-  bottom: var(--guide-foot-bottom, 0px);
+  bottom: 0;
   display: grid;
   justify-items: center;
   gap: var(--s2);
@@ -17713,9 +17718,6 @@ html[data-reloading] body::after {
 .staff-guide[data-host="sheet"] .staff-guide-foot {
   margin: 0 calc(-1 * var(--s4)) calc(-1 * var(--s4));
   padding: var(--s3) var(--s4) var(--s4);
-}
-.staff-split-pane .staff-guide {
-  --guide-foot-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
 }
 /* The ONE pager of dots both guides draw (`GuideDots` — the staff guides here, PD11's diner guide). */
 .guide-dots {
