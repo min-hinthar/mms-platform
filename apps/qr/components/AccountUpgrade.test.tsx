@@ -79,8 +79,11 @@ vi.mock("@/lib/mergeTokenStore", () => ({
 }));
 let stashDisabled = false;
 
-vi.mock("@mms/ui", () => ({
+vi.mock("@mms/ui", async (importOriginal) => ({
   Card: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
+  // F20 — the REAL Field: its label, `aria-describedby` and `aria-invalid` are what the refusal
+  // cases below assert, so a stub here would assert a stub.
+  Field: (await importOriginal<typeof import("@mms/ui")>()).Field,
 }));
 
 const { AccountUpgrade } = await import("./AccountUpgrade");
@@ -867,5 +870,93 @@ describe("the chooser note — computed from the REFRESHED live orders, said bef
     await screen.findByRole("button", { name: /Sign back in as Min/ });
     expect(container.querySelector(".wb-note")).toBeNull();
     liveOrders = null;
+  });
+});
+
+describe("F20 — a refused address or code is tied to ITS box (the @mms/ui Field)", () => {
+  /**
+   * Before F20 a refusal was a sentence in the card's one region, under the Google button, with
+   * nothing tying it to the box that caused it. Now it is drawn under the box (the Field's note),
+   * the box is `aria-invalid` and described by it, and it is SAID once: focus moves to the box when
+   * it was elsewhere (the description speaks), and the region speaks — visually hidden — only when
+   * focus was already in the box (Enter), where moving it would say nothing.
+   */
+  const NO_ACCOUNT = /couldn’t find a Morning Star account for that email/i;
+  const box = () => screen.getByLabelText(/^email$/i) as HTMLInputElement;
+  const described = (el: HTMLElement) =>
+    document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  async function refuseAddress(via: "button" | "enter") {
+    auth.signInWithOtp.mockResolvedValue({
+      error: { message: "Signups not allowed for otp", code: "otp_disabled" },
+    });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "nobody@example.com" } });
+    const send = screen.getByRole("button", { name: /Send sign-in code/i });
+    (via === "button" ? send : box()).focus();
+    fireEvent.submit(send.closest("form")!);
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+  }
+
+  it("pressed from the button: drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
+    await refuseAddress("button");
+    // MUTATION uia11y/f20-email-refusal-off-the-box: the box is not described by it; red.
+    expect(described(box())).toMatch(NO_ACCOUNT);
+    // MUTATION uia11y/f20-focus-stays-on-the-button: red.
+    expect(document.activeElement).toBe(box());
+    // One voice: the description speaks; the region draws nothing and says nothing.
+    // MUTATION uia11y/f20-region-repeats-the-box: red.
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(screen.getAllByText(NO_ACCOUNT)).toHaveLength(1);
+  });
+
+  it("Enter in the box: focus stays, and the region SAYS it once — hidden, since the box already shows it", async () => {
+    await refuseAddress("enter");
+    expect(document.activeElement).toBe(box());
+    const region = screen.getByRole("status");
+    // MUTATION uia11y/f20-enter-refusal-unsaid: the region stays quiet for an unmoved focus; red.
+    expect(region.textContent).toMatch(NO_ACCOUNT);
+    expect(region.querySelector(".sr-only")?.textContent).toMatch(NO_ACCOUNT);
+  });
+
+  it("retyping clears it; a GOOGLE refusal after it belongs to no box", async () => {
+    await refuseAddress("button");
+    fireEvent.change(box(), { target: { value: "other@example.com" } });
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    // Refuse again, then take another door: its error is the card's, never drawn under the box.
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    auth.signInWithOAuth.mockResolvedValue({ error: { message: "Google is down." } });
+    const google = () => screen.getByRole("button", { name: /Sign in with Google/i });
+    await waitFor(() => expect((google() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(google());
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("Google is down."),
+    );
+    // MUTATION uia11y/f20-google-door-keeps-the-binding: Google's words under the email box; red.
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("the code box: a code that did not match is drawn under the CODE box, with focus there", async () => {
+    auth.verifyOtp.mockResolvedValue({ error: { message: "Token has expired or is invalid" } });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    const code = (await screen.findByLabelText(
+      /6-digit code sent to me@example.com/i,
+    )) as HTMLInputElement;
+    fireEvent.change(code, { target: { value: "000000" } });
+    const confirm = screen.getByRole("button", { name: /Confirm & sign in/i });
+    confirm.focus();
+    fireEvent.submit(confirm.closest("form")!);
+    // MUTATION uia11y/f20-code-refusal-off-the-box: red.
+    await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
+    expect(described(code)).toBe("Token has expired or is invalid");
+    expect(document.activeElement).toBe(code);
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 });
