@@ -55,7 +55,7 @@ The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The o
 
 The critic sequenced these. Each states its smallest first step. None may weaken a "never" rule, and item 2 says how it avoids the bypass the owner already refused.
 
-0. **Clear the decks.** #349 is merged by the owner: it edits `CLAUDE.md` and `.claude/**`, and its `codex-review` is red with Codex out of quota (G3). Fix and land Dependabot #323 (Next 16.2.9 → 16.3.8, esbuild, vitest; red since 10-08). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
+0. **Clear the decks.** #349 is merged by the owner: it edits `CLAUDE.md` and `.claude/**`, and its `codex-review` is red with Codex out of quota (G3). _(2026-10-12: Codex reviewed #349's final head `587eaba`, and it merged as `b1a51cb` on the owner's "merge all": OWNER_RULINGS §H2.)_ Fix and land Dependabot #323 (Next 16.2.9 → 16.3.8, esbuild, vitest; red since 10-08). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
 1. **Make ledger conflicts impossible.** Land this while nothing else is open.
    - A `check:docs` ban on prose counts, red-first.
    - `pnpm state`, which writes the live counts to the job summary and a generated block.

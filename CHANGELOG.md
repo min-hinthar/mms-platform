@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The owner's answer on the wave's merges (2026-10-12, docs only)
+
+- **The owner ratified the wave's 15 merges** made before Codex had reviewed their head ("merge all.
+  Yes it covered"). OWNER_RULINGS gains §H: H1 records that the 2026-10-09 delegation covered those
+  merges, and that the other calls in HANDOFF's ratify lists stay open. H2 records "merge all" as the
+  instruction for the PRs open at the time (#349 and #323). Like G4, it is not a standing rule, and G3
+  is unchanged for later merges. CLAUDE.md's "Where things stand" and HANDOFF stop calling the question
+  open.
+
 ### The path-design wave's handoff (2026-10-11, docs only)
 
 - **The wave's retrospective is measured** (`docs/RETRO_PATH_DESIGN_WAVE_2026-10-11.md`). Read-only measurers pulled GitHub, Actions, git replays and the prod signals; three designers proposed changes and an adversarial critic sequenced them. It holds the baselines the next wave must beat, the next ten PRs, the feedback → issues → fixes loop and the owner decisions it waits on.

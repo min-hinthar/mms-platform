@@ -278,6 +278,32 @@ and the loop (`.claude/skills/design-prototyping/SKILL.md`).
   other merge still waits for the owner's per-SHA yes (the rulings intro) and follows WORKFLOW §Review
   step 5 and G3.
 
+## H · The owner's answer on the wave's merges (2026-10-12)
+
+**The owner's words, 2026-10-12:** "merge all. Yes it covered"
+
+They answered the lead's report on #349 (the path-design wave's handoff). It said #349's head still needed
+the owner's go, and put the question #349 recorded to the owner: did the 2026-10-09 instruction ("I
+trust you to make all decisions, apply migrations, and merge all") cover the 15 PRs merged before Codex
+had reviewed their head (#329–#341, #343, #346; HANDOFF's "Gate and merge calls made under the
+delegation")?
+
+- **H1 · The 15 merges are covered.** "Yes it covered" answers that question: the 2026-10-09 delegation
+  covered the wave's merges of those 15 heads, and they stand as ratified. HANDOFF had asked for the
+  per-head list of commits no blind reviewer read before the ratification. It was not compiled, and
+  the owner answered without it.
+- **What H1 leaves open.** It answers the merges question only. The other entries in HANDOFF's two
+  "for the owner to ratify" lists were not put to the owner one by one, and they stay listed: the
+  decisions made under the delegation, PD6 merging before the device sitting (ruling #12), the eight
+  prod migrations applied on the delegation rather than a go for each file (ruling #5), and PD7's held
+  clear against ruling #6.
+- **H2 · "merge all"** is the owner's explicit instruction to merge the PRs open when it was given:
+  #349 (merged `b1a51cb`; its head `587eaba` was Codex-reviewed and CI green) and Dependabot's #323. Like
+  G4, it is an instruction for those PRs, not a standing rule.
+- **Nothing here changes G3 for later merges.** An agent still never merges a red-`codex-review` head,
+  the 2026-10-09 delegation is not renewed for later sessions, and every other merge waits for the
+  owner's per-SHA yes or explicit instruction for that PR (G4).
+
 ## C18 — closed (2026-10-07)
 
 **Closed by measurement: every succeeded test payment since 2026-09-09 has its order. Only the owner's

@@ -38,9 +38,9 @@ at that day's current clock time: "How work runs here"), the open PRs (`list_pul
   blind pass stood in. After fix commits, ONE more capped pass covered exactly those commits, and the
   lead hand-read anything after that. The lead then merged the head on the owner's "merge all", not
   through an automated bypass. CLAUDE.md's G3 · G4 say no merge instruction covers a red-`codex-review`
-  head, so whether "merge all" covered those heads is the owner's open question. Nothing here settles
-  it, and nothing here is authority for a later merge. The section "Gate and merge calls made under the
-  delegation" below lists these merges for the owner to ratify.
+  head, so whether "merge all" covered those heads was put to the owner. **The owner answered 2026-10-12:
+  "Yes it covered"** (OWNER_RULINGS §H): the 15 merges listed in "Gate and merge calls made under the
+  delegation" below are ratified. That answer is not authority for a later merge.
 - **How this wave's migrations reached prod.** Each wave migration went to the QR project
   `fasnpdhtvqtzjlvruqcu` ONE FILE AT A TIME through the Supabase MCP `apply_migration`, after
   `get_project_url`, on the wave's delegation rather than a go for each file. Each was verified object
@@ -164,6 +164,9 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 
 ### Gate and merge calls made under the delegation — for the owner to ratify
 
+**The 15 merges were ratified by the owner on 2026-10-12** ("merge all. Yes it covered", OWNER_RULINGS
+§H). The other calls in this section were not put to the owner one by one, and they stay listed.
+
 These were measured 2026-10-11 from each PR's `merged_at` and the `codex-review` check runs on its
 merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check_name=codex-review`).
 
@@ -193,7 +196,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   (ruling #5).
 - **Not compiled: the commits no blind reviewer read.** CLAUDE.md asks the merge-window line of each
   such head to list the commits after its last capped pass, and whether any touched `MONEY_PATHS`. That
-  per-head list was not compiled for these 15 merges. Compile it before ratifying.
+  per-head list was not compiled for these 15 merges, and the owner ratified them without it.
 - **A tension for the owner, not resolved here.** PD7's "paid food the kitchen has not finished holds
   the clear" (`paid_unserved`, m7 §H, decided under the delegation) reads against ruling #6's
   "Clearing a table never waits."
@@ -203,6 +206,9 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 - **#348 PD11 → `73c34c9`** merged at 23:18Z, after this block was first written. Its branch,
   `claude/feat/pd11-diner-guide`, joins the merged-PR branches below.
 - **#323**: dependabot's `npm_and_yarn` group bump, open since 2026-10-08. It is not part of the wave.
+  _(2026-10-12: its Next bump never reached the lockfile, because `pnpm-workspace.yaml`'s override pinned
+  `next: 16.2.9`. The owner's "merge all" covers it once its head is green and Codex-reviewed:
+  OWNER_RULINGS §H2.)_
 - **This handoff** is on `claude/docs/handoff-path-design-wave-built`. The wave's first handoff branch,
   `claude/docs/handoff-path-design-wave`, belongs to #332 (merged).
 - Every other wave branch on origin belongs to a merged PR and has not been deleted. Under
@@ -218,7 +224,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 
 **Start from the retrospective:** [`RETRO_PATH_DESIGN_WAVE_2026-10-11.md`](RETRO_PATH_DESIGN_WAVE_2026-10-11.md). It holds the wave's measured baselines and the next ten PRs in order. In that order: ledger conflicts made impossible; one sanctioned merge path; memory that loads; mutants where they pay; the SQL lane as a matrix; reviewers in the order they pay; the playbook as a skill; `pnpm retro`; migration safety; deterministic jsdom timing. It also covers the staff and guest feedback → issues → fixes loop, and the owner decisions the plan waits on.
 
-1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
+1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349). _(#349 merged 2026-10-12 as `b1a51cb`, on the owner's "merge all": OWNER_RULINGS §H2.)_
 2. **The registry's stale statuses were swept in this handoff's PR**, to the status legend at the top
    of OPEN-ITEMS.
    - **Nine fully delivered rows moved to the top of `## Closed`** as `DONE — #PR sha` (with the
