@@ -36,10 +36,14 @@ import {
   clearCallbackOutcome,
 } from "@/lib/oauthCallbackStore";
 import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
+import { NO_ACCOUNT_FOR_OTP, refusesTheAddress, refusesTheCode } from "@/lib/auth-field-refusal";
 import { WelcomeBackChooser } from "./WelcomeBackChooser";
 import { useAccountLiveOrders } from "./AccountLiveOrders";
 import { chooserLeavesNote } from "@/lib/save-stars";
 import { Card, Field } from "@mms/ui";
+
+/** F20 — how a refusal bound to a box is said: by focus moving to the box, or by the card's region. */
+type FieldVoice = "region" | "focus";
 
 /**
  * Anon → durable account (M4 P4.1). Upgrades the SAME anonymous uid in place (email OTP / Google), so the
@@ -73,8 +77,12 @@ export function AccountUpgrade({
   const [error, setError] = useState<string | null>(null);
   /**
    * F20 — WHICH BOX a refusal belongs to, and which voice says it. Only the card's own two forms
-   * refuse a box: a submit of the email form binds a refusal to the email field, a submit of the
-   * code form to the code field — and every OTHER door (a Welcome-back chip, Google, the hatch, a
+   * refuse a box, and only with an answer that NAMES the box's value: the email form binds a
+   * refusal of the address, the code form a refusal of the code (`lib/auth-field-refusal.ts` says
+   * which answers those are). A failure that is the service's, the configuration's or the
+   * connection's — OTP switched off, a rate limit, a dropped request — is the card's status line,
+   * never the box's: bound, it marked a good address wrong, moved focus to it and silenced the
+   * region (Codex round 1 on #355). Every OTHER door (a Welcome-back chip, Google, the hatch, a
    * `?resume=` return, the automatic recovery) clears the binding as it starts, so a chip's "we
    * couldn't find that account" never lands under a box the diner did not type in.
    *
@@ -82,11 +90,12 @@ export function AccountUpgrade({
    * said ONCE: if focus was elsewhere at the submit (the button), it MOVES to the field and the
    * description is what a screen reader hears; if it was already in the field (Enter), moving it
    * says nothing, so the card's one region speaks it instead — visually hidden, since the same
-   * words are already under the box. Decided at the submit, in the handler, never in an effect.
+   * words are already under the box. The voice is read at the submit, in the handler (where focus
+   * was when the diner pressed), and the binding is set with the refusal it describes.
    */
   const [fieldRefusal, setFieldRefusal] = useState<{
     field: "email" | "code";
-    voice: "region" | "focus";
+    voice: FieldVoice;
   } | null>(null);
   // The email the diner typed already belongs to a DIFFERENT account → `updateUser` can't attach it (it
   // 422s `email_exists`). Instead of a dead-end raw error, pivot to a SIGN-IN recovery (mirrors the Google
@@ -148,8 +157,10 @@ export function AccountUpgrade({
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
   // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
   // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
+  // `boxVoice` — passed only by the email form's own submit (F20): a refusal of THIS address is then
+  // bound to the box it was typed in. Every other door omits it, so its refusal is the card's.
   const sendSignInCode = useCallback(
-    async (addr: string, bringStars: boolean): Promise<boolean> => {
+    async (addr: string, bringStars: boolean, boxVoice?: FieldVoice): Promise<boolean> => {
       if (signInStarting.current) return false; // another door is already starting one — see `signInStarting`
       signInStarting.current = true;
       const supa = browserClient();
@@ -206,7 +217,7 @@ export function AccountUpgrade({
         // sent them off to create a second one. The message decides; the configuration case gets a
         // sentence of its own; `signup_disabled`'s "…for this instance" is neither.
         const gotrueCode = (e0 as { code?: string }).code;
-        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");
+        const noAccount = NO_ACCOUNT_FOR_OTP.test(e0.message ?? "");
         const otpOff = !noAccount && gotrueCode === "otp_disabled";
         setError(
           noAccount
@@ -215,6 +226,8 @@ export function AccountUpgrade({
               ? "Email sign-in isn’t available right now — try again in a little while."
               : e0.message || "Couldn’t send the sign-in code — try again.",
         );
+        // F20 — the address's own refusal goes under its box; an outage or a dropped request does not.
+        if (boxVoice && refusesTheAddress(e0)) setFieldRefusal({ field: "email", voice: boxVoice });
         signInStarting.current = false;
         return false;
       }
@@ -541,10 +554,10 @@ export function AccountUpgrade({
     if (!addr) return;
     setBusy(true);
     setError(null);
-    setFieldRefusal({
-      field: "email",
-      voice: document.activeElement === emailRef.current ? "region" : "focus",
-    });
+    // F20 — where focus was at the press decides the voice; the answer decides whether there is a
+    // binding at all (set beside the refusal it describes, never ahead of it).
+    const voice: FieldVoice = document.activeElement === emailRef.current ? "region" : "focus";
+    setFieldRefusal(null);
     const supa = browserClient();
 
     if (emailTaken || intent === "signin") {
@@ -559,7 +572,7 @@ export function AccountUpgrade({
       // feedback, and records the redirect an in-flight payment resolves through — a phone with zero
       // paid Stars can still hold all of that, and a sign-in that skips the mint loses it for good.
       // The lend-mode `?resume=` return is the one door that suppresses the carry, and it says why.
-      await sendSignInCode(addr, true);
+      await sendSignInCode(addr, true, voice);
       setBusy(false);
       return;
     }
@@ -578,6 +591,7 @@ export function AccountUpgrade({
         return;
       }
       setError(e1.message || "Couldn’t send the code — try again.");
+      if (refusesTheAddress(e1)) setFieldRefusal({ field: "email", voice });
       setBusy(false);
       return;
     }
@@ -591,10 +605,8 @@ export function AccountUpgrade({
     if (!code.trim()) return;
     setBusy(true);
     setError(null);
-    setFieldRefusal({
-      field: "code",
-      voice: document.activeElement === codeRef.current ? "region" : "focus",
-    });
+    const voice: FieldVoice = document.activeElement === codeRef.current ? "region" : "focus";
+    setFieldRefusal(null);
     const supa = browserClient();
     // `email_change` finalizes the anon→account UPGRADE (keeps the uid + Stars); `email` completes the
     // SIGN-IN to the pre-existing account (recovery). The verify token/flow is otherwise identical.
@@ -605,6 +617,9 @@ export function AccountUpgrade({
     });
     if (e2) {
       setError(e2.message || "That code didn’t match. Check your email and try again.");
+      // F20 — a wrong or expired code goes under the code box; a rate limit or a dropped request
+      // is the card's.
+      if (refusesTheCode(e2)) setFieldRefusal({ field: "code", voice });
       setBusy(false);
       return;
     }
