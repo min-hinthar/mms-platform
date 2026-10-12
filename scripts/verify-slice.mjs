@@ -5867,11 +5867,13 @@ const MUTANTS = [
   },
   {
     id: "account-upgrade/strip-discards-co-present-params",
-    file: "apps/qr/components/AccountUpgrade.tsx",
+    // M214 moved the strip into lib (`stripCallbackParams`, shared with the signed-in notice); the
+    // CARD's suite is still the one that proves a co-present `resume` survives it.
+    file: "apps/qr/lib/oauth-callback.ts",
     suite: "components/AccountUpgrade.test.tsx",
     why: "replacing with `pathname` alone discards EVERY other param, and this effect is declared before the `?resume=` one so it runs first: a lend-mode return arriving beside a bounce loses `resume` before anything can act on it, and the resume effect is then torn down mid-flight when `resumeParam` flips to null",
-    find: '    window.history.replaceState(null, "", `${url.pathname}${url.search}`);',
-    replace: '    window.history.replaceState(null, "", url.pathname);',
+    find: "  return `${url.pathname}${url.search}`;",
+    replace: "  return url.pathname;",
   },
   {
     id: "account-upgrade/redirects-past-a-blocked-carry",
@@ -5932,6 +5934,71 @@ const MUTANTS = [
     why: "Codex round 1 on #279, P1. `?resume=` is the OWNER returning after lending the device, and that path is deliberately merge-SUPPRESSED so the friend's Stars are never swept onto the owner's account. The auto-recovery is the opposite — it mints and carries whatever this device holds. Dropping the veto lets an effect registered FIRST decide whose rewards move, which is the one outcome the resume path exists to prevent",
     find: "  if (lendResumePresent) return false;",
     replace: "  void lendResumePresent;",
+  },
+  // ── uia11y · M214 — a bounce that lands on a SIGNED-IN /account ──
+  {
+    id: "uia11y/m214-upgraded-bounce-unsaid",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — a signed-in diner whose OAuth round trip bounced back to /account is TOLD they are already signed in; returning nothing leaves the raw error explained by nothing on screen",
+    find: '  return "You\u2019re already signed in \u2014 that Google step didn\u2019t finish, and it doesn\u2019t need to.";',
+    replace: "  return null;",
+  },
+  {
+    id: "uia11y/m214-says-it-on-every-visit",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — the signed-in line is for a BOUNCE only; dropping the guard says 'that Google step didn't finish' to every signed-in diner who opens /account",
+    find: '  if (!outcome) return null;\n  return "You\u2019re already signed in',
+    replace: '  return "You\u2019re already signed in',
+  },
+  {
+    id: "uia11y/m214-strip-keeps-error-code",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — the ONE strip deletes all three OAuth keys; keeping `error_code` leaves the raw error in the address bar for both the guest card and the signed-in notice",
+    find: '  url.searchParams.delete("error_code");\n',
+    replace: "",
+  },
+  {
+    id: "uia11y/m214-strip-keeps-the-fragment",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — Supabase mirrors the error into the fragment and nothing in the app reads the hash; carrying it over leaves `#error=…` in the address bar after the query is clean",
+    find: "  return `${url.pathname}${url.search}`;",
+    replace: "  return `${url.pathname}${url.search}${url.hash}`;",
+  },
+  {
+    id: "uia11y/m214-notice-not-mounted",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — THE SHIPPED DEFECT: every reader of the callback params lived in the guest card, so a signed-in diner landing with ?error_code= saw nothing and kept the raw error in the URL",
+    find: "      {signedIn && (\n        <AccountCallbackNotice",
+    replace: "      {false && (\n        <AccountCallbackNotice",
+  },
+  {
+    id: "uia11y/m214-unknown-told-signed-in",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — 'already signed in' is only ours to say when the server said so; with both reads failed `kind` is null, and treating not-anon as signed-in tells an unknown (possibly anonymous) session it is signed in",
+    find: '  const signedIn = state ? state.isUpgraded : kind === "diner" || kind === "staff";',
+    replace: '  const signedIn = state ? state.isUpgraded : kind !== "anon";',
+  },
+  {
+    id: "uia11y/m214-upgraded-bounce-not-stripped",
+    file: "apps/qr/components/AccountCallbackNotice.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — the notice cleans the URL with the guest card's own strip; without it the raw `?error_code=` stays in the signed-in diner's address bar under a line saying all is well",
+    find: '    window.history.replaceState(null, "", stripCallbackParams(window.location.href));\n  }, [message]);',
+    replace: "    void stripCallbackParams;\n  }, [message]);",
+  },
+  {
+    id: "uia11y/m214-card-strip-dropped",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "M214 moved the guest card's strip into lib; the CARD must still call it, or a guest's bounce leaves the raw error in the URL",
+    find: '    window.history.replaceState(null, "", stripCallbackParams(window.location.href));\n  }, [callback]);',
+    replace: "    void stripCallbackParams;\n  }, [callback]);",
   },
   {
     id: "oauth-store/attempt-marker-reports-success-it-did-not-have",
@@ -28244,12 +28311,12 @@ const MUTANTS = [
   },
   {
     id: "account-upgrade/bounce-strip-forgets-the-panel",
-    file: "apps/qr/components/AccountUpgrade.tsx",
+    // M214 — the strip lives in lib now (`stripCallbackParams`); the card's suite still catches it.
+    file: "apps/qr/lib/oauth-callback.ts",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Deep pass on #312 \u2014 the OAuth bounce lands on You, the strip rewrote the URL to the bare /account, and the post-sign-in router.refresh() re-requested that canonical URL: the hub flipped to Orders the moment the account confirmed",
-    find: '    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.\n    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");',
-    replace:
-      "    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.",
+    find: '  if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");\n',
+    replace: "",
   },
   {
     id: "account-upgrade/resume-strip-forgets-the-panel",

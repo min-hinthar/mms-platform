@@ -82,7 +82,8 @@ vi.mock("@mms/ui", () => ({
 }));
 
 const { default: Account } = await import("./page");
-const params = (p: { tab?: string; resume?: string; error_code?: string } = {}) => ({
+type Params = { tab?: string; resume?: string; error_code?: string; error?: string };
+const params = (p: Params = {}) => ({
   searchParams: Promise.resolve(p),
 });
 
@@ -101,7 +102,7 @@ const GUEST = {
 const LIVE = [{ id: "o1" }];
 
 /** The page's content slots in document order; the W9c banner reads as "alert". */
-async function slots(p: { tab?: string; resume?: string; error_code?: string } = {}) {
+async function slots(p: Params = {}) {
   const { container } = render(await Account(params(p)));
   return [...container.querySelectorAll("[data-s], [role='alert']")].map(
     (el) => el.getAttribute("data-s") ?? "alert",
@@ -139,7 +140,7 @@ describe("/account — the order is the design", () => {
   });
 
   it("Phase 3a — opens on Orders by default, on the named panel, and on You for a lend-mode resume", async () => {
-    const panel = async (p: { tab?: string; resume?: string; error_code?: string }) =>
+    const panel = async (p: Params) =>
       render(await Account(params(p)))
         .container.querySelector("[data-panel]")
         ?.getAttribute("data-panel");
@@ -240,5 +241,73 @@ describe("W9c — a failed rewards read costs the Stars panel, never the history
     h.getRewardsState.mockResolvedValue(null);
     h.getSessionKind.mockRejectedValue(new Error("staff lookup failed"));
     expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound", "help"]);
+  });
+});
+
+describe("M214 — a bounce that lands on a SIGNED-IN /account", () => {
+  /**
+   * Every reader of the callback params lived in AccountUpgrade, which this page renders only for a
+   * guest — so a signed-in diner arriving with `?error_code=` saw nothing, and the raw error stayed in
+   * the address bar. The notice is the REAL component here (not a slot): the page passes it the
+   * params it already holds, it says one true line, and it strips the URL with the guest card's own
+   * `stripCallbackParams`.
+   */
+  const BOUNCE =
+    "/account?error=server_error&error_code=identity_already_exists&error_description=Identity+is+already+linked#error=server_error";
+  const NOTICE = /You’re already signed in — that Google step didn’t finish/;
+  const MEMBER = { ...GUEST, isUpgraded: true, email: "min@example.com" };
+  const arrive = async (p: Params) => {
+    window.history.replaceState(null, "", BOUNCE);
+    return render(await Account(params(p)));
+  };
+  const BOUNCED: Params = { error: "server_error", error_code: "identity_already_exists" };
+
+  it("an upgraded diner gets the line on You, and the address bar loses the error (and its fragment)", async () => {
+    h.getRewardsState.mockResolvedValue(MEMBER);
+    const { container } = await arrive(BOUNCED);
+    // MUTATIONS uia11y/m214-notice-not-mounted and uia11y/m214-upgraded-bounce-unsaid: red here.
+    expect(container.textContent).toMatch(NOTICE);
+    // MUTATION uia11y/m214-upgraded-bounce-not-stripped: the raw error stays; red.
+    expect(window.location.pathname).toBe("/account");
+    expect(window.location.search).toBe("?tab=you");
+    expect(window.location.hash).toBe("");
+    // The line sits in the You panel (the hub opens there for a bounce) and is no second region.
+    expect(container.querySelector("[data-panel]")?.getAttribute("data-panel")).toBe("you");
+    expect(container.querySelectorAll("[role='alert'], [role='status']")).toHaveLength(0);
+  });
+
+  it("a bounce carrying only `error` is a bounce too", async () => {
+    h.getRewardsState.mockResolvedValue(MEMBER);
+    const { container } = await arrive({ error: "server_error" });
+    expect(container.textContent).toMatch(NOTICE);
+    expect(window.location.search).toBe("?tab=you");
+  });
+
+  it("the failed-read branch: a KNOWN diner gets it; an UNKNOWN session is never told it is signed in", async () => {
+    h.getRewardsState.mockResolvedValue(null);
+    h.getSessionKind.mockResolvedValue("diner");
+    const known = await arrive(BOUNCED);
+    expect(known.container.textContent).toMatch(NOTICE);
+    cleanup();
+    // Both reads failed: `kind` is null, which is not "signed in" — no claim, and the URL is not ours.
+    h.getSessionKind.mockRejectedValue(new Error("staff lookup failed"));
+    const unknown = await arrive(BOUNCED);
+    expect(unknown.container.textContent).not.toMatch(NOTICE);
+    expect(window.location.search).toContain("error_code=identity_already_exists");
+  });
+
+  it("a GUEST's bounce stays the guest card's (the page adds no line and strips nothing itself)", async () => {
+    // GUEST is the default rewards state: AccountUpgrade (a slot here) owns the read and the strip.
+    const { container } = await arrive(BOUNCED);
+    expect(container.textContent).not.toMatch(NOTICE);
+    expect(window.location.search).toContain("error_code=identity_already_exists");
+  });
+
+  it("an ordinary signed-in visit says nothing and leaves the URL alone", async () => {
+    h.getRewardsState.mockResolvedValue(MEMBER);
+    window.history.replaceState(null, "", "/account?tab=rewards");
+    const { container } = render(await Account(params({ tab: "rewards" })));
+    expect(container.textContent).not.toMatch(NOTICE);
+    expect(window.location.search).toBe("?tab=rewards");
   });
 });

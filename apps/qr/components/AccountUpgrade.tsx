@@ -25,6 +25,7 @@ import {
   googleAction,
   googleButtonLabel,
   shouldAutoRecover,
+  stripCallbackParams,
   type CallbackOutcome,
 } from "@/lib/oauth-callback";
 import {
@@ -354,29 +355,14 @@ export function AccountUpgrade({
   /**
    * Clean the raw Supabase error out of the address bar once it has been captured above.
    *
-   * ⚠️ DELETE ONLY THE OAUTH KEYS — NEVER REPLACE WITH `pathname`. The old call was
-   * `replaceState(null, "", window.location.pathname)`, which discarded EVERY other param, and this
-   * effect is declared before the `?resume=` one so it ran first. A lend-mode return that arrived
-   * alongside a bounce therefore lost its `resume` param before the resume effect could act on it —
-   * and because the strip does propagate to `useSearchParams` (see the capture note above),
-   * `resumeParam` then flipped to null, tearing that effect down mid-flight. The resume effect's own
-   * comment says it preserves co-present params for exactly this reason; this one now does too.
-   *
-   * The fragment goes as well: Supabase mirrors the error there, the SDK does not clean an
-   * error-carrying callback (it throws before either of its two URL rewrites), and nothing in the app
-   * reads the hash.
+   * The strip is `stripCallbackParams` (lib/oauth-callback.ts), shared with the signed-in notice
+   * (M214): it deletes ONLY the OAuth keys, so a co-present `?resume=` survives for the resume
+   * effect below (this effect is declared first, so it runs first), and it leaves `?tab=you` for
+   * the post-sign-in refresh. Its docblock carries the two defects each half once was.
    */
   useEffect(() => {
     if (!callback || typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("error");
-    url.searchParams.delete("error_code");
-    url.searchParams.delete("error_description");
-    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed
-    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL — without
-    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.
-    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    window.history.replaceState(null, "", stripCallbackParams(window.location.href));
   }, [callback]);
 
   /**
