@@ -1971,6 +1971,40 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "t9/split-door-ungated",
+    file: "apps/qr/components/SplitSection.tsx",
+    suite: "components/SplitSection.test.tsx",
+    why: "T9 — THE GAP THE TRUTH PASS NAMED. `openSettlement` refuses a held lock through its settlement acquire, so a frozen tap on 'Split & pay separately' reaches the server, is refused, and comes back as a Server Action error Next redacts in production. `aria-disabled` stops neither a keyboard Enter nor a programmatic click; the gate in the handler is what refuses",
+    find: "    if (frozen) {\n      onStatus(FROZEN_NOTE);\n      return;\n    }\n    startSplit(async () => {",
+    replace: "    startSplit(async () => {",
+  },
+  {
+    id: "t9/split-door-refuses-silently",
+    file: "apps/qr/components/SplitSection.tsx",
+    suite: "components/SplitSection.test.tsx",
+    why: "T9 · J4 clause (b) — a frozen tap that is refused and says nothing: the door takes the tap, nothing changes, and the diner hears nothing. The refusal speaks the section's own freeze sentence through the parent's one live region",
+    find: "    if (frozen) {\n      onStatus(FROZEN_NOTE);\n      return;\n    }\n    startSplit(",
+    replace: "    if (frozen) {\n      return;\n    }\n    startSplit(",
+  },
+  {
+    id: "t9/split-door-looks-live",
+    file: "apps/qr/components/SplitSection.tsx",
+    suite: "components/SplitSection.test.tsx",
+    why: "T9 — under the freeze the door must not present itself as live: without `aria-disabled` a screen reader announces an available action the server will refuse",
+    find: '          aria-disabled={frozen || undefined}\n          disabled={splitting}\n          className="checkout-pill checkout-pill-accent"',
+    replace:
+      '          disabled={splitting}\n          className="checkout-pill checkout-pill-accent"',
+  },
+  {
+    id: "t9/split-door-natively-disabled",
+    file: "apps/qr/components/SplitSection.tsx",
+    suite: "components/SplitSection.test.tsx",
+    why: "T9 · WCAG 2.4.3 — the tempting 'fix' of native `disabled` drops focus to <body> mid-interaction and swallows the tap, so the freeze is never explained. `aria-disabled` keeps the door focusable and its tap speaks; native `disabled` is reserved for our own in-flight open",
+    find: '          aria-disabled={frozen || undefined}\n          disabled={splitting}\n          className="checkout-pill checkout-pill-accent"',
+    replace:
+      '          aria-disabled={frozen || undefined}\n          disabled={splitting || frozen}\n          className="checkout-pill checkout-pill-accent"',
+  },
+  {
     id: "split/abort-forgets-the-stale-clear-it-made",
     file: "apps/qr/lib/split.ts",
     suite: "lib/split.test.ts",

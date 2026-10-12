@@ -53,10 +53,12 @@ export function SplitSection({
   payHere: boolean;
   /** T9 — Checkout's `editsFrozen` (the RAW `locked`, the same predicate `assignLine` refuses on).
    *  Reassignment is provenance, not money, but it is still a cart mutation the server will refuse
-   *  while a checkout holds the lock — so the avatars must not present themselves as live. Only
-   *  REASSIGNMENT is gated: the Evenly/By-person toggle is pure client-side presentation and stays
-   *  usable, and "Split & pay separately" carries its own refusal (`openSettlement` throws
-   *  "Payments are already in progress", surfaced by `beginSettle`'s catch). */
+   *  while a checkout holds the lock — so the avatars must not present themselves as live. The live
+   *  split door is gated the same way: `openSettlement` refuses a held lock through its settlement
+   *  acquire, so under the freeze "Split & pay separately" is `aria-disabled` and `beginSettle`
+   *  refuses before the call, saying why (it used to take the tap and echo a Server Action error,
+   *  which Next redacts in production). Only the Evenly/By-person toggle stays usable: it is pure
+   *  client-side presentation. */
   frozen: boolean;
 }) {
   const [mode, setMode] = useState<"even" | "by_person">("even");
@@ -124,6 +126,13 @@ export function SplitSection({
   // pays their own card on the live board. onChanged re-syncs the cart view → the board renders.
   const [splitting, startSplit] = useTransition();
   function beginSettle() {
+    // T9 — the gate, before the call (`aria-disabled` keeps the door focusable, so a keyboard Enter
+    // still lands here): the server would refuse a frozen open anyway, and the diner hears the
+    // section's own freeze sentence instead of a redacted error.
+    if (frozen) {
+      onStatus(FROZEN_NOTE);
+      return;
+    }
     startSplit(async () => {
       try {
         await openSettlement(cartId, mode);
@@ -339,6 +348,9 @@ export function SplitSection({
         <button
           type="button"
           onClick={beginSettle}
+          // T9 — `aria-disabled` under the freeze, never native `disabled` (WCAG 2.4.3: the door keeps
+          // focus and its tap explains itself); `splitting` stays native — our own in-flight open.
+          aria-disabled={frozen || undefined}
           disabled={splitting}
           className="checkout-pill checkout-pill-accent"
           style={{
@@ -346,7 +358,9 @@ export function SplitSection({
             marginTop: 12,
             minHeight: 48,
             fontSize: "var(--fs-body)",
-            opacity: splitting ? 0.7 : 1,
+            // 0.55 is Checkout's own frozen dim (every gated control on that screen uses it).
+            opacity: splitting ? 0.7 : frozen ? 0.55 : 1,
+            cursor: splitting || frozen ? "default" : "pointer",
           }}
         >
           {splitting ? "Starting…" : "Split & pay separately"}
