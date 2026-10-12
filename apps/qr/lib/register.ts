@@ -6,7 +6,8 @@ import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode, isReservedSessionCode } from "./session-code";
 import { seatedSessionFor, sweepExpiredOnTable, type SeatedSession } from "./seated";
 import { summarizeDay, type DaySummary } from "./register-math";
-import { cashRefundedCents, readLedgerSince } from "./refund-ledger";
+import { cashRefundedCents } from "./refund-ledger";
+import { readDayLedger } from "./refund-ledger-day";
 import { readServiceDay } from "./service-day";
 import { scopeToSelf, summarizeTips, type TipOrderRow, type TipReport } from "./tip-report";
 import { REG_PREFIX } from "./register-queue";
@@ -295,7 +296,9 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
   // every hand-back without this. Read through the one paged ledger reader (M219), and a FAILED
   // ledger read is an outage for the whole summary rather than a silent 0: "nothing went back" is
   // exactly the false-empty this surface exists to prevent.
-  const ledger = await readLedgerSince(db, sinceIso);
+  // M221 — the REQUEST's one read (`readDayLedger`): the settled list on the same page asks the same
+  // question, and this drawer must count exactly the refunds that list was shown.
+  const ledger = await readDayLedger(sinceIso);
   if (ledger === null) return { ok: false, reason: "outage" };
   return { ok: true, summary: summarizeDay(rows, cashRefundedCents(ledger)), sinceIso };
 }

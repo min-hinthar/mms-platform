@@ -665,9 +665,13 @@ export async function releasePayAttempt(
  *   > "The pin has to outlive the lock for the charge to reconcile at all." (M70)
  *
  * PR #244 tried clearing it here and REVERTED — Codex P1 and the blind adversarial pass agreed it
- * traded a lesser defect for a worse one. The state this leaves behind (`locked = false` over a live
- * pin, which cash/Terminal/split will charge) is real and is OPEN-ITEMS **M123 (a′)**; it needs the
- * cart→intent link to fix safely, not a wider release here.
+ * traded a lesser defect for a worse one. The state this USED to leave behind (`locked = false` over
+ * a live pin, which cash/Terminal/split charged — OPEN-ITEMS **M123 (a′)**) was closed elsewhere,
+ * never by a wider release here: create-intent now releases the predecessor's pin directly under
+ * its supersede, above every one of these refusals (#331), and every settlement door releases a pin
+ * no intent names under its own freeze before it reads a total — cash, the Terminal and the tab
+ * close since M268 (`acquireSettlementSuperseding`), the split since M123
+ * (`releaseStalePinUnderFreeze`, lib/supersede.ts).
  *
  * ## Why era-scoping cannot strand a table
  *

@@ -191,6 +191,7 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { settleCash } = await import("./staff-cart");
+const { releaseStalePinUnderFreeze } = await import("./supersede");
 
 beforeEach(() => {
   row.pin = null;
@@ -280,5 +281,37 @@ describe("M268 — the register's cash settle never charges a dead attempt's pin
     expect(fulfilled).toBeNull();
     expect(events).not.toContain("totals");
     expect(events).toContain("freeze-released");
+  });
+});
+
+describe("M123 — the split door's release: M268's, under the owner the door acquired with", () => {
+  // `openSettlement` acquires with the plain `acquireSettlement` under the host's seat and then
+  // calls this; the split's own suite pins that call and its answers. These pin what the export
+  // itself carries: the caller's owner as the proof, and the SETTLEMENT superseder.
+  const HOST = "seat-host";
+
+  it("clears a dead attempt's pin under the freeze the split holds", async () => {
+    // MUTATION (m123/split-release-under-another-owner): the release proves nothing under an owner
+    // the freeze does not carry → refused, the pin stays; red.
+    row.settleBy = HOST;
+    row.pin = 1000;
+    expect(await releaseStalePinUnderFreeze(CART, HOST)).toBe("acquired");
+    expect(row.pin).toBeNull();
+  });
+
+  it("a LINKED attempt that is charging answers `paying`: pin, link and freeze all stay", async () => {
+    // A settled intent (Stripe: `succeeded`) under a lost link must never be cleared as though it
+    // were dead — the split would price its shares over a captured charge, and the freeze is the
+    // only mutex an unlocked cart has until the webhook fulfils. MUTATION
+    // (m123/split-release-never-asks-stripe): the export hands a superseder that answers
+    // `cleared` without Stripe → pin and link cleared, `acquired`; red.
+    row.settleBy = HOST;
+    row.pin = 1000;
+    row.linked = "pi_charging";
+    stripeStatus = "succeeded";
+    expect(await releaseStalePinUnderFreeze(CART, HOST)).toBe("paying");
+    expect(row.pin).toBe(1000);
+    expect(row.linked).toBe("pi_charging");
+    expect(events).not.toContain("freeze-released");
   });
 });
