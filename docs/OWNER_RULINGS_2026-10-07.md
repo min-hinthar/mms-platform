@@ -305,6 +305,11 @@ delegation")?
   `list_pull_requests`: #349 and #323). But #323 had no mergeable head then, and its fixed head is a
   framework upgrade. So #323 merges on the owner's per-SHA line (`#323 @ <SHA>`), like any merge (G4).
   Like G4, "merge all" is an instruction for the PR it answered, not a standing rule.
+- **H3 · "merge both" (2026-10-12, later).** The owner's words, in reply to the lead's merge-window
+  lines `#323 @ be62aa9` and `#350 @ b4e6c4c`. #323 merged at that head as `533a886`. #350 then took
+  `main` in (a CHANGELOG conflict, both entries kept) and this record, and it merged on the same
+  instruction once Codex had reviewed its new head and CI was green on it. Like G4, it is an
+  instruction for those two PRs, not a standing rule.
 - **Nothing here changes G3 for later merges.** An agent still never merges a red-`codex-review` head,
   the 2026-10-09 delegation is not renewed for later sessions, and every other merge waits for the
   owner's per-SHA yes or explicit instruction for that PR (G4).

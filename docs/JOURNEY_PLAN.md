@@ -80,7 +80,13 @@ The single highest-leverage fix for "assembled → choreographed."
 - **Shared-element continuity** at the three highest-traffic cuts: menu item photo → item-sheet hero;
   CartBar total → checkout hero-total; checkout receipt → `/track` receipt panel.
 - **Vendor decision (evidence-checked against the installed stack):** Next 16.2.9 _has_ the
-  `experimental.viewTransition` flag, but it rides React's experimental `<ViewTransition>` — and our
+  `experimental.viewTransition` flag (16.3 removed it; its guide: "View transitions work in the App Router
+  with no configuration. The App Router uses React canary releases, which contain … newer features like
+  `ViewTransition`. You do not need to install `react@canary` yourself."). Re-read 2026-10-12 (#323): the
+  App Router ALREADY runs Next's vendored React canary, which exports `ViewTransition` (16.2.9's
+  `19.3.0-canary-3f0b9e61` and 16.3.8's `19.3.0-canary-cbb046ab` alike), so the "React canary in a money
+  app" reason below never held as written. The pick stands until it is re-decided (OPEN-ITEMS T56). The
+  record as written: it rides React's experimental `<ViewTransition>` — and our
   stable React 19.2.7 doesn't export it (verified) — so the native path would mean a React canary in a
   money app: **disqualified**. Primary: **`next-view-transitions`** (~2KB, works on stable React by
   wrapping `document.startViewTransition` around App Router nav; shared elements via plain CSS

@@ -209,8 +209,8 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   `claude/feat/pd11-diner-guide`, joins the merged-PR branches below.
 - **#323**: dependabot's `npm_and_yarn` group bump, open since 2026-10-08. It is not part of the wave.
   _(2026-10-12: its Next bump never reached the lockfile, because `pnpm-workspace.yaml`'s override pinned
-  `next: 16.2.9`. Its fixed head merges on the owner's per-SHA line once it is green and
-  Codex-reviewed: OWNER_RULINGS §H2.)_
+  `next: 16.2.9`. It merged 2026-10-12 as `533a886` at its Codex-reviewed, green head
+  `be62aa9`, on the owner's "merge both": OWNER_RULINGS §H3.)_
 - **This handoff (#349)** was on `claude/docs/handoff-path-design-wave-built`. It merged 2026-10-12 as
   `b1a51cb`. The wave's first handoff branch,
   `claude/docs/handoff-path-design-wave`, belongs to #332 (merged).
@@ -378,7 +378,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   the fixture so it separates the paths (LEARNINGS #266; #347's `m270/kds-board/news-outlives-ack`).
 - **Test infra.** The Radix/jsdom timer flake (#343, LEARNINGS #257): `apps/qr/lib/test-setup.ts`
   drains real timers after each jsdom case, before the resets. Radix's close-time focus timing is
-  #348's (LEARNINGS #265). Next 16.2.9 serializes server actions, and only a navigate
+  #348's (LEARNINGS #265). Next 16.2.9 (and 16.3.8) serializes server actions, and only a navigate
   or restore starts early (LEARNINGS #262).
 - **Give `git log --since` a time.** A bare `--since=2026-10-08` starts at that day's current clock
   time: run at 2026-10-11 ~22:54Z, it dropped every merge of 2026-10-08 (#319, #320, #324, #325 and

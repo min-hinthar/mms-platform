@@ -23,15 +23,16 @@ const REAL_SET_TIMEOUT = globalThis.setTimeout;
  * `TypeError: Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type
  * 'Event'`, thrown from `@radix-ui/react-focus-scope` after its file had finished.
  *
- * Every `Sheet` (`@mms/ui`) is a Radix modal Dialog, and its FocusScope answers an UNMOUNT by queueing
- * its close-restore on `setTimeout(…, 0)`: build a `new CustomEvent`, dispatch it on the sheet's
- * container. A suite's own `afterEach(cleanup)` is that unmount. What was measured in-runner (vitest
- * 4.0.17): no macrotask runs between a case's hooks and the next case, nor between a file's last
- * `afterEach` and its `afterAll` (a timer queued in the last `afterEach` had not fired in `afterAll`,
- * 5 of 5 runs). AFTER `afterAll` there is a gap: the worker reports the file finished, and the jsdom
- * teardown runs only when the pool's `stop` message comes back — so a timer still queued races that
- * IPC round trip. The teardown deletes jsdom's globals and puts Node's own `CustomEvent` back; when
- * the timer loses, jsdom's `dispatchEvent` is handed a Node event and throws, unhandled, after the
+ * Every `Sheet` (`@mms/ui`) is a Radix modal Dialog, and its FocusScope answers an UNMOUNT by
+ * queueing its close-restore on `setTimeout(…, 0)`: build a `new CustomEvent`, dispatch it on the
+ * sheet's container. A suite's own `afterEach(cleanup)` is that unmount. What was measured
+ * in-runner (vitest 4.0.17; the hook sequencing re-read unchanged in 4.1.11): no macrotask runs
+ * between a case's hooks and the next case, nor between a file's last `afterEach` and its
+ * `afterAll` (a timer queued in the last `afterEach` had not fired in `afterAll`, 5 of 5 runs).
+ * AFTER `afterAll` there is a gap: the worker reports the file finished, and the jsdom teardown
+ * runs only when the pool's `stop` message comes back — so a timer still queued races that IPC
+ * round trip. The teardown deletes jsdom's globals and puts Node's own `CustomEvent` back; when the
+ * timer loses, jsdom's `dispatchEvent` is handed a Node event and throws, unhandled, after the
  * summary has counted every test green. The timer usually wins (a timer queued in a file's last
  * `afterAll` fired before the teardown in 113 of 113 local runs, 83 of them among the full suite);
  * one CI run lost it.
@@ -44,15 +45,16 @@ const REAL_SET_TIMEOUT = globalThis.setTimeout;
  *    after every suite's own cleanup — and Node fires equal-delay timers in the order they were
  *    queued, so a 0 ms wait queued after the unmount resolves after Radix's.
  *  - REAL CLOCK: a suite that leaves `vi.useFakeTimers()` on through its hooks would otherwise hang
- *    this hook until the hook timeout (measured: "Hook timed out in 10000ms"). A restore queued while
- *    the clock was faked sits on THAT clock, out of this drain's reach. Uninstalled before anything
- *    advances it — by `vi.useRealTimers()`, or by the next `vi.useFakeTimers()` (from vitest 4.0.17's
- *    source, not measured: `useFakeTimers` uninstalls a live clock before installing a fresh one) — it
- *    is dropped and never fires. A clock installed in a `beforeAll` OUTLIVES its case and keeps it,
- *    and the next case to advance that clock fires it there (measured: the pinning file's fixture); a
- *    `shouldAdvanceTime` clock left running to the end of a file would tick it after the teardown
- *    (not measured). Both shapes are out of reach. A sweep on 2026-10-11 found neither in apps/qr past
- *    that fixture — a snapshot, not a guard (T54).
+ *    this hook until the hook timeout (measured: "Hook timed out in 10000ms"). A restore queued
+ *    while the clock was faked sits on THAT clock, out of this drain's reach. Uninstalled before
+ *    anything advances it — by `vi.useRealTimers()`, or by the next `vi.useFakeTimers()` (from
+ *    vitest 4.0.17's source, unchanged in 4.1.11, not measured: `useFakeTimers` uninstalls a live
+ *    clock before installing a fresh one) — it is dropped and never fires. A clock installed in a
+ *    `beforeAll` OUTLIVES its case and keeps it, and the next case to advance that clock fires it
+ *    there (measured: the pinning file's fixture); a `shouldAdvanceTime` clock left running to the
+ *    end of a file would tick it after the teardown (not measured). Both shapes are out of reach. A
+ *    sweep on 2026-10-11 found neither in apps/qr past that fixture — a snapshot, not a guard
+ *    (T54).
  *  - ONE MACROTASK: the drain lets a restore's SYNCHRONOUS work land in its own case. A restore whose
  *    handler defers again (its own `setTimeout`, a frame) queues behind the drain and lands after the
  *    resets — out of reach too; no `onCloseAutoFocus` handler in apps/qr defers (2026-10-11: the

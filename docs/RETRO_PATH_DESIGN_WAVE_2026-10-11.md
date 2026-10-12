@@ -121,7 +121,7 @@ The repo is public, and a staff message can name a guest or hold untranslated Bu
 2. Ratify the other gate and merge calls listed in HANDOFF's top block. The 15 merges are ratified (§H1); the rest stays listed.
 3. The reviewer reorder (plan item 6).
 4. The private intake repo and its token (C17); branch protection (C28).
-5. Dependabot #323 (its fixed head merges on the owner's per-SHA line, §H2), and one look at the Stripe signature stream.
+5. ~~Dependabot #323~~ (merged 2026-10-12 as `533a886` on the owner's "merge both", §H3), and one look at the Stripe signature stream.
 
 ## The self-improvement rule
 

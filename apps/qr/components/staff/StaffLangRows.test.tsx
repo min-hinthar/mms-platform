@@ -325,7 +325,7 @@ describe("StaffLangRows — the write", () => {
 
 /**
  * P2e review C1 — the write the 15 s timeout gives up on is NOT cancelled: a Server Action cannot
- * be, and its own response re-renders the page with the cookie it set (Next 16.2.9's
+ * be, and its own response re-renders the page with the cookie it set (Next 16.2.9/16.3.8's
  * server-action-reducer, measured — see useLangModeWrite's docblock). Every earlier 15 s case used a
  * promise that never settles, so the landing itself was never exercised. These let it LAND after
  * `advanceTimersByTimeAsync(15_000)` and pin the invariant: the last mode the person picked is what
