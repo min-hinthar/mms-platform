@@ -288,18 +288,23 @@ trust you to make all decisions, apply migrations, and merge all") cover the 15 
 had reviewed their head (#329–#341, #343, #346; HANDOFF's "Gate and merge calls made under the
 delegation")?
 
-- **H1 · The 15 merges are covered.** "Yes it covered" answers that question: the 2026-10-09 delegation
-  covered the wave's merges of those 15 heads, and they stand as ratified. HANDOFF had asked for the
-  per-head list of commits no blind reviewer read before the ratification. It was not compiled, and
-  the owner answered without it.
-- **What H1 leaves open.** It answers the merges question only. The other entries in HANDOFF's two
-  "for the owner to ratify" lists were not put to the owner one by one, and they stay listed: the
-  decisions made under the delegation, PD6 merging before the device sitting (ruling #12), the eight
-  prod migrations applied on the delegation rather than a go for each file (ruling #5), and PD7's held
-  clear against ruling #6.
-- **H2 · "merge all"** is the owner's explicit instruction to merge the PRs open when it was given:
-  #349 (merged `b1a51cb`; its head `587eaba` was Codex-reviewed and CI green) and Dependabot's #323. Like
-  G4, it is an instruction for those PRs, not a standing rule.
+- **H1 · The 15 merges are covered.** "Yes it covered" answers that question: the 2026-10-09
+  delegation covered merging those 15 heads before Codex had reviewed them. That includes ruling #1's
+  default wait for Codex on the money-path PRs among them (HANDOFF's "Money-path PRs merged without
+  waiting for Codex"). HANDOFF asked for a per-head list of the commits no blind reviewer read before
+  any ratification. That list was not compiled, and the report the owner answered did not mention it.
+- **What H1 leaves open.** It answers the Codex-wait question only. Other calls about the same merges
+  were not put to the owner one by one, nor was the rest of HANDOFF's two "for the owner to ratify"
+  lists, and they stay listed: the decisions made under the delegation, PD6 (#334) merging before the
+  device sitting (ruling #12), the eight prod migrations applied on the delegation rather than a go for
+  each file (ruling #5), and PD7's held clear against ruling #6.
+- **H2 · "merge all".** The report it answered asked for a go on #349 only. The lead took "merge all"
+  as that go, and merged #349's head `587eaba` as `b1a51cb`: Codex had reviewed that exact head (no
+  findings) and CI was green on it. _The lead's reading, not the owner's words:_ "all" may also mean
+  Dependabot's #323, the only other open PR (measured right after the message with
+  `list_pull_requests`: #349 and #323). But #323 had no mergeable head then, and its fixed head is a
+  framework upgrade. So #323 merges on the owner's per-SHA line (`#323 @ <SHA>`), like any merge (G4).
+  Like G4, "merge all" is an instruction for the PR it answered, not a standing rule.
 - **Nothing here changes G3 for later merges.** An agent still never merges a red-`codex-review` head,
   the 2026-10-09 delegation is not renewed for later sessions, and every other merge waits for the
   owner's per-SHA yes or explicit instruction for that PR (G4).

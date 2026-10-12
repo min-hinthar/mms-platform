@@ -39,7 +39,7 @@ at that day's current clock time: "How work runs here"), the open PRs (`list_pul
   lead hand-read anything after that. The lead then merged the head on the owner's "merge all", not
   through an automated bypass. CLAUDE.md's G3 · G4 say no merge instruction covers a red-`codex-review`
   head, so whether "merge all" covered those heads was put to the owner. **The owner answered 2026-10-12:
-  "Yes it covered"** (OWNER_RULINGS §H): the 15 merges listed in "Gate and merge calls made under the
+  "Yes it covered"** (OWNER_RULINGS §H1): the 15 merges listed in "Gate and merge calls made under the
   delegation" below are ratified. That answer is not authority for a later merge.
 - **How this wave's migrations reached prod.** Each wave migration went to the QR project
   `fasnpdhtvqtzjlvruqcu` ONE FILE AT A TIME through the Supabase MCP `apply_migration`, after
@@ -165,7 +165,9 @@ One line per moment, with where it is recorded. Each spec's build notes hold the
 ### Gate and merge calls made under the delegation — for the owner to ratify
 
 **The 15 merges were ratified by the owner on 2026-10-12** ("merge all. Yes it covered", OWNER_RULINGS
-§H). The other calls in this section were not put to the owner one by one, and they stay listed.
+§H1). That covers merging them before Codex's review, including the money-path PRs' merge without the
+wait ruling #1 defaults to. The other calls in this section were not put to the owner one by one, and
+they stay listed.
 
 These were measured 2026-10-11 from each PR's `merged_at` and the `codex-review` check runs on its
 merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check_name=codex-review`).
@@ -196,7 +198,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   (ruling #5).
 - **Not compiled: the commits no blind reviewer read.** CLAUDE.md asks the merge-window line of each
   such head to list the commits after its last capped pass, and whether any touched `MONEY_PATHS`. That
-  per-head list was not compiled for these 15 merges, and the owner ratified them without it.
+  per-head list was not compiled for these 15 merges, and the report the owner answered did not mention it.
 - **A tension for the owner, not resolved here.** PD7's "paid food the kitchen has not finished holds
   the clear" (`paid_unserved`, m7 §H, decided under the delegation) reads against ruling #6's
   "Clearing a table never waits."
@@ -207,9 +209,10 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   `claude/feat/pd11-diner-guide`, joins the merged-PR branches below.
 - **#323**: dependabot's `npm_and_yarn` group bump, open since 2026-10-08. It is not part of the wave.
   _(2026-10-12: its Next bump never reached the lockfile, because `pnpm-workspace.yaml`'s override pinned
-  `next: 16.2.9`. The owner's "merge all" covers it once its head is green and Codex-reviewed:
-  OWNER_RULINGS §H2.)_
-- **This handoff** is on `claude/docs/handoff-path-design-wave-built`. The wave's first handoff branch,
+  `next: 16.2.9`. Its fixed head merges on the owner's per-SHA line once it is green and
+  Codex-reviewed: OWNER_RULINGS §H2.)_
+- **This handoff (#349)** was on `claude/docs/handoff-path-design-wave-built`. It merged 2026-10-12 as
+  `b1a51cb`. The wave's first handoff branch,
   `claude/docs/handoff-path-design-wave`, belongs to #332 (merged).
 - Every other wave branch on origin belongs to a merged PR and has not been deleted. Under
   `claude/feat/`: pd-tokens-pass · pd-pass-primitives · pd3-pickup-promise · pd5-kitchen-round-two ·
@@ -333,7 +336,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   each through a fresh-context critic → integration and the local gate (`--only=` per touched
   money/authority module) → the PR → mark ready, `@codex review`, ONE capped blind pass over the full PR
   diff beside `verify-slice` → the merge (WORKFLOW §Review step 5, on ruling #1's per-SHA line).
-- **Delegated owner questions:** decide with the recommendation and record it as a decision made under the owner's delegation (decided by: the session), never as an owner ruling — in the PR's record and the CHANGELOG, or labelled so in the rulings file (§F/§G style). Delegation covers design (§F); a gate, merge or protection decision is never decided that way.
+- **Delegated owner questions:** decide with the recommendation and record it as a decision made under the owner's delegation (decided by: the session), never as an owner ruling — in the PR's record and the CHANGELOG, or labelled so in the rulings file (§F/§G style). Delegation covers design (§F); a gate, merge or protection decision is never decided that way. (The one exception is the owner's own, after the fact: the 2026-10-09 wave's merges, which that day's delegation covered, OWNER_RULINGS §H1. It does not carry forward.)
 - **Staff copy:** plain words — never settle / tab / fire / bump / void / comp / 86 / expo / update /
   updating in visible copy; Burmese-first bilingual; K15-HIGH strings (food, money) keep their English
   in Burmese-only mode (DESIGN-LANGUAGE's plain-words rule is the base).
@@ -369,7 +372,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 - **Ask Codex on every final head (`@codex review`): its quota is not predictable.** It was out of
   quota through 2026-10-09 and into 2026-10-11 ~01:16Z. It was back ~15:15Z, out again ~19:14Z and
   ~19:31Z, and back ~20:29Z, and it reviewed through #347's merge (~22:40Z). It was out again ~23:08Z
-  (#349). The PRs that merged before Codex had reviewed their head are the measured list of 15 in "Gate
+  (#349), and back by 2026-10-12 ~05:02Z (#349's three rounds). The PRs that merged before Codex had reviewed their head are the measured list of 15 in "Gate
   and merge calls made under the delegation" (top block).
 - **After adding a second path to the same outcome, re-run the module's WHOLE mutant set**, and fix
   the fixture so it separates the paths (LEARNINGS #266; #347's `m270/kds-board/news-outlives-ack`).

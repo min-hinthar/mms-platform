@@ -6,12 +6,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
-- **The owner ratified the wave's 15 merges** made before Codex had reviewed their head ("merge all.
-  Yes it covered"). OWNER_RULINGS gains §H: H1 records that the 2026-10-09 delegation covered those
-  merges, and that the other calls in HANDOFF's ratify lists stay open. H2 records "merge all" as the
-  instruction for the PRs open at the time (#349 and #323). Like G4, it is not a standing rule, and G3
-  is unchanged for later merges. CLAUDE.md's "Where things stand" and HANDOFF stop calling the question
-  open.
+- **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
+  Yes it covered"). OWNER_RULINGS gains §H.
+  - H1: the 2026-10-09 delegation covered merging those heads before Codex's review, including ruling
+    #1's money-path wait. The other calls in HANDOFF's ratify lists stay open.
+  - H2: "merge all" was the go for #349, the PR the report asked about. Reading it as also covering
+    Dependabot's #323 is marked as the lead's reading, so #323's fixed head merges on the owner's
+    per-SHA line.
+  - G3 is unchanged for later merges.
+- CLAUDE.md's "Where things stand", HANDOFF and the retro stop calling the question open. HANDOFF also
+  records #349's merge (`b1a51cb`) and Codex's return on 2026-10-12. The retro's owner-decisions list
+  keeps only the delegation-mechanism question.
 
 ### The path-design wave's handoff (2026-10-11, docs only)
 
