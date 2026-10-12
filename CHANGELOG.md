@@ -6,6 +6,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The path-design wave's handoff (2026-10-11, docs only)
 
+- **The wave's retrospective is measured** (`docs/RETRO_PATH_DESIGN_WAVE_2026-10-11.md`). Read-only measurers pulled GitHub, Actions, git replays and the prod signals; three designers proposed changes and an adversarial critic sequenced them. It holds the baselines the next wave must beat, the next ten PRs, the feedback → issues → fixes loop and the owner decisions it waits on.
 - **HANDOFF's new top block records the wave as built.** It holds the owner's directives and what the
   2026-10-09 delegation covered, the merged PRs by moment, the eight prod migrations in apply order,
   the decisions and the gate and merge calls for the owner to ratify, the open PRs and branches, and

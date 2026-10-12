@@ -207,6 +207,8 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 
 ## Next tasks — after the wave
 
+**Start from the retrospective:** [`RETRO_PATH_DESIGN_WAVE_2026-10-11.md`](RETRO_PATH_DESIGN_WAVE_2026-10-11.md). It holds the wave's measured baselines and the next ten PRs in order. In that order: ledger conflicts made impossible; one sanctioned merge path; memory that loads; mutants where they pay; the SQL lane as a matrix; reviewers in the order they pay; the playbook as a skill; `pnpm retro`; migration safety; deterministic jsdom timing. It also covers the staff and guest feedback → issues → fixes loop, and the owner decisions the plan waits on.
+
 1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
 2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
    merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
