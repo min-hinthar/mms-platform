@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   chosenName,
   DEFAULT_SEAT_NAME,
+  hostNameAsked,
+  nameAskDismissKey,
   nudgeLive,
   nudgeOffered,
   nudgeStands,
@@ -140,5 +142,53 @@ describe("nudgeLive — a stamp is a wait only while a dish that predates it sti
     expect(
       nudgeLive({ seat: "s", at: "yesterday" }, [line("2026-10-08T09:59:00+00:00")]),
     ).toBeNull();
+  });
+});
+
+describe("hostNameAsked — the host is asked for a name once, when the party first reaches two (m1 decision 16)", () => {
+  // The neighbour every case below changes ONE input of: an unnamed host at a dine-in table of two.
+  const host = {
+    mode: "dinein",
+    role: "host" as const,
+    myName: DEFAULT_SEAT_NAME,
+    memberCount: 2,
+    dismissed: false,
+  };
+  it("asks an unnamed host at a dine-in table of two — blank reads as unnamed too", () => {
+    expect(hostNameAsked(host)).toBe(true);
+    expect(hostNameAsked({ ...host, myName: "  " })).toBe(true);
+    expect(hostNameAsked({ ...host, myName: null })).toBe(true);
+    expect(hostNameAsked({ ...host, memberCount: 5 })).toBe(true);
+  });
+  it("never once a name is chosen — the table's or the one this row just saved", () => {
+    // MUTATION (pdrem/name-ask-asks-a-named-host): the chosen-name check dropped — "Aye" is asked
+    // what her table should call her; red.
+    expect(hostNameAsked({ ...host, myName: "Aye" })).toBe(false);
+  });
+  it("never a guest — only the host is named as the one who sends", () => {
+    // MUTATION (pdrem/name-ask-asks-a-guest): the role check dropped — a guest is told "Your table
+    // sees you as the one who sends", which is false; red.
+    expect(hostNameAsked({ ...host, role: "guest" })).toBe(false);
+    expect(hostNameAsked({ ...host, role: null })).toBe(false);
+  });
+  it("never at a solo table — nobody else reads the name yet", () => {
+    // MUTATION (pdrem/name-ask-asks-a-solo-host): the party bound loosened to one — a host alone
+    // at the table is asked before the name matters; red.
+    expect(hostNameAsked({ ...host, memberCount: 1 })).toBe(false);
+    expect(hostNameAsked({ ...host, memberCount: 0 })).toBe(false);
+  });
+  it("never again this visit after Not now", () => {
+    // MUTATION (pdrem/name-ask-ignores-not-now): the dismissal ignored — "Not now" hides nothing;
+    // red.
+    expect(hostNameAsked({ ...host, dismissed: true })).toBe(false);
+  });
+  it("only at a dine-in table — pickup and scan-and-go have no Send to be named for", () => {
+    // MUTATION (pdrem/name-ask-outside-dine-in): the mode check dropped; red.
+    expect(hostNameAsked({ ...host, mode: "pickup" })).toBe(false);
+    expect(hostNameAsked({ ...host, mode: null })).toBe(false);
+  });
+  it("Not now is kept per table session", () => {
+    expect(nameAskDismissKey("s-1")).not.toBe(nameAskDismissKey("s-2"));
+    expect(nameAskDismissKey("s-1")).toContain("s-1");
   });
 });

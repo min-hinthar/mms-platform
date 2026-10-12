@@ -117,3 +117,54 @@ export function chosenName(name: string | null | undefined): string | null {
   const n = name?.trim() ?? "";
   return n !== "" && n !== DEFAULT_SEAT_NAME ? n : null;
 }
+
+/**
+ * PD1 (m1 decision 16, graft 3) — is the HOST asked for a name? Once, at the moment it starts to
+ * matter: on their own /cart at a dine-in table, once the party has reached two — a tablemate then
+ * reads who sends ("Aye sends the table's order…", `hostSendsCopy`) — and only while the host's
+ * seat still carries the default "Guest" (`chosenName` → null), which every tablemate reads as the
+ * role sentence instead. Never once a name is chosen (the row's own save included: the caller
+ * passes the saved name), never for a guest (only the host is named as the one who sends), never
+ * at a solo table (nobody else reads it), and never again this visit after "Not now"
+ * (`nameAskDismissKey`). The caller draws it where the host's Send is — the moment the name is read.
+ */
+export function hostNameAsked(s: {
+  /** The session mode (`SplitContext.mode`): only a dine-in table has a Send to be named for. */
+  mode: string | null;
+  role: "host" | "guest" | null;
+  /** The table's name for this seat (`session_members.display_name`), or the one this row saved. */
+  myName: string | null;
+  /** The table's members (`SplitContext.members.length`), the host included. */
+  memberCount: number;
+  /** "Not now" stands for this visit — or its sessionStorage read has not landed yet. */
+  dismissed: boolean;
+}): boolean {
+  return (
+    s.mode === "dinein" &&
+    s.role === "host" &&
+    s.memberCount >= 2 &&
+    chosenName(s.myName) === null &&
+    !s.dismissed
+  );
+}
+
+/** The visit-scoped key "Not now" is kept under (sessionStorage): per table session, so the next
+ *  table asks again. Not `mms.qr.`-prefixed: it is not a device-session pointer (lib/device-session). */
+export function nameAskDismissKey(sessionId: string): string {
+  return `mms.nameAsk.notNow.${sessionId}`;
+}
+
+/**
+ * The ask's words — m1 screen 3's COPY (English), verbatim. English-only until the K15 native
+ * check: the spec's Burmese drafts (m1 COPY (Burmese), "Name ask") are listed for that sitting and
+ * never invented or shipped here before it.
+ */
+export const HOST_NAME_ASK = {
+  question: "What should your table call you?",
+  reason: "Your table sees you as the one who sends.",
+  placeholder: "Your name",
+  save: "Save",
+  notNow: "Not now",
+  saved: "Name saved",
+  failed: "Couldn’t save your name — please try again.",
+} as const;

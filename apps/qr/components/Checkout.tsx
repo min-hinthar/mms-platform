@@ -26,7 +26,16 @@ import {
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, EmptyState, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
+import {
+  Avatar,
+  Button,
+  EmptyState,
+  Field,
+  Icon,
+  NumberFlow,
+  Stepper,
+  useSheetSubject,
+} from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -149,12 +158,16 @@ import {
 } from "@/lib/confirm-copy";
 import {
   chosenName,
+  HOST_NAME_ASK,
+  hostNameAsked,
+  nameAskDismissKey,
   nudgeOffered,
   nudgeStands,
   waitingLine,
   type SendNudge,
 } from "@/lib/send-nudge-state";
 import { nudgeHost } from "@/lib/send-nudge";
+import { setDisplayName } from "@/lib/members";
 import {
   graceRereadDelayMs,
   passDishes,
@@ -673,6 +686,34 @@ export function Checkout({
     return () => clearTimeout(id);
   }, [passStep, passMotion.nonce]);
   const [nudgeBusy, setNudgeBusy] = useState(false);
+  // PD1 (m1 decision 16) — the HOST's one-time name ask. "Not now" for this visit is null until its
+  // sessionStorage read lands, and null HIDES the row (it never flashes in, then out). `savedName` is
+  // the name this row saved: the context's members are the page's read, so the saved name stands in
+  // for this seat's until the next one. Then the draft, the save's flight and its failure.
+  const [nameAskDismissed, setNameAskDismissed] = useState<boolean | null>(null);
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const askSessionId = splitContext?.sessionId ?? null;
+  useEffect(() => {
+    if (!askSessionId) return;
+    let active = true;
+    // Read AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): the server render
+    // and the first client render agree, and the setState runs in a callback, never the effect
+    // body. Storage that throws (a private window, blocked site data) reads as not dismissed: the
+    // ask shows, and it is one tap to skip.
+    void Promise.resolve()
+      .then(() => sessionStorage.getItem(nameAskDismissKey(askSessionId)) === "1")
+      .catch(() => false)
+      .then((dismissed) => {
+        if (active) setNameAskDismissed(dismissed);
+      });
+    return () => {
+      active = false;
+    };
+  }, [askSessionId]);
   // PD1 — "Show a server": open, and the dish ids it printed when it opened (they stay on the
   // ticket after they go; `passDishes`).
   const [passOpen, setPassOpen] = useState(false);
@@ -2375,6 +2416,60 @@ export function Checkout({
    * this guest's. A refusal says the action's own sentence; one that means this view is stale (the
    * dishes went, the cart closed, a payment holds it) re-reads, so the wait block follows the truth.
    */
+  /**
+   * PD1 (m1 decision 16) — the name ask's Save: the host renames THEIR OWN seat (`setDisplayName`,
+   * lib/members — member-authorized, scoped to the caller's seat in the SQL), and the device keeps
+   * it as its one identity (`DEVICE_NAME_KEY`: the menu's guest list and the pickup name read it).
+   * Saved: the row leaves, the region says "Name saved" once, and focus goes to Send — the control
+   * that held it unmounts. Refused or offline: the row stays, the field carries the error (and its
+   * description), the region says it once, and focus returns to the field. Nothing typed (or only
+   * the default "Guest") writes nothing: the field is where the answer goes.
+   */
+  async function saveHostName(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (nameBusy || !splitContext) return;
+    const next = chosenName(nameDraft.trim().slice(0, 40));
+    if (!next) {
+      nameInputRef.current?.focus();
+      return;
+    }
+    setNameBusy(true);
+    setNameError(null);
+    try {
+      await setDisplayName(splitContext.sessionId, next);
+    } catch {
+      // The action throws on a refusal and on transport alike (Next redacts the message in
+      // production): the honest answer is "try again", and the row stays for it.
+      setNameBusy(false);
+      setNameError(HOST_NAME_ASK.failed);
+      sayRefusal(HOST_NAME_ASK.failed);
+      nameInputRef.current?.focus();
+      return;
+    }
+    try {
+      localStorage.setItem(DEVICE_NAME_KEY, next);
+    } catch {
+      /* private mode — the seat is named on the server either way */
+    }
+    setNameBusy(false);
+    setSavedName(next);
+    sayOutcome(HOST_NAME_ASK.saved);
+    sendHandle.current?.focus();
+  }
+  /** "Not now": hidden for this visit (sessionStorage, per table session); focus lands on the Send
+   *  the row sat above, since the control under it unmounts. */
+  function dismissNameAsk() {
+    setNameAskDismissed(true);
+    if (splitContext) {
+      try {
+        sessionStorage.setItem(nameAskDismissKey(splitContext.sessionId), "1");
+      } catch {
+        /* private mode — hidden for this mount, asked again on the next */
+      }
+    }
+    sendHandle.current?.focus();
+  }
+
   async function nudge() {
     if (nudgeBusy || !hostName) return;
     const copy = nudgeCopy(hostName);
@@ -2981,6 +3076,16 @@ export function Checkout({
   });
   // The guest's confirmation follows the STAMP, and only this seat's.
   const nudgeMine = nudgeStands(sendNudge, mySeat);
+  // PD1 (m1 decision 16) — the host's name, asked ONCE when the party has reached two and the seat
+  // still carries the default (lib's rule, `hostNameAsked`); drawn where their Send is, below.
+  const mySeatMember = splitContext?.members.find((m) => m.seat === splitContext.mySeat) ?? null;
+  const nameAsked = hostNameAsked({
+    mode: splitContext?.mode ?? null,
+    role: myRole,
+    myName: savedName ?? mySeatMember?.name ?? null,
+    memberCount: splitContext?.members.length ?? 0,
+    dismissed: nameAskDismissed !== false,
+  });
   // The host's quiet line, named from the table's own names (never the payload).
   const hostLine = waitingLine(sendNudge, splitContext?.members ?? [], myRole);
   const waitingMember = sendNudge
@@ -4594,6 +4699,45 @@ export function Checkout({
                 stamp waits on the cart until this Send clears it (in the same statement as the fire).
                 No sound, no toast, no sheet: the waiting guest's avatar and one sentence, above the
                 Send it is about, carried in Send's description. Plain text, never live. */}
+            {/* PD1 (m1 decision 16) — the host's name, asked ONCE, where it starts to matter: above
+                the Send a tablemate's line names them by ("Aye sends the table's order…"). One inline
+                row, never a card, a sheet or a menu card: the question and its reason (the field's
+                label and hint), the field, a PAPER "Save" (Send stays the one filled control — m1
+                B11) and the quiet "Not now". No motion. English-only until the K15 sitting. */}
+            {showLineCards && canSendToKitchen && hero === "send" && nameAsked && (
+              <form className="checkout-name-ask" onSubmit={(e) => void saveHostName(e)} noValidate>
+                <Field label={HOST_NAME_ASK.question} hint={HOST_NAME_ASK.reason} error={nameError}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      ref={nameInputRef}
+                      value={nameDraft}
+                      onChange={(e) => {
+                        setNameDraft(e.target.value);
+                        if (nameError) setNameError(null);
+                      }}
+                      maxLength={40}
+                      placeholder={HOST_NAME_ASK.placeholder}
+                      autoComplete="given-name"
+                      enterKeyHint="done"
+                    />
+                  )}
+                </Field>
+                <div className="checkout-name-ask-actions">
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    className="checkout-name-ask-save"
+                    busy={nameBusy}
+                  >
+                    {HOST_NAME_ASK.save}
+                  </Button>
+                  <Button variant="quiet" size="sm" onClick={dismissNameAsk}>
+                    {HOST_NAME_ASK.notNow}
+                  </Button>
+                </div>
+              </form>
+            )}
             {showLineCards && canSendToKitchen && hero === "send" && hostLine && (
               <p id="nudge-line" className="checkout-nudge-line">
                 {waitingAvatar && (

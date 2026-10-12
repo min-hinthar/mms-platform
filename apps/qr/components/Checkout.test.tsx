@@ -46,6 +46,10 @@ function deferred<T>() {
 
 const h = vi.hoisted(() => ({
   nudgeHost: vi.fn(),
+  /** PD1 (m1 decision 16) — the host's name ask's Server Action. */
+  setDisplayName: vi.fn(),
+  /** The Send's handle `focus()` — where the name ask lands focus once it leaves. */
+  sendFocus: vi.fn(),
   publishCart: vi.fn(),
   getCartView: vi.fn(),
   setQty: vi.fn(),
@@ -84,6 +88,10 @@ vi.mock("@/lib/realtime", () => ({
 }));
 // PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
 vi.mock("@/lib/send-nudge", () => ({ nudgeHost: (...a: unknown[]) => h.nudgeHost(...a) }));
+// PD1 (m1 decision 16) — the host's name ask saves through a Server Action (server-only).
+vi.mock("@/lib/members", () => ({
+  setDisplayName: (...a: unknown[]) => h.setDisplayName(...a),
+}));
 // `@mms/ui` stays REAL except for ONE export: `NumberFlow` re-exports `@number-flow/react`, which
 // drives a custom element jsdom does not register (`this.el?.willUpdate is not a function` at
 // commit). The animated digits are not what this file guards, and `Stepper` — which IS — keeps its
@@ -127,7 +135,22 @@ vi.mock("./SettlementBoard", () => ({
   SettlementBoard: () => <div data-testid="settlement-board">Your table is splitting the bill</div>,
 }));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
-vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
+// Renders nothing, but answers the Send's HANDLE (React 19: `ref` is a prop): the name ask lands
+// focus on the Send through `focus()` once its row leaves (m1 decision 16), and a case asks whether
+// it did. `send()` stays the no-op the old `null` ref was.
+vi.mock("./SendToKitchenButton", async () => {
+  const { useImperativeHandle } = await import("react");
+  return {
+    SendToKitchenButton: ({
+      ref,
+    }: {
+      ref?: React.Ref<{ send: () => void; focus: () => void }>;
+    }) => {
+      useImperativeHandle(ref, () => ({ send: () => {}, focus: () => h.sendFocus() }), []);
+      return null;
+    },
+  };
+});
 vi.mock("./SecureTabButton", () => ({ SecureTabButton: () => null }));
 vi.mock("./RewardField", () => ({ RewardField: () => null }));
 vi.mock("./PickupWhenChoice", () => ({ PickupWhenChoice: () => null }));
@@ -3271,6 +3294,159 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 });
 
 // ── PD10 (PATH_DESIGN_2026-10-07 decision 10; m10) — the guest's live One Pass, and the served door ──
+describe("PD1 — the host's name, asked once when the party reaches two (m1 decision 16)", () => {
+  const HOST_SEAT = PEER_SEAT;
+  /** Aye started the table and still carries the default seat name; Thiri has joined. */
+  const UNNAMED_HOST = {
+    mode: "dinein",
+    mySeat: HOST_SEAT,
+    myRole: "host" as const,
+    members: [
+      { seat: HOST_SEAT, name: "Guest", role: "host" as const },
+      { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+    ],
+    tableNumber: 7,
+    sessionId: SESSION_ID,
+  };
+  const DRAFT: CartItem = { ...ITEM, qty: 2 };
+  const QUESTION = "What should your table call you?";
+  const DISMISS_KEY = `mms.nameAsk.notNow.${SESSION_ID}`;
+  const mountAsk = (p: Partial<Parameters<typeof Checkout>[0]> = {}) =>
+    mount({ splitContext: UNNAMED_HOST, initialItems: [DRAFT], ...p });
+  /** Let the sessionStorage read (a microtask after mount) land. */
+  const hydrate = () =>
+    act(async () => {
+      await Promise.resolve();
+    });
+  const field = () => screen.queryByRole("textbox", { name: QUESTION });
+  beforeEach(() => {
+    flags.phonePayOpen = false;
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+    h.setDisplayName.mockResolvedValue({ ok: true });
+  });
+  afterEach(() => {
+    flags.phonePayOpen = true;
+  });
+
+  it("an unnamed host at a table of two is asked above the Send: the question, its reason, a paper Save, a quiet Not now", async () => {
+    mountAsk();
+    await hydrate();
+    const input = field();
+    // MUTATION (pdrem/checkout-name-ask-never-drawn): the row's gate never true — the host is
+    // never asked, and every tablemate reads the role sentence for good; red.
+    expect(input).not.toBeNull();
+    expect(input!.getAttribute("placeholder")).toBe("Your name");
+    expect(input!.getAttribute("maxlength")).toBe("40");
+    expect(input!.getAttribute("autocomplete")).toBe("given-name");
+    // The reason is the field's description, tied to it (never a second live region).
+    const described = input!.getAttribute("aria-describedby");
+    expect(document.getElementById(described!)?.textContent).toBe(
+      "Your table sees you as the one who sends.",
+    );
+    // Save is PAPER — Send stays the one filled control in the state (m1 B11).
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.classList.contains("ui-btn-secondary")).toBe(true);
+    expect(save.classList.contains("checkout-cta")).toBe(false);
+    expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+    // No new live region: the view keeps its one.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("is never drawn for a host the table already names, nor for one alone at the table", async () => {
+    mountAsk({
+      splitContext: {
+        ...UNNAMED_HOST,
+        members: [
+          { seat: HOST_SEAT, name: "Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+        ],
+      },
+    });
+    await hydrate();
+    // MUTATION (pdrem/checkout-name-ask-ignores-the-seats-name): the seat's own name not read —
+    // "Aye" is asked what her table should call her; red.
+    expect(field()).toBeNull();
+    cleanup();
+    mountAsk({ splitContext: { ...UNNAMED_HOST, members: [UNNAMED_HOST.members[0]!] } });
+    await hydrate();
+    expect(field()).toBeNull();
+  });
+
+  it("Save renames THIS seat in its session, says 'Name saved' once, leaves, and lands focus on Send", async () => {
+    mountAsk();
+    await hydrate();
+    fireEvent.change(field()!, { target: { value: "  Aye  " } });
+    await press("Save");
+    // MUTATION (pdrem/checkout-name-saved-into-the-wrong-session): the seat id passed as the
+    // session — `setDisplayName` authorizes nothing and renames nobody; red.
+    expect(h.setDisplayName).toHaveBeenCalledWith(SESSION_ID, "Aye");
+    await settle();
+    expect(regionText()).toContain("Name saved");
+    // The row leaves — the seat is named now (the saved name stands in for the page's read).
+    // MUTATION (pdrem/checkout-saved-name-forgotten): the saved name not kept — the row asks again
+    // over a seat it just named; red.
+    expect(field()).toBeNull();
+    // MUTATION (pdrem/checkout-name-saved-focus-dropped): focus left on a control that unmounted —
+    // it falls to the page; red.
+    expect(h.sendFocus).toHaveBeenCalledTimes(1);
+    // The device keeps it as its one identity (the menu's guest list, the pickup name).
+    expect(window.localStorage.getItem("mms.name")).toBe("Aye");
+  });
+
+  it("a refused or offline Save keeps the row, marks the field, says why once, and returns focus to it", async () => {
+    h.setDisplayName.mockRejectedValue(new Error("Could not update name"));
+    mountAsk();
+    await hydrate();
+    fireEvent.change(field()!, { target: { value: "Aye" } });
+    await press("Save");
+    await settle();
+    // MUTATION (pdrem/checkout-name-save-failure-silent): the failure never said — the host taps
+    // Save and nothing on screen changes; red.
+    expect(regionText()).toContain("Couldn’t save your name — please try again.");
+    const input = field()!;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "Couldn’t save your name — please try again.",
+    );
+    expect(document.activeElement).toBe(input);
+    expect(h.sendFocus).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("mms.name")).toBeNull();
+  });
+
+  it("Save with nothing typed — or only the default — writes nothing and keeps the answer's place", async () => {
+    mountAsk();
+    await hydrate();
+    await press("Save");
+    fireEvent.change(field()!, { target: { value: "Guest" } });
+    await press("Save");
+    expect(h.setDisplayName).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("Not now hides it for the visit — this table's session — and lands focus on Send", async () => {
+    mountAsk();
+    await hydrate();
+    await press("Not now");
+    expect(field()).toBeNull();
+    expect(h.sendFocus).toHaveBeenCalledTimes(1);
+    expect(h.setDisplayName).not.toHaveBeenCalled();
+    // A reload of the same visit (same tab, same table) is not asked again.
+    cleanup();
+    mountAsk();
+    await hydrate();
+    // MUTATION (pdrem/checkout-not-now-forgotten): the dismissal never kept — the next mount asks
+    // again; red.
+    expect(window.sessionStorage.getItem(DISMISS_KEY)).toBe("1");
+    expect(field()).toBeNull();
+    // Another table's session asks afresh.
+    cleanup();
+    mountAsk({ splitContext: { ...UNNAMED_HOST, sessionId: "session-2" } });
+    await hydrate();
+    expect(field()).not.toBeNull();
+  });
+});
+
 describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bill, live)", () => {
   /** Thiri's phone at Aye's table: a guest, the host named, a group (owners on the rows). */
   const TABLE = {

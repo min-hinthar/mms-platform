@@ -54,6 +54,9 @@ vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
 vi.mock("@/lib/send-nudge", () => ({
   nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
 }));
+// PD1 (m1 decision 16) — the host's name ask saves through a Server Action (`"use server"` → the
+// service client, server-only); never reached here.
+vi.mock("@/lib/members", () => ({ setDisplayName: () => Promise.resolve({ ok: true }) }));
 vi.mock("@mms/ui", async (orig) => ({
   ...(await orig<typeof import("@mms/ui")>()),
   NumberFlow: ({ value }: { value: number }) => <span>{value}</span>,
