@@ -6,7 +6,12 @@ The owner asked for this: "radically improve design-plannings, orchestrations, w
 
 ## The baselines the next wave must beat
 
-The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The other prod and repo figures are cumulative or windowed as stated.
+The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The other prod and repo figures are cumulative or windowed as stated. **They are provisional until `pnpm retro` (plan item 8) commits the scripts that produced them.** Two measurers counted some things over slightly different sets, and each figure below names its own denominator:
+
+- 69 of 73 merge commits in wave PRs conflicted (one measurer). The 53-of-70 replay (plan item 1) counts the 74 own merges across both.
+- 145 of 311 is the share of commits that rewrote only numbers. 195 of 310 is the share of commits made after a review. These are different measures.
+- The slowest shard ran 18.6 min on the latest main run. 17.7 is the replay of the 9:1 cost model.
+- "398 LEARNINGS" counts every bullet and heading entry. There are 222 `## #N` headings.
 
 | Measure                                                   | This wave                                                                                                                      |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -32,14 +37,14 @@ The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The o
 
 ## What worked: keep it
 
-- **Worktree-per-stream parallelism shipped.** 23 PRs landed in 77 h. Main's push CI is green on all 24 completed runs since #320, so no defect reached `main`.
+- **Worktree-per-stream parallelism shipped.** 23 PRs landed in 77 h. Main's push CI is green on all 24 completed runs since #320. One defect did reach `main` and prod all the same: #335 merged 27 minutes before Codex's review of its head, and Codex's two findings became #342 (PD1N). Until PD1N was applied, the nudge ran on prod without its line lock. Green CI is not the same as reviewed.
 - **The two reviewers are complementary, not redundant.** Only 5 of 123 review-fix commits answered both of them. On #348, Codex was clean twice while the blind pass found two criticals: a wrong Invite instruction and a scroll region no keyboard could reach.
 - **The mutation battery caught what no reviewer saw.** #347's round-4 fix made an old mutant survive, and shard 6 was the only signal.
-- **One-file prod applies with object verification.** Eight applies, no incident beyond the DROP stall. The lead re-measured that no out-of-order pair restates a shared function.
+- **One-file prod applies with object verification.** Eight applies, no incident beyond the DROP stall. After the wave the lead measured every function the eight files create or restate: one overload each, and none executable by `anon`, `authenticated` or `public`. No out-of-order pair restates a shared function, though only function names were compared, not grants, policies or columns.
 
 ## What hurt: ranked by measured cost
 
-1. **Ledger conflicts and count churn drove the merge train.** 41% of CI and 2.74 merge-main commits per PR went to prose counts, CHANGELOG ordering, OPEN-ITEMS padding, LEARNINGS keys, DESIGN-LANGUAGE section numbers and the 34k-line mutant registry.
+1. **Ledger conflicts and count churn drove the merge train.** The merge train took 41% of CI runs and 2.74 merge-main commits per PR, and 41 of its 69 conflicted merges conflicted only in ledger files: prose counts, CHANGELOG ordering, OPEN-ITEMS padding, LEARNINGS keys, DESIGN-LANGUAGE section numbers and the 34k-line mutant registry.
 2. **The full battery runs on every head, on unbalanced shards.** That cost a median 42 wall-minutes per PR, even though the files a PR changes hold a median 2.8% of the battery's time.
 3. **Governance by prose.** 15 of 23 merges went in against the written Codex rule with no mechanical signal. The delegation that justified them lived in a spec and HANDOFF, not in the rulings, and the rule itself is restated in 3 blocks of about 11 KB each.
 4. **Memory that never loads, and stale instructions.** LEARNINGS reached sessions as a 2 KB preview. The injected `CLAUDE.md` came from a checkout 22 commits behind.
@@ -48,9 +53,9 @@ The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The o
 
 ## The plan: the next PRs, in order
 
-The critic sequenced these. Each states its smallest first step, and none of them weakens a "never" rule.
+The critic sequenced these. Each states its smallest first step. None may weaken a "never" rule, and item 2 says how it avoids the bypass the owner already refused.
 
-0. **Clear the decks.** Merge #349. Fix and land Dependabot #323 (Next 16.2.9 → 16.3.8, esbuild, vitest; red since 10-08). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
+0. **Clear the decks.** #349 is merged by the owner: it edits `CLAUDE.md` and `.claude/**`, and its `codex-review` is red with Codex out of quota (G3). Fix and land Dependabot #323 (Next 16.2.9 → 16.3.8, esbuild, vitest; red since 10-08). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
 1. **Make ledger conflicts impossible.** Land this while nothing else is open.
    - A `check:docs` ban on prose counts, red-first.
    - `pnpm state`, which writes the live counts to the job summary and a generated block.
@@ -63,7 +68,7 @@ The critic sequenced these. Each states its smallest first step, and none of the
 2. **One sanctioned merge path.**
    - `pnpm merge` runs locally on the owner's token, so merges still trigger workflows. It does a SHA-guarded squash and enforces a freshness rule: if the latest CI predates main, close and reopen to re-test without re-arming `codex-review`. It posts a receipt.
    - `merge-audit.yml` in report-only mode.
-   - A scoped, expiring delegation record that the gate reads.
+   - A scoped, expiring delegation record. The gate reads it ONLY if the record can be written solely with a credential no agent session holds, such as a GitHub environment the owner alone approves. Otherwise the record is audited, never read by the gate: an agent posting as the owner must not satisfy its own check. That is the shape CLAUDE.md records as refused.
 
    This needs the owner's ruling on G3 first.
 
@@ -97,7 +102,7 @@ The critic sequenced these. Each states its smallest first step, and none of the
 
 ## Staff and guest feedback → issues → fixes
 
-The repo is public, and a staff message can name a guest or hold untranslated Burmese, so intake is private by default. Feedback text is **untrusted data**: it never reaches a tool that can write.
+The repo is public, and a staff message can name a guest or hold untranslated Burmese, so intake is private by default. Feedback text is **untrusted data**: it reaches only a Read-only triager. Writing sessions see only text the owner wrote.
 
 1. **Switch on what exists (owner settings, zero app code).** A private intake repo (`mms-intake`), the token (C17), and the labels synced from a manifest. Prove red-first that the label attaches with an Issues-only token, since GitHub drops labels silently for callers without push access.
 2. **Make the promises true.**
@@ -107,7 +112,7 @@ The repo is public, and a staff message can name a guest or hold untranslated Bu
 3. **Close the reporter's loop.** Intake issue events write the report's status. "Fixed" shows only once Vercel's production deployment contains the fix commit, so Mom and Dad see it in their own language.
 4. **Zero-token nightly signal collector.** PostHog and Vercel counts become one deduped issue per fingerprint. **First investigate the Stripe signature stream once.** The samples share one event id, and QR and delivery share one Stripe account, which looks like an endpoint or secret misconfiguration, not a reason to page someone every night.
 5. **Quarantined nightly Claude triage.** A Read-only subagent clusters and dedupes against a compact OPEN-ITEMS index (39× smaller than the table), and a deterministic script files the issues.
-6. **A human-gated resolver.** The owner's `ready-for-agent` label opens one fresh cloud session and one scope-checked DRAFT PR through the normal gate. The scope check refuses money, auth and migration paths. The resolver never merges and never applies a migration.
+6. **A human-gated resolver.** The owner restates the task in their own words on the issue, which keeps the reporter's text out, and adds `ready-for-agent`. That opens one fresh cloud session, on a token with no merge right, and one scope-checked DRAFT PR through the normal gate. The scope check refuses money, auth and migration paths. The resolver never merges and never applies a migration.
 7. **Feed design.** Clustered field evidence becomes the design-prototyping loop's map input. The critic dropped a structured device-sitting capture mode as premature; revisit it once intake carries volume.
 
 ## Owner decisions this plan waits on

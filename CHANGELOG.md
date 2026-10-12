@@ -14,8 +14,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   in-flight block moves verbatim to HANDOFF_ARCHIVE. CLAUDE.md's "Where things stand" points there and
   carries the sql lane's 2026-10-11 re-measure. OPEN-ITEMS adds M276 (M182's invoker clear relies on
   the hosted default privileges) and T55 (`verify-mode-authority` toward its 15-minute timeout), and
-  its stale statuses are swept. Fifteen status cells now say built and merged (PR and SHA) or applied
-  to prod via the MCP. Seven rows' now-false sentences ("NOT applied", "prod apply on the owner's go",
+  its stale statuses are swept. Fourteen status cells now say built and merged (PR and SHA) or applied
+  to prod via the MCP. P2hf stays open, because its server guard is built but PD7's held clear is the
+  owner's to ratify against ruling #6. Seven rows' now-false sentences ("NOT applied", "prod apply on the owner's go",
   "Merges after the device sitting") are restated. The sweep moved, added and lost no row; M276 and
   T55 are this PR's only new rows. LEARNINGS adds #266–#269.
 

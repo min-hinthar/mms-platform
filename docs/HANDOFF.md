@@ -36,13 +36,19 @@ at that day's current clock time: "How work runs here"), the open PRs (`list_pul
   `require-docs` and the lanes that ran were green, the blind pass's findings were fixed or justified
   on the PR, and Codex's rounds were triaged. Where Codex had not reviewed the merge head, the capped
   blind pass stood in. After fix commits, ONE more capped pass covered exactly those commits, and the
-  lead hand-read anything after that. The lead then merged the head under the wave's delegation: the
-  owner's "merge all", not an automated bypass. The section "Gate and merge calls made under the
+  lead hand-read anything after that. The lead then merged the head on the owner's "merge all", not
+  through an automated bypass. CLAUDE.md's G3 · G4 say no merge instruction covers a red-`codex-review`
+  head, so whether "merge all" covered those heads is the owner's open question. Nothing here settles
+  it, and nothing here is authority for a later merge. The section "Gate and merge calls made under the
   delegation" below lists these merges for the owner to ratify.
 - **How this wave's migrations reached prod.** Each wave migration went to the QR project
   `fasnpdhtvqtzjlvruqcu` ONE FILE AT A TIME through the Supabase MCP `apply_migration`, after
   `get_project_url`, on the wave's delegation rather than a go for each file. Each was verified object
-  by object before the next (the list is below).
+  by object before the next (the list is below). After the wave the lead measured every function the
+  eight files create or restate (2026-10-12, `pg_proc` by name on `fasnpdhtvqtzjlvruqcu`). All 12 have
+  exactly one overload, and none is executable by `anon`, `authenticated` or `public`: no old overload
+  or open grant survived. `md5(prosrc)` against the repo bodies and `get_advisors` were not recorded for
+  these applies.
 - **Decisions.** Each is recorded where it was made, as decided under the owner's delegation and never
   as an owner ruling. They are listed below for the owner to ratify.
 - **Branch protection** was re-measured 2026-10-11 22:56Z with C28 ③'s reads: `private: false`,
@@ -93,8 +99,8 @@ The last prod stamp is `20261011105607`. The MCP generates prod's stamps and the
 PD1N's: its `create or replace` would put back the nudge with no line lock (OPEN-ITEMS PD1). Measured
 on prod 2026-10-11 16:37Z: `qr_table_clears` held 0 rows.
 
-**Apply order vs file order.** Some files were applied out of filename order (PD1 after M269 and
-PD3's; M268 after PD5b). Measured over the eight files' `create … function` names: no pair applied out
+**Apply order vs file order.** Some files were applied out of filename order: PD1 after M269 and
+PD3's, and M268 after M269, PD3's and PD5b. Measured over the eight files' `create … function` names: no pair applied out
 of file order restates the same function. The only functions two files share are
 `mms_resolve_approval` (M184 → M269) and `mms_nudge_host` (PD1 → PD1N), and both pairs were applied in
 file order.
@@ -185,6 +191,9 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
   PD6 carried K39's re-host, and K39's row said "PD6 merges after the device sitting (#12)".
 - **The eight prod migrations were applied on the delegation**, not on the owner's go for each file
   (ruling #5).
+- **Not compiled: the commits no blind reviewer read.** CLAUDE.md asks the merge-window line of each
+  such head to list the commits after its last capped pass, and whether any touched `MONEY_PATHS`. That
+  per-head list was not compiled for these 15 merges. Compile it before ratifying.
 - **A tension for the owner, not resolved here.** PD7's "paid food the kitchen has not finished holds
   the clear" (`paid_unserved`, m7 §H, decided under the delegation) reads against ruling #6's
   "Clearing a table never waits."
@@ -212,7 +221,7 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 1. **#348 PD11 → `73c34c9`** merged 2026-10-11 23:18Z. No wave PR is left open but this handoff (#349).
 2. **The registry's stale statuses were swept in this handoff's PR.** Status cells now say "built and
    merged" with the PR and merge SHA, and each migration row says when it was applied to prod and that
-   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · P2hf · K44 · PD3 ·
+   it went through the MCP, one file, verified. The rows: M268 · M182 · M184 · M269 · P2do · K44 · PD3 ·
    PD4 · PD5 · PD6 · PD7 · PD8 · PD11 · PD12. The rows' now-false sentences were restated too ("NOT applied",
    "apply it before #342 merges", "prod apply on the owner's go", "Merges after the device sitting",
    "Waits on PD7"), in M184 · M269 · PD1 · PD2 · PD5 · PD6 · K39. Every open follow-up stayed open, and
@@ -318,8 +327,9 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
 - **A top-level `DROP` / `DELETE` in a prod migration.** Observed this wave: `apply_migration`
   stalled on a file that had one. The mechanism is not established. `create or replace` covers a
   restate under the same signature only. A migration that must drop something (an overload's
-  retirement, a revoke) goes to the owner as a decision, never disguised inside a `DO` block and never
-  silently left out. After an apply, check `pg_proc` by name that no old overload survives, not only
+  retirement, or the withdrawal of a grant that already exists) goes to the owner as a decision, never
+  disguised inside a `DO` block and never silently left out. A new `SECURITY DEFINER` function's
+  `revoke … from public` is not such a drop: it stays mandatory, in the same file. After an apply, check `pg_proc` by name that no old overload survives, not only
   the objects the file creates (LEARNINGS #267).
 - **A migration that changes a lock order re-runs every race harness, not only its own.** PD1's new
   cart lock (the cart is locked first) made PD5b's grace-race scenario hang, which would have timed CI

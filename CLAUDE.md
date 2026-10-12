@@ -23,10 +23,11 @@ tile, and 3e and 3f stay open. Then came **#319** (the path-design record
 `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the design-prototyping standard), **#320**
 (the merge gate fits in 30 minutes) and **#324** (the flaky-mutant fix). **The path-design wave is
 built (2026-10-08 to 10-11):** PD1–PD12 merged with their follow-ups (#326–#348; #348 PD11 →
-`73c34c9`), and PD13 stays gated. The wave's merges and its eight prod migrations ran under the
-owner's 2026-10-09 delegation for THIS wave ("I trust you to make all decisions, apply migrations, and
-merge all"). It is not authority for later sessions: the rules below and the OWNER_RULINGS file govern
-unless the owner renews it. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
+`73c34c9`), and PD13 stays gated. The wave's merges and its eight prod migrations ran on the owner's
+2026-10-09 instruction ("I trust you to make all decisions, apply migrations, and merge all"). 15 of
+the merges went in before Codex had reviewed their head. Whether that instruction covered them is the
+owner's open G3 question, recorded in HANDOFF and not settled here. It grants nothing to any later
+session: the rules below (G3 · G4) govern every merge from here on. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
 migrations in order, and the decisions and gate calls for the owner to ratify. Its next tasks include
 the PD10 flip's conditions, M276 · T55, and the rows ready to move to Closed.
 

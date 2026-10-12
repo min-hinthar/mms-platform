@@ -4082,8 +4082,10 @@ without either, and their headers give the authors' reading, not a measured caus
 `20261009120400_m182_table_clear.sql` ("no DROP: the MCP apply path cannot confirm one") and
 `20261011123000_pd1_nudge_line_lock.sql` ("No `drop`, no `delete`: the MCP apply path stalls on a
 destructive statement"). The rule: `create or replace` covers a restate under the same signature only.
-A migration that must drop something (an overload's retirement, a revoke) goes to the owner as a
-decision. It is never disguised inside a `DO` block and never silently left out. After an apply,
+A migration that must drop something (an overload's retirement, or the withdrawal of a grant that
+already exists) goes to the owner as a decision. The `revoke … from public` that ships with every NEW
+`SECURITY DEFINER` function is not such a drop: it stays mandatory, in the same file (CLAUDE.md's
+Pre-PR sweep). It is never disguised inside a `DO` block and never silently left out. After an apply,
 verify that no old overload survives (`pg_proc` by name), not only the objects the file creates.
 
 ## #268
