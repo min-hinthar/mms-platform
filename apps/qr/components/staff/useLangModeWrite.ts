@@ -67,7 +67,8 @@ export type LangModeWrite = {
  * modal for fifteen seconds. The host owns the hook, so closing the sheet never cancels the write.
  *
  * A WRITE THE TIMEOUT GAVE UP ON CAN STILL LAND (review C1), and the chain answers it when it does.
- * Measured in the installed Next (16.2.9; re-read unchanged in 16.3.8), not inferred:
+ * Measured in the installed Next (16.2.9; the append path re-read unchanged in 16.3.8; its discard
+ * path changed, LEARNINGS #270), not inferred:
  *   · a Server Action cannot be cancelled, and Next sends them ONE AT A TIME, in order — every call
  *     goes through the router's single action queue (`next/dist/client/app-call-server.js` →
  *     `dispatchAction` in `next/dist/client/components/app-router-instance.js`, which appends any

@@ -4118,16 +4118,23 @@ single-version override still read `next: 16.2.9`. The override wins, so the loc
 promised would have shipped. The rule: judge a dependency PR by the lockfile's resolved version, never
 the `package.json` diff, and bump an overridden package in `overrides:` as well. The same PR also
 failed every job at `pnpm install --frozen-lockfile` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`:
-pnpm 11 refuses lockfile entries younger than 24 h (29 rollup 4.64.2 entries, the run's cutoff being
-its own start minus a day). Such a PR goes green once every entry ages past the cutoff, or after a
+pnpm 11 refuses lockfile entries younger than 24 h (29 entries; the 20 the log names are rollup
+4.64.2's packages; the run's cutoff is its own start minus a day). Such a PR goes green once every entry ages past the cutoff, or after a
 fresh `pnpm install` regenerates the lockfile.
 
 The same PR re-read every behaviour the code states as measured on Next 16.2.9 or vitest 4.0.17
-against the 16.3.8 / 4.1.11 sources, side by side. All of them hold: the patched `replaceState` feeding
-`useSearchParams()`, the one serialized action queue (#181 · #200 · #262, `bounded-write.ts`,
-`useLangModeWrite`), a cookie write's own re-render (P2fd), the iOS meta (M62), the stale-build hard
-navigation, and the jsdom drain's hook sequencing (#257, `test-setup.ts`). What changed was citation
-only: `server-action-reducer.js` line numbers, and the `experimental.viewTransition` flag 16.3
-removed (TransitionNav, JOURNEY_PLAN). 16.3.8 also mends the queue's tail. On 16.2.9 a navigation that
-discarded the only pending action left `last` on the discarded node, so an action dispatched next was
-linked behind it, and nothing ever started it.
+against the 16.3.8 / 4.1.11 sources, side by side. The patched `replaceState` feeding
+`useSearchParams()`, a cookie write's own re-render (P2fd), the iOS meta (M62), the stale-build hard
+navigation and the jsdom drain's hook sequencing (#257, `test-setup.ts`) hold unchanged. So does the
+action queue's APPEND path: one action at a time, in order (#181 · #200 · #262, `bounded-write.ts`,
+`useLangModeWrite`). Its DISCARD path changed (`app-router-instance.js`, vercel/next.js#95391). Two
+things differ when a navigation discards the pending action:
+
+- On 16.2.9 the discarded action's own settle advanced the queue, so the next queued action could
+  start while the navigation was still in flight. On 16.3.8 the queue advances only from its head, so
+  a navigation that hangs now holds every action queued behind it. `boundWrite` still reports such a
+  write as waiting at `STAFF_HANG_MS`.
+- On 16.2.9 `last` stayed on the discarded node, so an action dispatched next was linked behind it, and
+  nothing ever started it. 16.3.8 moves `last` to the navigation.
+  Two citations moved as well: the `server-action-reducer.js` line numbers, and the
+  `experimental.viewTransition` flag 16.3 removed (TransitionNav, JOURNEY_PLAN).

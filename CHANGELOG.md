@@ -30,15 +30,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Under vitest 4.1, `verify:slice --only=totals` caught 19/19 and `--only=m270/kds-board` 31/31
     (jsdom), so its JSON parsing holds.
   - The lockfile was regenerated with pnpm 11.7 under its 24 h release-age policy. Dependabot's head
-    had failed install on it: on 10-08, 29 rollup entries were less than a day old.
+    had failed install on it: on 10-08, 29 entries were less than a day old (the 20 its log names are
+    rollup 4.64.2's packages).
 - **Every behaviour the code states as measured on Next 16.2.9 or vitest 4.0.17 was re-read against
-  the new sources, side by side, and holds.** The citations change where 16.3 moved them:
-  `bounded-write.ts`'s reducer line numbers, and the `experimental.viewTransition` flag 16.3 removed
-  (TransitionNav, JOURNEY_PLAN). The version notes in AccountHub, AccountUpgrade, oauthCallbackStore,
-  useLangModeWrite, test-setup, DESIGN-LANGUAGE, HANDOFF, OPEN-ITEMS (P2ey · P2fd · P2fe · M62) and
-  LEARNINGS #257 say so. 16.3.8 also mends the action queue's tail after a navigation discards the
-  pending action: on 16.2.9 the next action could be linked behind the discarded node and never start
-  (LEARNINGS #270).
+  the new sources, side by side.** `replaceState` → `useSearchParams()`, a cookie write's own
+  re-render, the iOS meta, the stale-build hard navigation, the jsdom drain's hook sequencing and the
+  action queue's append path (one at a time, in order) hold unchanged. The comments say so. The queue's
+  DISCARD path changed, and the stamps say that too (LEARNINGS #270):
+  - On 16.3.8 the queue advances only from its head, so a navigation that hangs now holds every Server
+    Action queued behind it.
+  - On 16.2.9 an action dispatched after a navigation discarded the pending one could be linked behind
+    the discarded node and never start.
+
+  Citations 16.3 moved are updated: `bounded-write.ts`'s reducer line numbers, and the
+  `experimental.viewTransition` flag (TransitionNav, JOURNEY_PLAN). J1's vendor note now quotes the
+  16.3.8 guide whole. Its "React canary in a money app" reason never held, because the App Router
+  already runs Next's vendored canary, and T56 holds the re-decision.
+
+- **Re-resolutions the regenerated lockfile carries, disclosed:**
+  - `rollup` 4.62.2 → 4.64.2 (via vite). It lists an optional native `@napi-rs/lzma-linux-x64-gnu@1.5.1`
+    (a prebuilt `.node`, no install scripts), which now installs on linux-x64-glibc build hosts.
+    Nothing in rollup's `dist` loads it: "lzma" appears only in a file-extension list.
+  - `sharp` 0.34.5 → 0.35.5 (next's `^0.35.4`; 0.35.5 ships no install script).
+  - `eslint-plugin-react-hooks` 7.1.1 now resolves `zod` 3.25.76 instead of 4.4.3, inside its declared
+    `^3.25.0 || ^4.0.0` (lint-time only).
+  - `postcss`, `@swc/helpers`, `caniuse-lite` and other transitive patch bumps.
 - **Follow-ups that break nothing go to OPEN-ITEMS T56:**
   - the 15 `no-location-assign-relative-destination` warnings;
   - the instrumentation comment that still calls the proxy Edge;

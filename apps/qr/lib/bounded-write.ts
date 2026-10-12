@@ -5,8 +5,8 @@
  * read ONE clock and ONE ledger.
  *
  * WHY A SECOND PRIMITIVE BESIDE `raceTimeout`. Three facts, measured in Chromium against Next
- * 16.2.9 (LEARNINGS #200; the probe is in the Phase 2g CHANGELOG entry; the source path re-read
- * unchanged in 16.3.8):
+ * 16.2.9 (LEARNINGS #200; the probe is in the Phase 2g CHANGELOG entry; the append path re-read
+ * unchanged in 16.3.8; its discard path changed, LEARNINGS #270):
  *  1. Next runs Server Actions ONE AT A TIME per tab. A queued action is not even SENT until the one
  *     ahead of it settles, and the action fetch takes no signal and has no timeout.
  *  2. A `raceTimeout` frees the CALLER at the bound — never the action. The raw promise stays in the
