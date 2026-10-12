@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("server-only", () => ({}));
+/** The session's mode as `assertCartMember` reads it off the session row (M108) — M189 forks on it. */
+let sessionMode = "scango";
 vi.mock("./authz", () => ({
   assertCartMember: () =>
     Promise.resolve({
@@ -19,6 +21,7 @@ vi.mock("./authz", () => ({
       lockedBy: null,
       settling: false,
       settleBy: null,
+      mode: sessionMode,
     }),
 }));
 vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
@@ -73,6 +76,7 @@ const SCAN = "22222222-2222-4222-8222-222222222222";
 
 beforeEach(() => {
   addCalls = [];
+  sessionMode = "scango";
 });
 
 describe("scanAdd — scanId forwarding", () => {
@@ -88,5 +92,51 @@ describe("scanAdd — scanId forwarding", () => {
     const r = await scanAdd(CART, "12345678");
     expect(r.ok).toBe(true);
     expect(addCalls[0]![4]).toBeUndefined();
+  });
+});
+
+/**
+ * M189 — owner ruling 2026-10-07 (OWNER_RULINGS_2026-10-07 §C): market items go only on scan-and-go
+ * carts. `scanAdd` read `{ uid, locked, settling }` off its authz and never `mode`, so a direct POST
+ * wrote grocery lines into a dine-in cart, where the split weights them and `create-share-intent`
+ * tips on them with no grocery term, while single-pay forces a grocery-only tip to zero. The gate
+ * runs before the catalog read and before any write.
+ */
+describe("scanAdd — market lines only on a scan-and-go cart (M189)", () => {
+  it("⚠️ THE DEFECT — a DINE-IN cart takes no market line, and nothing is written", async () => {
+    sessionMode = "dinein";
+    const r = await scanAdd(CART, "12345678");
+    expect(r.ok).toBe(false);
+    expect(addCalls).toEqual([]);
+  });
+
+  it("⚠️ a plain online to-go (pickup) cart takes none either — the ruling names it", async () => {
+    sessionMode = "pickup";
+    const r = await scanAdd(CART, "12345678", SCAN);
+    expect(r.ok).toBe(false);
+    expect(addCalls).toEqual([]);
+  });
+
+  it("the refusal is `unreadable` — Retry only, never the fresh-basket offer or a catalog verdict", async () => {
+    // Not `unknown_barcode` / `unavailable`: the offline queue DISCARDS those, and they would blame
+    // a real product. Not a terminal reason: that offers a re-mint, abandoning the cart's lines.
+    sessionMode = "dinein";
+    const r = await scanAdd(CART, "12345678");
+    expect(r).toEqual({ ok: false, reason: "unreadable" });
+  });
+
+  it("a scan-and-go cart is untouched — the control", async () => {
+    const r = await scanAdd(CART, "12345678");
+    expect(r.ok).toBe(true);
+    expect(addCalls).toHaveLength(1);
+  });
+
+  it("an unknown mode fails CLOSED — only the one named mode is admitted", async () => {
+    for (const mode of ["", "SCANGO", "scan-and-go", "grocery"]) {
+      sessionMode = mode;
+      addCalls = [];
+      expect((await scanAdd(CART, "12345678")).ok).toBe(false);
+      expect(addCalls).toEqual([]);
+    }
   });
 });
