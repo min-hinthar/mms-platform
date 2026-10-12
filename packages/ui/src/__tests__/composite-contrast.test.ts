@@ -453,6 +453,74 @@ describe("--grad — the one ornament gradient nothing else pins", () => {
   });
 });
 
+describe("M127 — --surface-elevated and --oa, pinned by what they ARE, not by a ratio", () => {
+  /**
+   * M127's open half. Both tokens were asserted only as contrast PAIRS (`t3 on surface-elevated`,
+   * `oa on solid ac`), and a wrong-but-legible value satisfies every one of those — M126 showed how
+   * that bites when light's chrome moved onto a legible-but-forbidden surface with every ratio green.
+   * Neither token hand-copies another's channels the way `--surface-glass` does, so a parity check
+   * cannot hold them; what CAN is the relationship tokens.css states for each, asserted here so a
+   * one-sided edit reddens instead of drifting:
+   *
+   *   · Night `--surface-elevated` is the TOP RUNG of M126's six-rung ladder (pg → sunken → sf → cd →
+   *     cd-raised → surface-elevated), whose OKLab ΔL steps tokens.css records as "dead even". Every
+   *     step must sit within LADDER_TOL of the ladder's median step — which also gives the ladder the
+   *     first test coverage it has had (the token comment's numbers were a one-off computation).
+   *   · Light `--surface-elevated` IS `--cd-raised` (white): "raised in light is expressed by SHADOW
+   *     alone" — above a near-white card there is no tone left, so the two names are one colour, and
+   *     both sit above `--cd`.
+   *   · Light `--oa` IS the house cream: the same channels as `--cd` and as `--on-ink`, its constant
+   *     twin (tokens.css: `--on-ink` mirrors `--oa` because `--oa` flips in Night).
+   *   · Night `--oa` "tracks the floor, NOT a ladder rung": strictly above `--pg`, and nearer to it
+   *     than half a rung — so it is neither the floor itself nor a step up the ladder.
+   *
+   * RED-FIRST — each induced in tokens.css, watched fail, restored md5-identical (numbers are this
+   * guard's output). The first is the shape M127 names: under it, every other test in this file and
+   * in contrast-audit.test.ts stays green — only the ladder says no.
+   *   Night --surface-elevated #413053 → #3c2c4e   top step off the median by 0.0164         FAIL
+   *   light --surface-elevated #ffffff → #fffefb   "IS --cd-raised"                          FAIL
+   *   light --oa #fffdf8 → #ffffff (MORE legible)  "IS the house cream"                      FAIL
+   *   Night --oa #130d1e → #000000 (MORE legible)  rise over --pg −0.1666, not > 0           FAIL
+   *   Night --oa #130d1e → #1a1626 (a rung up)     rise 0.0465, not < half a rung 0.0177     FAIL
+   */
+  const okL = (c: Rgba) => toOklab([c.r, c.g, c.b])[0];
+  const LADDER = ["--pg", "--sunken", "--sf", "--cd", "--cd-raised", "--surface-elevated"] as const;
+  /** The ladder's measured spread is 0.0353 … 0.0361 (0.0008); one 8-bit step on the top rung's
+   *  green or blue channel moves its step by 0.0012–0.0028. */
+  const LADDER_TOL = 0.001;
+  const nightSteps = () => {
+    const Ls = LADDER.map((n) => okL(t(dark, n)));
+    return Ls.slice(1).map((v, i) => v - Ls[i]!);
+  };
+  const medianStep = () => {
+    const s = [...nightSteps()].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)]!;
+  };
+  const sameChannels = (a: Rgba, b: Rgba) =>
+    [a.r, a.g, a.b, a.a].join() === [b.r, b.g, b.b, b.a].join();
+
+  it("Night · --surface-elevated is the top rung of an even six-rung ladder", () => {
+    const med = medianStep();
+    for (const step of nightSteps()) {
+      expect(step).toBeGreaterThan(0); // the ladder only climbs
+      expect(Math.abs(step - med)).toBeLessThanOrEqual(LADDER_TOL);
+    }
+  });
+  it("light · --surface-elevated IS --cd-raised, and both sit above --cd", () => {
+    expect(sameChannels(t(light, "--surface-elevated"), t(light, "--cd-raised"))).toBe(true);
+    expect(okL(t(light, "--surface-elevated"))).toBeGreaterThan(okL(t(light, "--cd")));
+  });
+  it("light · --oa IS the house cream — the card's paper and its constant twin --on-ink", () => {
+    expect(sameChannels(t(light, "--oa"), t(light, "--cd"))).toBe(true);
+    expect(sameChannels(t(light, "--oa"), t(light, "--on-ink"))).toBe(true);
+  });
+  it("Night · --oa tracks the floor: above --pg, and nearer it than half a rung", () => {
+    const rise = okL(t(dark, "--oa")) - okL(t(dark, "--pg"));
+    expect(rise).toBeGreaterThan(0);
+    expect(rise).toBeLessThan(medianStep() / 2);
+  });
+});
+
 describe("chrome — the surface the header's own text sits on", () => {
   /**
    * `.app-header-rewards` renders BARE `--ac`, which is legible on a narrow set of surfaces: the
