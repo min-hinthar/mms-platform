@@ -117,11 +117,11 @@ The repo is public, and a staff message can name a guest or hold untranslated Bu
 
 ## Owner decisions this plan waits on
 
-1. **G3.** Did 2026-10-09's "merge all" cover red-`codex-review` heads? Write the answer into OWNER_RULINGS, including whether a scoped, expiring delegation mechanism should exist at all (plan item 2).
-2. Ratify the gate and merge calls listed in HANDOFF's top block.
+1. **G3.** _Answered 2026-10-12: "merge all. Yes it covered" (OWNER_RULINGS §H1). The 15 red-head merges are ratified._ Still open: should a scoped, expiring delegation mechanism exist at all (plan item 2)?
+2. Ratify the other gate and merge calls listed in HANDOFF's top block. The 15 merges are ratified (§H1); the rest stays listed.
 3. The reviewer reorder (plan item 6).
 4. The private intake repo and its token (C17); branch protection (C28).
-5. Dependabot #323, and one look at the Stripe signature stream.
+5. Dependabot #323 (the owner's "merge all" covers it once its head is green, §H2), and one look at the Stripe signature stream.
 
 ## The self-improvement rule
 
