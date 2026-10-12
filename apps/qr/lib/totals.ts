@@ -103,9 +103,13 @@ export async function getCartTotals(
   // `mms_promo_discount_live` is that same derivation without the pin (m70 §1) — the quote's figure
   // for an unlinked cart.
   const promoRpc = promoDiscountRpc(basis, linkRes?.data?.live_payment_intent_id ?? null);
-  const { data: discount, error: discountError } = await db.rpc(promoRpc, {
-    p_cart_id: cartId,
-  });
+  // Each RPC is named INLINE, never passed through a variable: `check:pay-attempt` (M124) cannot
+  // read a dynamic RPC name, so it refuses one on a money path rather than assume the banned
+  // `_for_holder` release is not behind it.
+  const { data: discount, error: discountError } =
+    promoRpc === "mms_promo_discount_live"
+      ? await db.rpc("mms_promo_discount_live", { p_cart_id: cartId })
+      : await db.rpc("mms_promo_discount", { p_cart_id: cartId });
   // A failed discount read must NEVER fall back to 0 — that silently overcharges by the discount.
   if (discountError)
     throw new Error(`getCartTotals: promo discount unreadable — ${discountError.message}`);
