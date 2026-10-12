@@ -1,8 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { WriteResult } from "@/lib/write-outcome";
-import type { CartItem } from "@mms/db";
+import type { AddResult } from "@/components/TableCartProvider";
 import { classifyRefusedWrite, refusedWriteClause, refusedWriteNotice } from "@/lib/cart-freeze";
 import type { UsualCandidate, UsualOutcome } from "@/lib/menu/your-usual";
 
@@ -29,10 +28,9 @@ import type { UsualCandidate, UsualOutcome } from "@/lib/menu/your-usual";
 
 const ctx = vi.hoisted(() => ({
   current: {} as {
-    add: (id: string) => Promise<WriteResult<CartItem[]>>;
+    add: (id: string) => Promise<AddResult>;
     announce: (msg: string, ms?: number) => void;
     cartId: string | null;
-    lastRefusalClause: () => string | null;
     loading: boolean;
   },
 }));
@@ -53,9 +51,10 @@ const SALAD = dish("item-salad", "Tea Leaf Salad");
 const SINGLE: UsualOutcome = { state: "single", items: [MOHINGA] };
 const PAIR: UsualOutcome = { state: "pair", items: [MOHINGA, SALAD] };
 
-const APPLIED: WriteResult<CartItem[]> = { state: "applied", view: [] };
-const UNCONFIRMED: WriteResult<CartItem[]> = { state: "unconfirmed" };
-const REFUSED: WriteResult<CartItem[]> = { state: "refused", view: [] };
+const APPLIED: AddResult = { state: "applied", view: [] };
+const UNCONFIRMED: AddResult = { state: "unconfirmed" };
+/** A refusal that established no cause (the provider's no-cart exit reads nothing). */
+const REFUSED: AddResult = { state: "refused", view: [], clause: null };
 
 /**
  * The sentence the provider publishes for a peer lock — DERIVED from the module that produces it.
@@ -84,18 +83,18 @@ const REFUSAL_PEER = classifyRefusedWrite({
 });
 /** What the card appends since T32: a fragment, never the finished sentence. */
 const LOCK_CLAUSE = refusedWriteClause(REFUSAL_PEER);
+/** T42 — a refusal under a peer's lock, CARRYING its cause on the write's own result. */
+const REFUSED_LOCK: AddResult = { state: "refused", view: [], clause: LOCK_CLAUSE };
 
 // Typed mocks, not `ReturnType<typeof vi.fn>` — an untyped mock assigned into the fixture is an
 // `any` in disguise, and this file's whole job is to notice when the component's contract drifts.
-let add: Mock<(id: string) => Promise<WriteResult<CartItem[]>>>;
+let add: Mock<(id: string) => Promise<AddResult>>;
 let announce: Mock<(msg: string, ms?: number) => void>;
-let lastRefusalClause: Mock<() => string | null>;
 
 beforeEach(() => {
   add = vi.fn(async () => APPLIED);
   announce = vi.fn();
-  lastRefusalClause = vi.fn(() => null);
-  ctx.current = { add, announce, cartId: "cart-1", lastRefusalClause, loading: false };
+  ctx.current = { add, announce, cartId: "cart-1", loading: false };
 });
 
 // RTL's auto-cleanup only registers when vitest `globals` is on, and this repo leaves it off.
@@ -147,8 +146,7 @@ describe("YourUsual — a partial add names only what it saw land", () => {
   it("carries the provider's sentence and credits NO dish when the earlier one was unconfirmed", async () => {
     // Codex round 2 on #251 (P2): the prefix used to fire on `i > 0` alone, so it credited the
     // first dish even when that dish was the unconfirmed one — a false claim about a real order.
-    add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED);
-    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
+    add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED_LOCK);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);
@@ -177,8 +175,7 @@ describe("YourUsual — a partial add names only what it saw land", () => {
   it("credits the first dish when it DID land", async () => {
     // The separating fixture for the assertion above: same shape, one state changed. Without this
     // pair the prefix rule is degenerate — an implementation that never credits anything passes.
-    add.mockResolvedValueOnce(APPLIED).mockResolvedValueOnce(REFUSED);
-    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
+    add.mockResolvedValueOnce(APPLIED).mockResolvedValueOnce(REFUSED_LOCK);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);
@@ -188,7 +185,7 @@ describe("YourUsual — a partial add names only what it saw land", () => {
     );
   });
 
-  it("speaks plainly when the provider published no cause", async () => {
+  it("speaks plainly when the refusal carried no cause", async () => {
     add.mockResolvedValueOnce(APPLIED).mockResolvedValueOnce(REFUSED);
     render(<YourUsual outcome={PAIR} />);
 
@@ -200,14 +197,54 @@ describe("YourUsual — a partial add names only what it saw land", () => {
   });
 });
 
+describe("T42 — the cause rides the write's own result", () => {
+  /**
+   * The card used to read the cause from a provider-global latch AFTER `add` resolved, and an
+   * overlapping write could publish its own cause in that gap — watched red before the fix with the
+   * latch returning a settle clause while the refused write's own cause was a peer's lock:
+   * `- …didn’t go through — the order’s locked while someone checks out.`
+   * `+ …didn’t go through — the order’s locked while your table pays.`
+   * The latch is gone, so this pins the replacement: each refusal is said with ITS OWN clause.
+   */
+  it("says each refusal with the clause THAT result carried, across invocations", async () => {
+    const settleClause = refusedWriteClause(
+      classifyRefusedWrite({
+        ok: true,
+        freeze: { locked: false, lockedBy: null, mySeat: "seat-me" },
+        settling: true,
+      }),
+    );
+    // Derived, not transcribed — and distinct, or the pair below would separate nothing.
+    expect(settleClause).not.toBe(LOCK_CLAUSE);
+    add
+      .mockResolvedValueOnce(APPLIED)
+      .mockResolvedValueOnce({ state: "refused", view: [], clause: settleClause });
+    render(<YourUsual outcome={PAIR} />);
+
+    await press(2);
+    await waitFor(() => expect(announce).toHaveBeenCalled());
+    expect(announce).toHaveBeenLastCalledWith(
+      `Added Mohinga. Tea Leaf Salad didn’t go through — ${settleClause}.`,
+    );
+
+    // The retry resumes at the refused dish, and THIS refusal carries a different cause.
+    add.mockResolvedValueOnce(REFUSED_LOCK);
+    await press(3);
+    await waitFor(() =>
+      expect(announce).toHaveBeenLastCalledWith(
+        `Added Mohinga. Tea Leaf Salad didn’t go through — ${LOCK_CLAUSE}.`,
+      ),
+    );
+  });
+});
+
 describe("YourUsual — the unconfirmed tally outlives the invocation that produced it", () => {
   it("still refuses to claim a landing on the retry that clears the refusal", async () => {
     // TWO invocations, deliberately: a single pass cannot separate "this pass had an unconfirmed
     // write" from "any pass did", so a one-press fixture is degenerate for this rule. Dish 1 is
     // unconfirmed and dish 2 refused; the retry resumes at dish 2 with a FRESH per-pass tally, and
     // an implementation that consults only that tally announces that everything landed.
-    add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED);
-    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
+    add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED_LOCK);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);

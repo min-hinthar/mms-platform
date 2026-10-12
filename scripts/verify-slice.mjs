@@ -1240,7 +1240,7 @@ const MUTANTS = [
     id: "perf/memo-defeated-by-an-unstable-dep",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "M192, THE SUBTLER HALF \u2014 and the one that actually shipped alongside the memo. A `useMemo` on the context value is worth nothing if a DEPENDENCY re-mints, and this is how it happens: an object literal built in the render body. `me` was exactly that, so the memo was in place and every consumer still re-rendered. Same class as the `lastRefusalClause` inline arrow the comment above its `useCallback` warns about \u2014 a reviewer reading the memo sees a memo; only the identity assertion sees the miss",
+    why: "M192, THE SUBTLER HALF \u2014 and the one that actually shipped alongside the memo. A `useMemo` on the context value is worth nothing if a DEPENDENCY re-mints, and this is how it happens: an object literal built in the render body. `me` was exactly that, so the memo was in place and every consumer still re-rendered. Same class as the inline `lastRefusalClause` arrow the memo's docblock warned about until T42 retired it \u2014 a reviewer reading the memo sees a memo; only the identity assertion sees the miss",
     find: "  const me = useMemo(\n    () => (session ? { seat: session.seat, name } : null),\n    [session?.seat, name, session],\n  );",
     replace: "  const me = session ? { seat: session.seat, name } : null;",
   },
@@ -1347,21 +1347,23 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T32 AT THE BOUNDARY \u2014 and this is where drift can actually happen, so this is where it is mutated. Both functions take the same argument, so latching the SENTENCE typechecks perfectly and restores the exact defect: `YourUsual` appends it to a sentence that already opens with the same verdict. No matcher over `YourUsual` can see this \u2014 the consumer mocks its context, so only the provider's own boundary assertion falsifies it",
-    find: "      lastRefusalRef.current = refusedWriteClause(refusal);",
-    replace: "      lastRefusalRef.current = refusedWriteNotice(refusal);",
+    // T42 — RE-ANCHORED, same mutation: the clause no longer goes into a latch; `publishRefusal`
+    // RETURNS it and it rides `add`'s own result.
+    find: "      return refusedWriteClause(refusal);",
+    replace: "      return refusedWriteNotice(refusal);",
   },
   {
-    id: "refusal/latch-outlives-its-write",
+    // T42 RETIRED `refusal/latch-outlives-its-write` (T31's entry clear, `forgetRefusal`): the latch
+    // it cleared no longer exists, so T31's property — a cause never outlives the write it explained
+    // — is structural, and its anchor would be STALE. This pins what replaced the latch: the clause
+    // has to actually ride the result, or every consumer is back to saying no cause at all.
+    id: "t42/refusal-result-drops-its-clause",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "T31 \u2014 a cause belongs to the write that established it. The latch has ONE writer and, before this PR, ZERO clears, so a consumer reading it after an unrelated later write was handed the previous refusal's reason and announced it as this dish's. Dropping the entry clear restores exactly that",
-    // ⚠️ RE-ANCHORED BY T33, which added a comment INSIDE this function and so broke an anchor that
-    // spanned the whole body. It now names the declaration plus the live statement — unique
-    // (`lastRefusalRef.current = null` appears exactly once) and load-bearing, rather than a shape
-    // any future comment can invalidate. `verify:slice` caught the staleness, which is the rule
-    // working: a STALE mutant is a FAILURE, not a skip.
-    find: "  const forgetRefusal = useCallback(() => {\n    lastRefusalRef.current = null;",
-    replace: "  const forgetRefusal = useCallback(() => {",
+    why: "T42 — the clause rides the write that established it. It used to sit in a provider-global latch that `YourUsual` read AFTER `add` resolved, and nothing serializes writes, so an overlapping write could publish its cause in that microtask gap and dish A was announced with write B's diagnosis. Publish the toast but drop the clause from the result, and every refusal reaches the card causeless",
+    find: "          return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };",
+    replace:
+      "          return { ...result, clause: refusal ? (publishRefusal(refusal, opts?.name), null) : null };",
   },
   {
     id: "refusal/unreadable-cart-yields-a-list",
@@ -1380,6 +1382,14 @@ const MUTANTS = [
     find: "              ? `${landed}${item.name} didn\u2019t go through \u2014 ${clause}.`",
     replace:
       "              ? `${landed}${item.name} didn\u2019t go through. That didn\u2019t go through \u2014 ${clause}.`",
+  },
+  {
+    id: "t42/usual-reads-no-cause",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T42 AT THE CONSUMER — the cause is read off THIS write's own `refused` result, not a provider-global latch an overlapping write could overwrite in the microtask gap after `add` resolved. Drop the read and every refusal under a freeze falls back to the causeless “We couldn’t add X just now”, while the provider still carries the clause nobody says",
+    find: '          const clause = res.state === "refused" ? res.clause : null;',
+    replace: "          const clause = null as string | null;",
   },
   {
     id: "refusal/remint-restored-unconditionally",
@@ -1412,10 +1422,14 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 — `publishUnconfirmed` deliberately does NOT write `lastRefusalRef`, which means “a refusal the caller decided is real” and is carried into `YourUsual`'s copy. Lending an unconfirmed write a refusal's cause attaches a diagnosis to a write nobody established anything about — the fabricated-diagnosis class, arriving through the retraction built to prevent it",
-    // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the callback now takes the dish `name`.
-    find: "  const publishUnconfirmed = useCallback(\n    (name?: string) => {",
+    // T42 — RE-POINTED. It used to write the unconfirmed sentence into `lastRefusalRef`, a latch
+    // T42 retired (a refusal's clause now rides `add`'s `refused` result, and the `unconfirmed` arm
+    // has no field to carry one — so lending it a CAUSE is a compile error). The remaining way to
+    // lend an unconfirmed write a refusal's words is the retraction itself: say the `unknown`
+    // refusal's sentence, whose "the order below is up to date" asserts a currency this state lacks.
+    find: "      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {",
     replace:
-      "  const publishUnconfirmed = useCallback(\n    (name?: string) => {\n      lastRefusalRef.current = unconfirmedWriteNotice();",
+      '      flash(name ? namedRefusedWriteNotice({ cause: "unknown" }, name) : refusedWriteNotice({ cause: "unknown" }), 3000, undefined, {',
   },
   {
     id: "refusal/settle-freeze-never-classified",
@@ -1434,8 +1448,8 @@ const MUTANTS = [
     replace: "        fresh = [];",
   },
   {
-    // T41 RETIRED `refusal/qty-refusal-goes-unpublished`, whose subject \u2014 the stepper publishing a
-    // REFUSAL \u2014 no longer exists: `setItemQty`'s recovery maps every reading but "at our target" to
+    // T41 RETIRED `refusal/qty-refusal-goes-unpublished`, whose subject — the stepper publishing a
+    // REFUSAL — no longer exists: `setItemQty`'s recovery maps every reading but "at our target" to
     // `unconfirmed`, so `refused` is unreachable there and the publish fork was deleted with it. Its
     // anchor would be STALE (a failure, not a skip); this is the mutant for the rule that replaced it.
     id: "t41/qty-non-landing-reads-as-refused",
@@ -1453,8 +1467,12 @@ const MUTANTS = [
     // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the fork now carries `opts?.name` (the
     // corrections name the dish) and its interleaved comment was reworded. Still drops the refusal
     // publish and keeps the unconfirmed arm.
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal, opts?.name);\n        // The optimistic claim is still standing \u2014 ours, or the one the caller spoke at the tap;\n        // retract it rather than let an outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
-    replace: '        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
+    // T42 — RE-ANCHORED again, same mutation: the refused arm now RETURNS the clause `publishRefusal`
+    // hands back. The mutant keeps the clause (computed directly) and drops only the publish, so the
+    // toast — and T33's latch with it — are what it removes.
+    find: "          return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };",
+    replace:
+      "          return { ...result, clause: refusal ? refusedWriteClause(refusal) : null };",
   },
   {
     id: "refusal/qty-landing-becomes-a-presence-test",
@@ -6673,8 +6691,10 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "Phase 1c — with several rows in flight, or an item sheet that has already closed, \u201cThat didn\u2019t go through\u201d does not say WHICH dish did not, and the diner is the one who has to act on it. Dropping the name at the add fork restores the unnamed sentence everywhere the caller supplied a dish",
-    find: "publishRefusal(refusal, opts?.name);",
-    replace: "publishRefusal(refusal);",
+    // T42 — RE-ANCHORED, same mutation: the call now sits in the refused arm's RETURN (its clause
+    // rides the result), so the statement-terminating `;` became a `:`.
+    find: "publishRefusal(refusal, opts?.name) :",
+    replace: "publishRefusal(refusal) :",
   },
   {
     id: "refusal/named-opener-drops-hedge",

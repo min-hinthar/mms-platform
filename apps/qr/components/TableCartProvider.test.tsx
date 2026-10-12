@@ -19,7 +19,7 @@ import {
 } from "@/lib/write-outcome";
 import { pillAddClaim, sheetAddClaim } from "@/lib/add-feedback";
 import { DRAIN_MAX_MS, DRAIN_TIMED_OUT_NOTICE } from "@/lib/write-ledger";
-import type { WriteResult } from "@/lib/write-outcome";
+import type { AddResult } from "./TableCartProvider";
 
 /**
  * T18 — the WIRING of the /menu refusal recovery, which until now nothing could see.
@@ -267,6 +267,16 @@ const mount = () =>
 const spoken = () => screen.getByRole("status").textContent ?? "";
 
 /**
+ * T42 — the clause a refused `add` carried on its OWN result, or null for any other state.
+ *
+ * This replaced reading the context's `lastRefusalClause()`, a provider-global latch an overlapping
+ * write could overwrite between `add` resolving and the read. It is still the one value
+ * `publishRefusal` alone produces, so asserting on it reddens when the refusal publication is
+ * deleted — which a region assertion does not, because a freeze banner lands in the same slot.
+ */
+const clauseOf = (r: AddResult) => (r.state === "refused" ? r.clause : null);
+
+/**
  * Wait until the live region STOPS CHANGING, then read it (T33).
  *
  * ⚠️ A BARE `await waitFor(...)` IS NOT ENOUGH, and neither is a fixed number of turns — the first
@@ -349,10 +359,11 @@ afterEach(cleanup);
  * banner that names nothing.
  *
  * ⚠️ THESE ASSERT THE REGION'S FINAL TEXT, deliberately — the one thing the rest of this file
- * refuses to assert on. Every other test here reads `lastRefusalClause()` precisely BECAUSE the
- * region was unreliable: its own comment says "a test reading only the region would pass with
- * `publishRefusal` deleted entirely". That was true, and T33 is that sentence read as a defect
- * rather than as a testing note. Now the region is the subject.
+ * refuses to assert on. Every other test here reads the refusal's CLAUSE (`clauseOf`; the context's
+ * `lastRefusalClause()` until T42) precisely BECAUSE the region was unreliable: its own comment says
+ * "a test reading only the region would pass with `publishRefusal` deleted entirely". That was
+ * true, and T33 is that sentence read as a defect rather than as a testing note. Now the region is
+ * the subject.
  */
 describe("T33 — a freeze banner never overwrites the refusal that explained it", () => {
   it("keeps the refusal sentence when the recovery read is what flipped the lock", async () => {
@@ -367,13 +378,13 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // edge land strictly after the refusal, which is the ordering the defect is actually about.
     h.getCartView.mockResolvedValue(view());
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
 
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
-    await ctl.add(ITEM);
+    const result = await ctl.add(ITEM);
 
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(clauseOf(result)).toBe(CLAUSE.peerLock);
     await drainDeferredAnnounces();
     expect(spoken()).toBe(NOTICE.peerLock);
   });
@@ -387,13 +398,13 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // `false` and this goes red while the peer twin above stays green.
     h.getCartView.mockResolvedValue(view());
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
 
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_ME);
-    await ctl.add(ITEM);
+    const result = await ctl.add(ITEM);
 
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.selfLock));
+    expect(clauseOf(result)).toBe(CLAUSE.selfLock);
     await drainDeferredAnnounces();
     expect(spoken()).toBe(NOTICE.selfLock);
     // Derived, not transcribed: the banner this suppressed is the OTHER one, so a fixture that
@@ -413,7 +424,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // refused write's recovery read is still awaiting.
     h.getCartView.mockResolvedValue(view());
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
 
     let releaseRecoveryRead: () => void = () => {};
     h.getCartView.mockImplementationOnce(
@@ -486,7 +497,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // swapped from the wider banner to the narrower one with the refusal still erased.
     h.getCartView.mockResolvedValue(view());
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
 
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(
@@ -521,7 +532,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // whole gate green — on the axis this module calls the more consequential of the two.
     h.getCartView.mockResolvedValue(view());
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
 
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
@@ -544,7 +555,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // every Add goes inert (W9b filed exactly that for the settle freeze). Silencing it here would
     // delete the feature rather than arbitrate it — and the paired test above would still pass.
     mount();
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+    await drainDeferredAnnounces();
     // A peer takes the lock with no write of ours in flight: nothing has explained anything.
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     await ctl.refresh();
@@ -558,8 +569,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     mount();
-    await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(clauseOf(await ctl.add(ITEM))).toBe(CLAUSE.peerLock);
     await drainDeferredAnnounces();
 
     h.getCartView.mockResolvedValue(view());
@@ -569,15 +579,13 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
   });
 
   it("re-announces a lock the diner was not told about, after a release cleared the explanation", async () => {
-    // ⚠️ THE STALENESS BOUND. `forgetRefusal` clears per WRITE; without the release-edge clear too,
-    // a peer releasing and re-locking leaves "locked" latched and silences a banner about a freeze
-    // nobody explained. Reachable with no write at all in between, which is why the per-write clear
-    // alone is not enough.
+    // ⚠️ THE STALENESS BOUND. Without the release-edge clear, a peer releasing and re-locking leaves
+    // "locked" latched and silences a banner about a freeze nobody explained. Reachable with no
+    // write at all in between, which is why no per-write clear could ever have been enough.
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     mount();
-    await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(clauseOf(await ctl.add(ITEM))).toBe(CLAUSE.peerLock);
     await drainDeferredAnnounces();
 
     h.getCartView.mockResolvedValue(view());
@@ -597,8 +605,7 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     mount();
-    await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(clauseOf(await ctl.add(ITEM))).toBe(CLAUSE.peerLock);
     await drainDeferredAnnounces();
 
     // ⚠️ THE LOCK MUST STAY HELD, and the first draft of this test proves why: it settled a cart
@@ -629,24 +636,24 @@ describe("a refused write is explained from a READ, never guessed", () => {
     const result = await ctl.add(ITEM);
 
     expect(result.state).toBe("refused");
-    // ⚠️ ASSERTED ON `lastRefusalClause()`, NOT ON THE REGION'S FINAL TEXT. The applied view turns
+    // ⚠️ ASSERTED ON THE RESULT'S CLAUSE, NOT ON THE REGION'S FINAL TEXT. The applied view turns
     // `locked` true, and the freeze announcement then lands in the SAME single slot — so a test
     // reading only the region would pass with `publishRefusal` deleted entirely. This is the value
-    // `publishRefusal` alone writes, and the value `YourUsual` carries into its own copy.
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
-    // ⚠️ T32's BOUNDARY GUARD. The latch must carry the FRAGMENT, never the finished sentence —
+    // `publishRefusal` alone produces, and the value `YourUsual` carries into its own copy.
+    expect(clauseOf(result)).toBe(CLAUSE.peerLock);
+    // ⚠️ T32's BOUNDARY GUARD. The result must carry the FRAGMENT, never the finished sentence —
     // `YourUsual` composes it into a sentence of its own that already opens with the same verdict,
     // so handing over the whole notice is what made the diner hear it twice.
     //
     // Asserted as "does not carry the sentence's OPENER", not as `not.toBe(NOTICE)`: the latter is
     // already implied by the `toBe(CLAUSE)` above, since a notice is by construction the clause plus
     // a prefix and can never equal it — an assertion that cannot fail for any implementation (blind
-    // pass on #254). The opener test DOES fail the moment the sentence is latched instead.
-    expect(ctl.lastRefusalClause()?.startsWith("That didn’t go through")).toBe(false);
+    // pass on #254). The opener test DOES fail the moment the sentence is carried instead.
+    expect(clauseOf(result)?.startsWith("That didn’t go through")).toBe(false);
     expect(NOTICE.peerLock.startsWith("That didn’t go through")).toBe(true);
     // The two arms this must NOT be: the re-mint vocabulary, and the settle freeze's clause.
-    expect(ctl.lastRefusalClause()).not.toMatch(/[Rr]econnect/);
-    expect(ctl.lastRefusalClause()).not.toBe(CLAUSE.settling);
+    expect(clauseOf(result)).not.toMatch(/[Rr]econnect/);
+    expect(clauseOf(result)).not.toBe(CLAUSE.settling);
     // The one arm that may re-mint is the arm that could not read the cart at all.
     expect(h.revalidate).not.toHaveBeenCalled();
   });
@@ -673,8 +680,8 @@ describe("a refused write is explained from a READ, never guessed", () => {
     expect(result.state).toBe("refused");
     // The settle freeze has its OWN clause, and `classifyRefusedWrite` tests it FIRST to match
     // `inertReason`'s precedence — one cart must never get two freezes with different words.
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.settling));
-    expect(ctl.lastRefusalClause()).not.toBe(NOTICE.peerLock);
+    expect(clauseOf(result)).toBe(CLAUSE.settling);
+    expect(clauseOf(result)).not.toBe(CLAUSE.peerLock);
   });
 });
 
@@ -695,25 +702,28 @@ describe("the optimistic claim is retracted when it cannot be confirmed", () => 
   });
 
   it("does not lend an unconfirmed write a refusal's sentence", async () => {
-    // `publishUnconfirmed` deliberately does not touch `lastRefusalRef`: that ref means "a refusal
-    // the caller decided is real" and `YourUsual` carries it into its own copy. Handing it an
-    // unconfirmed write's cause is the fabricated-diagnosis class again.
+    // A refusal's words mean "a refusal the caller decided is real" — `YourUsual` carries its clause
+    // into its own copy, and the toast asserts it. An unconfirmed write has had nothing established
+    // about it, so it carries no clause (the `unconfirmed` arm of `AddResult` has no field for one,
+    // T42) and its retraction is the hedge, never a refusal's sentence — not even the `unknown`
+    // cause's, which still claims "the order below is up to date".
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockRejectedValue(new Error("unreachable"));
     mount();
 
     const result = await ctl.add(ITEM);
     expect(result.state).toBe("unconfirmed");
-    expect(ctl.lastRefusalClause()).toBeNull();
+    expect(clauseOf(result)).toBeNull();
+    await waitFor(() => expect(spoken()).toBe(unconfirmedWriteNotice()));
+    expect(spoken()).not.toBe(refusedWriteNotice({ cause: "unknown" }));
   });
 
-  it("DOES remember a real refusal, so a consumer can carry it instead of erasing it", async () => {
+  it("DOES carry a real refusal's cause, so a consumer can say it instead of erasing it", async () => {
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     mount();
 
-    await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    expect(clauseOf(await ctl.add(ITEM))).toBe(CLAUSE.peerLock);
   });
 });
 
@@ -947,27 +957,44 @@ describe("there is exactly ONE live region, and the last sentence wins", () => {
   });
 });
 
-describe("the latch belongs to THIS write — T31", () => {
-  it("does not hand a later write the previous refusal's cause", async () => {
-    // ⚠️ RED AT HEAD, deliberately. `lastRefusalRef` has ONE writer and ZERO clears repo-wide, so a
-    // cause established for an earlier, unrelated write survives indefinitely and is handed to
-    // whatever reads it next. `YourUsual` reads it to name WHY a dish did not go through.
-    //
-    // ⚠️ This is NOT the sequence T31 filed. That row said the stale read is reachable through the
-    // no-cart exit; it is not — `add` is a useCallback whose FIRST dependency is `cartId`, so a
-    // running loop keeps a closure with the old non-null id, and a fresh tap is gated by
-    // `notReady = loading || !cartId`. The latch defect is real; the route to it was wrong.
+describe("T42 — a refusal's clause belongs to the write that established it", () => {
+  /**
+   * The clause used to live in a provider-global latch that `YourUsual` read AFTER `add` resolved,
+   * and nothing serializes writes. Watched red against the latch with exactly this sequence — the
+   * read taken right after A resolved returned B's cause:
+   *   `expected 'the order’s locked while someone checks out' to be 'the order’s locked while your
+   *    table pays'`
+   * The latch is gone; each result carries its own.
+   */
+  it("two overlapping refused adds each carry their OWN cause", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    let releaseA: (v: CartView) => void = () => {};
+    let releaseB: (v: CartView) => void = () => {};
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView
+      .mockImplementationOnce(() => new Promise<CartView>((r) => (releaseA = r)))
+      .mockImplementationOnce(() => new Promise<CartView>((r) => (releaseB = r)));
+    const ra = ctl.add(ITEM);
+    const rb = ctl.add(ITEM);
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalledTimes(3)); // mount + A + B
+    // Both recovery reads land in one tick: A saw the table SPLITTING, B saw a peer's LOCK.
+    releaseA(view({ settling: true, settleBy: PEER_SEAT }));
+    releaseB(LOCKED_BY_PEER);
+    expect(clauseOf(await ra)).toBe(CLAUSE.settling);
+    expect(clauseOf(await rb)).toBe(CLAUSE.peerLock);
+  });
+
+  it("a later write that succeeds carries no cause — nothing outlives the write it was about (T31)", async () => {
+    // T31's property, now structural: there is no shared value for a later write to inherit.
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
     mount();
 
-    await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalClause()).not.toBeNull());
+    expect(clauseOf(await ctl.add(ITEM))).toBe(CLAUSE.peerLock);
 
-    // A LATER write that succeeds establishes nothing about a refusal — so the cause must be gone.
     h.addItem.mockResolvedValue(view({ items: [line(1)] }));
-    await ctl.add(ITEM);
-    expect(ctl.lastRefusalClause()).toBeNull();
+    expect(clauseOf(await ctl.add(ITEM))).toBeNull();
   });
 });
 
@@ -975,14 +1002,11 @@ describe("no cart at all is a refusal with nothing to thread", () => {
   it("refuses without speaking, so a retry is the honest offer", async () => {
     h.session.current = null;
     mount();
-    const result: WriteResult<CartItem[]> = await ctl.add(ITEM);
-    expect(result).toEqual({ state: "refused", view: null });
+    const result: AddResult = await ctl.add(ITEM);
+    // Nothing was read, so no cause is carried — the exit T31 once suspected of handing over a
+    // previous refusal's (it could not since T42: there is no shared value to hand over).
+    expect(result).toEqual({ state: "refused", view: null, clause: null });
     expect(h.addItem).not.toHaveBeenCalled();
-    // ⚠️ AND IT PUBLISHES NOTHING. Note what this does NOT prove: the fixture mounts with a null
-    // session, so the latch was never written, and the assertion passes both before and after any
-    // T31 fix. It is a shape check on this exit, not a failing start — the real staleness proof is
-    // the SEQUENCING test above, which needs a write that actually establishes a cause first.
-    expect(ctl.lastRefusalClause()).toBeNull();
   });
 });
 
@@ -1092,9 +1116,10 @@ describe("M192 — the context value is stable across state the value does not c
      * `notice` is the cleanest probe: it is provider state, it changes on every announce, and it is
      * NOT part of the published value. So a correct memo publishes nothing here.
      *
-     * ⚠️ This also pins `lastRefusalClause` as a stable callback. As the inline arrow it used to be,
-     * it minted a fresh identity on every render and would defeat the memo entirely — the value
-     * would change every time and this test would fail even with `useMemo` in place.
+     * ⚠️ This also pins every function in the value as a stable callback. An inline arrow mints a
+     * fresh identity on every render and defeats the memo entirely — the value would change every
+     * time and this test would fail even with `useMemo` in place (the retired `lastRefusalClause`
+     * was the arrow that taught it, until T42 removed the latch it read).
      */
     h.getCartView.mockResolvedValue(view());
     mount();
