@@ -14,13 +14,20 @@ vi.mock("server-only", () => ({}));
 let intentStatus = "requires_capture";
 let cancelThrows = false;
 const captures: { id: string; amount: number }[] = [];
+/** M72c — the REQUEST options each capture was sent with (the SDK's third argument). */
+const captureRequestOptions: Record<string, unknown>[] = [];
 const cancels: string[] = [];
 vi.mock("./stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
       retrieve: () => Promise.resolve({ status: intentStatus }),
-      capture: (id: string, opts: { amount_to_capture: number }) => {
+      capture: (
+        id: string,
+        opts: { amount_to_capture: number },
+        requestOptions: Record<string, unknown>,
+      ) => {
         captures.push({ id, amount: opts.amount_to_capture });
+        captureRequestOptions.push(requestOptions);
         return Promise.resolve({});
       },
       cancel: (id: string) => {
@@ -95,6 +102,7 @@ const { settleAuthorizedPickup } = await import("./manual-capture-run");
 beforeEach(() => {
   intentStatus = "requires_capture";
   captures.length = 0;
+  captureRequestOptions.length = 0;
   cancels.length = 0;
   voidCalls.length = 0;
   gone = [];
@@ -145,6 +153,21 @@ describe("settleAuthorizedPickup", () => {
       fn: "mms_settle_precheck_and_void",
       args: { p_cart: "cart_2", p_menu_ids: ["m1"], p_payer: PAYER, p_attempt: ATTEMPT },
     });
+  });
+
+  it("captures ONCE per delivery, keyed on intent and amount — its retry is the redelivery (M72c)", async () => {
+    // An in-process retry would capture a plan computed before the timeout and hold M72's window C
+    // open for another whole attempt. Stripe's redelivery re-runs void → re-derive → capture
+    // against the catalog as it is then, so the capture opts out of the SDK's retries — and, because
+    // the SDK stops generating a key below one retry yet still resends a first-attempt connection
+    // reset, it carries its own key.
+    gone = [{ id: "m1", name: "Mohinga" }];
+    voidResult = 1;
+    liveTotal = 3800;
+    await settleAuthorizedPickup("pi_m72c", "cart_m72c", 5200, 0.2, PAYER, ATTEMPT);
+    expect(captureRequestOptions).toEqual([
+      { idempotencyKey: "cap_pi_m72c_3800", maxNetworkRetries: 0 },
+    ]);
   });
 
   it("re-derives the total AFTER voiding, never before", async () => {
