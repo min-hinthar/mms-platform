@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * P2 — the staff-locale guard. THIRTEEN rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d
+ * P2 — the staff-locale guard. FOURTEEN rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d
  * (the accessible names), 4a · 4b · 4c · 4d · 4e (where the language control lives since P2e, that
  * every page has a way to it, and that each of its three exports is mounted by its own hosts
- * only), 5 (a dictionary string reaches the DOM marked) and 6 (`keepEcho` stays on the language
+ * only), 4f (a redirect-only page lands on a real page, and on an id that page renders — M220),
+ * 5 (a dictionary string reaches the DOM marked) and 6 (`keepEcho` stays on the language
  * surfaces, on the language keys) — all PARSED (LEARNINGS #60), all in the CI fast lane:
  * file-read-only, seconds, no build and no DB.
  *
@@ -1221,27 +1222,33 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
  * that renders (JSX, `createElement`, a returned string) is a reader's page; a page that redirects
  * on a CONDITION (every real staff page does, on the gate race) or does anything else first is a
  * reader's page — all of them stay held, and the self-tests below pin each near-miss.
+ *
+ * The exemption is not a blank cheque on WHERE the page sends you: rule 4f (M220) holds every one
+ * to a destination that is a real page and a fragment that page renders. `redirectCallOf` returns
+ * THE `redirect(…)` call that shape is made of (null when the module is not a redirect-only page),
+ * so 4f judges the destination of exactly the call this exemption accepted — never a second
+ * search that could settle on a different one.
  */
-function isRedirectOnlyPage(file, srcOverride) {
+function redirectCallOf(file, srcOverride) {
   let sf;
   try {
     sf = parse(file, srcOverride);
   } catch {
-    return false;
+    return null;
   }
   const bareRedirect = (fn) => {
     const body = fn.body;
-    if (!body || !ts.isBlock(body) || body.statements.length !== 1) return false;
+    if (!body || !ts.isBlock(body) || body.statements.length !== 1) return null;
     const [only] = body.statements;
-    return (
-      ts.isExpressionStatement(only) &&
+    return ts.isExpressionStatement(only) &&
       ts.isCallExpression(only.expression) &&
       ts.isIdentifier(only.expression.expression) &&
       only.expression.expression.text === "redirect"
-    );
+      ? only.expression
+      : null;
   };
   let jsx = false;
-  let shape = false;
+  const calls = [];
   function visit(node) {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node))
       jsx = true;
@@ -1249,21 +1256,28 @@ function isRedirectOnlyPage(file, srcOverride) {
     const isDefaultExport =
       mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) &&
       mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-    if (isDefaultExport && ts.isFunctionDeclaration(node) && bareRedirect(node)) shape = true;
+    if (isDefaultExport && ts.isFunctionDeclaration(node)) {
+      const call = bareRedirect(node);
+      if (call) calls.push(call);
+    }
     if (
       ts.isExportAssignment(node) &&
       !node.isExportEquals &&
-      (ts.isArrowFunction(node.expression) || ts.isFunctionExpression(node.expression)) &&
-      bareRedirect(node.expression)
-    )
-      shape = true;
+      (ts.isArrowFunction(node.expression) || ts.isFunctionExpression(node.expression))
+    ) {
+      const call = bareRedirect(node.expression);
+      if (call) calls.push(call);
+    }
     ts.forEachChild(node, (c) => {
       visit(c);
     });
   }
   visit(sf);
-  return !jsx && shape;
+  // A module has one default export; two candidates is a module TypeScript itself refuses, and
+  // picking one by position would be the ambiguity the parse rules forbid — so it is not exempt.
+  return !jsx && calls.length === 1 ? calls[0] : null;
 }
+const isRedirectOnlyPage = (file, srcOverride) => redirectCallOf(file, srcOverride) !== null;
 
 const allStaffPages = walkFiles(join(APP, "staff")).filter((f) => f.endsWith("/page.tsx"));
 const redirectPages = allStaffPages.filter((f) => isRedirectOnlyPage(f));
@@ -1511,8 +1525,14 @@ const isNamedFn = (node) =>
  * mount" rather than analysed: a call (`{tail()}`, `StaffBar(…)` — the round-4 call edge followed
  * a discarded expression statement, so it is gone, not qualified), a named function passed BY
  * REFERENCE (`render={Example}`), and a member tag (`<Foo.Bar>`).
+ *
+ * `onElement`, when given, is shown EVERY live JSX element of every body the walk enters — the
+ * intrinsic `<h2>` as well as the component tags it follows — as `(node, sf, file)`. Rule 4f reads
+ * the `id`s a screen renders through it, so "the screen renders this id" means exactly what "the
+ * screen mounts this component" means everywhere else in rule 4: the same bodies, the same dead
+ * shapes skipped, the same closed directions.
  */
-function exportWalk(file, entry, isHit, hits = [], seenModules = new Set()) {
+function exportWalk(file, entry, isHit, hits = [], seenModules = new Set(), onElement = null) {
   const key = `${file}#${entry ?? "*"}`;
   if (seenModules.has(key)) return hits;
   seenModules.add(key);
@@ -1571,6 +1591,12 @@ function exportWalk(file, entry, isHit, hits = [], seenModules = new Set()) {
     function visit(node) {
       if (node !== body && isNamedFn(node)) return;
       if (
+        onElement &&
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        !inDeadBranch(node)
+      )
+        onElement(node, g.sf, file);
+      if (
         (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
         ts.isIdentifier(node.tagName) &&
         !inDeadBranch(node)
@@ -1593,7 +1619,8 @@ function exportWalk(file, entry, isHit, hits = [], seenModules = new Set()) {
       return;
     }
     if (imp.module === SWITCH_MODULE || SWITCH_WALK_EXCLUDED.has(imp.module)) return;
-    if (imp.module.startsWith(QR)) exportWalk(imp.module, imp.name, isHit, hits, seenModules);
+    if (imp.module.startsWith(QR))
+      exportWalk(imp.module, imp.name, isHit, hits, seenModules, onElement);
   }
 
   // An export names a body declared here, an import passed through (`import { X } …; export { X }`
@@ -1604,7 +1631,7 @@ function exportWalk(file, entry, isHit, hits = [], seenModules = new Set()) {
     if (typeof target === "object") {
       if (isHit(target)) hits.push({ file, node: null, sf: g.sf, imp: target });
       else if (target.module.startsWith(QR) && target.module !== SWITCH_MODULE)
-        exportWalk(target.module, target.name, isHit, hits, seenModules);
+        exportWalk(target.module, target.name, isHit, hits, seenModules, onElement);
       return;
     }
     const body = g.locals.get(target);
@@ -1857,7 +1884,7 @@ const isDynamicSegment = (s) => /^\[[^.[\]]+\]$/.test(s);
  * The page a resolved href lands on, among `pages` — or `{ why }`. The router's precedence: a
  * static segment beats a dynamic one at the first place two candidates differ.
  */
-function pageForHref(href, pages) {
+function pageForHref(href, pages, noun = "staff page") {
   const cut = href.search(/[?#]/);
   const path = cut === -1 ? href : href.slice(0, cut);
   const show = href.replaceAll(DYN, "${…}");
@@ -1872,7 +1899,7 @@ function pageForHref(href, pages) {
         route.length === segs.length &&
         route.every((r, i) => r === segs[i] || (isDynamicSegment(r) && segs[i] !== "")),
     );
-  if (fits.length === 0) return { why: `\`${show}\` lands on no staff page` };
+  if (fits.length === 0) return { why: `\`${show}\` lands on no ${noun}` };
   const rank = ({ route }) => route.map((r) => (isDynamicSegment(r) ? "0" : "1")).join("");
   fits.sort((a, b) => (rank(a) < rank(b) ? 1 : rank(a) > rank(b) ? -1 : 0));
   return { page: fits[0].p };
@@ -2284,6 +2311,99 @@ for (const file of staffPages) {
       `rule 4d: ${relative(ROOT, file)} reaches no language control, and ${why}. Lead with the Screens circle, or a Back pill whose href lands on a page that reaches a control.`,
     );
   else upPages++;
+}
+
+// ── Rule 4f — a redirect-only page LANDS where it says (OPEN-ITEMS M220) ───────────────────────
+// A4·2's exemption reads the SHAPE of a redirect-only page and never its argument, so a typo'd
+// destination or a dropped fragment was silent: the page still redirects, the zone's heading never
+// takes focus (`ZoneFocus` / `useZoneFocus` key on the fragment), and the person lands at the top of
+// a screen they did not ask for. Every redirect-only page under app/staff is held, by ONE parse over
+// all of them, to two things:
+//   · the DESTINATION — the argument of the very `redirect(…)` call the exemption accepted
+//     (`redirectCallOf`), EVALUATED by 4d's `stringsOf` (a literal, a `const`, an imported const's
+//     property, a one-return function, both arms of a conditional) — maps onto a real page under
+//     app/ by 4d's router mapping (`pageForHref`), and that page is not itself redirect-only (the
+//     fragment would ride a second hop to a screen this rule never read);
+//   · its FRAGMENT, when it carries one, is an `id` the target screen RENDERS: a literal (or a
+//     `stringsOf`-settled) `id` on an INTRINSIC element (`<h2 id="appr-h">`), found by the same
+//     export-rooted walk from the target's default export that rule 4 trusts for a mount — live JSX
+//     at every hop, literal-dead branches and uncalled helpers skipped, the control's module and the
+//     outage shell never entered. A runtime fragment, a destination the parse cannot settle, and a
+//     call with no argument are each refused.
+//
+// ⚠️ STATED LIMITS, as for 4c/4d: a presence check over the JSX the target's walk reaches, not a
+// runtime proof — an id behind a runtime condition (a manager-only zone) passes, which is the honest
+// reading: the fragment names a zone the screen CAN render. An `id` handed to a COMPONENT
+// (`<Zone id="x">`) is not counted — whether it reaches the DOM is that component's business — nor
+// one behind a spread: both are closed directions, reported as "never renders". Duplicate ids are
+// not this rule's question.
+const allAppPages = walkFiles(APP).filter((f) => /\/page\.(tsx|ts|jsx|js)$/.test(f));
+const appRedirectPages = allAppPages.filter((f) => isRedirectOnlyPage(f));
+
+/** Every `id` the screen `page` renders on a live INTRINSIC element — rule 4f's reading of a screen. */
+function renderedIds(page) {
+  const ids = new Set();
+  exportWalk(
+    page,
+    "default",
+    () => false,
+    [],
+    new Set(),
+    (node, sf) => {
+      if (!ts.isIdentifier(node.tagName) || !/^[a-z]/.test(node.tagName.text)) return;
+      for (const a of node.attributes.properties) {
+        if (!ts.isJsxAttribute(a) || a.name.getText(sf) !== "id" || !a.initializer) continue;
+        const e = ts.isJsxExpression(a.initializer) ? a.initializer.expression : a.initializer;
+        for (const v of (e && stringsOf(e)) ?? []) if (!v.includes(DYN)) ids.add(v);
+      }
+    },
+  );
+  return ids;
+}
+
+/**
+ * 4f's verdict for one redirect-only page: null when it lands, or the reason. `fragments` counts the
+ * fragments it proved rendered (the self-check below refuses a run that proved none).
+ */
+function redirectLandingVerdict(file, { pages, redirects, srcOverride, fragments = { n: 0 } }) {
+  const rel = (f) => relative(ROOT, f);
+  const call = redirectCallOf(file, srcOverride);
+  if (!call) return "is not a redirect-only page";
+  const [arg] = call.arguments;
+  if (!arg) return "calls `redirect()` with no destination";
+  const text = `redirect(${arg.getText(call.getSourceFile()).replace(/\s+/g, " ").slice(0, 60)})`;
+  const hrefs = stringsOf(arg);
+  if (!hrefs) return `\`${text}\` is a computed destination this parse cannot settle`;
+  for (const h of hrefs) {
+    const target = pageForHref(h, pages, "page under app/");
+    if (target.why) return `\`${text}\` — ${target.why}`;
+    if (redirects.includes(target.page))
+      return `\`${text}\` lands on ${rel(target.page)}, itself a redirect-only page — point it at where that one lands`;
+    const hash = h.indexOf("#");
+    if (hash === -1) continue;
+    const frag = h.slice(hash + 1);
+    if (frag === "" || frag.includes(DYN))
+      return `\`${text}\` carries ${frag === "" ? "an empty" : "a runtime"} fragment — this parse cannot say the screen renders it`;
+    if (!renderedIds(target.page).has(frag))
+      return `\`${text}\` lands on ${rel(target.page)}, which never renders \`id="${frag}"\` on a live element — the zone's heading never takes focus, and the person lands at the top of the screen`;
+    fragments.n++;
+  }
+  return null;
+}
+
+const redirectFragments = { n: 0 };
+let landedRedirects = 0;
+for (const file of redirectPages) {
+  const why = redirectLandingVerdict(file, {
+    pages: allAppPages,
+    redirects: appRedirectPages,
+    fragments: redirectFragments,
+  });
+  if (why)
+    failures.push(
+      `rule 4f: ${relative(ROOT, file)} ${why}. A folded route exists so a bookmark lands on the zone it names.`,
+    );
+  else landedRedirects++;
 }
 
 // ── Rule 3b — the ratchet only turns one way ─────────────────────────────────────────────────────
@@ -3235,6 +3355,99 @@ for (const tag of ["StaffLangRows", "StaffLangSection"]) {
     );
 }
 
+// Rule 4f — WHERE a redirect-only page lands. In-memory redirect pages (their source handed in) and
+// in-memory target screens under `app/staff/__selftest__/` (swapped in through PARSE_OVERRIDES, so
+// the real export-rooted walk reads them), plus the REAL `/staff` and `/staff/login` for the
+// cross-module directions: `appr-h` is rendered two modules down (`ApprovalsBoard`), and the sign-in
+// screen renders no `appr-h` at all.
+{
+  const ST = (p) => join(APP, `staff/__selftest__/${p}/page.tsx`);
+  const R = ST("from");
+  const HOST = ST("host");
+  const REDIR = ST("redir");
+  const NAV = 'import { redirect } from "next/navigation";\n';
+  const DOOR = 'import { STAFF_DOOR_TARGET } from "@/lib/staff-door";\n';
+  const bare = (arg, { params = "", imports = "" } = {}) =>
+    `${NAV}${imports}export default function P(${params}): never {\n  redirect(${arg});\n}\n`;
+  const screen = (body, before = "") =>
+    `${before}export default function S() {\n  return <main>${body}</main>;\n}\n`;
+  const probe4f = (src, host) => {
+    PARSE_OVERRIDES.set(HOST, host ?? screen('<h2 id="host-h" tabIndex={-1}>Zone</h2>'));
+    PARSE_OVERRIDES.set(REDIR, bare('"/staff/__selftest__/host"'));
+    try {
+      return redirectLandingVerdict(R, {
+        pages: [...allAppPages, HOST, REDIR],
+        redirects: [...appRedirectPages, REDIR],
+        srcOverride: src,
+      });
+    } finally {
+      PARSE_OVERRIDES.delete(HOST);
+      PARSE_OVERRIDES.delete(REDIR);
+    }
+  };
+  const fires = [
+    ["a destination with no page", bare('"/staff/__selftest__/nowhere#host-h"')],
+    ["a fragment the screen never renders", bare('"/staff/__selftest__/host#nope-h"')],
+    ["a dropped suffix on the fragment", bare('"/staff/__selftest__/host#host"')],
+    ["a fragment a REAL screen never renders", bare('"/staff/login#appr-h"')],
+    ["a destination onto another redirect-only page", bare('"/staff/__selftest__/redir"')],
+    ["a call with no destination", bare("")],
+    ["a destination that is a runtime value", bare("where", { params: "{ where }" })],
+    ["a runtime fragment", bare("`/staff/__selftest__/host#${z}`", { params: "{ z }" })],
+    ["an empty fragment", bare('"/staff/__selftest__/host#"')],
+    [
+      "the id only on a COMPONENT's prop",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen(
+        '<Zone id="host-h" />',
+        "function Zone({ id }) {\n  return <section aria-labelledby={id} />;\n}\n",
+      ),
+    ],
+    [
+      "the id only in a literal-dead branch",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen('{false && (\n  <h2 id="host-h">Zone</h2>\n)}'),
+    ],
+    [
+      "the id only in a helper nothing mounts",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen("", 'function Unused() {\n  return <h2 id="host-h">Zone</h2>;\n}\n'),
+    ],
+    [
+      "the id only behind a spread",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen('<h2 {...{ id: "host-h" }}>Zone</h2>'),
+    ],
+    [
+      "the id only as an aria reference, never declared",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen('<section aria-labelledby="host-h" />'),
+    ],
+  ];
+  for (const [what, src, host] of fires)
+    if (probe4f(src, host) === null) failures.push(`SELF-TEST: rule 4f accepts ${what}.`);
+  const misses = [
+    ["a literal id on the screen's own heading", bare('"/staff/__selftest__/host#host-h"')],
+    ["a destination with no fragment", bare('"/staff/__selftest__/host"')],
+    ["a REAL zone two modules down (`/staff?floor=1#appr-h`)", bare('"/staff?floor=1#appr-h"')],
+    ["an imported door target", bare("STAFF_DOOR_TARGET.counter", { imports: DOOR })],
+    [
+      "an id held in a const",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen("<h2 id={HEAD}>Zone</h2>", 'const HEAD = "host-h";\n'),
+    ],
+    [
+      "an id inside a mounted local component",
+      bare('"/staff/__selftest__/host#host-h"'),
+      screen("<Zone />", 'function Zone() {\n  return <h2 id="host-h">Zone</h2>;\n}\n'),
+    ],
+  ];
+  for (const [what, src, host] of misses) {
+    const why = probe4f(src, host);
+    if (why !== null) failures.push(`SELF-TEST: rule 4f refuses ${what} (${why}).`);
+  }
+}
+
 // Self-check: a rule that finds nothing to hold is not passing, it is not running.
 if (hostedPages === 0 || upPages === 0)
   failures.push(
@@ -3242,6 +3455,10 @@ if (hostedPages === 0 || upPages === 0)
   );
 if (keepEchoSites === 0)
   failures.push("rule 6 DID NOT RUN: no keepEcho site found on the language surfaces.");
+if (redirectPages.length === 0 || redirectFragments.n === 0)
+  failures.push(
+    `rule 4f DID NOT RUN: ${redirectPages.length} redirect-only staff pages found, ${redirectFragments.n} fragments proved rendered — the discovery is broken, not the codebase.`,
+  );
 {
   // One live mount per (export, host) pair at least — the four doors' pills, the Help sheet's rows,
   // the Profile's card. Fewer means the scan found nothing to judge, not that every mount is clean.
@@ -3263,5 +3480,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${FRONT_DOORS.length} front doors hold the pill · ${hostMounts} control mounts, each by its host (4e) · ${hostedPages}/${staffPages.length} staff pages reach one control module, ${upPages} lead up to one (4d), ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders · ${keepEchoSites} keepEcho sites)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${FRONT_DOORS.length} front doors hold the pill · ${hostMounts} control mounts, each by its host (4e) · ${hostedPages}/${staffPages.length} staff pages reach one control module, ${upPages} lead up to one (4d), ${redirectPages.length} redirect-only pages exempt, ${landedRedirects} landing on a real page (4f) with ${redirectFragments.n} fragments rendered there · ${marked} marked dictionary renders · ${keepEchoSites} keepEcho sites)\x1b[0m`,
 );
