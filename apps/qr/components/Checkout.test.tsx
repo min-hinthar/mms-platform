@@ -162,6 +162,19 @@ vi.mock("@/lib/surfaces", async (orig) => {
 const { Checkout } = await import("./Checkout");
 
 const CART = "cart-1";
+/** PD1 (m1 decision 16) — the session the split context carries (the host's name ask renames
+ *  their own seat in it). */
+const SESSION_ID = "session-1";
+/**
+ * PD1's tail — `SplitContext` no longer carries the session's join code (lib/split-context.test.ts
+ * pins the server half). The pass cases below still hand Checkout a context that LEAKED one — built
+ * through a variable, so no excess-property check applies — to pin the pass's own rule: whatever a
+ * context carries, no pass prints the code.
+ */
+function leakedCode<T extends object>(ctx: T): T & { qrCode: string } {
+  const leaked = { ...ctx, qrCode: "7C2E9A" };
+  return leaked;
+}
 const MY_SEAT = "seat-me";
 const PEER_SEAT = "seat-peer";
 const LINE = "line-mohinga";
@@ -1383,7 +1396,7 @@ describe("#300 — /cart keeps the header's count honest", () => {
     myRole: "host" as const,
     members: [],
     tableNumber: null,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("publishes the CONFIRMED count, and a server-emptied cart publishes zero", async () => {
@@ -1424,7 +1437,7 @@ describe("Phase 1b — the browser's Back walks the checkout's own steps", () =>
     myRole: "host" as const,
     members: [],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("View bill pushes a #bill entry, and Back returns to the Order stage", async () => {
@@ -1463,7 +1476,7 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   });
 
   it("a guest with unsent dishes sees the host's name where Send would be", () => {
@@ -1498,7 +1511,7 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("locks Pay while a dish is unsent, says why, and never starts a charge", async () => {
@@ -1536,7 +1549,7 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
@@ -1655,7 +1668,7 @@ describe("Phase 1b — the bill says which table it is", () => {
         myRole: "host",
         members: [],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
     });
     expect(screen.getByText("Table 7")).toBeTruthy();
@@ -1674,7 +1687,7 @@ describe("Phase 1b — a stale history entry is replaced, never stacked (blind p
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1706,7 +1719,7 @@ describe("Phase 1b → PD10 · D5 — a table with no host: nobody there can sen
         // is a failed member read, which leaves the host UNKNOWN — Codex round 2 on #346).
         members: [{ seat: MY_SEAT, name: "Me", role: "guest" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
@@ -1734,7 +1747,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1762,7 +1775,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "draft" }],
     });
@@ -2172,7 +2185,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   /** Mutations inside the Bill's one polite region, from the moment this is called. */
   function watchRegion(text: string) {
@@ -2265,7 +2278,7 @@ describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", ()
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   });
 
   it("a GUEST with unsent dishes is told WHO sends — the reason, never the label", () => {
@@ -2324,7 +2337,7 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("with a tip previewed, the door's figure, its name and the Bill's hero total agree — a tip-less second sum separates", async () => {
@@ -2461,7 +2474,7 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const GUEST = {
     mode: "dinein",
@@ -2472,7 +2485,7 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const dockLine = () => document.getElementById("counter-door-line")?.textContent ?? "";
   // The doors as SHIPPED: phone pay parked, the self-serve split parked.
@@ -2591,17 +2604,17 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
   it("a table with no number yet holds up a NON-SECRET identity on the counter pass — never the join code", () => {
     // Owner-delegated decision (2026-10-09), widened from #335's blind pass: PATH_DESIGN
     // reconciliation 6 printed `qrCode` at the 40px holder tier here — the session's bearer join
-    // secret, on a pass held up in the dining room.
+    // secret, on a pass held up in the dining room. The context no longer carries it (PD1's tail);
+    // this one LEAKED it, and the pass still never prints it.
     mount({
-      splitContext: {
+      splitContext: leakedCode({
         ...GUEST,
         tableNumber: null,
-        qrCode: "7C2E9A",
         members: [
           { seat: PEER_SEAT, name: "Aye Aye", role: "host" as const },
           { seat: MY_SEAT, name: "Me", role: "guest" as const },
         ],
-      },
+      }),
       initialItems: [FIRED],
       initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
     });
@@ -2912,7 +2925,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const HOST = {
     ...GUEST,
@@ -3090,9 +3103,10 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 
   it("a table with no number yet (bound at Send) holds up the HOST'S name — never the session's join code", async () => {
     // Owner-delegated decision (2026-10-09; the blind pass on #335): the code is the session's
-    // bearer join secret and its RLS key, and a pass is held up in the dining room.
+    // bearer join secret and its RLS key, and a pass is held up in the dining room. The context no
+    // longer carries it (PD1's tail); this one LEAKED it, and the pass still never prints it.
     mountPD1({
-      splitContext: { ...GUEST, tableNumber: null, qrCode: "7C2E9A" },
+      splitContext: leakedCode({ ...GUEST, tableNumber: null }),
       initialItems: [DRAFT],
     });
     await press(/^Show a server/);
@@ -3108,15 +3122,14 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 
   it("a numberless table whose host has no chosen name holds up 'Your table'", async () => {
     mountPD1({
-      splitContext: {
+      splitContext: leakedCode({
         ...GUEST,
         tableNumber: null,
-        qrCode: "7C2E9A",
         members: [
           { seat: PEER_SEAT, name: "Guest", role: "host" as const },
           { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
         ],
-      },
+      }),
       initialItems: [DRAFT],
     });
     await press(/^Show a server/);
@@ -3262,7 +3275,7 @@ describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bi
       { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
   const COOKING: CartItem = { ...ITEM, id: "l-cook", bySeat: MY_SEAT, lineState: "in_progress" };
@@ -3434,7 +3447,7 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
   const COOKING: CartItem = { ...ITEM, lineState: "in_progress" };
