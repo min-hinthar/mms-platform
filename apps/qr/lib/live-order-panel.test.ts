@@ -10,6 +10,7 @@ import type { TrackedOrder } from "./track-order";
 const base: TrackedOrder = {
   id: "o1",
   status: "paid",
+  fireAt: null,
   totalCents: 2100,
   itemCount: 3,
   pickupSlot: null,

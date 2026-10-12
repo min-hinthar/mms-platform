@@ -4,10 +4,11 @@ import { counterPayInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError, getCallerUid } from "./authz";
 import { COUNTER_TENDERS } from "./counter-tender";
 import {
-  COUNTER_PAY_REFUSAL_COPY,
   counterPayRefusal,
+  counterPayRefusalCopy,
   type CounterPayRefusal,
 } from "./counter-pay-state";
+import { surfaceOpen } from "./surfaces";
 import { getCartOrderId } from "./order";
 // ── Phase 2c · gate ──
 import { payBlockedByUnsent } from "./checkout-stage";
@@ -94,7 +95,14 @@ export async function requestCounterPay(raw: unknown): Promise<CounterPayResult>
     itemCount: count ?? 0,
     unsentBlocks: payBlockedByUnsent(authz.mode, units, hostSeat != null),
   });
-  if (refusal) return { ok: false, reason: refusal, error: COUNTER_PAY_REFUSAL_COPY[refusal] };
+  // PD2 (m2 decision 15) — the settling sentence names who holds the freeze: with the self-serve
+  // split parked, only the register does.
+  if (refusal)
+    return {
+      ok: false,
+      reason: refusal,
+      error: counterPayRefusalCopy(refusal, surfaceOpen("selfServeSplit")),
+    };
 
   const now = new Date().toISOString();
   // Re-asking is idempotent and keeps the FIRST stamp: the floor sorts the longest-waiting ask

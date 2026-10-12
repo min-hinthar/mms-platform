@@ -179,7 +179,10 @@ sparingly (glow economy — selection only), and photo treatment tuned for dark 
 
 - Effort: S–M. Risk: low. Impact: half of real usage is evenings.
 
-## W22e · Personal continuity — "your usual," honestly
+## W22e · Personal continuity — "your usual," honestly ⭐ **SHIPPED 2026-08-20**
+
+> As-built: `ROADMAP.md`'s W22e entry and DESIGN-LANGUAGE §14 (Recognition) — read those, not the
+> proposal below.
 
 The arrival beat grows one data-backed card: **"Your usual? ✦ Mohinga + Tea — add both"** built
 strictly from the diner's own paid-order history (≥2 occurrences, same honesty bar as the rank

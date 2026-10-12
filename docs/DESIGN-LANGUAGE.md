@@ -753,10 +753,9 @@ built.
   ONE rest class every pressed chip outside the KDS root wears — the loss sheet's segment and
   reason rows, the menu browser's categories, the mod sheet's options, the cash settle's tip chips
   — because an INLINE fill beats any class, so five `*On` style objects had kept the rule from ever
-  reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh is
-  `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip, an `<li>` pressed by its class
-  rather than an attribute — it had worn a gold OUTLINE, which is §2's idle idiom, while the band's
-  own comment called it the cap. The eighth is `.floor-card[aria-current="true"] .floor-card-label`
+  reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh was
+  `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip — RETIRED from the list by PD9 with the
+  band it lived in (§35: the wall spends no gold on a table). The eighth is `.floor-card[aria-current="true"] .floor-card-label`
   (Phase 2d · split): the selected table card's NAME — a pick from a live list, so `aria-current`,
   and the cap on the name only, never the card's ground (below). The Phase 2d counter bell's chip is
   a `.staff-chip`, so it wears the sixth. The ninth is `.staff-lang-row[aria-pressed="true"]`
@@ -1938,6 +1937,17 @@ scroll-padding-inline: gutter`): a lit pill's lift shadow is otherwise sliced sq
 - **Steps that live in state still get history entries** (a hash per step), so the platform Back
   button walks them — and Back runs the same handler as the in-page back control, never a shortcut
   around its side effects.
+- **Clearing a table (PD7, m7) is undo over confirm, after a fresh look.** The pane's Clear reads the
+  table on the database clock first (an unknown read clears nothing — "couldn't check"); nothing
+  sent → the six-second window, "Clearing Table N", in the console's ONE provisional mark (the dashed
+  edge on the chip and on the in-slot Undo's `--sf` ground — never a fill), the seconds a decorative
+  leaf, the controls armed at 400 ms, a keyboard focus holding it with its warning in its own alert.
+  Food sent and unpaid → the loss slip first: paper, ONE outline diamond (glyph + word, no fill), the
+  figure over a SOLID rule (a settled preview, never the provisional dash), the question "Did Table N
+  pay?", and only after "No" the one danger act naming its sum; while it stands, Take cash steps down
+  to secondary (one hero per state, §32). Nothing is written until the window closes — leaving it is
+  the safe direction — and the outcome is said on the floor's region, because the pane leaves with
+  the table. The paid card's hint ("Clear when they leave") is words inside its link, never a control.
 
 ## 23 · The add moment (Phase 1c)
 
@@ -2149,8 +2159,10 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   never re-added from parts. Nothing priced, nothing claimed (no stack until a read prices the order).
   `runningSubtotalCents` is the LINES read's sum — the floor's "so far" and the ceiling's base — never a
   receipt row. The stack's Total excludes any tip (the read runs at tipRate 0), as the dock's does; the
-  two reads may briefly disagree (line prices vs Subtotal) while a write lands between them. Still open:
-  the table page's two bases (K44) and the cash-sheet re-host (K39).
+  two reads may briefly disagree (line prices vs Subtotal) while a write lands between them. PD6 closes
+  both: the stack is ONE component (`ReceiptStack`), read by the table page's order card too (K44 — no
+  pre-tax "so far" beside a tax-inclusive door; no money row at all on an asked table, whose counter pass
+  carries the one figure), and the counter order's door is the cash sheet itself (K39, below).
 - **Outcomes are settled BY KEY** (`pendingReduce`). `ok` lands the ghost, which leaves only on a
   committed read that STARTED after the landing. A definite refusal removes that attempt (never the
   dish), plays `mms-settle` on the glyph, keeps focus on the tile and names the dish. A write that
@@ -2195,7 +2207,15 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   so nothing awaits between its one read and its fire. With nothing to send the slot is "Done ·
   Table N", never empty. A counter order has no Send (until 2f); its status row says the kitchen
   starts it when it is paid.
-- **Take payment navigates; it never takes money here.** Secondary at an open dine-in table (the
+- **Take payment navigates at a dine-in table; a counter order's door IS the cash sheet (PD6 · K39 —
+  §28's one exception, m6).** On a counter order the dock reads "Take cash · $X" (one money verb end to
+  end: the dock, the tray's title and its commit; `settle.cash.trigger`/`.title` are K15-HIGH), and its
+  tap runs this same gate — the holds, the drains, the name — then, when the tap wrote anything the
+  last read cannot have seen, waits (bounded) for a read that STARTED after it, and the crowned till
+  tray (§29) opens in place: no `router.push`. A landed settle stands the seal where the pad shell was
+  (the shell UNMOUNTED, the poll paused, the stash written for a same-tab reload), inside the pad's
+  one mint lock. Everything below holds for both doors. A dine-in pad keeps the navigation: secondary
+  at an open dine-in table (the
   step after Send is leaving — never two filled pills), primary on a counter order. Its refusal is
   ONE typed reason from ONE pure function — `padSettle` → `PadSettleBlock`, ranked **paying > note >
   waiting > unsent > empty** — its sentence a `Record` over that union (`padSettleReason`: a new
@@ -2319,6 +2339,33 @@ readTicket)` settles it on a read with a LATER ticket; a read already in the air
   rows-only card when a tender was entered, and it leaves when the next round's cart opens
   (`handoffStillCurrent`). The `Handoff` shape lives in `lib/register-ui.ts`, not the component.
 - **"Change" is အကြွေ everywhere.** ပြန်အမ်း is the console's refund verb.
+- **The crowned till tray (PD6, m6): the ONE cash sheet on the counter tablet, whichever door opens
+  it.** The same `CashSettleButton` sheet, laid out from ONE viewport predicate (`TILL_MEDIA`,
+  `lib/till.ts`: the grid's real width — 1262 of columns + 64 of padding + 40 of gutters = 1366px →
+  `85.375em`, and `44em` tall — computed, never a guessed breakpoint; the stylesheet's `.till-sheet`
+  block is pinned to it). It reads OWE → TIP → GAVE left to right (the due at `--fs-pass`, decorative —
+  the question carries it; the slip: qty × dish, no amounts; the banknote tiles with an `::after`
+  hairline frame, never a fill), and its band pins Cancel + Take under OWE + TIP and the inert readout
+  (Take's description, "အကြွေ · Change" at `--fs-display`) in the money corner, so a second tap of the
+  door that opened it lands on inert text (`tillDoorLandsInert` — a design-time check over the design's
+  door spans; the device sitting is the runtime proof). Below the width, the single-column
+  sheet, unchanged. **The slip freezes with the quote**: a diverged cart marks it "The order changed —
+  tap to update" (the mark is the control that re-freezes it) and holds Take through the ONE binding.
+  On the pad host a held tap and the clean-cancel line ("Nothing was taken — the order is still
+  here.", only after a refused or stalled attempt, and never while any attempt's answer — in this
+  opening or an earlier one — is lost or still out: the doubt is sticky until a host read that
+  STARTED after the NEWEST doubt could land shows the order open — ONE time-based rule,
+  `tillLedgerRead` over the hosts' own `settleUnknownAfterRead`) are said by the pad's ONE region.
+- **The seal (PD6, m6) is the paid card's grammar on every counter surface.** A solid ✓ disc (paid —
+  never an approval), the HERO (the Change at `--till-fs-hand` wide; the Total when no tender was
+  entered, with no Change and no Cash received), the count-back rows, the #CODE on the ONE PASS (a
+  CounterPass stub, constant paper, notched to the seal's ground), one quiet secondary (Walk-up, with
+  its true note; Takeaway bags outranks it) beside "Back to the counter", the one hero. CALM by default;
+  the green wash, the rise and ONE ok bloom on the disc only where the settle JUST landed (or the first
+  mount in a document RELOADED after that landing, whose note names the order — `sealNavNow`) — never
+  on a client-side revisit, a deep link or the server's card. Wide, its
+  actions take the till grid's money corner. Cash received and Change are what the cashier entered,
+  kept in this tab only.
 
 ## 30 · The diner spine, the account hub, the counter map (Phase 3a)
 
@@ -2412,7 +2459,14 @@ Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLa
   filled `.checkout-cta` or none: Send while the host still has drafts; the outline Undo alone during
   the grace; the receipt's Total door once everything is with the kitchen. Two verbs side by side with
   no state between them (J23's "Send to kitchen" beside "View bill & pay") is the shape this rule
-  forbids, and so is a filled Send on the Bill beside a dimmed Pay.
+  forbids, and so is a filled Send on the Bill beside a dimmed Pay. **PD1 (2026-10-09) adds one arm
+  for a GUEST whose dishes wait on a host's Send:** their one filled `.checkout-cta` is "Show a
+  server" — the `CounterPass` held up for Dad, whose console Send fires the round too — and the
+  receipt's Total door goes quiet beside it (a door to a bill you can read, never a second hero). The
+  guest's next step is the shipped `hostSendsCopy` sentence, actor-first, above the block's two ways
+  forward (the quiet "Let {host} know" — a durable stamp on the cart, cleared by the fire — and the
+  staff fallback last). A hostless table keeps the Bill door: nobody at the table sends, so nothing
+  waits on a tablemate. `orderStageHero`'s "wait" arm decides it, with mutants.
 - **The bill is readable; only money waits.** The undo grace used to live in the Send button's own
   state, so a stage flip destroyed it and Checkout locked the Bill door for ten seconds to protect it.
   The grace is Checkout's now; the Total door is always open (reading is not a write); Pay is the one
@@ -2549,3 +2603,162 @@ bar circle" narrows to the counter's width reason.
   badge wraps — a Burmese "နောက်ကျ · ဆိုင်မှာ စား" beside a two-digit table four across included; at 390
   the tail is one unwrapped row. A real tablet (Night in-room light, iOS audio — P2bw) is the remaining
   look.
+
+## 35 · The wall: every table's food, and never a nag (PD9 · m9)
+
+The dining-room TV is read from across the room by guests and staff at once. The owner's 2026-10-07
+message reversed the shipped "no dish per table" rule (OPEN-ITEMS K32(b), P6a): each dine-in table with
+food in the kitchen is shown, dish by dish. What that may and may not look like:
+
+- **One pass, rendered, never redrawn.** A table is the `@mms/ui` CounterPass in landscape at the TV
+  tier — the figure once at `--fs-pass` (pinned, never a clamp: density is board-fit's step-down),
+  "စားပွဲ · Table" over it, the 4px dotted seam, constant paper and constant inks. A Ready pickup code is
+  the same pass at the 54px code row. No pass nests; no ✓ on the TV, ever.
+- **The track is the stage.** Each dish row carries the ONE KITCHEN TRACK at the TV row (36×8) and one
+  word in the lead tongue (two scripts cannot stack in a chip); the heading row's KEY teaches the three
+  marks once, in both tongues, at the glyph size, aria-hidden. Dish names keep Burmese on top in both
+  board languages — the house's own names; a dish with no catalog Burmese draws its English alone,
+  unmarked.
+- **The loudness ladder on a wall:** Sent and Cooking are MARK, Served is CALM (green), the pickup
+  Ready pass is the only CALL, and there is no ALARM — lateness is the KDS's alone. Gold is spent only
+  on the pickup call (the Ready heading, the Ready pass's arrival ring) and the sound chip's pressed cap.
+  A table that is all served carries ONE roll-up in its status cell and its rows drop their tracks: no
+  fact is marked twice.
+- **It moves only when food changes state, one thing at a time** (`lib/board-motion.ts`): FILL when a
+  dish advances, ONE TURN per table visit when its last dish is served (after Mom's Undo window, on the
+  server's clock), the Ready arrival on the pass's EDGE (a gold wash over paper vanishes). Never on a
+  first read, a revisit, or the first read after a frozen spell. Base styles are the final frames;
+  reduced motion gets them.
+- **Sorted by number, never by status.** The first ⌈n/2⌉ tables by number fill the left column and the
+  rest the right — by index, never by height, so a pass that collapses moves no other table. Past the
+  fit, the step-down is fixed: collapse the all-served, fold the served dishes, then cut the highest
+  numbers behind "+N more" (tables, never dishes).
+- **What rots goes, what does not stays.** Frozen (two missed polls): codes and dish names stay, drawn as
+  a dashed outline in the page's own inks; every stage, roll-up and arrival goes; and a table's presence
+  rots on the linger clock, so past it the kitchen half keeps only its sentence. An unreadable kitchen
+  says so in place of the key — never "All clear" over a full wok: "All clear" is said only when the
+  server read no food of ANY channel on the wok (the tables are dine-in only), and never on a frozen
+  snapshot.
+- **Privacy is the payload's shape.** A table number and dish names only: no guest name, count, price,
+  clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. Beside
+  them the route sends `{ orders, tables, kitchenIdle, serverNow }` and nothing else — `kitchenIdle`
+  is one boolean (is any food of any channel on the wok?), never a count. The pickup
+  column shows the code alone — no name, no wait — and a collected bag leaves at once.
+
+## 36 · The step guide: the real control, in the quiet space, once (PD12 · m12)
+
+Decided in `lib/guide-seen.ts` (the ONE seen-key rule every guide reads — the staff guides now, the
+diner's guide with PD11) and `lib/staff-guide.ts` (the steps, the arm, the quiet); drawn by `StepGuide`
+and `GuidePicture`. What a first-run guide may and may not be:
+
+- **It lives in the screen's quiet space, never as a modal over live work.** The counter's guide is
+  where "Pick a table" stands (the idle pane, from 64em, beside a floor that stays live and tappable);
+  the kitchen's where "Nothing to cook" stands. Narrower, nothing opens itself — Help's first row opens
+  the same guide in the sheet the person chose. A screen whose guide has shipped never also auto-opens
+  its Help cards: one first run per load.
+- **Once per person, per station, per tablet; marked the moment it shows; quiet decided at mount.** A
+  busy first open (a table asking to pay, a ticket on the board) shows nothing and marks nothing; a store
+  that refuses never auto-shows. Close, the last step, a reload or work pushing it away all leave it
+  seen — and so does a person opening it themselves from Help (the same per-person key), so it is
+  never offered again; an explicit open always shows it. **Work always wins:** a table tap or a landing ticket replaces it for good, and focus that was
+  inside it follows the screen's OWN focus rule — the board's heading, never an All done; a guide
+  never changes a shipped control to land its rescue (the blind pass on #345 refused a `tabIndex` on
+  the live ticket grid).
+- **A guide teaches only what ships.** Each station's guide is ONE revision, after every control it
+  teaches (`STAFF_GUIDE_SHIPS`, refused by a parsed test while a control is missing); a guide whose
+  steps change is a new revision, a new first morning.
+- **Titles are the controls' own keys; pictures are the real controls, inert.** "See the mark, say its
+  word": every title renders through the key printed on the control it pictures. A picture is the
+  shipped component or the control's own classes at real size, cropped by a fixed-height well that is
+  `aria-hidden` and `inert`; `guide-pic-*` is placement only. Never a scaled drawing, never a complete
+  ticket on a live board, never a second filled primary in view, never a head stat repeated under the
+  real head.
+- **Motion is the product's own, or none.** A picture plays its control's shipped motion once (the
+  board's arrival flash, the till's pop) and a revisit draws the end frame; a tile's tone change is
+  instant, a MARK never moves, an ALARM-without-motion card stays still, and **no guide picture ever
+  pulses** — the board's one motion stays the board's. No auto-advance, no swipe, no sound; the "pick"
+  haptic on Next, Back and each dot.
+- **The grammar:** "Close · ပိတ်" top-right (the sheet's ✕ in the sheet); one foot on every step — five
+  44px dots (the current a `--tx` capsule: shape, never accent), Back's slot held on step 1, ONE Next
+  whose last word is "Got it · ရပြီ"; the eyebrow and footer in `--t2`; accent on the one primary only.
+  The card is a `role="group"` named by its title — never a region — and adds no live region: a step
+  change moves focus to the new title. Every control arms after the guide shows AND after every step
+  change (`GUIDE_ARM_MS`, ≥ the 350 ms gesture guard), and a press that began before the arm never
+  counts — a double-tap on step 4's Next never finishes the guide unseen.
+- **Work that replaces a guide inherits its arm** (M270 (1), the kitchen flip): the card that lands
+  where the guide stood is under a finger already on its way to Next, so the screen's own controls
+  refuse for `GUIDE_ARM_MS` from the moment work replaced it (`guideReplacedHeld`) — never an All done
+  the person did not aim at, and never a "Got it", which has no undo. Drawn as nothing, like the arm
+  itself; a guide the person closed holds nothing.
+
+## 37 · A table that left: the card turns face in its slot, until Got it (M270 (1) · m7 · m5 B1)
+
+Decided in `lib/kds-stop.ts` (what "Got it" answered, which cards draw, where each stands) and read by
+`lib/kitchen-stop-read.ts` from the durable stop record a clear writes; drawn by `KdsStopCard`.
+
+- **It never vanishes.** A cleared table's cooking Sends leave the live read at once; each becomes a
+  stop card, read from the record, and stays until someone in the kitchen taps "Got it" — no timer. A
+  stop read that does not answer keeps the cards last drawn: a card never leaves without its
+  acknowledgement, and the board never reads a failed read as "none". **Unknown is never none:** until a
+  stop read has answered (the server render's included), the board never says All clear, stands no
+  "Nothing to cook" (it says it could not check), and offers no guide; reads that keep failing make it
+  unknown again — the same three refusals — and get the board's own STOP line under the region
+  (static, warn ink — "a “stop cooking” card may be missing"; on an empty board the empty state says
+  it, once), never its "not updating" state: the tickets still land, so their chimes, hint and bar stay
+  true.
+- **In the slot the ticket stood in.** One card per Send (the Send's own key), placed among the live
+  tickets by its own stamp — the card turns face where it was and nothing around it moves; never shoved
+  to the top, never behind the held cards. **A station sees its own stops, whole:** a station's view
+  draws a card only when it stopped one of that station's dishes (the tickets' own station rule; a dish
+  nobody can place shows everywhere), and draws it with EVERY dish it stopped — ONE Got it clears the
+  whole clear on every screen (which the guide says), so a cook never acknowledges a dish not shown.
+- **ALARM without motion, and nothing else.** The Late tint with no pulse, struck rows, the one warn
+  word, "Got it" in the bump's slot — no flash, no chime, no stub, no clock. It is not Open and not Late
+  (the head counts tickets), and the region never says "All clear" while one stands; a new one is said
+  in the ONE region (the alarm a screen reader hears, since nothing moves or sounds) for its own dwell
+  — it rides beside a transient notice and a standing refusal, never lost to either and never dropping
+  them; a second table inside its dwell joins it (the dwell restarts for the newest); a table's words
+  leave at its own Got it; and a card a station filter hid is said when the view first draws it.
+- **"Got it" is optimistic and acknowledges the CLEAR.** Every card of that clear leaves at the tap;
+  another tablet's acknowledgement (`already`) is the kitchen having it, never a failure; a refusal, a
+  throw or a write still out brings the cards back to the confirmed state and a read decides. Focus that
+  was on it goes to the board's heading. The slip on the counter says "tells the kitchen to stop
+  anything still cooking" when its look shows a dish the kitchen holds — a promise worded to stay true
+  if the kitchen serves that dish before the commit.
+
+## 38 · The first-visit guide: a key, not a teacher, once per phone (PD11 · m11)
+
+Decided in `lib/diner-guide.ts` (when it opens, the pages, the words, the mark that outlives Safari)
+over PD12's ONE seen-key rule (`lib/guide-seen.ts`, `useGuideFirstRun`) and ONE arm
+(`guideActAccepted`); drawn by `DinerGuide` (the dialog and the Account door) and `DinerGuideFirstRun`
+(mounted by ArrivalBeat). What a diner's first-run guide may and may not be:
+
+- **One per surface, dine-in only, once per phone, decided once.** It opens by itself only when the
+  table session has answered and everything is quiet: joined with its first view (so the lock it reads
+  is the server's), no error, no pay lock, not settling, no reorder landing, no other dialog, and not a
+  diner the server already knows (a named account, or a card payer this month — an unknown read may
+  open). Marked the moment it opens, never at close; a busy arrival marks nothing; a store that refuses
+  never opens it. The mark is ALSO set by the server (`/api/guide-seen`, a Route Handler so the menu
+  never re-renders), because iOS Safari clears script-written storage after seven days and a monthly
+  regular would otherwise meet it every visit. Opened from Account it is seen too.
+- **Every title is a shipped key, whole; the guide adds English, never Burmese.** Mingalaba · Not sent
+  yet · Your order’s with the kitchen. · Your bill · Your order — the guest meets each again. Every
+  Burmese line is a shipped string referenced in place; the English it adds is listed for K15.
+- **Pictures are the real components, inert:** the CounterPass and the Bill's own `LivePass` in its
+  `picture` mode (no price, no total, no stub), on a sunken `role="img"` tray named by one sentence.
+  Only page 1 prints the guest's real table; every other picture is a sample on the "Your table" pass
+  and says "Example —". No money, no count, no name, no time; no second filled pill; no wallet logo.
+- **The guide follows the door it teaches.** Page 4 reads the parked `dineInPhonePay`: the counter
+  only while it is parked (no card word anywhere — page, picture name and region, equality-pinned),
+  D5's own sentence and the PROVEN wallets after the flip.
+- **The grammar is PD12's:** `GuideDots` (a `--tx` capsule), one dock grid whose Back holds its slot on
+  page 1, accent on the one primary, every guide control armed after the open and after every page
+  change (the phone's 350 ms), the ✕ and Esc never held. In a modal the focus stays on the pressed
+  control and the dialog's ONE region says the page; every exit from the first run lands on the menu's
+  heading, from Account on the row that opened it.
+- **Motion is the product's own, once per open:** RISE (after the sheet's entrance on page 1), FILL,
+  TURN; a revisit draws the end frame; reduced motion gets it; no loop, no auto-advance, no swipe.
+- **Measured, not assumed (2026-10-11, headless Chromium, the production CSS and the real fonts):** at
+  390×844, 375×667 and 320×568, at 100% and 200% root text, every picture sits inside its tray, the
+  dock stays in view and nothing scrolls sideways; below 46em of height the tray steps down and the
+  words scroll inside the page. A real phone and iOS's own text size are the device sitting's look.

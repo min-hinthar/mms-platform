@@ -194,6 +194,19 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialMySeat={view.mySeat}
       initialTabType={view.tabType}
       initialCounterRequestedAt={view.counterRequestedAt}
+      // Codex round 2 on #331 — the authoritative mode for the parked phone-pay door.
+      initialViewMode={view.mode}
+      // PD1 — the nudge stamp, whether it was readable at all (an unreadable stamp hides the
+      // offer), and the server's clock the "Show a server" pass reads the grace against.
+      initialSendNudge={view.sendNudge}
+      initialNudgeReady={view.nudgeReady}
+      initialServerNow={view.serverNow}
+      // PD10 — the DATABASE clock the view's lines were read against (`mms_now()`, before them): the
+      // live pass and the served door read every stage on it. Without it the Bill opens on an UNKNOWN
+      // clock, every settled bump reads "Cooking", no settle re-read is scheduled, and the first
+      // self-heal replays FILL and TURN for every dish (the capped blind pass on #346, C1). Required
+      // on `Checkout`, so a call site that forgets it does not compile.
+      initialDbNow={view.dbNow}
       // 3c-ii (D30): a SEED — the number is live state in Checkout from here (every applied view,
       // the bind's confirmed answer).
       initialTableNumber={view.tableNumber}
@@ -202,6 +215,9 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       prepMinutes={prepMinutes}
       initialPickupSlot={initialPickupSlot}
       asapAvailable={asapAvailable}
+      // PD2 (m2 decision 7) — the tender truth: the same env the staff page reads for its reader
+      // (`app/staff/page.tsx`); a client component cannot read it, so the RSC says so once.
+      readerConfigured={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
     />
   );
 }

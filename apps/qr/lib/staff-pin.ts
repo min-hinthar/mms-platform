@@ -12,13 +12,17 @@ import { withinStepUpRate } from "./rate";
  * server's request with their OWN PIN — may legitimately BE the approver), the CALLER is within the
  * step-up rate bucket, and the approver id resolves to an ACTIVE manager/owner. The RPCs re-check
  * role + self atomically — this just stops the DoS upstream.
+ *
+ * PD8 · M184 (round 3 D2): `initiatorStaffId: null` means NO self rule — the `close` arm of
+ * `resolveApproval`, where the request's own asker may close it (nothing about food is decided).
+ * Only that caller passes null; `undefined` keeps the default (the caller is the initiator).
  */
 export async function approverStepUpAllowed(
   approverStaffId: string,
   callerStaffId: string,
-  initiatorStaffId: string = callerStaffId,
+  initiatorStaffId: string | null = callerStaffId,
 ): Promise<"ok" | "bad_approver" | "step_up_rate_limited"> {
-  if (approverStaffId === initiatorStaffId) return "bad_approver";
+  if (initiatorStaffId !== null && approverStaffId === initiatorStaffId) return "bad_approver";
   if (!(await withinStepUpRate(callerStaffId))) return "step_up_rate_limited";
   const { data } = await serviceClient()
     .from("staff")

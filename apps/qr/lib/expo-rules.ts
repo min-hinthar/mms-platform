@@ -93,19 +93,33 @@ export function compareExpoTickets(a: ExpoOrderKey, b: ExpoOrderKey): number {
  * counter-7 (K27 · O-B · O-G) — the lane's clock is DUE-NESS, not paid-age. A noon-paid 6 pm
  * pickup read "5h ago" in grey; a bag whose slot is still ahead is not late, and a guest who has
  * announced themselves at the counter is waiting NOW whatever the slot says. The moment a bag's
- * age counts from, by precedence: the guest's "I'm here" stamp, else the pickup slot, else when it
- * was paid. `sinceMs` is 0 before that moment (nothing to count yet) and the tone follows two
- * thresholds — a config constant here until the counter has a settings row of its own.
+ * age counts from: the LATER of the guest's "I'm here" stamp and the pickup slot when both exist
+ * (PD3 / m3 B8 — "I'm here" is now offered any time on the pickup day, and an early tap must not
+ * paint an on-time bag warn, then late, during normal service; the "Here now" badge and the bell
+ * still say the guest is in the room), else whichever of the two exists, else when it was paid.
+ * `sinceMs` is 0 before that moment (nothing to count yet) and the tone follows two thresholds — a
+ * config constant here until the counter has a settings row of its own.
  */
 export const EXPO_TONE_MIN = { warn: 10, late: 20 } as const;
 
 export type ExpoTone = "ok" | "warn" | "late";
 
+/** The instant a bag's age counts from (see `expoAge`). */
+export function expoAgeFrom(t: {
+  arrivedAt: string | null;
+  pickupSlot: string | null;
+  createdAt: string;
+}): number {
+  if (t.arrivedAt !== null && t.pickupSlot !== null)
+    return Math.max(Date.parse(t.arrivedAt), Date.parse(t.pickupSlot));
+  return Date.parse(t.arrivedAt ?? t.pickupSlot ?? t.createdAt);
+}
+
 export function expoAge(
   t: { arrivedAt: string | null; pickupSlot: string | null; createdAt: string },
   nowMs: number,
 ): { sinceMs: number; tone: ExpoTone } {
-  const from = Date.parse(t.arrivedAt ?? t.pickupSlot ?? t.createdAt);
+  const from = expoAgeFrom(t);
   const sinceMs = Math.max(0, nowMs - from);
   const min = sinceMs / 60_000;
   const tone: ExpoTone =

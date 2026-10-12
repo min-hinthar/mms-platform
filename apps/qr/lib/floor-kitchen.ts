@@ -13,12 +13,12 @@ import type { KdsThresholds } from "./kitchen-types";
  * — and every word in it is a rule that already lives somewhere else, READ from there, never
  * restated:
  *
- *   in the kitchen  `PULSE_COOKING_STATES` (fired · in_progress) — the wall's and the KDS's set.
+ *   in the kitchen  `PULSE_COOKING_STATES` (fired · in_progress) — the KDS's set. (The wall reads
+ *                   the ONE KITCHEN TRACK since PD9, which also waits out Mom's undo window.)
  *   send grace      a line whose `fire_at` is still ahead is invisible, exactly as the KDS and the
  *                   wall skip it (the 10-second undo, a held pickup). `nowMs` is the DATABASE clock.
- *   ready to serve  served with `bumped_at` inside `PULSE_PASS_LINGER_MS` — the wall's own window, so
- *                   the TV's "Ready to serve" and the card's count agree at every instant. Never a
- *                   claim that anyone RAN the food: no runner event exists.
+ *   ready to serve  served with `bumped_at` inside `PULSE_PASS_LINGER_MS` — the window the wall keeps
+ *                   a served Send for. Never a claim that anyone RAN the food: no runner event exists.
  *   not sent        2a's ONE count (plan conflict "floor × send-kitchen"): `staffOwedSendUnits(
  *                   hostPresent, staffSendCounts(…))` over the OPEN cart — every sendable dish on a
  *                   hostless table, only staff-added ones on a host table (owner decision 5c) — plus,
@@ -49,6 +49,10 @@ export type FloorKitchenContext = {
   mode: string;
   /** The session has a diner host (`host_seat` set). */
   hostPresent: boolean;
+  /** P2do — the table has asked to pay at the counter (the floor's `status === "counter"`): every
+   *  unsent dish is then the counter's to count (`staffOwedSendUnits`). Absent off the floor's rows
+   *  (a counter order's own fold) reads false. */
+  counterAsk?: boolean;
   /** The DATABASE clock (`mms_now`), the one the grace and the linger are measured against. */
   nowMs: number;
 };
@@ -83,7 +87,7 @@ export function foldFloorKitchen(
   // "not sent", and the card can never read "Kitchen done" over an order still owing a Send.
   // `counterDraft` is 0 off a pickup session, so a table's count is untouched.
   const notSent =
-    staffOwedSendUnits(ctx.hostPresent, counts) +
+    staffOwedSendUnits(ctx.hostPresent, counts, ctx.counterAsk === true) +
     (counts.counterSentPastGrace ? counts.counterDraft : 0);
   let inKitchen = 0;
   let up = 0;

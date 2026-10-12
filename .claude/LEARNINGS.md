@@ -3787,3 +3787,323 @@ put a gate that cannot fit the budget where it can run in parallel (separate CI 
 own checkout) rather than asking a session to sit through it; and score a guard's success only on the
 evidence it was built for — here, exit 1 plus a report counting a failed test or suite — with timeouts and
 infrastructure failures as their own failing verdicts, never as passes.
+
+## #248
+
+**A mutant that SURVIVES on one run and is CAUGHT on another of the same tree is a guard that reads before
+the event it judges has settled (2026-10-08, the first sharded `verify-slice` on main).**
+`checkout-bind/stale-refusal-said` was CAUGHT on #320's PR runs and SURVIVED on main's push run of the
+identical tree (`2a9a194`). Its tests waited for a sheet's DOM node to leave, then asserted a stale
+sentence was "not said", then resolved the next action.
+
+The sheet's close edge rides a library timer (Radix FocusScope's unmount autofocus). So the read could
+run before the close edge, and the close edge's update, made outside `act`, could merge with the next
+action's update into one render. The stale sentence then never reached the DOM.
+
+That mechanism is inferred from the order; repeated local runs never reproduced the survival. The fix
+did not depend on reproducing it:
+
+- wait for the event's OWN effect, not the DOM node leaving (here, the focus landing that follows the
+  stash being said);
+- flush (`waitFor`'s drain, then an empty `act`) BEFORE triggering anything that competes with it;
+- then read.
+
+A MutationObserver history is a backstop, never the guard. It sees committed DOM at mutation
+checkpoints, so it cannot see two updates merged before a commit. Disconnect it after every test.
+
+Never re-run a red `verify-slice` hoping for green. A second run that passes proves the guard is
+nondeterministic, which is the defect.
+
+## #249
+
+**History kept inside a live-state file taxes every future change (2026-10-08, the docs cleanup).**
+`check:docs` measures counts in README, CLAUDE.md, OPEN-ITEMS and HANDOFF, which is right for live
+state. But HANDOFF had grown to 4,911 lines of superseded session blocks, and 45 of the 55 measured count
+matches across the four files sat in those blocks. So a test added anywhere forced edits to lines nobody
+reads (#320's push re-measured eight of them).
+
+Move superseded history to an archive file outside the live-state set. Paths stay permanent, so the
+live file says where the history went. And keep a measured number in exactly one live line.
+
+**The same pass also showed a table cell's cost.** prettier pads every row of a GFM table to its widest
+cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
+table, with a one-line cell pointing to it.
+
+## #250
+
+**A post-edit hook that autofixes `prefer-const` rewrites a `let` the moment it is declared, before
+the assignment that needs it exists (2026-10-08, PD5).** Adding a test flag in two edits — `let
+failRoundRead = null` first, the cases that assign it second — left the file with
+`const failRoundRead = null`: the first edit carried no assignment, so the fix was "correct" for the
+file as it stood, and the second edit's `failRoundRead = leg` threw `Assignment to constant variable`
+at module load, reddening every case in the suite at once, not the new one. Declare the flag and its
+first assignment in ONE edit, or re-read the declaration after the hook runs. The same hook (prettier)
+also reflows a long `find:` anchor written before the format pass (LEARNINGS #106): write mutant
+anchors from the FORMATTED source, and run `check:mutant-anchors` after `pnpm format`, never only
+before it.
+
+## #251
+
+**A cut paper shape with a shadow needs the shadow on the WRAPPER, and the React purity rule reaches
+`performance.now()` in render (PD4, 2026-10-08).** Two sharp edges from the grocery tag. (1) A shop
+tag — chamfered left corners, rounded right, a punched hole the camera shows through — is one element
+with `border-radius` (the right corners) + `clip-path: polygon(…)` (the chamfers) + `mask:
+radial-gradient(…)` (the hole); but `filter: drop-shadow` on THAT element is applied before the
+clip, so the shadow is cut off with the paper. Put the `drop-shadow` on a wrapper: a filter on the
+parent follows the rendered alpha of its contents, hole and chamfers included. (2)
+`react-hooks/purity` (the React Compiler lint, on by default here) refuses `performance.now()` and
+ref reads during render — so a chip's "armed" flag or a seconds leaf cannot be computed inline from
+the clock. Keep the pure rule (`chipArmed`, `undoSecondsLeft`) and call it from the handler at the
+event and from the interval/timeout that re-asks it; render reads the answer from state
+(`chipLive`, `undoLeft`). The rule still decides, and its mutant still reddens.
+
+## #252
+
+**jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
+(2026-10-08, PD3).** A component suite for a window that HOLDS while a keyboard user sits on Undo
+(`matchesFocusVisible`) never committed under jsdom: the programmatic focus the swap moves onto Undo
+matched `:focus-visible` (a browser's heuristic says a touch tap's programmatic focus is not), so every
+case was the keyboard case and the window held to the 60 s cap. The suite must SAY which it is — mock
+`matchesFocusVisible` per case and pin both the touch (the window runs) and the keyboard (it holds, then
+runs on blur). And a `window.setInterval` in a component is jsdom's own timer, not the one
+`vi.useFakeTimers()` replaces; the lane's bare `setInterval` is the shape to copy.
+
+## #253
+
+**A killed `verify:slice` can leave a mutant that `check:mutant-anchors` cannot see (2026-10-08, PD8).**
+The anchors guard proves each mutant's `find` string matches once — but a mutant whose `replace` still
+contains its `find` (a prefix added, a guard wrapped) anchors clean while applied. After a SIGKILL
+(the session restart), check every dirty target file for the REPLACE text too: for each registry mutant
+of that file, `replace` present in the working copy where HEAD had none, and `find` gone. The one hit
+that check raised here was the author's own edit (a third `setWriteError(null)`), told apart by `find`
+still present. And `execSync("git show …")` on the registry needs `maxBuffer` — the default 1 MB
+throws ENOBUFS mid-check, which reads like a parse failure.
+
+## #254
+
+**A harness that hardcodes 127.0.0.1:54322 can run beside another stream's cluster on that port — in a
+private network namespace (2026-10-09, PD5b).** `verify-merge-race.mjs` takes no DSN on purpose, and on
+a container shared by parallel streams another agent's throwaway cluster already held 54322. Run your
+OWN cluster on 54322 inside `unshare -n` (bring `lo` up first: there is no `ip` binary, so a three-line
+`SIOCSIFFLAGS` ioctl in Python does it), start `pg_ctl` and the harness in that namespace, and stop the
+cluster on exit. Nothing the harness commits reaches the other stream's database, and its in-DB guards
+(loopback, TLS off, private address) still hold. Two traps from the same build: never `import()` a
+harness script to check its syntax, because it RUNS (`node --check` does not); and an in-place restore
+that replays one migration file must become a CHAIN the day a later migration restates one of its
+functions, or every mutant's restore reverts the newer body (`verify-counter-fire-race.mjs` reads each
+restated function from its LAST defining file — the `LATER` map — and `statementFor` patches that file).
+
+## #255
+
+**Two guards in series, each refusing the same output, need a fixture that trips ONLY the first
+(2026-10-09, PD9).** `/api/board` refuses its tables when the kitchen line read hits its cap, and
+again when the Send-completion read hits its own. The cap fixture made 500 lines that shared one
+`fire_batch`, so the completion read re-read all 500 and refused as well, and the mutant that deleted
+the line-cap guard SURVIVED: the second guard answered for the first. The fix was the fixture, not
+an assertion: one line carries the batch, so the completion read answers one row and only the line cap
+can refuse. When a later read is DERIVED from an earlier one, saturating the first tends to saturate
+the second, so build each guard's fixture to answer short everywhere downstream.
+
+## #256
+
+**A SECURITY INVOKER function's row locks need TABLE privileges from its caller — and CI's local
+stack does not grant them the way the hosted project does (#342, 2026-10-11).** `select … for share`
+(and `for no key update`) requires UPDATE on the table from the role that runs it; the PD1 nudge is
+invoker, so its one caller, service_role, must hold UPDATE on `qr_carts` and `qr_cart_items`. Prod
+held both through Supabase's default privileges, the throwaway PG16 harness granted them in its
+prereq layer, and every SQL test ran as `postgres` — so only a privilege ASSERT run on CI's fresh
+`supabase start` stack (PD1N.4) noticed that nothing in the migrations granted them. Grant what an
+invoker function relies on explicitly in its migration (idempotent; a no-op where it already stands),
+and assert it in the test; a throwaway whose prereq copies the hosted defaults cannot see this gap.
+
+## #257
+
+**"Errors 1 error" after every test passed is a timer that outlived its jsdom file — no macrotask runs
+between a case's hooks and the next case, or between a file's last `afterEach` and its `afterAll`; the
+race is AFTER `afterAll` (2026-10-11, T54).** Measured in-runner (vitest 4.0.17): a `setTimeout(…, 0)`
+queued in a file's last `afterEach` had not fired in its `afterAll`, 5 of 5 runs. After `afterAll` the
+worker reports the file finished and runs the jsdom teardown only on the pool's `stop` message, so a
+timer still queued races that IPC round trip: one queued in a file's last `afterAll` fired before the
+teardown in 113 of 113 local runs (30 alone, 83 among the full suite), and one CI run lost it. The
+teardown deletes jsdom's globals and restores Node's own (`CustomEvent` among them), so Radix
+FocusScope's unmount timer — queued by the suite's own `afterEach(cleanup)` — builds a Node event and
+jsdom's `dispatchEvent` refuses it. Don't chase the race (the flaking suite reproduced it in 0 of 70
+isolated local runs). Reproduce the mechanism deterministically instead:
+`builtinEnvironments.jsdom.setup(globalThis, {})` from `vitest/environments`, unmount, call its
+`teardown` at once. Pin the PRECONDITION in-runner: the timer's effect has not happened by the next
+case or by `afterAll`. The fix is one drain in the shared `setupFiles` hook, BEFORE its resets: a
+restore runs caller code, and drained after them what it writes is read by the next case (the blind
+pass found that position unpinned; a mutant now moves it). It runs last under the default
+`sequence.hooks: "stack"`. It waits on a `setTimeout` captured at load: on the global one, any case
+that leaves `vi.useFakeTimers()` on hangs the hook to its 10 s timeout. A restore queued on a FAKE
+clock is out of its reach: dropped if that clock is uninstalled before anything advances it, but
+fired by the next case to advance a clock that outlives its case (a `beforeAll` install).
+
+## #258
+
+**A new upstream rule can turn an existing mutant EQUIVALENT without making it stale. Ask which
+mutants your rule makes unreachable, not only which anchors it moves (PD10, 2026-10-11).** Under D5,
+no tip is previewed while the served door is held, so on a dine-in table only the HERO Total door can
+carry one. `checkout/total-door-drops-the-previewed-tip` was anchored on the QUIET door, and its find
+still matched exactly once, so `check:mutant-anchors` stayed green. Measured: the quiet-door mutation
+then passed all 146 Checkout cases, because that branch can no longer carry a previewed tip and the
+mutant's tip-less figure equals the real one. Only the battery would have reported it, as a SURVIVED
+after the push. When a change narrows a value's reach (a gate, an earlier return, a zeroed preview),
+grep the registry for mutants on the consumers it starves. Re-point each one at the branch that still
+receives the value, and re-run that one id with `--only=` before the push.
+
+## #259
+
+**A file-wide mock of a gate makes the component's CONSULT of that gate deletable with every case green
+— pin the consult in a second, unmocked suite (2026-10-11, PD12 · the blind pass on #345).**
+`KdsBoard.test.tsx` mocks `staffGuideShips: () => true` for the whole file to exercise the held kitchen
+guide's host, so deleting `staffGuideShips("kitchen") ? … : null` in `KdsBoard.tsx` changed nothing any
+case could see — the held guide would have shipped. The fix is a sibling suite
+(`KdsBoard.guide-gate.test.tsx`) that mounts the REAL component with the REAL gate and asks the shipped
+question (guide shown ⇔ the station ships), plus a mutant on the consult owned by THAT suite. Two
+traps from the same pass: a rescue for a new surface must never re-shape a shipped control to land on
+it (a `tabIndex={-1}` added to the live ticket grid changed the board for every cook) — follow the
+screen's own focus rule instead; and a liveness matcher must be aimed red-first at the literal-dead
+shapes too (`{false && <X/>}` satisfied a parse-only refusal).
+
+## #260
+
+**An exemption is a population cut: the obligations that still bind the exempt site need their own
+proposition (G25, 2026-10-11).** `check:scan-repeat` proposition 1 exempted the offline queue's replay
+from "every charge is classified first" — rightly: it was classified at scan time. But the exemption
+made the replay invisible to the only proposition about charges, and nothing asserted what EVERY
+charge owes regardless of door: recording its code in `billedRef` on ok. The live add kept that line;
+the replay never had it, so a replay delivered with `lines: null` was billed again on the next camera
+read, with every guard green. When a guard exempts a call site, list what the exempt site must still
+do, and pin THOSE over the whole population (proposition 8 walks every live `scanAdd`, exempt or
+not) — an exemption should narrow one rule, never the guard's sight.
+
+## #261
+
+**A race that React's scheduler closes cannot be watched open — pin the fix by its SHAPE, and do not
+register a mutant no render can kill (#344, 2026-10-11).** Codex named a window on the grocery page:
+the fresh-basket handler reset the charge record synchronously, but `cartIdRef` followed `cartId`
+only through a passive effect, so an old basket's replay resuming "in between" would pass its era
+check and mark the fresh basket. A page row that clicks "Start a fresh basket" and lands the replay
+in the same `act` stayed GREEN on the unfixed page: React 18+ flushes the passive effects of a
+discrete input (click, keydown) synchronously at the end of the event, before any microtask
+continuation runs. The defensive fix (end the era in the handler, before the reset) still belongs —
+the page should not lean on scheduler timing — but a mutant dropping it would SURVIVE every run, so
+it is pinned structurally (`check:scan-repeat` proposition 8: a `NO_BILLED` reset must follow
+`cartIdRef.current = undefined` in its block) and the row pins what a render CAN show (the record's
+placement behind the era check). Before writing "red-first" for a race, run the row against the
+unfixed code: green there means the harness cannot open the window, not that the fix works.
+
+## #262
+
+**Next 16 serializes server functions on the client, and a navigation releases the queue — measure
+that before building, or dismissing, an ordering defence (#344, 2026-10-11).** The grocery page's
+view floor defends against server-function answers arriving out of order (a read answered before a
+write committed, landing after it). Next 16.2.9's action queue (`app-router-instance.js`,
+`dispatchAction`) runs server functions ONE AT A TIME; only an ACTION_NAVIGATE / RESTORE starts early,
+and the queue resumes after it while the discarded action's fetch is still in flight. So those
+interleavings are reachable only across a mid-flight navigation — narrow, but real. Both mistakes
+are cheap to make: a reviewer can call such a defence decorative because "actions are serialized",
+and an author can build an elaborate one for an interleaving the framework never produces. Read the
+queue's dispatch rule in the INSTALLED version, name the one path that breaks serialization, and
+write the defence (and its residual's reachability) against that path.
+
+## #263
+
+**Flipping a ship gate turns every mutant that guarded the HELD state into a survivor — re-aim them
+at the gate's consult on a held station, never delete them (2026-10-11, M270 (1) · the kitchen flip).**
+#259's fix pinned `KdsBoard`'s consult of `staffGuideShips` with the REAL gate, which only worked while
+the kitchen was held: once `STAFF_GUIDE_SHIPS.kitchen` is `true`, a board that drops the consult and a
+board that keeps it render the same guide, so `pd12/kds-board/kitchen-gate-dropped` SURVIVES, and
+`pd12/staff-guide/kitchen-ships-without-its-card` (`false → true`) has nothing left to flip. Measure it
+at the flip, not after: `check:mutant-anchors` reports the flipped value STALE, but the consult mutant
+stays anchored and silently stops being killable. The fix keeps the real gate for every case and adds a
+hoisted override that HOLDS one station through it (`vi.hoisted` set → `!held.has(s) &&
+real.staffGuideShips(s)`), so one case can still ask "a held station: nothing offered"; the ships
+mutant re-anchors on the CONSUMER (the board parking its `<KdsStopCard>` in a `false ?` branch). Same
+shape for any feature flag: the day it flips, every test written for its off side needs an off side to
+stand on.
+
+## #264
+
+**There IS a headless Chromium in the agent environment — measure a screen instead of estimating it
+(PD11, 2026-10-11).** PD12's record said "no browser in the agent environment"; Playwright's
+`/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell` runs — with
+`--no-sandbox`, needed only because the agent container runs as root (Chromium refuses its sandbox
+as root; on a normal user account drop the flag).
+The recipe that needs no dev server and no database: render the component in its own jsdom suite and
+write `document.body.innerHTML` per state; build once (`pnpm turbo build --filter=@mms/qr`); wrap each
+dump in a page that links `.next/static/chunks/*.css` and puts next/font's `*__variable` classes on
+`<html>`; serve a dir whose `_next` is a symlink to `.next` (`python3 -m http.server --bind
+127.0.0.1`, never on every interface); run the shell
+with `--force-prefers-reduced-motion --window-size=W,H --virtual-time-budget=3000` and either
+`--screenshot` or `--dump-dom` over an inline script that writes its measurements (rects, overflow,
+`scrollWidth`) into the DOM. It found four layout defects the jsdom suites could not (a key that
+collided three-across, a picture that overflowed its tray, a grid row that centred a tall child low,
+a wrapped Burmese label). Caveat: raising the root font-size does not move `em` media queries, so it
+approximates text zoom without exercising breakpoints.
+
+## #265
+
+**Radix moves a dialog's close-time focus in a `setTimeout(0)`, and `await act(async () => {})`
+resolves through `setImmediate` — so a suite that reads `document.activeElement` right after closing
+a Sheet reads a moment, not the outcome (PD11, #348's CI flake).** FocusScope's unmount effect
+queues the `onCloseAutoFocus` step on a zero-delay timer (Node: 1 ms); React's async `act` exits via
+`enqueueTask` → `setImmediate`. When less than 1 ms has passed by the loop's next timers phase, the
+immediate runs first and the read sees `<body>` — green on a loaded laptop, red on a fast CI runner
+(`DinerGuideFirstRun.test.tsx` passed on `fbed8d4`, failed on `99b354e` with no change to it).
+Reproduce it on demand by holding zero-delay timers back (`vi.spyOn(globalThis, "setTimeout")`
+→ `real(fn, ms || 5)`), then wait on the OUTCOME with the exact assertion
+(`await waitFor(() => expect(document.activeElement).toBe(target))`), never a tick count. The
+component was never racing: the Sheet hands Radix's close event to ONE handler, which prevents the
+default restore and moves focus itself.
+
+## #266
+
+**A second path to the same outcome can turn an old mutant into a survivor. After adding the path,
+re-run the module's WHOLE mutant set, not only the new ids (#347, 2026-10-11).** Round 4 on #347 gave
+the kitchen's stop words a read-side exit: `stopNewsWithin` retires a table's words on every answered
+stop read, beside the Got it's own retirement (`setStopNews((n) => stopNewsAcked(n, id))`). The fixture
+for `m270/kds-board/news-outlives-ack`, the mutant that deletes that Got-it line, emptied the queue
+before the tap. So the re-read after the ack took the words too, and the mutant SURVIVED in CI
+(`verify-slice` shard 6 on `7e21a03`). Every new id passed; only the old one, in the same suite, showed
+that the fixture no longer separated the two paths. The fix was the fixture, not an assertion: the read
+still names the table when the tap lands, so only the tap's own retirement can take the words. When a
+change adds a second way to reach an outcome a mutant guards, run `--only=` over every id prefix of
+that module before the push, and make each fixture reach the outcome through exactly one path.
+
+## #267
+
+**`apply_migration` stalled on a prod migration with a top-level `DROP` / `DELETE`. That is an
+observation, and the mechanism is not established (the path-design wave, 2026-10-09 to 10-11).** The
+Supabase MCP `apply_migration` is the one path a QR migration takes to prod (CLAUDE.md, M125), and it
+stalled on a file that carried a top-level DROP / DELETE. The wave's later migrations were written
+without either, and their headers give the authors' reading, not a measured cause:
+`20261009120400_m182_table_clear.sql` ("no DROP: the MCP apply path cannot confirm one") and
+`20261011123000_pd1_nudge_line_lock.sql` ("No `drop`, no `delete`: the MCP apply path stalls on a
+destructive statement"). The rule: `create or replace` covers a restate under the same signature only.
+A migration that must drop something (an overload's retirement, or the withdrawal of a grant that
+already exists) goes to the owner as a decision. The `revoke … from public` that ships with every NEW
+`SECURITY DEFINER` function is not such a drop: it stays mandatory, in the same file (CLAUDE.md's
+Pre-PR sweep). It is never disguised inside a `DO` block and never silently left out. After an apply,
+verify that no old overload survives (`pg_proc` by name), not only the objects the file creates.
+
+## #268
+
+**A migration that changes a lock order re-runs EVERY race harness, not only its own (PD1 × PD5b,
+#340, 2026-10-11).** PD1 (#335) made `mms_fire_cart` and `mms_nudge_host` lock the cart first (cart →
+line). PD5b's grace-race scenario in `verify-counter-fire-race.mjs` then hung, which would have timed
+CI's sql lane out. Codex caught it on #340's merge with `main`. The scenario was rewritten for the new
+lock order, and every race harness ran against the throwaway Postgres 16 (LEARNINGS #95 · #243) before
+the push. When a migration moves a lock order, run all of the harnesses
+(`pnpm verify:*-race[:mutants]`, `pnpm verify:mode-authority`), not only the one beside the change.
+
+## #269
+
+**Mark a PR ready only once its head's `CI` run has started (the path-design wave, 2026-10-08 to
+10-11).** The race between a push and a mark-ready right after it was observed this wave; its
+mechanism is not recorded here. The rule: after pushing a PR's final head, read
+`GET /repos/min-hinthar/mms-platform/actions/runs?head_sha=<sha>`, and mark the PR ready only once it
+lists a run named `CI` (`ci.yml`) for that SHA. "Require docs/progress update", "Require Codex
+review" and "Ensure Vercel preview" start on the same push, so a listed run of any of them does not
+satisfy the rule.

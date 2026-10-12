@@ -15,7 +15,7 @@ afterAll(() => {
   if (PREV_TZ === undefined) delete process.env.TZ;
   else process.env.TZ = PREV_TZ;
 });
-const { sameServiceDay, serviceDayKey, staffClock, staffDate, staffDateTime } =
+const { sameServiceDay, serviceDayKey, staffClock, staffClockSeconds, staffDate, staffDateTime } =
   await import("./staff-clock");
 
 /** ICU may set a narrow no-break space before the meridiem; the digits are what is asserted. */
@@ -43,5 +43,11 @@ describe("staff-clock — every staff time is the restaurant's", () => {
 
   it("carries Latin numerals only", () => {
     expect(staffDateTime(EVENING)).toMatch(/^[A-Za-z]{3} \d{1,2}, \d{1,2}:\d{2}\s?[AP]M$/);
+  });
+
+  it("PD5 — the to-the-second stamp is the Los Angeles clock with no day part (`staff-clock/seconds-stamp-in-the-process-zone`)", () => {
+    // 02:42:05 UTC on the 16th is 7:42:05 PM PDT on the 15th; the stamp is an identifier, no AM/PM.
+    expect(staffClockSeconds("2026-09-16T02:42:05.000Z")).toBe("7:42:05");
+    expect(staffClockSeconds("2026-09-16T02:42:05.000Z")).toMatch(/^\d{1,2}:\d{2}:\d{2}$/);
   });
 });

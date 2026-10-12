@@ -10,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import Link from "next/link";
-import { Icon, type IconName } from "@mms/ui";
+import { Icon, KitchenTrack } from "@mms/ui";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import {
   createFlipGuard,
@@ -20,7 +20,7 @@ import {
   tableStrip,
   type FlipGuard,
 } from "@/lib/floor-rows";
-import { floorTone, type FloorTone } from "@/lib/floor-tone";
+import { FLOOR_TONE_GLYPH, floorTone } from "@/lib/floor-tone";
 import { al } from "@/lib/staff-labels";
 import { tf } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -65,14 +65,8 @@ import { ReloadButton } from "./ReloadOffer";
  * browser reload): the strip offers the reload at its head, under that region, until the late
  * answer lands.
  */
-const GLYPH: Record<FloorTone, IconName> = {
-  ask: "receipt",
-  inflight: "card",
-  live: "cart",
-  rest: "people",
-  done: "check",
-  returned: "undo",
-};
+/** The tone's glyph — ONE map (`lib/floor-tone.ts`), shared with the guide's strip picture (PD12). */
+const GLYPH = FLOOR_TONE_GLYPH;
 
 export function TableStrip({
   registry,
@@ -247,8 +241,14 @@ export function TableStrip({
           ))}
           {key.owed ? (
             <span className="floor-key-item">
-              <span className="floor-owed-dot" />
-              <Chrome lang={lang} k="floor.key.notSent" />
+              {/* PD1 · P2do — the hollow ring, the one shape for "not sent yet" on every surface. */}
+              <KitchenTrack
+                stage="unsent"
+                size="glyph"
+                surface="theme"
+                className="staff-unsent-ring"
+              />
+              <Chrome lang={lang} k="pad.group.unsent" />
             </span>
           ) : null}
         </p>
@@ -333,7 +333,16 @@ function OccupiedTile({
     >
       <span className="floor-tile-n">{visible}</span>
       <Icon name={GLYPH[tone]} size={18} strokeWidth={2.25} className="floor-tile-glyph" />
-      {owedSendUnits(table) > 0 ? <span className="floor-owed-dot" aria-hidden /> : null}
+      {/* PD1 · P2do — the hollow ring in --warn (a MARK: no fill, no motion) where the solid owed-Send
+          dot was; decorative — the tile's name already says "· 2 not sent". */}
+      {owedSendUnits(table) > 0 ? (
+        <KitchenTrack
+          stage="unsent"
+          size="glyph"
+          surface="theme"
+          className="staff-unsent-ring floor-owed-ring"
+        />
+      ) : null}
     </Link>
   );
 }

@@ -208,7 +208,9 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
     act(async () => {
       await vi.advanceTimersByTimeAsync(ms);
     });
-  const AYE: Approver[] = [{ staffId: "m1", displayName: "Aye", role: "manager" }];
+  const AYE: Approver[] = [
+    { staffId: "m1", displayName: "Aye", role: "manager", active: true, hasPin: true, self: false },
+  ];
   /** A roster read that answers only when told to — the hung raw at the head of the queue. */
   function hungLoad() {
     const answers: Array<(a: Approver[]) => void> = [];
@@ -449,7 +451,9 @@ describe("rosterHeldMsg — the failure sentence never stands over a list in han
  * the picker either way — and focus the person has put anywhere else is never taken.
  */
 describe("ManagerPinFields — a Try again that vanishes with focus hands it to the picker (V2)", () => {
-  const AYE: Approver[] = [{ staffId: "m1", displayName: "Aye", role: "manager" }];
+  const AYE: Approver[] = [
+    { staffId: "m1", displayName: "Aye", role: "manager", active: true, hasPin: true, self: false },
+  ];
   const base = {
     idPrefix: "v2",
     approverStaffId: "",

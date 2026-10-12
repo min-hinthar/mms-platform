@@ -4,6 +4,7 @@ import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import {
+  ackTableClearStopInput,
   bumpLineInput,
   bumpTicketInput,
   fireTicketNowInput,
@@ -19,10 +20,13 @@ import type {
   KitchenErrCode,
   KitchenLine,
   KitchenPoll,
+  KitchenRound,
   KitchenStation,
   KitchenQueue,
   KitchenTicket,
 } from "./kitchen-types";
+import { cardStamp, heldKey, ticketKey } from "./kitchen-rounds";
+import { readRounds, roundFor } from "./kitchen-round-read";
 import { catalogNameMy, pairModifiersMy, UUID_RE } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { dayStartIso, resolveServiceTz } from "./day-window";
@@ -30,6 +34,9 @@ import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
+import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
+import { stationForCategory } from "./kitchen-station";
+import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -78,22 +85,28 @@ const OWING_LINE_CAP = 500;
  * hygiene fix and is filed as M198.
  */
 
-/** W3d station tags: menu category slug → coarse station chip. A missing/unknown category cooks on the
- *  wok (the default line). Client-side filter only — a second physical screen is config, not schema. */
-const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
-  drinks: "drinks",
-  "appetizers-salads": "cold",
-};
+// W3d station tags live in `lib/kitchen-station.ts` (`stationForCategory`), the ONE rule the tickets
+// and the stop cards share (M270 (1)).
 
 /**
- * The live fire queue, grouped into per-CART tickets (the ticket bump needs one unambiguous parent).
- * Bounded reads assembled in TS — a fixed round-trip count regardless of volume (four always, a fifth
- * only when the board holds an open counter cart; never more):
+ * The live fire queue, grouped into per-SEND cards (PD5: one Send, one card — keyed by `cart_id` +
+ * `fire_batch` through `ticketKey`; the bump still names the cart, the RPC's one unambiguous parent,
+ * plus the line ids the card displays). Bounded reads assembled in TS — a fixed round-trip count
+ * regardless of volume (four always, a fifth only when the board holds an open counter cart, and two
+ * ADVISORY ones only when it holds a dine-in table; never more):
  *   1) config + stats + DB clock (parallel)   2) fired/in_progress lines
  *   3) their open/paid carts                  4) sessions + orders + menu stations (parallel)
  *   5) Codex r4 on #308 — ONLY when step 3 found an OPEN counter (`reg-`) cart: every line of those
  *      carts, once (capped at OWING_LINE_CAP; a failed or saturated read is `outage`), so each such
  *      ticket's Unpaid is the cart's `counterOwes` — not a flag derived from the lines still cooking.
+ *   6) PD5 — ONLY when step 4 found a dine-in session: its non-cancelled carts, then their batched
+ *      lines (any state, voided included), so each card's round is the session's ordinal
+ *      (`roundOrdinals`). A failed or saturated read makes every round `unknown`, never `outage`.
+ *   7) M270 (1) — beside the served rail, SOFT like it: the open stop records and, when any, their
+ *      tables + struck dishes (+ names) — `lib/kitchen-stop-read.ts`, bounded by its own budget. A
+ *      failed or late read answers `stops: null`, never `outage`: the board keeps its last cards,
+ *      and stop reads that keep failing are said by the board's OWN stop line — never its
+ *      not-updating state, because the tickets this read answers are still live (#347).
  *
  * Channel rules (W3a): dine-in tickets require an ACTIVE session (a cleared table drops off) and hide
  * lines still inside the 10s undo grace (fire_at > now — the diner may still pull the send back).
@@ -160,10 +173,18 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // (`settleServedRail` — past that it reads `null` and the queue is answered on time). Its own
   // failures answer `null` and never touch the live queue.
   const servedPromise = readServedToday(db, dayStartIso(nowIso, serviceTz), serviceTz);
-  const withServed = async (queue: Omit<KitchenQueue, "served">): Promise<KitchenPoll> => ({
-    ok: true,
-    queue: { ...queue, served: await settleServedRail(servedPromise) },
-  });
+  // M270 (1) — the stop cards ("Table N left — stop cooking"), read from the durable stop record and
+  // started here beside the rail: they must NOT wait for the line read, because a cleared table's
+  // tickets are exactly what that read no longer returns (an empty board may still owe a stop card).
+  // Soft, like the rail: bounded by `settleKitchenStops` and never rejecting, so an `outage` below
+  // abandons nothing unhandled; `null` (failed, or past its budget) keeps the board's last cards.
+  const stopsPromise = settleKitchenStops(readKitchenStops(db));
+  const withServed = async (
+    queue: Omit<KitchenQueue, "served" | "stops">,
+  ): Promise<KitchenPoll> => {
+    const [served, stops] = await Promise.all([settleServedRail(servedPromise), stopsPromise]);
+    return { ok: true, queue: { ...queue, served, stops } };
+  };
   const empty = { tickets: [] as KitchenTicket[], serverNow: nowIso, thresholds, stats };
 
   // Live kitchen lines — HELD (future fire_at) included; the grace/held split happens per channel below.
@@ -174,8 +195,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const floorIso = queueFloorIso(nowIso);
   const { data: lines, error: linesError } = await db
     .from("qr_cart_items")
+    // PD5 — `fire_batch` keys the card and `created_at` stamps the no-fire-time bucket (m5 §F);
+    // both are read RAW here and never re-derived from the shaped line.
     .select(
-      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,cart_id,fulfillment,notes,menu_item_id,comped",
+      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,fire_batch,created_at,cart_id,fulfillment,notes,menu_item_id,comped",
     )
     .in("state", ["fired", "in_progress"])
     // Phase 2f review M2 — a fired line with NO fire_at (`mms_line_transition`'s draft→fired edge
@@ -262,10 +285,27 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const nameMyByItem = new Map<string, string | null>();
   for (const m of menuRes.data ?? []) {
     const slug = m.menu_categories?.slug;
-    stationByItem.set(m.id, (slug && STATION_BY_CATEGORY[slug]) || "wok");
+    stationByItem.set(m.id, stationForCategory(slug));
     if (m.is_sold_out) soldOutItems.add(m.id);
     nameMyByItem.set(m.id, m.name_my);
   }
+
+  // ── PD5 — the session's round numbers (m5 decision 9), one ADVISORY read ──────────────────────
+  // The ordinal is the rank, by first fire time, of a card's `fire_batch` among its session's Sends
+  // that have cleared the grace and carry a dine-in line, on the session's non-cancelled carts (a
+  // table that paid and kept ordering still says round 3). Voided lines keep their batch and still
+  // count, so a number Mom has read never shifts down; an undone Send has no batch and never counts.
+  // Bounded to the DINE-IN sessions on the board (the only numbered ones, round 3 D4; m9 data 3): a
+  // board with none runs no round read at all. A failure or saturation makes every dine-in card's
+  // round `unknown` (the stub's fallback rules), never `outage` — a round is a label, and freezing
+  // a working kitchen over a label would be the over-blocking direction. Started HERE and awaited
+  // after the owing read, so the two run concurrently; `readRounds` never rejects (any failure,
+  // a thrown one included, answers `null`), so an `outage` return below abandons nothing unhandled.
+  const roundsRead = readRounds(
+    db,
+    [...sessById.values()].filter((s) => s.mode === "dinein").map((s) => s.id),
+    nowIso,
+  );
 
   // ── Codex round 4 on #308 (P2) — an open counter order's Unpaid is the CART's ──
   // Does taking payment still collect anything (`counterOwes`, the settle section's own rule over ALL
@@ -303,8 +343,13 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     for (const [cartId, ls] of linesByCart) if (counterOwes(ls)) owingCarts.add(cartId);
   }
 
-  // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
-  const ticketByCart = new Map<string, KitchenTicket>();
+  const rounds = await roundsRead;
+
+  // Assemble cards, preserving the oldest-first line order (lines is already sorted by fire_at).
+  // Keyed by `ticketKey` from the RAW row — never the shaped `firedAt`, which is the poll clock for
+  // a line with no fire time and would remount, flash and chime its card on every poll (correction 3).
+  const ticketByKey = new Map<string, KitchenTicket>();
+  const rawByKey = new Map<string, { fire_at: string | null; created_at: string }[]>();
   for (const l of lines) {
     const cart = cartById.get(l.cart_id);
     if (!cart) continue; // cart cancelled/cleared — not a live kitchen line
@@ -344,7 +389,14 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       soldOut: soldOutItems.has(l.menu_item_id),
       station: stationByItem.get(l.menu_item_id) ?? "wok",
     };
-    const existing = ticketByCart.get(l.cart_id);
+    // A HELD line keys by its cart (`heldKey`): "Cook now" is `mms_fire_ticket_now(p_cart)`, which
+    // fires every future-fired line of the cart, so the held card IS the cart (Codex on #328).
+    const key = gate.held ? heldKey(l.cart_id) : ticketKey(l);
+    rawByKey.set(key, [
+      ...(rawByKey.get(key) ?? []),
+      { fire_at: l.fire_at, created_at: l.created_at },
+    ]);
+    const existing = ticketByKey.get(key);
     if (existing) {
       existing.lines.push(line);
       // A ticket is HELD only while EVERY line is future-fired (mms_fire_pending_food stamps one
@@ -354,9 +406,16 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // the first line's answer — a comp's included — is the ticket's.
     } else {
       const orderId = orderByCart.get(l.cart_id);
-      ticketByCart.set(l.cart_id, {
+      // The card's round (round 3 D4): only a dine-in table's batched Send can be numbered.
+      const round: KitchenRound =
+        channel !== "dinein" ? { kind: "none" } : roundFor(rounds, cart.session_id, l.fire_batch);
+      ticketByKey.set(key, {
+        key,
         cartId: l.cart_id,
         sessionId: cart.session_id,
+        fireBatch: l.fire_batch,
+        round,
+        stampIso: "", // filled below, once every raw row of the card is known
         channel,
         label: sess.qr_code,
         tableNumber: channel === "dinein" ? (sess.table_number ?? null) : null,
@@ -371,8 +430,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     }
   }
 
+  // The fallback label's stamp, from the card's RAW rows (m5 §F): its earliest fire time, or the
+  // bucket's earliest `created_at` — never the shaped `firedAt`.
+  for (const [key, t] of ticketByKey) t.stampIso = cardStamp(rawByKey.get(key) ?? []);
+
   // Live tickets oldest-first (work head-down); HELD tickets after, soonest-due first.
-  const all = [...ticketByCart.values()];
+  const all = [...ticketByKey.values()];
   const byFire = (a: KitchenTicket, b: KitchenTicket) =>
     new Date(a.firedAt).getTime() - new Date(b.firedAt).getTime();
   const tickets = [
@@ -383,9 +446,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };
+type KitchenRefusal = Extract<KitchenActionResult, { ok: false }>;
 
 /** The gate's refusal, coded: the sign-in ask is a redirect on the board, everything else a sentence. */
-function gateRefusal(error: string): KitchenActionResult {
+function gateRefusal(error: string): KitchenRefusal {
   return { ok: false, error, code: error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence" };
 }
 
@@ -506,6 +570,45 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
   return { ok: true };
+}
+
+/** M270 (1) — "Got it" answered: the RPC's own word, read (`stopAckStatusOf`), never cast. */
+export type KitchenStopAckResult = { ok: true; status: KitchenStopAck } | KitchenRefusal;
+
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — "Got it" on a "Table N left — stop cooking" card: the kitchen
+ * has seen that the table left. `mms_ack_table_clear_stop(p_clear, p_by)` writes the acknowledgement
+ * ONCE in one guarded UPDATE, and `p_by` is the gate's CALLER — never a value the request carries (a
+ * Server Action is a public POST). Its four answers come back as they are, read through
+ * `stopAckStatusOf`: `ok`, `already` (another tablet or tap was first — the kitchen has it, not a
+ * failure), `nothing_to_stop` (not a failure either) and `not_found` (the board re-reads). A word
+ * outside the four is a failure, never a guessed hide.
+ */
+export async function ackTableClearStop(raw: unknown): Promise<KitchenStopAckResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return gateRefusal(gate.error);
+  const caller = gate.caller;
+  const parsed = ackTableClearStopInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
+  const { clearId } = parsed.data;
+
+  const { data, error } = await serviceClient().rpc("mms_ack_table_clear_stop", {
+    p_clear: clearId,
+    p_by: caller.staffId,
+  });
+  if (error) {
+    console.error("[kitchen] mms_ack_table_clear_stop failed", { clearId, message: error.message });
+    return { ok: false, error: "Couldn’t update that ticket. Try again.", code: "failed" };
+  }
+  const status = stopAckStatusOf(data);
+  if (status === null) {
+    console.error("[kitchen] mms_ack_table_clear_stop answered an unknown status", { clearId });
+    return { ok: false, error: "Couldn’t update that ticket. Try again.", code: "failed" };
+  }
+
+  captureKitchenEvent(caller.staffId, "kds_ack_stop", { role: caller.role, status });
+  revalidatePath("/staff/kitchen");
+  return { ok: true, status };
 }
 
 /** Best-effort, non-PII analytics drain (never fails a bump on a capture error). */

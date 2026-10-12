@@ -1,5 +1,9 @@
 # The cart→intent link — the design M151 · M152 · M123 (a′) are all waiting on
 
+> **BUILT (2026-10-08 note).** M151 and M152 shipped on 2026-09-05 (pilot P0; M151 merged `dfcda72`,
+> its prod row applied and verified — OPEN-ITEMS § Closed). This file is kept as the design record
+> M123 (a′)/(b) still cites; the status line below is as written on 2026-09-01.
+
 **Status: DESIGN ONLY. No code, no migration file, nothing applied.** Written 2026-09-01 alongside
 #245, which shipped the half of that follow-up needing no schema change (M153 and M123 b). This
 document exists so the next slice is a build rather than a re-derivation — every fact below was

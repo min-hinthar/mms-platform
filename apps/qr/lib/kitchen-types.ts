@@ -55,11 +55,38 @@ export type KitchenLine = {
  *  Urgency (the color dimension) ages dine-in from the send and pickup/scango from fire time. */
 export type KitchenChannel = "dinein" | "pickup" | "scango";
 
-/** One cart's worth of live kitchen lines — a ticket. Grouped by CART (not session) so the ticket-level
- *  bump has one unambiguous parent; ordered oldest-fire-first so the kitchen works the queue head-down. */
+/**
+ * PD5 — the card's round as the board carries it: a numbered dine-in Send; `unknown` when the
+ * advisory ordinal read did not answer, or did not see the card's batch under its session (a merge
+ * moved it between the two reads) — the fallback rules apply, m5 decision 10; `none` for a card
+ * that is never numbered (a pickup or scan-and-go ticket, a to-go-only or settlement batch — round 3
+ * D4). The rules live in `lib/kitchen-rounds.ts`.
+ */
+export type KitchenRound = { kind: "n"; n: number } | { kind: "unknown" } | { kind: "none" };
+
+/**
+ * One SEND's worth of live kitchen lines — a card (PD5: one Send, one card). Keyed by its
+ * `fire_batch` alone (`ticketKey`, lib/kitchen-rounds.ts — a merge that re-parents the line keeps
+ * the card), a HELD card by its cart (`heldKey`), so a table's second round lands as its own card
+ * with its own clock, chime and All done; the bump and recall RPCs still take the cart plus the
+ * line ids the card displays, so the cart stays the RPC's parent. Ordered oldest-fire-first so the
+ * kitchen works the queue head-down.
+ */
 export type KitchenTicket = {
+  /** The card key — `b|<fire_batch>`; with no batch, the cart plus the raw `fire_at`, or the
+   *  cart's one no-fire-time bucket (PATH_DESIGN correction 3); a held card, its cart (`heldKey`).
+   *  The React key, the arrival diff, the chime, the undo pill and the Bring-back rail all key on
+   *  THIS, never on the cart. */
+  key: string;
   cartId: string;
   sessionId: string;
+  /** The Send's batch (`qr_cart_items.fire_batch`), or null for a batchless legacy card. */
+  fireBatch: string | null;
+  /** The session's round this card is (dine-in Sends only; m5 decision 9, round 3 D4). */
+  round: KitchenRound;
+  /** The card's earliest RAW stamp — `fire_at`, or `created_at` for the no-fire-time bucket — for
+   *  the fallback label "Table 4 · 7:42:05" (m5 §F). Never the poll clock. */
+  stampIso: string;
   channel: KitchenChannel;
   /** The table sticker id / label the expo calls out (dine-in fallback identity). */
   label: string;
@@ -82,6 +109,48 @@ export type KitchenTicket = {
   lines: KitchenLine[];
   /** Earliest fire on the ticket (its age for the urgency strip; the due time while held). */
   firedAt: string;
+};
+
+/**
+ * M270 (1) — a dish the stop card strikes: the line's own text as the board drew it (the same shape
+ * `TicketLineText` renders — Burmese first through the one loader), and nothing a cook could act on.
+ */
+export type KitchenStopLine = {
+  id: string;
+  name: string;
+  nameMy: string | null;
+  qty: number;
+  modifiers: string[];
+  modifiersMy: (string | null)[];
+  /** The station the dish cooks on — the tickets' own derivation (`stationForCategory`) — or null
+   *  when it truly cannot be derived (the menu read failed, or the dish is not on the menu): then the
+   *  card shows on EVERY station's view rather than on none. */
+  station: KitchenStation | null;
+};
+
+/**
+ * M270 (1) · PATH_DESIGN correction 12 — "Table N left — stop cooking": ONE Send of a table that was
+ * cleared while the kitchen still had its food (m5 B1: "each per-Send card becomes a stop card"). Read
+ * from the durable stop record `mms_clear_table` writes (`qr_table_clears.stop_line_ids`, the kitchen
+ * lines that clear voided), because the cleared cart's own lines leave the live read at once. It
+ * stays until "Got it" (`mms_ack_table_clear_stop`, which acknowledges the whole CLEAR — every card
+ * of that clear goes with one tap), with no timer (m7 decision 20).
+ */
+export type KitchenStop = {
+  /** `stop|<clearId>|<ticketKey>` — the Send's own card key (`ticketKey`) behind its clear, so it can
+   *  never collide with a live ticket's key, and two Sends of one clear are two cards. */
+  key: string;
+  /** The `qr_table_clears` row "Got it" acknowledges. */
+  clearId: string;
+  /** The registered table number off the tent, or null for an unregistered sticker. */
+  tableNumber: number | null;
+  /** The sticker id — the identity when there is no table number (the ticket's own fallback). */
+  label: string;
+  /** The Send's earliest RAW stamp (`cardStamp`): where its ticket stood in the oldest-first board,
+   *  so the stop card keeps that slot (m7 decision 20: "keeps its slot until Got it"). */
+  firedAt: string;
+  /** The dishes that Send still had in the kitchen, each drawn struck. */
+  lines: KitchenStopLine[];
 };
 
 /** Aging thresholds (minutes) per channel + the re-chime window — read from mms_kds_config so the
@@ -147,6 +216,11 @@ export type KitchenQueue = {
   /** K31 — today's served lines, newest first; `null` when that ADVISORY read failed (the rail says
    *  so; the live queue above is unaffected either way). */
   served: ServedRail | null;
+  /** M270 (1) — the stop cards still to acknowledge, oldest Send first; `null` when that read did not
+   *  answer (failed, or past its budget). It fails SOFT: the queue above is answered regardless, and
+   *  the board keeps the stop cards it last drew rather than read "none" — a card that vanished
+   *  without a "Got it" would say the kitchen had acknowledged a table it never saw leave. */
+  stops: KitchenStop[] | null;
 };
 
 /**

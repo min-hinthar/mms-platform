@@ -1,5 +1,6 @@
 import { serviceClient } from "@mms/db/server";
 import { kitchenDraftUnitsFromRows } from "./checkout-stage";
+import type { TrackLine } from "./kitchen-track";
 
 /**
  * Phase 1b — the read behind the charge-boundary "everything sent" gate (`payBlockedByUnsent`).
@@ -31,4 +32,41 @@ export async function readKitchenDraftUnits(cartId: string): Promise<number | nu
     return null;
   }
   return kitchenDraftUnitsFromRows(data);
+}
+
+/**
+ * PD10 · D5 — the ONE read behind the SERVED GATE at the charge boundary (`create-intent`'s
+ * `servedGateDecision`). Plumbing only: the rule lives in the pure `./checkout-stage`, where its
+ * test and mutants reach it. `null` when either half could not be read — and the decision turns that
+ * into `unreadable`, a refusal: this gate FAILS CLOSED (a payment slipping past it charges a card for
+ * food that is not cooked), unlike the unsent read above.
+ *
+ * ⚠️ THE CLOCK FIRST, AWAITED, IN ITS OWN STATEMENT — then the lines (D5, Codex round 4). A line
+ * counts as served only once its `bumped_at` is `KDS_UNDO_MS` old on the DB clock, and that is true
+ * of the lines only if the clock was read NO LATER than they were: read after them, `now` can pass a
+ * bump's six seconds while the rows predate an Undo Mom sent inside them, and the gate admits a dish
+ * she took back. Reading the clock first only ever makes the gate STRICTER (an earlier `now`), never
+ * looser. A `Promise.all` of the two is first in the source and concurrent — it is NOT this order.
+ *
+ * The rows are every line of the cart (`state`, `fulfillment`, `fire_at`, `bumped_at` — the track's
+ * raw columns): comped dishes still cook, so nothing is filtered here; the hold set is the rule's.
+ */
+export async function readServedGateInput(
+  cartId: string,
+): Promise<{ lines: TrackLine[]; nowIso: string } | null> {
+  const db = serviceClient();
+  const clock = await db.rpc("mms_now");
+  if (clock.error || typeof clock.data !== "string" || !Number.isFinite(Date.parse(clock.data))) {
+    console.error("[served-gate] clock read failed", clock.error?.message);
+    return null;
+  }
+  const rows = await db
+    .from("qr_cart_items")
+    .select("state,fulfillment,fire_at,bumped_at")
+    .eq("cart_id", cartId);
+  if (rows.error || !rows.data) {
+    console.error("[served-gate] cart read failed", rows.error?.message);
+    return null;
+  }
+  return { lines: rows.data, nowIso: clock.data };
 }

@@ -1,4 +1,7 @@
 export { Sheet } from "./sheet";
+// PD4 (D1(d)) — the Sheet's opt-in first stop, decided in a pure helper the ui suite pins
+export { sheetInitialFocusTarget } from "./sheet-focus";
+export type { SheetInitialFocus } from "./sheet-focus";
 // M76 — hold a sheet's subject through its exit (a parent that unmounts on close cuts the animation)
 export { useSheetSubject, holdSubject } from "./sheet-subject";
 export type { SheetSubjectState } from "./sheet-subject";
@@ -36,3 +39,28 @@ export { PageMasthead, Kicker } from "./masthead";
 // Brand icon set (W2b) — curated lucide glyphs at one stroke weight; retires emoji-as-chrome
 export { Icon, categoryIconName } from "./icon";
 export type { IconName } from "./icon";
+// PATH_DESIGN 2026-10-07 round 3 — the ONE PASS and the ONE KITCHEN TRACK, styled by
+// `@mms/ui/pass.css` (`.ui-pass*`, `.ui-track*`). Rendered everywhere, redrawn nowhere.
+export { CounterPass } from "./counter-pass";
+export type {
+  CounterPassProps,
+  PassIdentity,
+  PassTier,
+  PassOrientation,
+  PassFigureKind,
+  PassLang,
+  PassLabel,
+  PassTerminal,
+  PassTierTerminal,
+  PassSeam,
+  PassTurn,
+} from "./counter-pass";
+export { KitchenTrack, KITCHEN_STAGES, TRACK_SEGMENTS, kitchenTrackLit } from "./kitchen-track";
+export type {
+  KitchenStage,
+  KitchenTrackName,
+  KitchenTrackProps,
+  KitchenTrackSize,
+  KitchenTrackSurface,
+  KitchenTrackWord,
+} from "./kitchen-track";

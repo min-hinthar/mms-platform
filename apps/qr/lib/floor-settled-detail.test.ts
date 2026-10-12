@@ -208,7 +208,17 @@ function tableApi(name: string) {
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (name: string) => tableApi(name),
-    rpc: () => Promise.resolve({ data: null, error: null }),
+    rpc: (fn: string) => {
+      // PD7 · M182 — a table's clear is ONE RPC (its own suite: lib/floor-clear-table.test.ts).
+      if (fn === "mms_clear_table") {
+        updates.push("mms_clear_table");
+        return Promise.resolve({
+          data: { status: "ok", dishes: 0, loss_cents: 0, clear_id: "c-1" },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
   }),
 }));
 
@@ -633,15 +643,16 @@ describe("clearTable — a FAILED share read refuses (fail closed), never clears
     cartRow = { id: "cart-1", session_id: SESSION, status: "open", locked: false };
     payReason = "split_unreadable";
     updates.length = 0;
-    const r = await clearTable({ sessionId: SESSION });
+    const look = { lineIds: [], lossCents: 0, seenAt: "2026-10-09T18:00:00.000Z" };
+    const r = await clearTable({ sessionId: SESSION, expect: look });
     // MUTATION: refuse only on `split_in_progress` — the unreadable read falls through and the
     // table is cleared over cards that may be captured; red.
     expect(r.ok).toBe(false);
     expect(updates).toEqual([]);
     // The harness can clear (the refusal above is the guard's, not a missing write path).
     payReason = null;
-    expect((await clearTable({ sessionId: SESSION })).ok).toBe(true);
-    expect(updates).toEqual(["qr_carts", "table_sessions"]);
+    expect((await clearTable({ sessionId: SESSION, expect: look })).ok).toBe(true);
+    expect(updates).toEqual(["mms_clear_table"]);
   });
 });
 

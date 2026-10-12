@@ -24,6 +24,30 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
 - **Header identity:** dine-in = table number (32px+); pickup/scango = **first name + short order
   code** (privacy + duplicate-name safe). Channel = a small fixed badge (dine-in / to-go / grocery) —
   the SYMBOLIC dimension. Group-cart seats shown as a suffix when present.
+- **One Send, one card (PD5, 2026-10-08 — `docs/path-design-2026-10-07/m5-kitchen-round-two.md`).**
+  A ticket is one SEND, not one cart: keyed by its `fire_batch` (`ticketKey`,
+  `lib/kitchen-rounds.ts` — a merge that re-parents the line keeps the card; a HELD card keys by its
+  cart, since Cook now fires the cart; a batchless line keys by its cart and raw `fire_at`, a line
+  with neither to one bucket per cart — always from the RAW row, never the shaped `firedAt`, which
+  is the poll clock for a line with no fire time). Two cards of one session — a table's rounds, or a
+  counter order that sent twice — are told apart in their names, pills and chips: by the round when
+  it is decided, else by the stamp to the second (“Min · 7:42:05”) plus a discriminator while two
+  still tie. Each card has its own clock, arrival flash, chime and All done, scoped to
+  its own lines; the bump and recall RPCs still take the cart plus the ids the card displays. A
+  table's second (and later) Send wears the **round stub** "အလှည့် 2 / Round 2" (`kds.round`, a Latin
+  digit) in a second strip row: an outline with a dotted perforation and 12px coupon notches, at the
+  clock's tier, MARK tier — never filled, never louder than Late, no motion of its own. Round 1 is
+  drawn exactly as before. The round is counted per SESSION and only over Sends that carry a dine-in
+  line (`roundOrdinals`: rank by first `fire_at` among the session's non-cancelled carts' batches past
+  the grace; voided lines still count, an undone Send never); a make-it-now to-go or settlement batch
+  is its own card with its channel tag and no number. The stub is decided ONCE when the card first
+  lands (its words may sharpen from "next round" to the number, never blur); an unknown number is
+  never drawn as a number — "နောက်တစ်လှည့် / Next round" only while an older card of the same session
+  is live, else nothing.
+- **Reserved shape (PD5 / m7): "Table N left — stop cooking"** (`KdsStopCard`, `kds.stop`): ALARM
+  tier WITHOUT motion — the Late tint with no pulse, struck dish rows, the one warn word, "Got it"
+  (`help.done`) in the bump's slot until tapped; never dashed, never cream, never a stub. It mounts
+  with the table-clear migration's durable stop record (PD7); until then nothing renders it.
 - **Urgency = the header-strip color, nothing else** (Otter's rule: one color dimension per screen —
   never recolor the body; body contrast stays stable). Two thresholds per channel (Square's
   simplicity): dine-in green <8m / amber 8–12m / red >12m; pickup/scango age **from `fire_at`**, not
@@ -63,9 +87,17 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
 ## 4 · Bump · recall · resilience (O-E · O-F)
 
 - **Bump** = the full-width zone; writes `bumped_at` (never deletes the row). During a rush, guard
-  fat fingers: 6-second **undo toast** (preferred over two-tap — zero added friction).
-- **Recall rail**: the last 5 bumped tickets restorable for 2 minutes (Fresh Recall). A mis-bump is
-  never unrecoverable from the board.
+  fat fingers: 6-second **undo toast** (preferred over two-tap — zero added friction). The six
+  seconds are `KDS_UNDO_MS` (`lib/kds-undo.ts`, PD5 round 3): the ONE settle constant the TV board's
+  table TURN and the phone's pay door read too — `lib/kitchen-track.ts` counts a line as SERVED only
+  once its `bumped_at` is that old on the DB clock. After a bump the pill names the CARD ("Table 4 ·
+  Round 1" when a sibling is live, or the card's stamp to the second — "Table 4 · 7:42:05", plus a
+  stable discriminator only while two labels would still tie — when the number is unknown) and, only
+  while the table's OTHER card is still on the board, says so on a second line ("Table 4 still has a
+  card on the board.", `kds.undo.stillOn`); the one live region says both sentences once.
+- **Recall rail**: the last 5 bumped CARDS restorable for 2 minutes (Fresh Recall), keyed by the card
+  — bringing round 1 back leaves round 2's chip and pill alone — and every chip told apart (the same
+  composed label as the pill). A mis-bump is never unrecoverable from the board.
 - `navigator.wakeLock.request("screen")` + re-acquire on `visibilitychange`. A 401 from the staff
   session is **distinguished from network failure** → hard-redirect to `/staff/lock`/login (never an
   eternal "Reconnecting…"). Night theme is the KDS default (glare + burn-in + aging colors pop).
@@ -78,13 +110,37 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
   field) — expo finally has something to call out.
 - Bagging bump → `togo_status='ready'` → the diner's /track AND the order-ready board flip together.
 
-## 6 · Order-ready board (`/board` on any smart TV)
+## 6 · The wall board (`/board` on any smart TV)
 
-- Two columns — **Preparing | Ready** (Fresh Order Tracker). Cards: first name + short code. Gold
-  flash + optional chime on the Preparing→Ready transition; auto-clear 10 min after picked-up.
-  Takeout + grocery only (dine-in status stays on the diner's phone). Bilingual EN/MY headings.
+- **AMENDED by PD9 (2026-10-09; the owner's 2026-10-07 message, PATH_DESIGN decision 11,
+  `docs/path-design-2026-10-07/m9-tv-board.md`). This reverses the boundary this section shipped
+  with** — "takeout + grocery only (dine-in status stays on the diner's phone)" and "first name +
+  short code + status ONLY" — knowingly: the room now reads what each table ordered while it cooks
+  (OPEN-ITEMS K32(b) closed, P6a retired).
+- **The kitchen half:** every dine-in table with food in the kitchen is a landscape CounterPass at
+  the TV tier — the table figure once at `--fs-pass` under "စားပွဲ · Table" — with its dishes on the
+  ONE KITCHEN TRACK (Sent · Cooking · Served), Burmese on top in both board languages, one stage word
+  per row in the lead tongue, the KDS's "To-go" tag, and m5's round stub for round 2 and up. A table
+  number and dish names ONLY (`lib/board-tables.ts`'s type is the boundary): same-name dishes in a
+  Send are one row (by name and fulfillment), so no count is published; no guest name, price, clock,
+  age, ETA, approval or Undo word; a dish not yet sent, or inside its Send's grace, never appears.
+  Tables sorted by number, the first ⌈n/2⌉ down the left column and the rest down the right, never
+  re-sorted on status. A table appears when its first dish clears the grace and leaves 5 minutes
+  after its last dish is served (`PULSE_PASS_LINGER_MS`), or at once when cleared.
+- **Never a nag:** Sent and Cooking are marks, Served is calm (green), and the pickup Ready pass is
+  the wall's only call. One TURN per table visit, when its last dish is served — after Mom's 6-second
+  Undo (`KDS_UNDO_MS`, on the server's clock), never on a first read or after a frozen spell; a
+  segment FILLs when a dish advances; one thing moves at a time. No table chimes.
+- **The pickup column:** Ready codes are issued as passes (the code alone, in the phone pass's code
+  face at the board's 54px row) with the gold arrival on the pass's edge and the shipped chime;
+  Preparing codes are plain rows. **No first name** (the code is the one identity; Dad still calls the
+  name aloud — the shipped checkout promise), **no wait**, and a collected bag leaves the wall at once.
+- **Frozen:** past two missed polls the wall says it is reconnecting; codes and dish names stay,
+  drawn dashed; every stage, roll-up and arrival goes; past the linger the tables go too and the
+  kitchen half keeps only "Can't read the kitchen right now."
+- **Old TV builds need ONE reload after the deploy** (`/board` is outside the 2i update reload).
 - **Auth (decided at W0):** the TV **cannot** join the private RLS-gated realtime channels — it runs
-  a **sanitized poll endpoint** (first name + short code + status ONLY) behind a device token in the
+  a **sanitized poll endpoint** (the payload above and nothing else) behind a device token in the
   board URL, 5s interval (the house poll-backstop pattern). No `realtime.messages` change.
 
 ## 7 · Metrics (free, from the bump)

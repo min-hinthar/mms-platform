@@ -1,8 +1,17 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useTransition,
+  type RefObject,
+} from "react";
 import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { Button, Icon, Toast, categoryIconName, useSheetSubject } from "@mms/ui";
+import { Button, Icon, Toast, buttonClass, categoryIconName, useSheetSubject } from "@mms/ui";
+import Link from "next/link";
 import { tableDisplay, type TableDetail, type TableLineView } from "@/lib/floor-types";
 import { staffSetQty } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
@@ -84,7 +93,23 @@ import { usePadNotices } from "./usePadNotices";
 import { useReloadHold } from "./useReloadHold";
 import { draftHeld } from "@/lib/reload-guard";
 // ── Phase 2d · split ──
-import { PANE_QUERY, paneUrl, tableDestination } from "@/lib/floor-pane";
+import {
+  PANE_QUERY,
+  markSealLanding,
+  paneUrl,
+  stashHandoff,
+  tableDestination,
+} from "@/lib/floor-pane";
+// ── PD6 · K39 — the walk-up sale stays on the pad ──
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { settleUnknownAfterRead } from "@/lib/register-math";
+import type { Handoff } from "@/lib/register-ui";
+import type { StaffLang } from "@/lib/staff-lang";
+import { SEAL_OFFERS_WALKUP, tillSlipFrom } from "@/lib/till";
+import { CashSettleButton, type CashSettled, type TillDoor } from "./CashSettleButton";
+import { HandoffCard } from "./HandoffCard";
+import { CounterMintProvider, useCounterMint, type MintNotice } from "./CounterMint";
+import { SealWalkUp } from "./SealWalkUp";
 
 /** Phase 2d · split — is the counter's pane where a way back to this table lands? Read at TAP time. */
 const splitNow = () =>
@@ -130,7 +155,11 @@ export type PadCatalog = { kind: "ok"; items: PadCatalogItem[] } | { kind: "outa
  *     swap cannot kill an open undo) and `StaffSendButton` as its view, with the add chain drained
  *     before every fire;
  *   • Take payment — `padSettle` decides; a tap drains the chain, saves a typed counter name, then
- *     NAVIGATES to the table's payment section (`?settle=1`): the pad never takes money itself;
+ *     NAVIGATES to the table's payment section (`?settle=1`) — at a dine-in table. PD6 (K39, §28's
+ *     one exception): on a COUNTER order the door is "Take cash · $X" itself (`CashSettleButton`,
+ *     the one cash sheet), its tap runs the same holds and drains as the pad's GATE (`door`), the
+ *     crowned till tray opens in place, and a landed settle stands the SEAL where the pad was —
+ *     stashed for a same-tab reload (Codex correction 4), the poll paused under it;
  *   • the ONE live region — the Toast, arbitrated (`usePadNotices` over `lib/notice-slot`).
  *
  * Every amount on screen is the server's, and none is shown while an add is pending (§23).
@@ -211,11 +240,43 @@ export function OrderPad({
     refreshRef.current();
   }, []);
   const { commit: commitAdds } = writes;
+  // ── PD6 · K39 — the walk-up sale stays on the pad ──────────────────────────────────────────────
+  // The SEAL (a landed counter settle), standing where the pad shell was; while it stands the poll
+  // is PAUSED (`pausedRef`, read by the poll when a read would start and when one answers): like a
+  // printed receipt, nothing re-reads under it, and the session closing behind its settle never
+  // navigates it away. A ref beside the state because the poll reads it outside any render.
+  const pausedRef = useRef(false);
+  const [seal, setSeal] = useState<Handoff | null>(null);
+  // A counter settle whose outcome is UNKNOWN (its answer lost, or still out past the bound): when
+  // was it learned, or null. A `closed` read while it stands means the settle most likely landed
+  // (the session closes behind it) — said in place, never a bounce to the floor (§29's hold, on the
+  // pad). It ends on a read that started after the settle could last land and shows the cart open
+  // (`settleUnknownAfterRead`, the table page's own rule). #334 (the last blind pass) — the mark is
+  // the NEWEST doubt: every `onOutcomeUnknown(true)` advances it, so a read that outlived only an
+  // earlier lost answer's window never clears a later one's.
+  const unknownSince = useRef<number | null>(null);
+  // The START of the latest committed read that showed the order OPEN — the till's `openReadAt`,
+  // which resolves its own doubts by the same rule (`tillLedgerRead`), so the two never disagree.
+  const openReadAtRef = useRef<number | null>(null);
+  const [closedUnknown, setClosedUnknown] = useState(false);
+  const onClosed = useCallback(() => {
+    if (unknownSince.current === null) return false;
+    pausedRef.current = true;
+    setClosedUnknown(true);
+    return true;
+  }, []);
   const onCommit = useCallback(
-    (readStartSeq: number) => {
+    (readStartSeq: number, read: { startedAtMs: number; cartOpen: boolean }) => {
       commitAdds(readStartSeq);
       setLineUnreadSeq((s) => unreadAfterCommit(s, readStartSeq));
       setCommitSeq(readStartSeq);
+      unknownSince.current = settleUnknownAfterRead(unknownSince.current, read);
+      // Reads can commit out of order: the latest START is what an open read proves.
+      if (read.cartOpen)
+        openReadAtRef.current = Math.max(
+          openReadAtRef.current ?? read.startedAtMs,
+          read.startedAtMs,
+        );
     },
     [commitAdds],
   );
@@ -224,11 +285,46 @@ export function OrderPad({
     sessionId,
     readsRef,
     onCommit,
+    pausedRef,
+    onClosed,
   });
   const { refresh } = live;
   useEffect(() => {
     refreshRef.current = () => void refresh();
   }, [refresh]);
+  // PD6 — the till's gate waits for a read that STARTED after its last write (an add that landed,
+  // a line write, the name it just saved): the tray freezes THAT read's figures, never the last
+  // render's. Each waiter is released by the first commit whose start sequence is past its own, in
+  // the effect after that commit's render — so the door's control has re-rendered with the new
+  // detail before its open runs. Bounded: a read that never answers frees the gate at the hang
+  // bound, refused (the pad says so) — never a tray opened over a figure nobody read.
+  const commitWaiters = useRef(new Set<{ after: number; done: () => void }>());
+  useEffect(() => {
+    for (const w of [...commitWaiters.current])
+      if (commitSeq > w.after) {
+        commitWaiters.current.delete(w);
+        w.done();
+      }
+  }, [commitSeq]);
+  const waitFreshRead = useCallback(
+    (): Promise<boolean> =>
+      new Promise((resolve) => {
+        const w = {
+          after: readsRef.current,
+          done: () => {
+            clearTimeout(timer);
+            resolve(true);
+          },
+        };
+        const timer = setTimeout(() => {
+          commitWaiters.current.delete(w);
+          resolve(false);
+        }, STAFF_HANG_MS);
+        commitWaiters.current.add(w);
+        refreshRef.current();
+      }),
+    [],
+  );
   const detail = live.detail;
   const counts = pendingCounts(writes.pending);
   const open = detail.cartId != null && !detail.settled;
@@ -781,6 +877,12 @@ export function OrderPad({
     variantOverride: counterDock?.settleVariant,
   };
   const settle = padSettle(settleInput);
+  // #334 C2 — the decision's inputs as of the LAST commit, for the till gate's re-check after its
+  // awaits (the tapping render's closure cannot see a refused add, or the read the gate waited for).
+  const settleInputRef = useRef(settleInput);
+  useLayoutEffect(() => {
+    settleInputRef.current = settleInput;
+  });
   // What a refused Take payment names: the note's dish, the add it waits on (lost or still coming).
   const reasonCtx = (
     note: { lineId: string; name: string } | null,
@@ -808,8 +910,35 @@ export function OrderPad({
     toPhase("idle");
     settleInFlight.current = false;
   };
-  const onSettle = async () => {
-    if (settleInFlight.current) return;
+  /** A refused Take payment — said once, and on a note hold or the gate's `unsent` the finger goes
+   *  to the fix. The pad's door (PD6) says a held tap the same way. */
+  const refuseSettle = (
+    block: NonNullable<ReturnType<typeof padSettle>["block"]>,
+    note: { lineId: string; name: string } | null,
+  ) => {
+    // Refused: say why, once (§17 — a phone shows the hint to nobody sighted), and on a note hold
+    // take the finger to the note: it is where an allergy lives, and leaving would drop it.
+    say(padSettleReason(block, reasonCtx(note, writes.blocker())));
+    if (block === "note" && note) focusNote(note.lineId);
+    // Phase 2c · gate — the fix is the Send: the order view first (on a phone the unsent dishes
+    // are listed there, right above the bar's Send), then the Send itself. Nothing jumps — the
+    // dock is on screen at every width.
+    if (block === "unsent") {
+      flushSync(() => setView("order"));
+      send.controlRef.current?.focus({ preventScroll: true });
+    }
+  };
+  // PD6 — whether THIS tap's gate saved the typed name (a write the tray's figures must follow).
+  const nameSavedAtGate = useRef(false);
+  /**
+   * Take payment's GATE, re-decided at the tap from refs: the holds, the add chain drained, a typed
+   * counter name saved (and the chain drained AGAIN), the note re-read. True when the tap may go on —
+   * to the table's payment section at a dine-in table (`onSettle`), or into the till tray on a
+   * counter order (`openTillGate`). Every refusal says why and returns false, the phase back to idle.
+   */
+  const settleGate = async (forTill: boolean): Promise<boolean> => {
+    if (settleInFlight.current) return false;
+    nameSavedAtGate.current = false;
     // Decided NOW, from what the tap sees (the in-flight guard is a ref read at tap time): the
     // note being typed, the adds, the ticket's own writes.
     const edits = [...lineEdits.current.values()];
@@ -821,30 +950,23 @@ export function OrderPad({
       lines: { ...lineWrites, writing: edits.filter((e) => e.writing).length + removals.current },
     });
     if (!now.enabled) {
-      // Refused: say why, once (§17 — a phone shows the hint to nobody sighted), and on a note hold
-      // take the finger to the note: it is where an allergy lives, and leaving would drop it.
-      if (now.block) say(padSettleReason(now.block, reasonCtx(note, writes.blocker())));
-      if (now.block === "note" && note) focusNote(note.lineId);
-      // Phase 2c · gate — the fix is the Send: the order view first (on a phone the unsent dishes
-      // are listed there, right above the bar's Send), then the Send itself. Nothing jumps — the
-      // dock is on screen at every width.
-      if (now.block === "unsent") {
-        flushSync(() => setView("order"));
-        send.controlRef.current?.focus({ preventScroll: true });
-      }
-      return;
+      if (now.block) refuseSettle(now.block, note);
+      return false;
     }
     settleInFlight.current = true;
     haptic("commit");
     const nameToSave = counterOrder && nameDirty && !skipName.current;
-    // Busy in the phase it is actually in: it waits for a dish only while one is on its way.
-    toPhase(padSettleStartPhase({ flying: writes.counts().flying, saveName: nameToSave }));
+    // Busy in the phase it is actually in: it waits for a dish only while one is on its way. PD6 —
+    // the till's door never says "Opening payment…" over nothing: with nothing to drain or save it
+    // stays idle, and the tray simply opens.
+    const start = padSettleStartPhase({ flying: writes.counts().flying, saveName: nameToSave });
+    if (!(forTill && start === "opening")) toPhase(start);
     await writes.settled();
     const b = writes.blocker();
     if (b) {
       say(sendHoldMsg(addHold(b, dishName(b))));
       stopSettle();
-      return;
+      return false;
     }
     // Read AFTER the drain, from the field as it is now (a name typed while it waited is saved).
     const nameNow =
@@ -855,8 +977,9 @@ export function OrderPad({
         skipName.current = true;
         notify(padSlotNotice("correction", "pad.nameNotSaved"));
         stopSettle();
-        return;
+        return false;
       }
+      nameSavedAtGate.current = true;
       // ── Phase 2c · review fixes · pad2 ── drain AGAIN (P4): the name save was a round trip. No
       // tile or sheet can add while Take payment runs (they refuse on its phase), but the CHAIN is
       // the truth, not the doors — anything in it lands, or is named, before the page leaves.
@@ -865,7 +988,7 @@ export function OrderPad({
       if (again) {
         say(sendHoldMsg(addHold(again, dishName(again))));
         stopSettle();
-        return;
+        return false;
       }
     }
     // A note typed while it waited is read again before leaving: the drain can take seconds.
@@ -874,8 +997,12 @@ export function OrderPad({
       say(padSettleReason("note", reasonCtx(late, null)));
       focusNote(late.lineId);
       stopSettle();
-      return;
+      return false;
     }
+    return true;
+  };
+  const onSettle = async () => {
+    if (!(await settleGate(false))) return;
     // The table page's payment section takes it from here (the one money path — never a second
     // copy of the cash / reader / hand-off flow on this screen). Busy until the route changes, or
     // until SETTLE_OPEN_RESET_MS says the push never landed.
@@ -883,6 +1010,74 @@ export function OrderPad({
     // Phase 2d · split — the pane on the counter screen at split width (read at tap time).
     router.push(tableDestination(sessionId, { split: splitNow(), settle: true }));
   };
+  // PD6 — the counter door's gate (`TillDoor.beforeOpen`): the pad's own gate, then — when this tap
+  // wrote anything the last read cannot have seen (an add that landed but is unread, a line write
+  // unread, the name just saved) — a read that STARTED after it, so the tray quotes the cart as it
+  // now is. Its phase goes idle before the tray opens (the door is never busy under the tray).
+  const lineUnreadNow = useRef<number | null>(null);
+  useEffect(() => {
+    lineUnreadNow.current = lineUnreadSeq;
+  }, [lineUnreadSeq]);
+  const openTillGate = async (): Promise<boolean> => {
+    if (!(await settleGate(true))) return false;
+    const unread =
+      nameSavedAtGate.current || writes.counts().unseen > 0 || lineUnreadNow.current !== null;
+    if (unread) {
+      toPhase("opening");
+      if (!(await waitFreshRead())) {
+        say({ k: "table.send.hold.writing" });
+        stopSettle();
+        return false;
+      }
+    }
+    // #334 C2 — the hold RE-DECIDED on the order as it is NOW, by the same decision the tap made
+    // (`padSettle`, one binding): a dish refused while it flew is dropped from the chain, which can
+    // leave an empty or an unpriced order behind an accepted tap — the tray never opens over a due
+    // nobody read; the hold's own words say why.
+    const edits = [...lineEdits.current.values()];
+    const late = unsavedNoteFrom(edits);
+    const nowInput = settleInputRef.current;
+    const after = padSettle({
+      ...nowInput,
+      pending: writes.counts(),
+      unsavedNote: late !== null,
+      lines: {
+        ...nowInput.lines,
+        writing: edits.filter((e) => e.writing).length + removals.current,
+      },
+      settlePhase: "idle",
+    });
+    if (after.block) {
+      stopSettle();
+      refuseSettle(after.block, late);
+      return false;
+    }
+    stopSettle();
+    return true;
+  };
+  // PD6 — a landed counter settle: the SEAL stands where the pad was. The stash FIRST (Codex
+  // correction 4 — a pure write that survives this pad unmounting, so a same-tab reload finds Cash
+  // received and Change: `/add` sends a closed counter session to its table page, whose card adopts
+  // it for the same order), then the pause, then the seal.
+  const onTillSettled = (h: CashSettled) => {
+    const handoff: Handoff = {
+      ...h,
+      isCounter: true,
+      cartId: detail.cartId,
+      sentEarly: detail.unpaidSent,
+    };
+    stashHandoff(sessionId, handoff);
+    // m6 B6 — the same-tab RELOAD lands once more (a one-shot note); a later revisit is calm (#334).
+    markSealLanding(sessionId, handoff.orderId, Date.now());
+    pausedRef.current = true;
+    unknownSince.current = null;
+    setSeal(handoff);
+  };
+  // `true` ADVANCES the mark to now — the newest doubt (#334, the last blind pass: an earliest-kept
+  // mark let a read that cleared the first lost answer's window clear a later one's too).
+  const onTillUnknown = useCallback((unknown: boolean) => {
+    unknownSince.current = unknown ? Date.now() : null;
+  }, []);
   // A push that never lands (dropped, or a page restored from the back-forward cache) must not leave
   // Take payment busy for good: it comes back to idle and a second tap goes again.
   useEffect(() => {
@@ -932,6 +1127,14 @@ export function OrderPad({
   // The phone's dock publishes its MEASURED height, so the one Toast rides above it whatever the
   // labels wrap to (from the tablet tier the dock is not at the bottom, and CSS zeroes the offset).
   useCtaDock(dockRef, true);
+  // PD6 — the seal (or the closed-while-unknown notice) takes focus the moment it stands: the sheet
+  // has UNMOUNTED (no exit to wait on, M76), so the page is un-hidden and the seal's NAME — Paid ·
+  // Change · #CODE — is what focus speaks, once. Never a live region.
+  const sealRef = useRef<HTMLElement>(null);
+  const sealUp = seal !== null || closedUnknown;
+  useEffect(() => {
+    if (sealUp) sealRef.current?.focus();
+  }, [sealUp]);
 
   const table = tableDisplay(detail).text;
   const settleReasonId = "pad-settle-why";
@@ -962,6 +1165,59 @@ export function OrderPad({
           <Chrome lang={lang} k="pad.settle.bare" echo="stack" />
         )}
       </Button>
+      {settleWhy && (
+        <p id={settleReasonId} className="pad-hint">
+          <Chrome lang={lang} k={settleWhy.k} vars={settleWhy.vars} echo="stack" />
+        </p>
+      )}
+    </div>
+  ) : null;
+
+  // PD6 (K39) — a COUNTER order's door IS the cash settle ("Take cash · $X", one money verb end to
+  // end): the pad's holds and busy phases ride it (`door`), its gate is the pad's, the tray opens in
+  // place, and the landing stands the seal. The pad's hint under it stays (the held reason); the
+  // idle hint is dropped (the receipt right above it says Tax — m6 decision 26).
+  const tillDoor: TillDoor = {
+    held: settle.block
+      ? {
+          noteId: settleReasonId,
+          onTap: () =>
+            refuseSettle(settle.block!, unsavedNoteFrom([...lineEdits.current.values()])),
+        }
+      : null,
+    busy: settle.busy && busyKey ? <Chrome lang={lang} k={busyKey} echo="stack" /> : null,
+    showAmount: settle.showAmount && detail.settleTotalCents !== null,
+    beforeOpen: openTillGate,
+    // m6 B7 — the pad's ONE region says a held tap's sentence; the control mounts no alert here.
+    onHeldTap: () => say({ k: "settle.cash.waiting" }),
+    // m6 graft 5 — said after the tray is gone, only when an attempt came to nothing recorded.
+    onCancelClean: () => notify(padSlotNotice("correction", "settle.cash.cancelClean")),
+    // #334 C1 — the pad's own view of a settle it was told is unknown: until a read resolves it
+    // (`settleUnknownAfterRead`) or it lands, the tray says nothing reassuring.
+    outcomeOpen: () => unknownSince.current !== null,
+  };
+  const tillNode = open ? (
+    <div className="pad-settle">
+      <CashSettleButton
+        sessionId={sessionId}
+        // A held door (unpriced, or an amount still pending) never opens; its trigger reads bare.
+        // #334 C2 — null passes as null: the tray's quote is a number by type, so an unpriced read
+        // can never be frozen into a due (the gate re-decides the hold on the fresh read first).
+        totalCents={detail.settleTotalCents}
+        tipBaseCents={detail.settleTipBaseCents}
+        intendedTipCents={detail.intendedTipCents}
+        isTab={tab}
+        handoff
+        variant={settle.variant}
+        onSettled={onTillSettled}
+        onChanged={() => refreshRef.current()}
+        onOutcomeUnknown={onTillUnknown}
+        openReadAt={() => openReadAtRef.current}
+        readTicket={commitSeq}
+        readsStarted={() => readsRef.current}
+        slip={tillSlipFrom(detail.lines, lang)}
+        door={tillDoor}
+      />
       {settleWhy && (
         <p id={settleReasonId} className="pad-hint">
           <Chrome lang={lang} k={settleWhy.k} vars={settleWhy.vars} echo="stack" />
@@ -1023,13 +1279,7 @@ export function OrderPad({
     </Button>
   );
   const counterSlot = (k: "send" | "settle" | "done" | null) =>
-    k === "send"
-      ? counterSendNode
-      : k === "settle"
-        ? settleNode
-        : k === "done"
-          ? counterDone
-          : null;
+    k === "send" ? counterSendNode : k === "settle" ? tillNode : k === "done" ? counterDone : null;
   const dockPrimary = counterDock ? counterSlot(counterDock.primary) : sendSlot;
   const dockSecondary = counterDock ? counterSlot(counterDock.secondary) : settleNode;
   // The status the Send's slot would otherwise speak (to-go at pay · everything sent · a counter
@@ -1070,6 +1320,84 @@ export function OrderPad({
   const shownMsg: PadMsg | null = shown ? shown.msg : null;
   // ── Phase 2c · review fixes · pad2 ── what the adds ARE, never "Adding…" over a lost one (P8).
   const viewStatus = padViewStatus(counts);
+  // The view's ONE live region (§17): every claim, correction and send line, arbitrated. PD6 — it
+  // stays mounted with the seal, for Walk-up's refusals.
+  const toast = (
+    <Toast
+      message={
+        shown && shownMsg !== null
+          ? { key: shown.seq, text: <MsgText lang={lang} msg={shownMsg} />, quiet: shown.quiet }
+          : null
+      }
+      leaving={leaving}
+    />
+  );
+  const bar = (
+    <StaffBar
+      lang={lang}
+      title={counterOrder ? "browse.title.counter" : "browse.title.add"}
+      leading={
+        counterOrder
+          ? { kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }
+          : {
+              kind: "back",
+              href: `/staff/table/${sessionId}`,
+              // Phase 2d · split — at split width the way back is the counter's pane.
+              paneHref: paneUrl(sessionId),
+              k: "browse.back.table",
+              vars: { id: table },
+            }
+      }
+      lock={hasPin}
+      live={live.degraded ? "not_updating" : "live"}
+    />
+  );
+
+  // PD6 — the sale changed SHAPE: the pad shell is UNMOUNTED (not hidden — its tiles, ticket, dock
+  // and skip button can take no focus) and the seal stands in its place, focused (above). Or the
+  // counter order closed while its settle's outcome was unknown: "most likely went through", said
+  // where the settle was, with the way back (§29's hold, on the pad).
+  if (seal || closedUnknown)
+    return (
+      <>
+        {bar}
+        <div className="pad-sealed">
+          {seal ? (
+            <CounterMintProvider>
+              <PadSeal
+                lang={lang}
+                handoff={seal}
+                sealRef={sealRef}
+                onNotice={(n) =>
+                  notify(
+                    typeof n === "string" ? padSentenceNotice(n) : padSlotNotice("correction", n.k),
+                  )
+                }
+              />
+            </CounterMintProvider>
+          ) : (
+            <section
+              ref={sealRef}
+              tabIndex={-1}
+              aria-labelledby="pad-settle-closed-h"
+              className="card card-textured staff-settle-closed"
+            >
+              {/* `echo={false}`: an aria-labelledby target — both scripts would be the name. */}
+              <p id="pad-settle-closed-h" style={{ margin: 0 }}>
+                <Chrome lang={lang} k="settle.cash.unknownClosed" echo={false} />
+              </p>
+              <Link
+                href={STAFF_DOOR_TARGET.counter}
+                className={buttonClass({ variant: "primary", size: "xl", block: true })}
+              >
+                <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
+              </Link>
+            </section>
+          )}
+        </div>
+        {toast}
+      </>
+    );
 
   return (
     <>
@@ -1079,24 +1407,7 @@ export function OrderPad({
       <button type="button" className="pad-skip" onClick={showOrder}>
         <Chrome lang={lang} k="pad.a11y.skipToOrder" />
       </button>
-      <StaffBar
-        lang={lang}
-        title={counterOrder ? "browse.title.counter" : "browse.title.add"}
-        leading={
-          counterOrder
-            ? { kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }
-            : {
-                kind: "back",
-                href: `/staff/table/${sessionId}`,
-                // Phase 2d · split — at split width the way back is the counter's pane.
-                paneHref: paneUrl(sessionId),
-                k: "browse.back.table",
-                vars: { id: table },
-              }
-        }
-        lock={hasPin}
-        live={live.degraded ? "not_updating" : "live"}
-      />
+      {bar}
       <div
         className="pad-shell"
         data-view={view}
@@ -1343,14 +1654,7 @@ export function OrderPad({
       </div>
 
       {/* The view's ONE live region (§17): every claim, correction and send line, arbitrated. */}
-      <Toast
-        message={
-          shown && shownMsg !== null
-            ? { key: shown.seq, text: <MsgText lang={lang} msg={shownMsg} />, quiet: shown.quiet }
-            : null
-        }
-        leaving={leaving}
-      />
+      {toast}
 
       {/* M76 — the dish is HELD through the exit; `key` makes every open a fresh sheet. */}
       {mod.held && (
@@ -1399,4 +1703,34 @@ export function OrderPad({
 
 function itemName(i: PadCatalogItem) {
   return { name: i.nameEn, nameMy: i.nameMy };
+}
+
+/**
+ * PD6 — the pad's seal, inside its ONE mint lock (`CounterMintProvider`, mounted around it, so
+ * Walk-up is the only start control on this screen): the landed sale's seal, Walk-up as its quiet
+ * secondary (one constant, `SEAL_OFFERS_WALKUP`), and — while the next start is unanswered past its
+ * bound — "Back to the counter" as a full-document `<a>`, so the way out also clears the stuck queue.
+ */
+function PadSeal({
+  lang,
+  handoff,
+  sealRef,
+  onNotice,
+}: {
+  lang: StaffLang;
+  handoff: Handoff;
+  sealRef: RefObject<HTMLElement | null>;
+  onNotice: (n: MintNotice) => void;
+}) {
+  const { waiting } = useCounterMint();
+  return (
+    <HandoffCard
+      ref={sealRef}
+      lang={lang}
+      handoff={handoff}
+      landing
+      next={SEAL_OFFERS_WALKUP ? <SealWalkUp lang={lang} onNotice={onNotice} /> : undefined}
+      nativeBack={waiting !== null}
+    />
+  );
 }

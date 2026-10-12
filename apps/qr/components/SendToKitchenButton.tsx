@@ -1,5 +1,6 @@
 "use client";
 import {
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -11,7 +12,9 @@ import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
+import { STAFF } from "@/lib/i18n/staff";
 import { sentCopy } from "@/lib/confirm-copy";
+import { undoTapHeld } from "@/lib/send-grace";
 import { FROZEN_NOTE, reasonCopy, useGraceCountdown, type UndoGrace } from "./useUndoGrace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
@@ -67,6 +70,7 @@ export function SendToKitchenButton({
   onChanged,
   needsTable = false,
   onNeedTable,
+  describedBy,
 }: {
   /** 3c-ii — the host's handle on this send (the bind sheet's one gesture; the success edge's focus). */
   ref?: Ref<SendHandle>;
@@ -97,6 +101,10 @@ export function SendToKitchenButton({
   needsTable?: boolean;
   /** 3c-ii — open the host's "Pick your table" sheet; the send returns and waits for the chip. */
   onNeedTable?: () => void;
+  /** PD1 (m1 screen 3) — the ids the drawn control is `aria-describedby`: Send carries the host's
+   *  waiting line and the caption, Undo the caption (Checkout renders both, outside this control, so
+   *  the caption is the SAME node across the relabel). */
+  describedBy?: string;
 }) {
   const [pending, startTransition] = useTransition();
   // W22a — the paper-beat ceremony counter: bumped once per SUCCESSFUL send; the beat glyph is
@@ -104,11 +112,28 @@ export function SendToKitchenButton({
   // send yet, nothing rendered. Decorative only — the live region says it in words.
   const [sendBeat, setSendBeat] = useState(0);
 
+  /**
+   * PD2 · PD1 (P2y; the shared vocabulary's one Undo form) — THE SAME-GESTURE GUARD. The control
+   * relabels under the finger (Send → Undo when the send answers, Undo → Send when the window
+   * closes), so for `SAME_GESTURE_MS` after each relabel a tap on the new control lands on nothing:
+   * the second half of a double-tap never un-sends the round it just sent, nor re-sends the round
+   * it just brought back. `undoTapHeld` (lib/send-grace) delegates to `@mms/ui`'s one 350 ms. The
+   * stamp is taken in an effect on the verb's edge, never during render (the purity lint).
+   */
+  const armedAt = useRef<number | null>(null);
+  const prevVerb = useRef(verb);
+  useEffect(() => {
+    if (prevVerb.current !== verb) armedAt.current = Date.now();
+    prevVerb.current = verb;
+  }, [verb]);
+
   const send = (opts?: { tableAnswered?: boolean }) => {
     // One send per gesture: the tap path used to rely on a native `disabled` the handle bypassed,
     // and a second `send()` from the host (two bind answers) reached the server twice (the blind
     // pass on 3c-ii). The control stays focusable while pending — see the button below.
     if (pending) return;
+    // P2y — a tap inside the same gesture as the relabel is the double-tap's second half.
+    if (!opts?.tableAnswered && undoTapHeld(armedAt.current, Date.now())) return;
     if (frozen) {
       // Refuse at the DOOR, and say why rather than dying quietly — this is the one control the diner came here to press.
       onMessage(FROZEN_NOTE);
@@ -185,14 +210,21 @@ export function SendToKitchenButton({
             undoEl.current = el;
           }}
           type="button"
-          onClick={() => void grace.undo(cartId, frozen)}
+          onClick={() => {
+            // P2y — the second half of a double-tap on the Send lands on this Undo: held.
+            if (undoTapHeld(armedAt.current, Date.now())) return;
+            void grace.undo(cartId, frozen);
+          }}
           disabled={grace.pending}
           /* T9 — `aria-disabled`, never native, for the FREEZE: the grace effect parks focus on this
              very button when the window opens, so a native disable would drop it to <body>
              mid-window (WCAG 2.4.3). `disabled` stays `{pending}` — the user's own in-flight tap. */
           aria-disabled={frozen || undefined}
           aria-busy={grace.pending}
-          className="checkout-outline-btn mms-settle"
+          aria-describedby={describedBy}
+          // PD2 · PD1 (D3) — the ONE Undo form: `--sf` with a dashed accent edge (`.checkout-undo`),
+          // never filled, never the hero.
+          className="checkout-outline-btn checkout-undo mms-settle"
           // 0.55 is Checkout's own frozen dim (it is what every gated control on that screen uses).
           // Unlike `.checkout-pill`, these two classes carry NO `[aria-disabled]` rule, so without
           // this the freeze would be announced to a screen reader and invisible to everyone else.
@@ -202,7 +234,18 @@ export function SendToKitchenButton({
             cursor: grace.pending || frozen ? "default" : "pointer",
           }}
         >
-          {grace.pending ? "Bringing it back…" : <UndoCountdown deadlineMs={grace.deadlineMs} />}
+          {/* D3 (one act, one word) — the name is the verb "Undo" and the Burmese is the console's
+              own word for the same act, `table.send.undo` (ပြန်ယူ: what you sent away comes back);
+              the seconds are an aria-hidden leaf so the name never changes every second (J34).
+              Busy reads `table.send.undoing` in both tongues. Verbatim from the staff dictionary,
+              pinned equal by a red-first test. */}
+          <span style={{ display: "block" }}>
+            {grace.pending ? STAFF["table.send.undoing"].en : "Undo"}
+            {!grace.pending && <UndoCountdown deadlineMs={grace.deadlineMs} />}
+            <span lang="my" className="checkout-undo-my">
+              {grace.pending ? STAFF["table.send.undoing"].my : STAFF["table.send.undo"].my}
+            </span>
+          </span>
         </button>
       ) : verb === "send" ? (
         <button
@@ -217,6 +260,7 @@ export function SendToKitchenButton({
              leaves it (WCAG 2.4.3). `send()` refuses the second tap itself. */
           aria-disabled={pending || frozen || undefined}
           aria-busy={pending}
+          aria-describedby={describedBy}
           className="checkout-cta"
           // ⚠️ Inline styles outrank the class: the outline look's background/color/border must NOT
           // ride along or they'd blank the .checkout-cta gradient under the label.
@@ -231,11 +275,10 @@ export function SendToKitchenButton({
               W16b — stacked bilingual (the owner's named example): EN + count primary, MY line
               under it. The MY count word ခု is invariant; digits stay Latin (the money rule). */}
           <span style={{ position: "relative", zIndex: 1, display: "block" }}>
-            {pending
-              ? T("sending")
-              : draftCount > 0
-                ? `${T("sendToKitchen")} · ${draftCount} ${draftCount === 1 ? T("countItem") : T("countItems")}`
-                : T("sendToKitchen")}
+            {/* PD1 (m1 A5 · B6; DESIGN-LANGUAGE §21) — COUNT-FREE: a table's cart is shared, and
+                its count is a tablemate's tap away from wrong. `sentCopy` still reports the
+                server's fired count once the send lands. */}
+            {pending ? T("sending") : T("sendToKitchen")}
             <span
               lang="my"
               style={{
@@ -245,11 +288,7 @@ export function SendToKitchenButton({
                 fontWeight: "var(--fw-semibold)",
               }}
             >
-              {pending
-                ? t("my", "sending")
-                : draftCount > 0
-                  ? `${t("my", "sendToKitchen")} · ${draftCount} ${t("my", "countItems")}`
-                  : t("my", "sendToKitchen")}
+              {pending ? t("my", "sending") : t("my", "sendToKitchen")}
             </span>
           </span>
         </button>
@@ -277,10 +316,15 @@ export function SendToKitchenButton({
 }
 
 /** J34 — the Undo label's count, the ONLY reader of the tick (`useGraceCountdown`): this text re-renders
- *  once a second; Checkout, the hook's host, does not (it re-rendered four times a second). */
+ *  once a second; Checkout, the hook's host, does not (it re-rendered four times a second).
+ *  D3 — an aria-hidden LEAF beside the verb: the accessible name is "Undo" alone. */
 function UndoCountdown({ deadlineMs }: { deadlineMs: number | null }) {
   const left = useGraceCountdown(deadlineMs);
-  return <>{`Undo — ${left}s`}</>;
+  return (
+    <span aria-hidden className="checkout-undo-leaf">
+      {` — ${left}s`}
+    </span>
+  );
 }
 
 // W19 — surface colors moved to `.checkout-outline-btn` (a class so :hover/:active press states

@@ -34,6 +34,9 @@ let inFlight: "mid_payment" | null = null;
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inFlight) }));
 const lockCalls: { op: "acquire" | "release"; owner: string }[] = [];
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: (_cart: string, owner: string) => {
     lockCalls.push({ op: "acquire", owner });
     return Promise.resolve("acquired");
@@ -45,6 +48,9 @@ vi.mock("./lock", () => ({
 }));
 // Phase 2c · review (R5) — the settle gate's read, answered EXPLICITLY (see settle-cash-cas.test):
 // unmocked, the fake DB's answer sent `kitchenDraftUnits` down its fail-open path on every case.
+// PD8 — the pending-request read behind the acknowledgement compare, mocked by module exactly as the
+// unsent read above: nothing waits here; the compare itself is pinned in staff-cart.test / terminal.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 let unsentUnits = 0;
 let unsentReads = 0;
 vi.mock("./unsent-read", () => ({

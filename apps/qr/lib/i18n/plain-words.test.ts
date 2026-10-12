@@ -22,6 +22,7 @@ const DICTIONARIES = [
   "cart.ts",
   "confirm.ts",
   "market.ts",
+  "track.ts", // PD3 — the pickup promise's own sentences (not spread into DICT)
   "../kiosk/strings.ts",
 ] as const;
 

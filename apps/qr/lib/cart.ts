@@ -16,6 +16,7 @@ import {
   undoFireInput,
 } from "@mms/db/schemas";
 import type { LineState } from "@mms/db";
+import { nudgeLive, type SendNudge } from "./send-nudge-state";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from "./authz";
@@ -662,9 +663,24 @@ export async function getCartView(cartId: string): Promise<{
    *  sticker or a to-go session. Read HERE, from the session row, so the card names the same table
    *  the floor does — never inferred client-side. */
   tableNumber: number | null;
+  /** PD1 — a guest's "Let {host} know" stamp standing on the cart (`qr_carts.send_nudge_*`), or
+   *  null: nobody waiting, or the advisory read failed. Cleared by `mms_fire_cart` with the fire. */
+  sendNudge: SendNudge | null;
+  /** PD1 — the stamp read itself SUCCEEDED (the blind pass on #335): false on a project without
+   *  the PD1 migration (42703) or a failed read, and the Bill then never offers "Let {host} know" —
+   *  a button whose every tap would fail. */
+  nudgeReady: boolean;
+  /** PD1 — the app server's clock (ISO) as this view was made. */
+  serverNow: string;
+  /** PD10 — the DATABASE clock (`mms_now()`, ISO), read BEFORE the lines: what a bump's undo window
+   *  and a Send's grace are measured against on the guest's pass (falls back, logged, to this
+   *  server's clock at the same point when the clock read fails). */
+  dbNow: string;
+  /** The session's mode (`table_sessions.mode`), from the fail-closed authorization read. */
+  mode: string;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
+  const { uid, locked, lockedBy, settling, settleBy, mode } = await assertCartMember(id);
   const db = serviceClient();
   // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
   // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
@@ -682,16 +698,43 @@ export async function getCartView(cartId: string): Promise<{
   // 503 for BOTH arms is deliberate even though `.single()` also errors on zero rows: this function
   // cannot tell "gone" from "unreadable", and `assertCartMember` — which can, and answers 404
   // `no_cart` — proved this cart open one statement earlier. Unknowable is not a verdict.
-  const { data: cart, error: cartErr } = await db
-    .from("qr_carts")
-    .select("pickup_slot,fire_at,tab_type,counter_requested_at,table_sessions(table_number)")
-    .eq("id", id)
-    .single();
+  // PD10 — THE DB CLOCK, READ BEFORE THE LINES (D5, Codex round 4). The guest's pass counts a bump
+  // as Served only once it is `KDS_UNDO_MS` old on the DB clock (`lib/kitchen-track.ts`), and that
+  // comparison is honest only if the clock was read NO LATER than the lines: a clock read after them
+  // can land past a bump's six seconds while the lines predate an Undo Mom sent inside them — the
+  // pass would read Served (and the door, after the flip, would open) over a dish she took back. So
+  // `mms_now()` rides beside the cart read, and both answer before the line read begins — no extra
+  // round trip on the hot path. ADVISORY, like the lookups below: a failed clock read falls back to
+  // this server's clock taken at the same point (still before the lines), logged — the authoritative
+  // gate is `create-intent`'s own read, which fails CLOSED (`readServedGateInput`).
+  const [{ data: cart, error: cartErr }, clockRes] = await Promise.all([
+    db
+      .from("qr_carts")
+      .select("pickup_slot,fire_at,tab_type,counter_requested_at,table_sessions(table_number)")
+      .eq("id", id)
+      .single(),
+    db.rpc("mms_now"),
+  ]);
   if (cartErr) throw UNAVAILABLE();
+  const dbNow =
+    !clockRes.error &&
+    typeof clockRes.data === "string" &&
+    Number.isFinite(Date.parse(clockRes.data))
+      ? clockRes.data
+      : (() => {
+          console.error(
+            "[cart] getCartView: mms_now unreadable — the pass is timed on the app clock",
+            {
+              cartId: id,
+              error: clockRes.error?.message,
+            },
+          );
+          return new Date().toISOString();
+        })();
   const { data: rows, error: rowsErr } = await db
     .from("qr_cart_items")
     .select(
-      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes",
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,bumped_at,comped,fulfillment,notes,created_at",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
@@ -716,7 +759,7 @@ export async function getCartView(cartId: string): Promise<{
   ];
   // getCartView runs in every mutation response — the two advisory reads go out TOGETHER
   // (review LOW: sequential awaits taxed the add/scan hot path with a second serial RTT).
-  const [menuRes, groceryRes] = await Promise.all([
+  const [menuRes, groceryRes, nudgeRes] = await Promise.all([
     menuIds.length
       ? // Deliberate swallow posture: sold-out is an advisory disable on the "+", not load-bearing;
         // a failed lookup degrades to "nothing sold-out" + no media rather than blocking the view.
@@ -726,6 +769,14 @@ export async function getCartView(cartId: string): Promise<{
     barcodes.length
       ? db.from("grocery_items").select("barcode,image_url,name_my").in("barcode", barcodes)
       : Promise.resolve({ data: null }),
+    // PD1 — the "Let {host} know" stamp, ADVISORY like the two lookups beside it: a failed read
+    // degrades to "no stamp known" (the host simply sees no waiting line), never the outage screen.
+    // It is deliberately NOT a column on the cart read above, for two reasons. The stamp is UI-only
+    // (no write, no amount, no gate reads it), so an unreadable stamp must not take a whole order
+    // down. And the columns arrive with the OWNER's migration (20261008123000_pd1_send_nudge) on a
+    // project the previews share with prod (docs/ENV.md, T3): until it is applied this read answers
+    // 42703, and /cart must still render every order exactly as before.
+    db.from("qr_carts").select("send_nudge_seat,send_nudge_at").eq("id", id).maybeSingle(),
   ]);
   for (const f of menuRes.data ?? []) {
     if (f.is_sold_out) soldOut.add(f.id);
@@ -747,6 +798,9 @@ export async function getCartView(cartId: string): Promise<{
     // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).
     lineState: (r.state ?? "draft") as LineState,
     fireAt: r.fire_at ?? null,
+    // PD10 — the bump stamp, raw: the track reads it against `dbNow` (served only once it is
+    // `KDS_UNDO_MS` old), so the pass never reads a bare `served` as Served.
+    bumpedAt: r.bumped_at ?? null,
     // Comped (S2.3): the kitchen still makes it but the guest isn't charged — the cart shows a "Comped"
     // chip and the totals (getCartTotals) exclude it. Distinct from 'voided' (removed entirely).
     comped: r.comped ?? false,
@@ -792,6 +846,34 @@ export async function getCartView(cartId: string): Promise<{
     tabType: (cart?.tab_type ?? "none") as "none" | "trust" | "secure",
     counterRequestedAt: cart?.counter_requested_at ?? null,
     tableNumber: cart?.table_sessions?.table_number ?? null,
+    // PD1 — a stamp is BOTH halves or none: a seat with no time (or the reverse) is a row this
+    // migration never writes, and reading it as a wait would put a line on the host's phone that
+    // nothing clears. A failed read is null too (advisory; see the read).
+    // …and a LIVE one only (the last blind pass on #335): a stamp whose dishes have all gone names
+    // no wait, whatever was added since — `nudgeLive`, the one rule every reader of the view reads.
+    sendNudge: nudgeLive(
+      nudgeRes.error || !nudgeRes.data?.send_nudge_seat || !nudgeRes.data.send_nudge_at
+        ? null
+        : { seat: nudgeRes.data.send_nudge_seat, at: nudgeRes.data.send_nudge_at },
+      (rows ?? []).map((r) => ({
+        state: r.state,
+        fulfillment: r.fulfillment,
+        createdAt: r.created_at,
+      })),
+    ),
+    // PD1 — whether that read answered at all: an unreadable stamp hides the nudge's offer.
+    nudgeReady: !nudgeRes.error,
+    // PD1 — the app server's clock as this view was made, so a phone compares the lines' `fire_at`
+    // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
+    // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.
+    serverNow: new Date().toISOString(),
+    // PD10 — the DB clock read before the lines (above): the one clock the guest's pass and its
+    // served door compare `fire_at` / `bumped_at` against (lib/live-pass).
+    dbNow,
+    // Codex round 2 on #331 — the session's mode from the SAME fail-closed read that authorized this
+    // view (`assertCartMember`, M108), so the Bill's parked phone-pay door never hangs off the
+    // best-effort split context (`doorMode`, lib/checkout-stage).
+    mode,
   };
 }
 

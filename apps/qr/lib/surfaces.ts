@@ -19,8 +19,8 @@
  * ⚠️ Read these where the door is DRAWN and where it is ANSWERED, never only one: a hidden button
  * with a live action behind it is a door with the sign taken down, not a parked one. Answered at:
  * `openSettlement` + `create-share-intent` (split), `openTab` + `setup-intent` (tabs),
- * `openKioskOrder` + the kiosk page (kiosk) — each pinned by a test that flips the constant and a
- * `surfaces/*` mutant that deletes the refusal.
+ * `openKioskOrder` + the kiosk page (kiosk), `create-intent` (dine-in phone pay) — each pinned by
+ * a test that flips the constant and a `surfaces/*` mutant that deletes the refusal.
  *
  * ⚠️ REOPENING `selfServeSplit` IS NO LONGER A ONE-LINE FLIP, and the reason is A3 (M201). The
  * split's same-host re-open (even ↔ by-person before anyone authorizes) rode
@@ -42,6 +42,12 @@
  * share under a foreign fresh freeze — the re-claim must be atomic and the capture must refuse
  * any other owner.
  *
+ * A FOURTH since PD10 (PATH_DESIGN round 3, D5): wire the served gate (`servedGateDecision`,
+ * lib/checkout-stage — the same verdict `create-intent` refuses on, from the same fail-closed read,
+ * `readServedGateInput`) into `openSettlement` and `create-share-intent`. While the split is parked
+ * those two doors are closed outright; reopened without the gate, a table could pay its shares by
+ * phone before its food is served — the exact charge D5 exists to prevent on the single-pay door.
+ *
  * Phase 2f · P2v — `payAtPickup` is the fourth door, and it is OPEN (owner decisions 1 + 7): staff
  * may Send a counter (`reg-`) order to the kitchen before it is paid. DRAWN in `getTableDetail`
  * (`detail.payAtPickup` — the table page and the order pad offer the counter Send only while it is
@@ -50,12 +56,40 @@
  * nothing else: food already in the kitchen keeps its Unpaid flag on the ticket, the lane and the
  * floor, the undo of a send in its grace still answers, and a no-show still writes it off — those
  * read the DATA, never this switch.
+ *
+ * PD2 (the owner's path-design pick, PATH_DESIGN_2026-10-07 decision 2) — `dineInPhonePay` is the
+ * fifth door, and it is PARKED: until the live Stripe keys are switched on (OPEN-ITEMS C2) a dine-in
+ * Bill offers only "Pay at the counter". Production serves TEST keys today, so a card typed at a
+ * table moves no real money and the family would still be walking to the register — the door was a
+ * promise the house could not keep. DRAWN in `Checkout` (`phonePayParked`, lib/checkout-stage: the
+ * Pay hero, the tip ask and the separate total row give way to the docked counter door, the Total
+ * door never reads "& pay", the secure-tab note is hidden, the group Bill's "Pay as one bill here"
+ * is not said) and ANSWERED in `create-intent`, which refuses a dine-in mint after
+ * `supersedeCartIntent` and its captured / unknown exits — never above them, because each refusal
+ * frees the lock and freeing it while a predecessor intent can still be confirmed is #257's
+ * CRITICAL (M151) — and before PD10's served gate; `scripts/check-phone-pay-door.mjs` parses the
+ * route and pins that order. Pickup and scan-and-go never read this switch: paying IS ordering
+ * there.
+ *
+ * PD10 BUILT THE SERVED DOOR BEHIND THIS SWITCH (D5): with it open, the Bill holds Pay with "Pay
+ * opens once everything’s served." and no tip ask until every dish is served (a bump counts once it
+ * is `KDS_UNDO_MS` old on the DB clock), and `create-intent` refuses the same verdict
+ * (`servedGateDecision`) from one error-aware read that fails CLOSED, in the unsent refusal's old
+ * slot. No gate at fulfillment: a card already charged is never stranded.
+ *
+ * THE FLIP is its own PR, one commit, never the key-swap commit (PATH_DESIGN round 3, D5): only
+ * once live keys are verified in production, PD2 and PD10 have merged, and the device sitting
+ * confirms drinks are bumped — then phone pay returns SERVED-GATED (decision 10), not as the old
+ * Bill, and is proved by one real Apple Pay sale of the cheapest dish at a table, refunded from
+ * Today's payments & refunds. The counter ask, Take cash, the reader and the secure-tab close are
+ * never gated by this flag.
  */
 export const SURFACES = {
   selfServeSplit: false,
   cardOnFileTabs: false,
   kiosk: false,
   payAtPickup: true,
+  dineInPhonePay: false,
 } as const;
 
 export type Surface = keyof typeof SURFACES;

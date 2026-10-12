@@ -5,10 +5,14 @@ import { serviceClient } from "@mms/db/server";
 import { requestApprovalInput, resolveApprovalInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { approvalsPollVerdict, type ApprovalsPollRefusal } from "./approvals-poll";
+import { pendingCountVerdict, type PendingCount } from "./approvals-count";
+import { lineNowFromRow, type CartStatus, type RequestLineNow } from "./approval-state";
 import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
+import { loadLineNames } from "./line-names";
+import { catalogNameMy } from "./ticket-names";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -83,6 +87,9 @@ export async function requestApproval(raw: unknown): Promise<RequestApprovalResu
   if (status === "no_approval_needed") return { ok: false, reason: "no_approval_needed" };
   if (status === "already_pending") return { ok: false, reason: "already_pending" };
   if (status === "not_open") return { ok: false, reason: "not_open" };
+  // M184 (the blind pass on #333): the RPC refuses atomically while the cart pays or settles — the
+  // same verdict the pay-guard read above gives, never a generic failure.
+  if (status === "in_flight") return { ok: false, reason: "in_flight" };
   if (status === "not_found" || status === "already_done")
     return { ok: false, reason: "not_found" };
   if (status !== "ok") return { ok: false, reason: "error" };
@@ -108,8 +115,10 @@ export async function requestApproval(raw: unknown): Promise<RequestApprovalResu
   return { ok: true };
 }
 
+export type ApprovalDecision = "approve" | "deny" | "close";
+
 export type ResolveApprovalResult =
-  | { ok: true; decision: "approve" | "deny" }
+  | { ok: true; decision: ApprovalDecision }
   | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
   | { ok: false; reason: "pin_locked"; lockedUntil: string }
   | {
@@ -123,6 +132,10 @@ export type ResolveApprovalResult =
         | "not_open"
         | "in_flight"
         | "not_found"
+        // PD8 · M184: the line is no longer the one asked about — nothing was taken off.
+        | "changed"
+        // PD8 · D2: a `close` on a live, unchanged request — it still has a real decision to make.
+        | "still_open"
         | "error"
         // W10b: platform unreachable — the resolution wasn't recorded; the request is still pending.
         | "outage";
@@ -130,8 +143,11 @@ export type ResolveApprovalResult =
 
 /**
  * A manager resolves a pending request (approve → apply the recorded action; deny → close it, line stays
- * live). Proven by the manager-PIN step-up so it works on a shared tablet; mms_resolve_approval re-checks
- * the approver is an active manager/owner ≠ the requester and that the row is still pending.
+ * live; PD8 · D2 close → `superseded`, admitted only once the table paid, was cleared, or the line
+ * changed — the request's OWN asker may close it). Proven by the manager-PIN step-up so it works on a
+ * shared tablet; mms_resolve_approval re-checks the approver is an active manager/owner (≠ the requester
+ * on approve/deny) and that the row is still pending. M184: approve refuses `changed` when the line's
+ * qty or amount moved since the ask.
  */
 export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResult> {
   const auth = await getStaffAuth();
@@ -178,7 +194,13 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   // compares the approver to the REQUEST's INITIATOR (mirrors mms_resolve_approval's
   // `p_approver = v_initiator` rule) — NOT the caller: a manager resolving a server's request with
   // their own PIN is the normal case and must pass.
-  const pre = await approverStepUpAllowed(approverStaffId, caller.staffId, appr.initiator_staff_id);
+  // PD8 · D2 — a CLOSE has no self rule (the asker may close their own stale request; nothing about
+  // food is decided), so the pre-flight gets `null` there and the request's initiator otherwise.
+  const pre = await approverStepUpAllowed(
+    approverStaffId,
+    caller.staffId,
+    decision === "close" ? null : appr.initiator_staff_id,
+  );
   if (pre !== "ok") return { ok: false, reason: pre };
   const v = await verifyStaffPin(approverStaffId, pin);
   if (v.status === "wrong")
@@ -203,6 +225,8 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   if (status === "not_open") return { ok: false, reason: "not_open" };
   if (status === "in_flight") return { ok: false, reason: "in_flight" };
   if (status === "not_found") return { ok: false, reason: "not_found" };
+  if (status === "changed") return { ok: false, reason: "changed" };
+  if (status === "still_open") return { ok: false, reason: "still_open" };
   if (status !== "ok") return { ok: false, reason: "error" };
 
   if (appr.cart_id) await touchCart(appr.cart_id, "resolveApproval"); // re-sync the diner cart / floor
@@ -226,30 +250,46 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   return { ok: true, decision };
 }
 
-/** A cheap head-count of open requests for the floor-nav badge (manager+ only). 0 on any error —
- *  a DELIBERATE degrade (W10b): the badge is an ornament on a nav link, and the approvals page
- *  itself (listPendingApprovals) refuses to render a false-empty queue. */
-export async function countPendingApprovals(): Promise<number> {
+/** A cheap head-count of open requests for the bar's approvals circle (manager+ only). PD8 (m8
+ *  decision 4): NEVER a false 0 — the verdict is `lib/approvals-count.ts`'s, so an error or an
+ *  unreadable count is `{ ok: false }` (the circle draws a dashed ring and "couldn't check"). The
+ *  old `0` degrade dated from when the badge was an ornament; A4·5 made this circle the counter's
+ *  one pending-approvals signal. An unauthorized caller is unknown too (the circle renders only for
+ *  a manager, so that arm is never drawn). */
+export async function countPendingApprovals(): Promise<PendingCount> {
   const caller = await requireStaff("manager").catch(() => null);
-  if (!caller) return 0;
-  const { count } = await serviceClient()
+  if (!caller) return { ok: false };
+  const { count, error } = await serviceClient()
     .from("mms_approvals")
     .select("id", { count: "exact", head: true })
     .eq("status", "pending");
-  return count ?? 0;
+  return pendingCountVerdict({ count, error });
 }
 
 export type PendingApproval = {
   id: string;
   kind: "void" | "comp";
   lineName: string;
+  /** PD8 — the dish's Burmese (advisory: null draws the English snapshot alone). */
+  nameMy: string | null;
   qty: number;
   amountCents: number;
   reasonCode: string;
   cooked: boolean;
   sessionId: string | null;
   tableLabel: string | null;
+  /** PD8 — the registered table NUMBER (the card's link to its pane); null off a registered table. */
+  tableNumber: number | null;
   initiatorName: string;
+  /** PD8 — who asked, so the picker can leave them out (`eligibleApprovers`). */
+  initiatorStaffId: string;
+  /** PD8 — the cart's status: `paid` and `cancelled` draw the close-only card (`requestCardState`);
+   *  null when the request carries no cart. */
+  cartStatus: CartStatus | null;
+  /** PD8 · M184 — the line as it stands NOW (qty · unit price), or null when it is gone: the card
+   *  draws "Changed after {x} asked" from this against its own `qty` / `amountCents` snapshot. */
+  lineNow: RequestLineNow;
+  lineId: string | null;
   createdAt: string;
 };
 
@@ -343,7 +383,7 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
   const { data: rows, error: rowsError } = await db
     .from("mms_approvals")
     .select(
-      "id,kind,line_name,qty,amount_cents,reason_code,cooked,session_id,initiator_staff_id,created_at",
+      "id,kind,line_name,qty,amount_cents,reason_code,cooked,session_id,cart_id,line_id,initiator_staff_id,created_at",
     )
     .eq("status", "pending")
     .order("created_at", { ascending: true })
@@ -353,29 +393,81 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
 
   const initiatorIds = [...new Set(rows.map((r) => r.initiator_staff_id))];
   const sessionIds = [...new Set(rows.map((r) => r.session_id).filter((x): x is string => !!x))];
-  const [staffRes, sessionsRes] = await Promise.all([
+  const cartIds = [...new Set(rows.map((r) => r.cart_id).filter((x): x is string => !!x))];
+  const lineIds = [...new Set(rows.map((r) => r.line_id).filter((x): x is string => !!x))];
+  type SessionRow = { id: string; qr_code: string; table_number: number | null };
+  type CartRow = { id: string; status: string };
+  type LineRow = {
+    id: string;
+    qty: number;
+    unit_price_cents: number;
+    state: string | null;
+    comped: boolean | null;
+    menu_item_id: string | null;
+  };
+  const [staffRes, sessionsRes, cartsRes, linesRes] = await Promise.all([
     db.from("staff").select("user_id,display_name").in("user_id", initiatorIds),
     sessionIds.length
-      ? db.from("table_sessions").select("id,qr_code").in("id", sessionIds)
-      : Promise.resolve({ data: [] as { id: string; qr_code: string }[], error: null }),
+      ? db.from("table_sessions").select("id,qr_code,table_number").in("id", sessionIds)
+      : Promise.resolve({ data: [] as SessionRow[], error: null }),
+    // PD8 — the cart's status decides the card (open · paid · cleared): a paid table gets the
+    // close-only card, never an Approve that fails "no longer open".
+    cartIds.length
+      ? db.from("qr_carts").select("id,status").in("id", cartIds)
+      : Promise.resolve({ data: [] as CartRow[], error: null }),
+    // PD8 · M184 — the line as it stands NOW, so the card can say "Changed after {x} asked" before
+    // any PIN is typed (the SQL refuses `changed` at the write regardless).
+    lineIds.length
+      ? db
+          .from("qr_cart_items")
+          .select("id,qty,unit_price_cents,state,comped,menu_item_id")
+          .in("id", lineIds)
+      : Promise.resolve({ data: [] as LineRow[], error: null }),
   ]);
   // Names/labels are the queue's attribution — "A server · no table" on every row is misinformation
-  // on an audit surface, not a degrade.
-  if (staffRes.error || sessionsRes.error) throw unavailable();
+  // on an audit surface, not a degrade. The cart status and the live line decide which KEYS a card
+  // offers, so an unread one is an outage too, never "open".
+  if (staffRes.error || sessionsRes.error || cartsRes.error || linesRes.error) throw unavailable();
   const nameById = new Map((staffRes.data ?? []).map((s) => [s.user_id, s.display_name]));
-  const labelById = new Map((sessionsRes.data ?? []).map((s) => [s.id, s.qr_code]));
+  const sessionById = new Map((sessionsRes.data ?? []).map((s) => [s.id, s]));
+  const cartStatusById = new Map((cartsRes.data ?? []).map((c) => [c.id, c.status]));
+  const lineById = new Map((linesRes.data ?? []).map((l) => [l.id, l]));
+  // The dish's Burmese, through the ONE line-name loader (advisory, like the detail's).
+  const names = await loadLineNames(
+    db,
+    (linesRes.data ?? [])
+      .filter((l) => l.menu_item_id)
+      .map((l) => ({ menu_item_id: l.menu_item_id! })),
+    { tag: "approvals" },
+  );
+  const cartStatusOf = (cartId: string | null): CartStatus | null => {
+    const s = cartId ? cartStatusById.get(cartId) : undefined;
+    return s === "open" || s === "paid" || s === "cancelled" ? s : null;
+  };
 
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind as "void" | "comp",
-    lineName: r.line_name ?? "Item",
-    qty: r.qty ?? 1,
-    amountCents: r.amount_cents,
-    reasonCode: r.reason_code,
-    cooked: r.cooked,
-    sessionId: r.session_id,
-    tableLabel: r.session_id ? (labelById.get(r.session_id) ?? null) : null,
-    initiatorName: nameById.get(r.initiator_staff_id) ?? "A server",
-    createdAt: r.created_at,
-  }));
+  return rows.map((r) => {
+    const line = r.line_id ? lineById.get(r.line_id) : undefined;
+    const session = r.session_id ? sessionById.get(r.session_id) : undefined;
+    return {
+      id: r.id,
+      kind: r.kind as "void" | "comp",
+      lineName: r.line_name ?? "Item",
+      nameMy: line?.menu_item_id
+        ? catalogNameMy(names.nameMyByRef.get(line.menu_item_id), r.line_name ?? "Item")
+        : null,
+      qty: r.qty ?? 1,
+      amountCents: r.amount_cents,
+      reasonCode: r.reason_code,
+      cooked: r.cooked,
+      sessionId: r.session_id,
+      tableLabel: session?.qr_code ?? null,
+      tableNumber: session?.table_number ?? null,
+      initiatorName: nameById.get(r.initiator_staff_id) ?? "A server",
+      initiatorStaffId: r.initiator_staff_id,
+      cartStatus: cartStatusOf(r.cart_id),
+      lineNow: lineNowFromRow(line),
+      lineId: r.line_id,
+      createdAt: r.created_at,
+    };
+  });
 }

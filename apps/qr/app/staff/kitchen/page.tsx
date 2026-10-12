@@ -30,7 +30,7 @@ export default async function KitchenPage() {
 
   return (
     <main>
-      <KdsBoard initial={res.queue} hasPin={hasPin} />
+      <KdsBoard initial={res.queue} hasPin={hasPin} staffId={caller.staffId} />
     </main>
   );
 }

@@ -14,6 +14,7 @@ import {
 import type { CartItem, CartTotals } from "@mms/db";
 import { Icon, Toast } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
+import { settleRereadDelayMs } from "@/lib/live-pass";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { bounded, DRAIN_TIMED_OUT_NOTICE, type DrainOutcome } from "@/lib/write-ledger";
 import {
@@ -47,6 +48,7 @@ import {
 } from "@/lib/live-region";
 import { useCoalescedRefresh } from "@/lib/echo-refresh";
 import { setDisplayName } from "@/lib/members";
+import type { SendNudge } from "@/lib/send-nudge-state";
 import { useTableSession } from "@/lib/useTableSession";
 import {
   useCartRealtime,
@@ -195,6 +197,13 @@ type CartCtx = {
    *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
    *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
   settling: boolean;
+  /** PD1 — a guest's "Let {host} know" stamp standing on the cart (the view's `sendNudge`), or
+   *  null. The host's order bar reads "Someone's waiting" while it stands (lib/cart-bar-state). */
+  sendNudge: SendNudge | null;
+  /** PD10 — the latest applied view's DATABASE clock (`getCartView.dbNow`, ISO), or null before the
+   *  first view: the menu's kitchen strip reads every stage against it (`lib/kitchen-track.ts` via
+   *  `lib/live-pass`), never this phone's clock. */
+  dbNow: string | null;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -260,6 +269,11 @@ export function TableCartProvider({
   const [items, setItems] = useState<CartItem[]>([]);
   const [totals, setTotals] = useState<CartTotals | null>(null);
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
+  // PD1 — a guest's "Let {host} know" stamp, read from every applied view (advisory; cleared by the
+  // fire). The order bar's line 2 reads it on the HOST's /menu.
+  const [sendNudge, setSendNudge] = useState<SendNudge | null>(null);
+  // PD10 — the applied view's DB clock: what the kitchen strip's stages are read against.
+  const [dbNow, setDbNow] = useState<string | null>(null);
   const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   // T14 — the VIEWER's own seat, from the same `assertCartMember` call that produced `lockedBy`, so
@@ -441,6 +455,8 @@ export function TableCartProvider({
       // `normalizePickupSlot`; reading the raw column here made the menu greeting say "Scheduled for
       // <time>" for a time the diner never chose while /cart said ASAP for the same cart.
       setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
+      setSendNudge(v.sendNudge);
+      setDbNow(v.dbNow ?? null);
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
@@ -529,6 +545,17 @@ export function TableCartProvider({
     // The rows come back WITH the verdict — never re-read from `itemsRef` here (see `readView`).
     return (await readView()).items;
   }, [readView]);
+
+  // PD10 — ONE re-read when the CLOCK alone will move a dish on the kitchen strip (a Send leaving its
+  // grace, a bump leaving Mom's undo window), measured on the view's DB clock — the same rule and the
+  // same function the Bill's live pass uses (`settleRereadDelayMs`), so the menu's strip and the
+  // Bill's pass never disagree about a dish for longer than a read. Null schedules nothing.
+  const settleRereadMs = settleRereadDelayMs(items, dbNow ? Date.parse(dbNow) : null);
+  useEffect(() => {
+    if (settleRereadMs === null) return;
+    const id = window.setTimeout(() => void refresh(), settleRereadMs);
+    return () => window.clearTimeout(id);
+  }, [settleRereadMs, refresh]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
   // pattern: sync React from an external system), with a cancel guard against an unmounted update.
@@ -1644,6 +1671,8 @@ export function TableCartProvider({
       lockedByName,
       lockedByYou,
       settling,
+      sendNudge,
+      dbNow,
     }),
     [
       cartId,
@@ -1674,6 +1703,8 @@ export function TableCartProvider({
       lockedByName,
       lockedByYou,
       settling,
+      sendNudge,
+      dbNow,
     ],
   );
 

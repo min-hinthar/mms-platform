@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
+import { SAME_GESTURE_MS } from "@mms/ui";
 import type { getCartView } from "@/lib/cart";
 
 /**
@@ -25,6 +26,7 @@ const h = vi.hoisted(() => ({
   sendToKitchen: vi.fn(),
   undoFire: vi.fn(),
   counterPayOutcome: vi.fn(),
+  requestCounterPay: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -43,11 +45,15 @@ vi.mock("@/lib/cart", () => ({
 vi.mock("@/lib/bind-table", () => ({ bindTable: vi.fn() }));
 vi.mock("@/lib/counter-pay", () => ({
   counterPayOutcome: h.counterPayOutcome,
-  requestCounterPay: vi.fn(),
+  requestCounterPay: h.requestCounterPay,
   withdrawCounterPay: vi.fn(),
 }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+// PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
+vi.mock("@/lib/send-nudge", () => ({
+  nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
+}));
 vi.mock("@mms/ui", async (orig) => ({
   ...(await orig<typeof import("@mms/ui")>()),
   NumberFlow: ({ value }: { value: number }) => <span>{value}</span>,
@@ -72,6 +78,18 @@ vi.mock("./WalletChip", () => ({ WalletChip: () => null }));
 vi.mock("./menu/BlurUpImage", () => ({ BlurUpImage: () => null }));
 vi.mock("./menu/PhotoPlaceholder", () => ({ PhotoPlaceholder: () => null }));
 vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart }));
+// PD2 — these cases pin the Bill after C2's flip (Pay · $X, docked and SERVED-GATED since PD10);
+// the shipped PARKED Bill is Checkout.test.tsx's "PD2" describe. The door runs OPEN here unless a
+// case parks it (`flags.phonePayOpen = false`) to pin the counter-only Bill's own grace edge.
+const flags = vi.hoisted(() => ({ phonePayOpen: true }));
+vi.mock("@/lib/surfaces", async (orig) => {
+  const real = await orig<typeof import("@/lib/surfaces")>();
+  return {
+    ...real,
+    surfaceOpen: (k: Parameters<typeof real.surfaceOpen>[0]) =>
+      k === "dineInPhonePay" ? flags.phonePayOpen : real.surfaceOpen(k),
+  };
+});
 
 const { Checkout } = await import("./Checkout");
 
@@ -91,6 +109,14 @@ const DRAFT: CartItem = {
   fulfillment: "dinein",
 };
 const FIRED: CartItem = { ...DRAFT, lineState: "fired" };
+/** PD10 — the views' DB clock, and the dish SERVED past Mom's undo window on it (D5's open door). */
+const DB_NOW = "2026-10-08T10:00:00.000Z";
+const SERVED: CartItem = {
+  ...DRAFT,
+  lineState: "served",
+  fireAt: "2026-10-08T09:40:00.000Z",
+  bumpedAt: "2026-10-08T09:50:00.000Z",
+};
 
 const TOTALS: CartTotals = {
   subtotalCents: 1200,
@@ -119,6 +145,11 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: 7,
+    sendNudge: null,
+    nudgeReady: true,
+    serverNow: "2026-10-08T10:00:00.000Z",
+    dbNow: "2026-10-08T10:00:00.000Z",
+    mode: "dinein",
     ...over,
   } satisfies View;
 }
@@ -163,11 +194,17 @@ function mount(items: CartItem[] = [DRAFT]) {
       initialItems={items}
       initialTotals={TOTALS}
       initialMySeat={MY_SEAT}
+      initialDbNow={DB_NOW}
       splitContext={HOST}
     />,
   );
 }
 
+/** PD2 · PD1 (P2y) — the Send→Undo relabel holds taps for `SAME_GESTURE_MS` (the double-tap's
+ *  second half); a test that presses the new Undo waits that gesture out first, in real time. */
+async function afterGesture() {
+  await new Promise((r) => setTimeout(r, SAME_GESTURE_MS + 20));
+}
 async function press(name: string | RegExp) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -184,16 +221,18 @@ const okIntent = () =>
     headers: { "Content-Type": "application/json" },
   });
 
-/** Everything already with the kitchen: opens on the Bill with a LIVE Pay. */
+/** Everything SERVED past Mom's undo window: opens on the Bill with a LIVE Pay (PD10 · D5 — a dish
+ *  only sent, or still cooking, holds it). */
 function mountAllSent() {
-  h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+  h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
   window.history.replaceState(null, "", "/cart?cart=cart-1");
   return render(
     <Checkout
       cartId={CART}
-      initialItems={[FIRED]}
+      initialItems={[SERVED]}
       initialTotals={TOTALS}
       initialMySeat={MY_SEAT}
+      initialDbNow={DB_NOW}
       splitContext={HOST}
     />,
   );
@@ -203,8 +242,8 @@ function mountAllSent() {
 async function sendAndOpenGrace(receipt: typeof SENT = SENT) {
   h.sendToKitchen.mockResolvedValue(receipt);
   h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
-  await press(/^Send to kitchen · 1 item/);
-  await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+  await press(/^Send to kitchen(?! now)/);
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
 }
 
 const payReason = () => {
@@ -215,6 +254,7 @@ const payReason = () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  flags.phonePayOpen = true;
   h.getCartView.mockResolvedValue(view());
   h.counterPayOutcome.mockResolvedValue({ kind: "open" });
 });
@@ -241,16 +281,37 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     expect(document.body.textContent).not.toContain("Hold on");
     // The receipt rows render on the Bill.
     expect(screen.getByRole("list", { name: "Your bill" })).toBeTruthy();
-    // MUTATION (checkout-verb/grace-does-not-wait-pay): Pay reads live during the grace and mints
-    // over lines the diner can still pull back; red.
+    // Pay is held — and since PD10 (D5) by the KITCHEN, which outranks the grace: the line inside
+    // its undo window is "sending", and the window closes onto food that is only sent, not served,
+    // so "Pay opens when the undo window closes" would be a promise the next instant breaks. (The
+    // grace arm itself is pinned in lib: `checkout-verb/grace-does-not-wait-pay`.)
     const { pay, reason } = payReason();
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     expect(pay.hasAttribute("disabled")).toBe(false);
-    expect(reason).toContain("Pay opens when the undo window closes.");
+    expect(reason).toContain("Pay opens once everything’s served.");
+    // The counter is held too, but by the UNDO WINDOW, never the kitchen (D5) — so it says its own
+    // reason, tied to it, and Pay's kitchen line never stands alone as the counter's (the capped
+    // blind pass on #346, C3).
+    const counter = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const counterLineId = counter.getAttribute("aria-describedby");
+    expect(counterLineId).toBe("pay-counter-line");
+    expect(document.getElementById(counterLineId!)?.textContent).toBe(
+      "Pay at the counter once the undo window closes.",
+    );
     await act(async () => {
       fireEvent.click(pay);
     });
-    expect(regionText()).toContain("Pay opens when the undo window closes.");
+    expect(regionText()).toContain("Pay opens once everything’s served.");
+    // Each blocked tap re-says ITS control's reason.
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50)); // the refusal's frame
+    });
+    expect(regionText()).toContain("Pay at the counter once the undo window closes.");
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -261,7 +322,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await sendAndOpenGrace();
     await press("Total · $12.00 — View bill");
     // ONE Undo on screen, above the receipt.
-    const undos = screen.getAllByRole("button", { name: /^Undo — \d+s$/ });
+    const undos = screen.getAllByRole("button", { name: /^Undo/ });
     expect(undos).toHaveLength(1);
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
     await act(async () => {
@@ -271,7 +332,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     // the grace is clawed back; red.
     expect(h.undoFire).toHaveBeenCalledWith(CART, BATCH);
     await waitFor(() => expect(regionText()).toContain("Brought back to your order"));
-    expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
   });
 
   it("an undo whose re-sync is still out keeps Pay HELD with the grace sentence; when the read lands, the drafts it put back hold Pay with theirs — never a mint", async () => {
@@ -283,14 +344,17 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     h.undoFire.mockResolvedValue({ ok: true });
     const slowSync = deferred<View>();
     h.getCartView.mockReturnValueOnce(slowSync.promise);
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(regionText()).toContain("Brought back to your order"));
     // MUTATION (undo-grace/window-closes-before-the-re-sync): the window shuts on the ANSWER — the
     // Undo is gone, Pay reads live over a line the view still shows `fired`, and a tap mints; red.
-    expect(screen.getByRole("button", { name: "Bringing it back…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Bringing it back…/ })).toBeTruthy();
     const { pay, reason } = payReason();
     expect(pay.getAttribute("aria-disabled")).toBe("true");
-    expect(reason).toContain("Pay opens when the undo window closes.");
+    // PD10 · D5 — the view still shows the line `fired`: the kitchen holds Pay (it outranks the
+    // grace), so a tap can never mint over a line the undo may bring back.
+    expect(reason).toContain("Pay opens once everything’s served.");
     await act(async () => {
       fireEvent.click(pay);
     });
@@ -303,16 +367,16 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /Bringing it back/ })).toBeNull(),
     );
-    expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
     const after = payReason();
     expect(after.reason).toContain(
-      "Send everything to the kitchen first — then the bill is ready to pay.",
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
     await act(async () => {
       fireEvent.click(after.pay);
     });
     expect(regionText()).toContain(
-      "Send everything to the kitchen first — then the bill is ready to pay.",
+      "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
@@ -346,8 +410,8 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     mount();
     await sendAndOpenGrace(SHORT_GRACE);
     // The hook parked focus on the Undo when the window opened (B4).
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Undo — \d+s$/ }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull(), {
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Undo/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull(), {
       timeout: 3000,
     });
     // MUTATION: drop the `focusWasLost()` landing — the Undo unmounted under the reader and focus
@@ -362,29 +426,58 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     mount();
     await sendAndOpenGrace();
     await press("Total · $12.00 — View bill");
-    const undo = screen.getByRole("button", { name: /^Undo — \d+s$/ });
+    const undo = screen.getByRole("button", { name: /^Undo/ });
     undo.focus();
     expect(document.activeElement).toBe(undo);
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /Bringing it back|^Undo — / })).toBeNull(),
+      expect(screen.queryByRole("button", { name: /Bringing it back|^Undo/ })).toBeNull(),
     );
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 })),
     );
   });
 
-  it('"Ready to pay." is said once when the window ELAPSES on the Bill with nothing else holding Pay', async () => {
+  it('"Ready to pay." is said once when the window ELAPSES on the counter-only Bill with nothing else holding its door', async () => {
+    // The shipped (PARKED) Bill: its one door is the counter, which the grace holds and the kitchen
+    // never does — so the elapse is the moment its door comes alive.
+    flags.phonePayOpen = false;
     mount();
     await sendAndOpenGrace(SHORT_GRACE);
     await press("Total · $12.00 — View bill");
     await waitFor(() => expect(regionText()).toContain("Ready to pay."), { timeout: 3000 });
-    expect(payReason().pay.getAttribute("aria-disabled")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
   });
 
-  it("…and never over a standing counter ask — the counter card is the Bill's hero and Pay is not on screen", async () => {
+  it("PD10 · D5 — after the flip the elapse opens NOTHING: the sent dish still holds Pay, and 'Ready to pay.' waits for the food", async () => {
+    mount();
+    await sendAndOpenGrace(SHORT_GRACE);
+    await press("Total · $12.00 — View bill");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull(), {
+      timeout: 3000,
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50)); // the edge's frame
+    });
+    expect(regionText()).not.toContain("Ready to pay.");
+    const { pay, reason } = payReason();
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
+    expect(reason).toBe("Pay opens once everything’s served.");
+    // The counter is never gated by served (D5): live the moment the grace has gone.
+    expect(
+      screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
+  it("…and never over a standing counter ask — the counter pass is the Bill and Pay is not on screen", async () => {
+    // Parked, where the grace edge can still say "Ready to pay." (after the flip the kitchen holds
+    // Pay through the elapse, so the guard below could not be seen to matter there).
+    flags.phonePayOpen = false;
     const asked = "2026-10-04T11:59:00.000Z";
     h.getCartView.mockResolvedValue(view({ counterRequestedAt: asked }));
     window.history.replaceState(null, "", "/cart?cart=cart-1");
@@ -396,15 +489,16 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
         initialMySeat={MY_SEAT}
         initialCounterRequestedAt={asked}
         splitContext={HOST}
+        initialDbNow={DB_NOW}
       />,
     );
     h.sendToKitchen.mockResolvedValue(SHORT_GRACE);
     h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: asked }));
-    await press(/^Send to kitchen · 1 item/);
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+    await press(/^Send to kitchen(?! now)/);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
     await press("Total · $12.00 — View bill");
     expect(screen.queryByRole("button", { name: /^Pay · / })).toBeNull();
-    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull(), {
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull(), {
       timeout: 3000,
     });
     // MUTATION (checkout/ready-to-pay-over-a-counter-ask): drop the `counterAt` guard — "Ready to
@@ -428,20 +522,22 @@ describe("Phase 3c-i (D13 · D14) — one hero per state, one morph target per v
     // MUTATION (checkout/two-heroes-on-the-order-stage): the door wears `.checkout-cta` while the
     // hero is Send or Undo — two filled verbs on one stage; red (count 1 → 2 above, 0 → 1 here).
     expect(document.querySelectorAll(".checkout-cta")).toHaveLength(0);
-    expect(
-      screen.getByRole("button", { name: /^Undo — /i }).classList.contains("checkout-cta"),
-    ).toBe(false);
+    expect(screen.getByRole("button", { name: /^Undo/ }).classList.contains("checkout-cta")).toBe(
+      false,
+    );
     expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
   });
 
-  it("everything sent (no grace): the Total door is the filled hero, reading 'View bill & pay · $X'", async () => {
+  it("everything SERVED (no grace): the Total door is the filled hero, reading 'View bill & pay · $X'", async () => {
     window.history.replaceState(null, "", "/cart?cart=cart-1");
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
     render(
       <Checkout
         cartId={CART}
-        initialItems={[FIRED]}
+        initialItems={[SERVED]}
         initialTotals={TOTALS}
         initialMySeat={MY_SEAT}
+        initialDbNow={DB_NOW}
         splitContext={HOST}
       />,
     );
@@ -458,23 +554,50 @@ describe("Phase 3c-i (D13 · D14) — one hero per state, one morph target per v
     expect(document.body.textContent).toContain("Your order’s with the kitchen.");
   });
 
-  it("everything sent under a STANDING counter ask: the hero door reads 'View bill' — the Bill it opens has no Pay (Codex round 3 on #313)", async () => {
-    const asked = "2026-10-04T11:59:00.000Z";
-    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: asked }));
+  it("PD10 · D5 — everything SENT but not served: the hero door reads 'View bill' — the Bill it opens holds Pay", async () => {
     window.history.replaceState(null, "", "/cart?cart=cart-1");
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
     render(
       <Checkout
         cartId={CART}
         initialItems={[FIRED]}
         initialTotals={TOTALS}
         initialMySeat={MY_SEAT}
+        initialDbNow={DB_NOW}
+        splitContext={HOST}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Back to your order/i }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const door = await screen.findByRole("button", { name: "View bill · $12.00" });
+    expect(door.classList.contains("checkout-cta")).toBe(true);
+    expect(screen.queryByRole("button", { name: /View bill & pay/ })).toBeNull();
+  });
+
+  it("everything sent under a STANDING counter ask: the hero door reads 'View bill' — the Bill it opens has no Pay (Codex round 3 on #313)", async () => {
+    const asked = "2026-10-04T11:59:00.000Z";
+    // Everything SERVED (PD10 · D5): the one state in which nothing else holds Pay, so only the ask
+    // can be what keeps the door from promising "& pay".
+    h.getCartView.mockResolvedValue(view({ items: [SERVED], counterRequestedAt: asked }));
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    render(
+      <Checkout
+        cartId={CART}
+        initialItems={[SERVED]}
+        initialTotals={TOTALS}
+        initialMySeat={MY_SEAT}
+        initialDbNow={DB_NOW}
         initialCounterRequestedAt={asked}
         splitContext={HOST}
       />,
     );
     expect(screen.queryByRole("button", { name: /^Pay · / })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Back to your order/i }));
+    // The ask is the counter pass, whose only way back is its withdraw (PD2 decision 8) — so the
+    // Order stage is reached the way a phone's Back button reaches it.
     await act(async () => {
+      window.history.back();
       await new Promise((r) => setTimeout(r, 20));
     });
     // MUTATION (checkout/door-ignores-the-counter-ask): `billDoorLabel(block)` alone — "View bill &

@@ -1107,3 +1107,375 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    tip, the close edge clears both the preset and any custom tip, so a reopened door starts with no tip
    selected, exactly as the design promises. A component case pins it: a tip chosen, the gate closes and
    reopens, and nothing is pre-selected.
+
+### H · Build notes (2026-10-08, `claude/feat/pd-pass-primitives`) — the ONE PASS and the ONE KITCHEN TRACK primitives
+
+PATH_DESIGN's Sequencing step 2, built by the post-pay stream: `CounterPass` and `KitchenTrack` in
+`@mms/ui` (`packages/ui/src/counter-pass.tsx`, `kitchen-track.tsx`, `pass.css`, exported as
+`@mms/ui/pass.css` and imported by `apps/qr/app/globals.css`). No consumer is wired: the streams
+render them (PD1, PD2, PD3, PD6, PD9, PD10, PD11, PD12). `lib/kitchen-track.ts` (the stage derivation)
+stays kitchen-ops'. This section is what the other streams read; the vocabulary in PATH_DESIGN round 3
+wins over it where they disagree.
+
+**`CounterPass` — the prop surface (final).**
+
+- `tier: "holder" | "counter" | "tv"` — the 40px `.exit-pass-code` face read by the holder;
+  `--fs-pass` held up across the counter or the room; the TV (a `table` figure pinned at
+  `--fs-pass`, never a clamp; a `code` at the board's 54px row).
+- `orientation?: "portrait" | "landscape"` (default portrait) — landscape puts the whole head on the
+  LEFT as the stub behind a vertical perforation (the TV, the seal's #CODE stub).
+- **The identity is a union** (`PassIdentity`): EITHER `figure` + `figureKind` (+ `figureSpoken`) OR
+  `fallback: { en; my? }` — never both, never neither (the type refuses it).
+- `figure: string` · `figureKind: "table" | "code"` — ONE identity figure, printed once: `table` is
+  Fraunces 600 tabular (`--font-display`, `--fw-semibold`, `--track-display`); `code` (a code or a
+  time) is the Hanken 800 code face (`--fw-heavy`, `--track-wide`, tabular). At the `counter` / `tv`
+  tiers a `table` of three or more characters (either orientation) and a `code` of five or more
+  glyphs (portrait only; a landscape stub grows) step down to `--fs-display` with no wrap
+  (`data-figure-long`); the holder's 40px never steps.
+- `label: { en; my }` · `lang: "en" | "my"` — the two-tongue label over the figure; the lead
+  tongue prints first ("စားပွဲ · Table" under `my`, "Table · စားပွဲ" under `en`); the Burmese is
+  `--font-my` at full ink (`--pass-ink`, `--fs-h2` at the counter/TV tiers, `--fs-lead` on the
+  holder tier), the English in `--pass-ink-2`.
+- `figureSpoken?: string` — what assistive tech hears for the figure when it should not be read as
+  a word (a code, spelt: `"7 C 2 E 9 A"`); the visible figure is then `aria-hidden`.
+- `fallback: { en: string; my?: string }` — the FIGURELESS identity (m11 §Example data: a table not
+  yet bound, or the guide opened from Account, reads "Your table" and draws no figure). The host's own
+  words are drawn in the figure's place at the label tier (`--fs-h3` on the holder, `--fs-h1` across
+  the counter), lead tongue first at full ink; a second tongue, if given, sits beneath in ink-2 and is
+  decorative. No `.ui-pass-figure`, no label, no dot; `data-figure="none"`; the pass's name is the
+  lead tongue's words ("Your table" / "သင့်စားပွဲ"). Codex round 1 on #327 (P2).
+- `head?: ReactNode` — the status slot (a `KitchenTrack size="glyph"` with its word). In the head
+  the track's English word runs as the kicker (`--fs-xs`, uppercase, `--track-eyebrow`), the
+  Burmese at `--fs-sm`. Never derived here.
+- `stub?: ReactNode` — the stub's small fields (a `<dl>`). Portrait: a side stub on the right of the
+  head behind a vertical 2px dotted perforation that runs through the head only, with ONE notch on
+  the top edge (m10's recipe); its ground is `color-mix(in srgb, var(--pass-ink) 6%, var(--pass-paper))`
+  (≈ `--sf`'s weight), its fields `--pass-ink-3` at `--fs-sm` 700. Landscape: the fields sit under
+  the figure inside the left stub, no tint.
+- `children?: ReactNode` — the body (rows, money rows, the total), `padding: var(--s1) var(--s4)
+var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM renders: a 16px
+  strip with the dotted rule inset `--s4` from each side and the two side bites (portrait), or a
+  16px vertical strip with bites at the top and bottom edges (landscape).
+- `seam?: "2px" | "4px"` — defaults by tier (4px on the TV).
+- `terminal?: "paid" | "ready"` — the ONLY ✓ a pass draws: `paid` stamps the stub (the 44px stamp:
+  a `--pass-paper` disc ringed in `--pass-ok` 2.5 with the check drawn at 4, m10's recipe; the
+  stub's ground turns `--pass-okb` in portrait); `ready` draws the same stamp at 20px at the head of
+  the status row (m3's kicker). Nothing else, ever: a non-terminal pass renders no `<svg>` and no ✓.
+  **The TV never draws one** (decision 19): `tier` and `terminal` are one union, `PassTierTerminal`,
+  whose `tv` arm takes no `terminal`, and a cast pair is dropped at runtime.
+- `tear?: boolean` — the torn foot (`.receipt-tear`'s mask on the pass's own paper; the paper drops
+  its bottom edge and radius).
+- `inert?: boolean` — a guide picture: `aria-hidden`, the `inert` attribute, no ids, the identity a
+  `<p>`, `pointer-events: none`; the host scales it with one uniform transform.
+- `turning?: "head" | "figure"` — plays the TURN once: on the head (X axis: a stage completes, m9
+  and m10) or on the figure (Y axis: m3's time → code).
+- `stamping?: boolean` — plays STAMP on the ✓ (ring `--dur-slow` on `--spring`, the check drawn
+  `--dur-slow` from 150ms), then PRINT from 640ms: the tail (seam + body) reveals top → bottom over
+  1.05s, and the torn foot prints last in `--dur-fast`, so the print head reaches it after the body. **Paid only:**
+  on a pass that is not `terminal="paid"` the hook is inert — no `data-stamping`, nothing plays
+  (Codex round 1 on #327: STAMP then PRINT is "Paid only" in the ONE MOTION LANGUAGE).
+- `as?: "section" | "article" | "li" | "div"` (default section; a `div` takes `role="group"`) ·
+  `headingLevel?: 2 | 3 | 4` (default 2) · `id?` (the heading's id; defaults to a React id) ·
+  `className?` · `style?`.
+- Rendered attributes a host may style on: `data-tier`, `data-orientation`, `data-seam`,
+  `data-figure`, `data-figure-long`, `data-terminal`, `data-tear`, `data-inert`, `data-turning`,
+  `data-stamping`, `data-lang`. The parts: `.ui-pass-paper` · `-head` · `-main` · `-status` ·
+  `-identity` · `-label` (`-label-my` / `-label-en` / `-label-dot`) · `-figure` (`-figure-table` /
+  `-figure-code`) · `-stub` · `-stamp` · `-tail` · `-seam` · `-body` · `-notch` · `-tear`.
+- a11y: the pass is named by its heading (`aria-labelledby`), and that name is the lead tongue's
+  label + the figure ONCE ("Table 7" / "စားပွဲ 7"): the visible two-tongue label is `aria-hidden`.
+  Notches, seam, tear and the stamp are `aria-hidden`; the host's status word carries the state.
+  The pass hosts no controls.
+- Material: `--pass-paper`, a 1px edge of `color-mix(in srgb, var(--pass-ink) 18%, transparent)`,
+  `--r-card`, `--sh-paper` (the one theme token: the shadow falls on the host's ground). Notches are
+  `--pass-hole` with the hairline only on their inner arc, so the half outside the paper vanishes
+  into the host's ground (m3 C's "the surrounding fill, no ring").
+
+**`KitchenTrack` — the prop surface (final).**
+
+- `stage: KitchenStage` = `"unsent" | "sending" | "sent" | "cooking" | "served"` (exported; the
+  kitchen-ops `lib/kitchen-track.ts` types against it). `KITCHEN_STAGES`, `TRACK_SEGMENTS` (3) and
+  `kitchenTrackLit(stage)` (0 · 0 · 1 · 2 · 3) are exported.
+- `size: "glyph" | "row" | "tv" | "stub"` — 14×5 · 28×6 · 36×8 · 16×6 per segment (gaps 2 · 3 · 4 ·
+  3; the ring 12 · 14 · 20 · 14).
+- `surface?: "pass" | "theme"` (default pass) — the palette: `--pass-unlit / -ink-2 / -ink / -ok`
+  on the paper; `--bd / --t2 / --tx / --ok` on a themed surface (Dad's pane, the KDS key). An
+  explicit prop, not an inherited variable: a track dropped inside a pass's subtree would otherwise
+  inherit the pass inks silently, and a prop renders as `data-surface`, which a static test reads.
+- `word?: { en; my }` · `lang?: "en" | "my"` (default en) · `echo?: boolean` (default true;
+  `false` prints the lead tongue only — the TV's rows). The word takes its segments' ink
+  (`.ui-track-word`, `--fw-bold`; the Burmese in `--font-my`); the host sets its size.
+- `filling?: boolean` — the caller observed the stage LAND: the new segment FILLs once
+  (`scaleX` from the inline start over `--dur-slow`). Ignored for the ring and the dashed grace. An
+  un-fill is instant: render the earlier stage without `filling`.
+- `aria-label?: string` — with no word, the track is one `role="img"` named by it. With a word, the
+  segments are decorative and the word is the state. With neither, the track is decorative. Never a
+  live region. `word` and `aria-label` together are refused by the type (`KitchenTrackName`).
+- Rendered: `data-stage`, `data-size`, `data-surface`, `data-filling`; `.ui-track-segs` with three
+  `.ui-track-seg` (`data-lit`, `data-dashed`, `data-landing`), or `.ui-track-ring`.
+
+**Decisions made under the owner's delegation (decided by: the post-pay stream).**
+
+1. **Portrait keeps the stub on the RIGHT** (m10's head: main | stub); **landscape puts it LEFT**
+   (round 3's TV, m6's seal). B4's "put the stub on the left" is applied as the landscape rule the
+   vocabulary states ("Landscape (stub left)"); a phone pass keeps the wallet pass's tear-off side.
+2. **No inset sheen on the paper.** The kit's `--sheen` is a theme token (0.55 → 0.11 in Night), and
+   55% white over `#fffdf8` is `#fffefb` — imperceptible on this paper. The pass keeps `--sh-paper`
+   only; the brief's "inset sheen + `--sh-paper`" loses its no-op half.
+3. **The side stub's ground is a mix, not a tenth token** (`--pass-ink` 6% over `--pass-paper`):
+   the nine inks carry no `--sf` twin, and guards-style's file is closed to this stream.
+4. **The 40px and 54px tiers live on `.ui-pass` as component-scoped properties**
+   (`--pass-fs-holder: 2.5rem`, `--pass-fs-tv: 3.375rem`), the way the KDS declares `--kfs-*` on
+   `.kds-root`: three tiers, one place each; `tokens.css` untouched; the style-literal ratchet holds
+   its baseline (custom-property definitions are the token layer).
+5. **The accessible name is one tongue.** The brief's "the figure is read once … one name" is met by
+   hiding the visible two-tongue label from assistive tech and naming the pass from the lead tongue's
+   label + the figure. A screen reader in Burmese hears "စားပွဲ 7"; in English "Table 7".
+6. **TURN is one element, keyed by the host — the new face only.** `turning="head"` animates the
+   head's MAIN (the status row + the identity: the cell m9 and m10 mean by "the status cell TURNs");
+   the stub's small fields never move. The host keys the turning part on the stage, so the commit
+   swaps the face and the flap plays once: the NEW face folds edge-on over `--dur-base` ease-in, then
+   falls back in from its hinge over `--dur-base` `--ease-out`. A split-flap's out-half with the OLD
+   face is not drawn — one keyed element cannot show a face that is gone at the commit — so what
+   ships is the fold-and-fall of the face that arrived. The X axis hinges at the top (the head's
+   perspective on `.ui-pass-head`), the Y axis at the centre (the figure's perspective on its own
+   parent, `.ui-pass-identity`).
+7. **PRINT is sequential across the paper's edge.** The tail prints inside the paper; the torn foot
+   is a sibling outside it (its mask cannot punch the paper's own edge), so it prints last in
+   `--dur-fast` after the body's 1.05s — one print head, never two reveals at once. **The rest clip is
+   the base:** the tail and the tear rest at `clip-path: var(--pass-print-rest)` (`inset(-8px)`, which
+   admits the notches' 7px overhang), and both PRINT keyframes end exactly there, so "base = final
+   frame" holds and no notch is shaved after a print (the blind pass on #327).
+8. **The stamped stub's `--pass-okb` wash is portrait-only** (the dine-in pass, m10 screen 3). A
+   landscape stub keeps paper; the seal's own green body is the host's.
+9. **`terminal="ready"` draws the stamp in the head** at 20px before the host's kicker word (m3 B4:
+   "Ready reads through the ✓ kicker word"); round 3 wins over m3 B9's "remove the ✓ from the kicker".
+10. **A themed host may override `--trk-ink` on its own element** for m1 A8's `--warn` ring on Dad's
+    console ("not sent" is the one MARK-tier case). Never gold or accent: `pass-css.test.ts` refuses
+    both in every rule, and the override is the host's own line to defend.
+11. **`echo={false}` is the TV's two-scripts rule**, not a new chip: one tongue, no dot.
+12. **`inert` keeps the real DOM** (the heading becomes a `<p>`, ids are dropped): the host scales the
+    picture, so a guide shows the real pass at the holder tier under one transform (m11 B6, m12).
+13. **The figureless identity is a union arm, not an empty figure** (Codex round 1 on #327). An empty
+    `figure` would keep the label and the dot, and words passed as a figure would take the code face;
+    so `fallback` is its own arm, drawn at the label tier with nothing else, and the type refuses a
+    pass with no identity or two. The second tongue is optional because m11's page 1 draws the English
+    alone; a host that passes a Burmese "Your table" files it as its own K15 draft.
+14. **`stamping` is inert off a Paid pass** (Codex round 1 on #327). The hook is the host's, but the
+    language's "STAMP then PRINT: Paid only" is the primitive's to keep: `data-stamping` renders only
+    with `terminal="paid"`, so a Ready ticket or a live pass handed the flag plays nothing.
+15. **A code steps down on a portrait paper, from five glyphs** (the blind pass on #327). Seven glyphs
+    of 88px Hanken 800 overflow a 390px phone, so at the `counter` / `tv` tiers a `code` of ≥ 5 glyphs
+    takes `data-figure-long` (→ `--fs-display`) in PORTRAIT; a landscape stub grows to its code
+    instead, so m6's seal keeps its #CODE at `--fs-pass` (m6 D2). A table steps down from three
+    characters in either orientation (a three-digit table at 88px overflows the TV's 136px stub).
+16. **`KitchenTrack` refuses `word` + `aria-label` together** (the blind pass on #327): two names
+    for one fact. `KitchenTrackName` is a union — the word (with `lang` / `echo`) OR the label —
+    pinned by `@ts-expect-error` in its suite. `data-landing` is rendered only while a FILL plays,
+    so an un-fill, a first read or a revisit carries no mark at all.
+17. **An empty fallback tongue is a missing tongue; no tongue is refused.** `fallback: { en: "" }`
+    with a Burmese tongue names the pass in Burmese; `{ en: "", my: "" }` (or whitespace) throws
+    `CounterPass: fallback needs at least one non-empty tongue` — a pass with an empty name is an
+    a11y defect, never a render (fail fast). The type cannot express non-empty, so it is a runtime
+    refusal with a test.
+18. **A pass never nests.** The body holds rows, never a pass. The guard sits on the paper rule
+    (`.ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper`, `:where()` keeping the specificity at
+    one class): a nested pass draws no ground, no edge and no shadow, so the mistake shows at once
+    rather than half-styling; the suite pins the selector.
+19. **The TV never draws ✓** (Codex round 3 on #327). `tier` and `terminal` were independent props,
+    so `<CounterPass tier="tv" terminal="ready">` drew the check the ONE PASS keeps off the wall —
+    exactly PD9's Ready pickup row, where Ready is the state shown and the pass stays check-free.
+    The pair is one union (`PassTierTerminal`, exported from the barrel): its `tv` arm takes no
+    `terminal`, and a cast one is dropped (`terminal` reads `undefined` on the TV, so neither the
+    stamp nor `data-terminal` renders). The board says Ready in words and the track's lit ok
+    segments. `KitchenTrackName` reaches the barrel by name in the same round, so a stream models
+    word-vs-label through `@mms/ui` (the package has one entry, no subpath).
+
+**Appendix C items taken.** m2 C's three-digit fallback (step down to `--fs-display`, no wrap); m9
+C's "pin `--fs-pass` and let board-fit step down" (D1 confirmed it; a test refuses `clamp(` on any
+figure rule) and its "a first appearance renders at its final frame with no FILL" (every hook is
+off by default); m10 C's "label the on-load FILL demo-only" (the primitive never animates on mount);
+m3 C's notch as the surrounding fill with no ring. **Not taken:** m1 C's larger dish-row tier on the
+pass — rows are the host's body, sized by the host. **What the code changes in the spec:** the ONE
+PASS recipe's hex and rgba literals are the `--pass-*` tokens and the mixes above (B3); the 96px head
+is the holder tier's `min-height`; the status row's 11/700 caps are `--fs-xs` + `--track-eyebrow` on
+the track's English word in the head context. **K15:** this PR ships no Burmese string — the
+primitives hold none; the test fixtures use the shipped `table.line.state.*` words and `floor.table`'s
+"စားပွဲ". **Not in this PR:** a `/kit` section (consumer wiring is the streams'); `lib/kitchen-track.ts`.
+
+### I · Build notes (2026-10-11, `claude/feat/pd10-live-pass`) — the live pass, and the served door behind the parked flag
+
+What diner-cart and money-rails built before C2. `SURFACES.dineInPhonePay` stays `false`: the flip is
+its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, the reading is here.
+
+**Shipped live (the counter-only Bill, today).**
+
+- `components/LivePass.tsx` renders the Bill's rows as the body of `CounterPass` (holder tier, torn
+  foot). The head is `rollUp`'s stage as a `KitchenTrack` glyph with its word. The stub holds Host and
+  Sent: Sent is `passSentAt` on the restaurant's clock (`passClock`, which folds ICU's narrow
+  no-break space so the server and the browser render the same bytes). Each dish row carries its
+  track and word in cart order. The foot is `orderTotalCents`. The words are
+  `DINER_STAGE_WORD` (`lib/line-state-copy.ts`): the guest's English, plus the console's Burmese for
+  the same stage.
+- The clock is `getCartView.dbNow`, which `mms_now()` reads in parallel with the cart row and before the
+  lines. If that read fails, the view falls back to the app server's time and logs an error. That
+  fallback is display only: the server gate never uses it. `bumped_at` now rides every view line
+  (`CartItem.bumpedAt`). A stage changes only on an applied view. `settleRereadDelayMs` schedules ONE
+  re-read for the moment the clock alone changes a stage: a fire leaving its grace, or a bump leaving
+  Mom's window, plus `GRACE_REREAD_MARGIN_MS`. The Bill and `TableCartProvider` both schedule it, so
+  the menu's `TableTimeline`, which now draws the track and the console words, agrees with the pass.
+- Motion is `lib/live-pass.ts` `planPassMotion`, planned once per applied view and played one step at
+  a time (PD9's player): FILL where a new segment lights, then TURN on the edge into Served, then the
+  door. Nothing plays on a first read or on the visibility re-read (`refreshForeground` marks that view
+  quiet; m10 A4). These are edges, never latches: a recall, then a re-serve, is news again.
+- The pay step's rows are the same pass, `boarded` (compact, no tracks), over the locked read's money
+  rows (`MoneyRows`, shared with the Bill).
+
+**Built behind the flag (reachable only once `dineInPhonePay` is true).**
+
+- `servedGateVerdict` · `servedGateDecision` · `holdsServedGate` (`lib/checkout-stage.ts`) state the hold
+  as "not served", so a state the rule does not know HOLDS. Precedence: a dine-in draft first
+  (`unsent` with a host, `hostless` without one), then a to-go draft (`togo`), then the kitchen. Mutants
+  separate it from `payBlockedByUnsent` three ways: a fired or cooking line, a hostless draft and a to-go
+  draft.
+- create-intent: `servedGateDecision(sess.mode, read, host_seat != null)` sits in the unsent refusal's
+  old slot, over `readServedGateInput` (`lib/unsent-read.ts`). That function reads `mms_now()` first,
+  then `state, fulfillment, fire_at, bumped_at`, and returns null if either read fails. Null is
+  `unreadable`, refused with 503 and the shipped "We’re having trouble on our end…". The read is spent
+  only for dine-in. The copy is `servedHoldCopy` with no host name, since the server knows the host's
+  seat, not the table's chosen name. The host's unsent refusal keeps the reload hint (#301).
+  `check:phone-pay-door` parses the wiring: one live decision on one awaited read, its `if` next,
+  refusing and freeing the lock, after the supersede and the parked door, before the pin and
+  `paymentIntents.create`, and no live `payBlockedByUnsent(`. Red-first: each of 14 violations turned
+  it red.
+- The Bill's Pay is docked (`components/PayDock.tsx`, `PayAtCounterDock`'s geometry): the one line
+  slot, then Pay, then the quiet counter. Held, Pay keeps its name and amount, is `aria-disabled`, and
+  is described by the slot. Every blocked tap re-says the reason in the one live region. `payBlock`'s
+  precedence is peer > unsent > served gate > grace. The kitchen outranks the grace, because a line
+  inside its undo window is `sending`, which the gate holds anyway. The counter reads `counterBlock`:
+  the same precedence with `servedHold: null`, so it is never gated by served.
+- No tip is asked, and no tip previewed, while the gate holds. The close edge clears the preset and
+  the custom tip; this is derived state, adjusted during render (Codex round 5). The door moment
+  (`.checkout-door-pop`, 0.96 → none over `--dur-fast` × 1.5, with an RM escort) plays only on an
+  observed held → open edge, and the view's one region says "Ready to pay." once.
+- `PaymentSection` `fold`: `cardFoldedAtReveal` latches ONCE at the reveal, so a late wallet folds
+  nothing. While folded, the card's note and submit hide behind the "Pay with card" disclosure
+  (`aria-expanded` / `aria-controls`, the form kept mounted). The skeleton predicts the folded height
+  from the wallet reserve (`PAY_FOLD_TOGGLE_PX`), and the folded geometry is never stored, because
+  `payElementReserve` refuses a height under 160. The quiet "Pay at the counter" leaves Pay through
+  `leavePay`, which releases the pay-window lock, then asks once the Bill is back (`payToCounter`). A
+  tablemate's lock landing between the two writes is said in Pay's words.
+
+**Readings the spec left open.**
+
+1. **No migration.** `mms_now()` and `qr_cart_items.bumped_at` exist, and both reads run on the
+   service client.
+2. **The view's clock is read before the lines**, the safe direction: a bump the rows carry can only
+   look younger, never older.
+3. **On the Bill, the pass head owns the "Not sent yet" mark.** The shared capsule and W19's note card
+   retire there, and the host keeps "Back to send them".
+4. **"On the house" sits on the state line beside the track**, since a comped dish still cooks.
+5. **The counter pass draws in both flag states.** Its withdraw reads "Changed your mind? Pay on your
+   phone" only while the served door is open, and "We’re not done yet" otherwise. `PayAtCounterButton`
+   and `PayAtCounterCard` retire for the dock's quiet counter.
+6. **`payBlockCopy("unsent")` is D5's wording without conditions.** Pay is drawn only while the door
+   is open, and the parked dock keeps PD2's own sentence.
+7. **The grace edge's "Ready to pay." is now reachable only while parked.** With the door open, a line
+   in its grace holds the gate, so the door moment says it instead.
+8. **A hostless table's Pay is held** with the server-and-counter reason. The counter itself is still
+   never gated.
+9. **One binding for the authoritative mode** (`gateMode = doorMode(viewMode, sessionMode)`), read by
+   the parked door, the served gate and the pay flow's post-drain re-ask.
+10. **The post-drain re-ask reads the render's clock**, which is never newer than the drained view.
+    It can hold more but never less (fail closed).
+
+**After the capped blind pass on #346 (REJECT on `7ba84c9`).**
+
+- **C1, live today.** `app/cart/page.tsx` never passed `initialDbNow`, so production opened every
+  Bill on the unknown clock: settled bumps read "Cooking", no settle re-read was scheduled, and the
+  first realtime self-heal replayed FILL and TURN for every dish (after the flip it would also have
+  POPped "Ready to pay." on every visit). The page now passes `view.dbNow`. The prop is REQUIRED on
+  `Checkout` (`initialDbNow: string | null`), so `tsc` refuses a call site that forgets it. A case
+  applies the same view once through the realtime self-heal and asserts nothing moves. Red-first:
+  without the prop, FILL, TURN and the POP all play.
+- **C2, behind the flag.** `staged` reads the authoritative mode: `isDineIn || gateMode === "dinein"`,
+  a superset of the old `isDineIn || phonePayOff`. With the door open and the split read missed, a
+  dine-in table had landed on the unstaged review: Pay held by the served gate ("…or pay at the
+  counter") with no counter drawn and no pass. The pay step's fold, counter and counter-door copy
+  read `staged` too. The Phase 1c list cases now mount views that say the mode they mean (pickup):
+  their split-less mounts beside a "dinein" view were that same staged table.
+- **C3, behind the flag.** The dock's counter, held, says ITS OWN reason (`counterHoldCopy`,
+  `lib/checkout-verb.ts`). When that reason is the slot's sentence (a lock, the register), the
+  counter is described by the slot. When it differs (the kitchen holds Pay while the undo window
+  holds the counter, or a Send is still owed), its own sentence is drawn directly above it
+  (`#pay-counter-line`, its `aria-describedby`), and every blocked tap re-says it. The undo window's
+  counter sentence is new: "Pay at the counter once the undo window closes." The extra line shows
+  only in that mixed state. It is always gone before the served door can open, so the door opening
+  still moves nothing.
+  **After Codex round 1 on #346** (its other two findings repeat C1 and C2):
+
+- **N1, live today.** The One Pass's dish rows had dropped the receipt line's charged options and the
+  diner's note. Each row now carries them again in the receipt line's own format ("Extra egg, Large ·
+  “no peanuts”", `.live-pass-dish-mods` in `--pass-ink-3`), on the full pass and the boarded pay
+  step alike. The payer can check what each line is charged for, and an allergy note stays in sight.
+- **N2.** The menu's kitchen strip counted lines still inside the Send's undo grace as "sent to
+  kitchen" and headed itself "with the kitchen" on them. `sending` is now its own stage there: it is
+  counted "N sending", and when nothing else is under way the headline is the family's word
+  ("Sending…" · ပို့နေပါတယ်…, `DINER_STAGE_WORD`). It also keeps `allServed` false.
+  **After Codex round 2 on #346** (the last triaged round):
+
+- **The host, when the Bill cannot read it, is UNKNOWN.** `servedGateHost` returns null when the split
+  context is missing or its member list is empty (the viewer is always a member). It never returns
+  `false`. A dine-in draft at such a table holds with its own reason, `unknownHost`: "Some dishes
+  haven’t gone to the kitchen yet — Pay opens once everything’s served." It never says `hostless`,
+  whose counter promise the counter's own read of the real `host_seat` refuses, and never `unsent`,
+  which would tell a guest to send. `create-intent` always knows `host_seat` and never reaches it.
+- **Boarded rows keep their words.** The pay step drops only the kitchen track and the owner.
+  "On the house", "Removed", "In your basket" and a to-go draft's sentence stay, because a
+  strikethrough alone is CSS a screen reader never hears, and it cannot tell a comp from a removal.
+- **A sequence the Bill leaves is dropped.** Leaving the Bill mid-FILL/TURN (back to the order, or
+  on to Pay) clears the queued steps and bumps the player's nonce. `passStep` going null cancels a
+  frame the door effect already scheduled. "Ready to pay." is never said on the Order screen, and
+  coming back is a revisit.
+- **A folded visit stores the wallet slot.** It keeps the open form's reserve (this device's, or the
+  312px fallback) and records `walletH`. A device whose first table visit folded now predicts the fold
+  next time, instead of drawing the full skeleton and collapsing.
+  **After Codex round 3 on #346** (fix-on-sight):
+
+- **An unknown clock reads fired lines as "sending" (defense).** `trackStage` reads every fired line
+  with a `fire_at` it cannot compare against the clock (the unknown clock `""`, or an unparseable
+  stamp) as "sending", never a false "sent" through a NaN comparison. It is unreachable today: the
+  menu's provider sets `items` and `dbNow` from the same view (its items start empty), and
+  `getCartView.dbNow` is a required string that falls back to the app clock. An unknown clock beside
+  fired lines would need a view without `dbNow`, which no current caller produces. With a known
+  clock a parseable fire time reads exactly as before; only an UNPARSEABLE `fire_at` changes, from
+  "sent" to "sending", and a `timestamptz` column cannot produce one. The TV board's route always
+  passes a clock (`mms_now()`, or the app clock if that read fails); the KDS does not read the track.
+- **Unreadable membership pays the WHOLE order.** At a table whose membership cannot be read
+  (`gateHost` null), Pay reads "Pay the whole order · $X". create-intent charges the whole shared
+  cart, and no owner rows are drawn to say otherwise. The split's guide line is not drawn, since
+  there is no split above it.
+- **Entering the Bill seeds the door it watches.** A checkout that opened on the Order stage now
+  gets the door moment when the food is served: no animation on entry, then the POP and "Ready to
+  pay." The seed is the door AS IT STANDS: entered over an open door it seeds open, so the same view
+  applied again plays nothing (the last capped blind pass;
+  `checkout/bill-entry-seeds-an-open-door-held`).
+- **Checked, and does not reproduce:** a `fired` line with a null `fire_at` reads "Sent" (fired at
+  or before now; `kitchen-track.test.ts` pins it), never "Sending…" forever, and needs no re-read.
+  Such rows are reachable: before P2f (`20261001000000`), `mms_line_transition`'s draft → fired edge
+  stamped no `fire_at`, and older rows may keep that. Every current writer that fires a line stamps
+  one.
+
+**For the flip PR, and others.** These stay open:
+
+- the flip itself (D5's three conditions and the refunded Apple Pay sale);
+- Dad's after-flip cash-only line (counter-floor);
+- screen 3's stamped pass on PaySuccess (post-pay);
+- wiring the verdict into `openSettlement` and `create-share-intent` (now on `selfServeSplit`'s reopen
+  list);
+- a device measurement of the folded pay step's height.
+
+**K15:** no Burmese string is authored. The new English-only lines are those this spec's COPY already
+lists: "Pay opens once everything’s served.", the unsent, hostless and to-go reasons, and "Ready to
+pay.". To these the build adds "Pay with card", "Removed", "In your basket", "On the house", the
+stub's "Host" and "Sent", and the dock counter's "Pay at the counter once the undo window closes.".

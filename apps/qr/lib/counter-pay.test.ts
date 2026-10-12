@@ -206,11 +206,15 @@ describe("requestCounterPay", () => {
     });
     expect(cart!.counter_requested_at).toBeNull();
   });
-  it("refuses a settling cart as settling and writes nothing", async () => {
+  it("refuses a settling cart as settling and writes nothing — in the REGISTER's words while the split is parked (PD2, m2 decision 15)", async () => {
     authz = { ...OPEN_AUTHZ, settling: true };
+    // `SURFACES.selfServeSplit` is read for real: only the register holds the freeze today, so the
+    // sentence must not name a split the table cannot open.
     expect(await requestCounterPay({ cartId: "c-1" })).toMatchObject({
       ok: false,
       reason: "settling",
+      error:
+        "The counter is taking your table’s payment right now — this screen updates when it’s done.",
     });
     expect(cart!.counter_requested_at).toBeNull();
   });

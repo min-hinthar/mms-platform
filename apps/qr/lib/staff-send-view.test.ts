@@ -177,6 +177,15 @@ describe("staffOwedSendUnits — what the floor may call 'not sent'", () => {
     expect(staffOwedSendUnits(true, c)).toBe(2);
     expect(staffOwedSendUnits(false, c)).toBe(3);
   });
+  it("P2do (ruling #15) — once the table has ASKED to pay at the counter, a host table counts every unsent dish", () => {
+    // MUTATION send-view/asked-table-counts-only-staff: the card reads "Pay at counter" with no
+    // "not sent" over the diners' round that holds the payment; red.
+    expect(staffOwedSendUnits(true, c, true)).toBe(3);
+    // A hostless table counted them already; the ask changes nothing there.
+    expect(staffOwedSendUnits(false, c, true)).toBe(3);
+    // Not asked (the default): the host rule stands.
+    expect(staffOwedSendUnits(true, c, false)).toBe(2);
+  });
 });
 
 describe("sendHoldFrom — drain before fire", () => {

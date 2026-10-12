@@ -73,6 +73,7 @@ const { STAFF_HANG_MS, youngWrite } = await import("@/lib/bounded-write");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 const { tf } = await import("@/lib/i18n/fill");
 const { TablePaneContext } = await import("./TablePaneContext");
+const { TurnoverNewsProvider, useTurnoverNews, TURNOVER_DWELL_MS } = await import("./TurnoverNews");
 /** The board's poll backstop (`FloorBoard`'s own interval; not exported). */
 const POLL_MS = 5000;
 
@@ -754,9 +755,14 @@ describe("the strip's shape", () => {
       ]),
     );
     // MUTATION: drop the mark → an ordering tile reads the same whether or not a Send is owed.
-    expect(tile(5).querySelector(".floor-owed-dot[aria-hidden]")).not.toBeNull();
+    // PD1 · P2do — the mark is the hollow ring (the ONE KITCHEN TRACK's `unsent`), decorative.
+    const ring = tile(5).querySelector(".floor-owed-ring")!;
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(ring.getAttribute("data-stage")).toBe("unsent");
+    expect(ring.querySelector(".ui-track-ring")).not.toBeNull();
     expect(tile(5).getAttribute("aria-label")).toBe("View — Table 5 · Ordering · 2 not sent");
-    expect(tile(3).querySelector(".floor-owed-dot")).toBeNull();
+    expect(tile(3).querySelector(".floor-owed-ring")).toBeNull();
+    expect(document.querySelector(".floor-owed-dot")).toBeNull();
     expect(tile(3).getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
     // The key: the ask first, then ordering, then the owed mark — each tile's own word. Hidden from
     // the accessibility tree, because every tile's name already says its word.
@@ -765,10 +771,10 @@ describe("the strip's shape", () => {
     expect([...key.querySelectorAll(".floor-key-item")].map((i) => i.textContent)).toEqual([
       ts("en", "floor.status.counter"),
       ts("en", "floor.status.ordering"),
-      ts("en", "floor.key.notSent"),
+      ts("en", "pad.group.unsent"),
     ]);
     expect(key.querySelectorAll(".floor-key-item svg")).toHaveLength(2);
-    expect(key.querySelector(".floor-key-item .floor-owed-dot")).not.toBeNull();
+    expect(key.querySelector(".floor-key-item .staff-unsent-ring")).not.toBeNull();
   });
 
   it("an all-free strip has no key — its tiles already say Start", () => {
@@ -1130,5 +1136,51 @@ describe("Phase 2h · integration b — the strip's waiting line stands while IT
     });
     await tick(0);
     expect(region().textContent).toBe("That table isn’t registered.");
+  });
+});
+
+describe("PD7 — the floor says a clear's outcome, and hints only where it can vouch", () => {
+  const paid = (n: number) =>
+    table(n, { status: "paid", itemCount: 0, runningSubtotalCents: 0, paidTotalCents: 4100 });
+  it("an unknown kitchen read shows no 'Clear when they leave' on any card", () => {
+    const { section } = mount(snap([paid(7)], { kitchenUnknown: true }));
+    // MUTATION floor-board/hint-unknown-not-passed → the hint over a kitchen nobody could read; red.
+    expect(section().querySelector(".floor-card-hint")).toBeNull();
+    cleanup();
+    const again = mount(snap([paid(7)]));
+    expect(again.section().querySelector(".floor-card-hint")).not.toBeNull();
+  });
+
+  it("the turnover line is said in the ONE region, under 'Ready to serve', then the counts return", async () => {
+    function Say() {
+      const news = useTurnoverNews();
+      return (
+        <button
+          type="button"
+          onClick={() => news?.say({ k: "settle.clear.free", vars: { id: "2" } })}
+        >
+          say
+        </button>
+      );
+    }
+    const utils = render(
+      <StaffLangProvider lang="en">
+        <TurnoverNewsProvider>
+          <CounterMintProvider>
+            <FloorBoard initial={snap([table(7)])} />
+            <Say />
+          </CounterMintProvider>
+        </TurnoverNewsProvider>
+      </StaffLangProvider>,
+    );
+    const region = () =>
+      document.getElementById("floor-h")!.closest("section")!.querySelector('[role="status"]')!;
+    await act(async () => {
+      fireEvent.click(utils.getByRole("button", { name: "say" }));
+    });
+    // MUTATION floor-board/turnover-unsaid → the clear's outcome is said nowhere; red.
+    expect(region().textContent).toBe(tf("en", "settle.clear.free", { id: "2" }));
+    await tick(TURNOVER_DWELL_MS + 100);
+    expect(region().textContent).toBe("1 active table");
   });
 });

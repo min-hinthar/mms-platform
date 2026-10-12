@@ -11,6 +11,7 @@ import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
+import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
@@ -37,6 +38,10 @@ type CloseError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
   | { kind: "unreadable" }
+  // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
+  | { kind: "approvalPending"; dish: string }
+  // PD8 — the pending read failed; nothing charged, the same tap retries.
+  | { kind: "approvalUnreadable" }
   // Phase 2h (9d) — refused AT THE TAP while an earlier action is stuck: never sent, nothing charged.
   | { kind: "stalled" }
   // Phase 2h (9e) — still unanswered at the bound: the card on file may yet be charged. The late
@@ -64,6 +69,8 @@ export function CloseSecureTabButton({
   blocked = false,
   blockedNoteId,
   onBlockedTap,
+  acknowledgedApprovalIds,
+  onApprovalPending,
   gateLive,
   readTicket = 0,
   readsStarted,
@@ -83,6 +90,12 @@ export function CloseSecureTabButton({
    *  count): the page says why in its one region and moves focus to the order's lines, where
    *  "remove them if the guest has left" is done. */
   onBlockedTap?: (units: number | null) => void;
+  /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS confirm as
+   *  the acknowledgement (never read into an amount). */
+  acknowledgedApprovalIds?: readonly string[];
+  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list and says
+   *  `dishes`, the ones this confirm did NOT acknowledge (`reWarning`). */
+  onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
   /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
    *  retired (a send, a later read with nothing unsent, another setter): the raced line never
    *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
@@ -131,6 +144,11 @@ export function CloseSecureTabButton({
   const alertMsg: CloseError | null = drift ? { kind: "moved", ...drift } : error;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
+  // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
+  // carried, acknowledged by its next confirm (`ackForTap`). With a page, the page owns it.
+  const warned = useRef<string[]>([]);
+  // What the last close SENT as its acknowledgement — the re-warning names what it did not cover.
+  const sentAck = useRef<string[]>([]);
 
   // Move focus into the confirm group when it opens and back to the trigger when it closes (parity with
   // CashSettleButton, S1-audit S6). The guard skips first mount.
@@ -202,6 +220,19 @@ export function CloseSecureTabButton({
         setError({ kind: "unreadable" });
         return false;
       }
+      if (res.code === "approval_pending") {
+        // PD8 — a request this confirm did not display: nothing charged, the freeze released. The
+        // page re-draws the flag card naming it; the next confirm acknowledges what it shows.
+        const said = reWarning(res.pending, sentAck.current);
+        if (!onApprovalPending) warned.current = res.pending.map((p) => p.id);
+        setError({ kind: "approvalPending", dish: said.dishes });
+        onApprovalPending?.(res.pending, said.dishes);
+        return false;
+      }
+      if (res.code === "approval_unreadable") {
+        setError({ kind: "approvalUnreadable" });
+        return false;
+      }
       setError({ kind: "server", text: res.error });
       return false;
     }
@@ -242,7 +273,15 @@ export function CloseSecureTabButton({
     let spent = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
-      const out = await boundWrite(closeSecureTab({ sessionId, quotedCents: quoted }));
+      // PD8 — the ids this door displays at ITS confirm ride the close as the acknowledgement.
+      sentAck.current = ackForTap(acknowledgedApprovalIds ?? [], warned.current);
+      const out = await boundWrite(
+        closeSecureTab({
+          sessionId,
+          quotedCents: quoted,
+          acknowledgedApprovalIds: sentAck.current,
+        }),
+      );
       if (out.kind === "answer") {
         spent = land(out.value, quoted, basis, false);
         return;
@@ -404,6 +443,15 @@ export function CloseSecureTabButton({
               <OutageText lang={lang} error={alertMsg.text} />
             ) : alertMsg.kind === "unreadable" ? (
               <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : alertMsg.kind === "approvalPending" ? (
+              <Chrome
+                lang={lang}
+                k="settle.flag.pendingRefused"
+                vars={{ x: alertMsg.dish }}
+                echo={false}
+              />
+            ) : alertMsg.kind === "approvalUnreadable" ? (
+              <Chrome lang={lang} k="settle.approvalsUnreadable" echo={false} />
             ) : alertMsg.kind === "moved" ? (
               <Chrome
                 lang={lang}

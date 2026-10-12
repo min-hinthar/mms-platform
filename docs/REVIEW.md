@@ -1,5 +1,10 @@
 # Scaffold Red-Team + Fixes (M0)
 
+> **HISTORICAL — the M0→W22 QA log (2026-10-08 note).** The last entry is W22's QA sweep close
+> (2026-08-17); no arc since has recorded here. QA progress now lives in each PR body: tick the
+> [`context/QA-CHECKLIST.md`](context/QA-CHECKLIST.md) items the change touches in the PR template's
+> QA section. Kept for the record and the screenshots it cites.
+
 **June 16, 2026** — adversarial review of the M0 scaffold against the QA checklist, by an independent staff-engineer reviewer.
 
 ## Verdict

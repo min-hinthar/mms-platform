@@ -193,13 +193,13 @@ describe("Phase 2a · send — what the line says about the kitchen, and what it
 
   it("a sendable draft says 'Not sent'; a to-go draft and a fired line do not", () => {
     renderLine({ ...line, sendable: true } as TableLineView);
-    expect(screen.getByRole("listitem").textContent).toContain(STAFF["table.line.notSent"].en);
+    expect(screen.getByRole("listitem").textContent).toContain(STAFF["pad.group.unsent"].en);
     cleanup();
     renderLine({ ...line, sendable: false } as TableLineView);
-    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["table.line.notSent"].en);
+    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["pad.group.unsent"].en);
     cleanup();
     renderLine({ ...line, state: "fired", sendable: false } as TableLineView);
-    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["table.line.notSent"].en);
+    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["pad.group.unsent"].en);
   });
 
   it("a fired line speaks its state in the device language — no English 'Sent' under Burmese", () => {

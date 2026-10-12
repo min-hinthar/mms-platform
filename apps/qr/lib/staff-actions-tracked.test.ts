@@ -66,6 +66,9 @@ const READS: ReadonlySet<string> = new Set([
   "getTableDetail",
   "getKitchenQueue",
   "getMergeCandidates",
+  // PD7 — the clear's fresh look: the session, `mms_now`, the open cart's lines and their names,
+  // all selects (`lib/floor.ts` `getClearPreview`); the clear itself is `clearTable`, a write.
+  "getClearPreview",
   "getSettledToday",
   "listMyStaffReports",
   // Stripe `retrieve` calls only — its docblock: "no freeze is touched, nothing is extended,
@@ -408,7 +411,9 @@ describe("every Server Action a staff component calls reaches the stall ledger",
       "components/staff/KdsBoard.tsx:bumpTicket",
     ])
       expect(checked).toContain(seen);
-  });
+    // A whole-tree TypeScript parse: ~2 s alone, past the 5 s default under a parallel full run on a
+    // loaded box (measured 7.4 s, 2026-10-09). The assertions are unchanged; only the clock is.
+  }, 20_000);
 });
 
 describe("the matcher, falsified on fixtures", () => {

@@ -1,5 +1,10 @@
 # W16_PLAN — The owner's reset (bilingual-only · mode prices · confirms · photos · polish)
 
+> **Status (2026-10-08 note): SHIPPED 2026-08-15** — every slice below is marked ✅. Superseded in
+> part since: W16a's mode-derived prices by W17a's real POS prices (2026-08-16, `W17_PLAN.md`), and
+> W16c's confirms by Phase 1b's commit moments (DESIGN-LANGUAGE §22). The retired service charge and
+> the bilingual-only rule stand.
+
 **Status: PLANNING (2026-08-15).** Owner directives (verbatim intent, 2026-08-15):
 
 1. **"Ditch the language toggle and have bilingual only."** Remove the W5 EN↔MY toggle + locale

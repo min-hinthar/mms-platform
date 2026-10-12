@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
+import type { TrackLine } from "./kitchen-track";
 import {
   initialStage,
   kitchenDraftQty,
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
+  phonePayParked,
+  doorMode,
+  holdsServedGate,
+  servedGateApplies,
+  servedGateDecision,
+  servedGateHost,
+  servedGateVerdict,
   staffSettleBlockedByUnsent,
   staffSettleUnsentVerdict,
   unsentFoodQty,
@@ -151,5 +160,211 @@ describe("staffSettleUnsentVerdict — P2dc: the staff doors fail CLOSED on an u
     expect(staffSettleUnsentVerdict("dinein", 2)).toBe("unsent");
     expect(staffSettleUnsentVerdict("dinein", 0)).toBeNull();
     expect(staffSettleUnsentVerdict("pickup", 2)).toBeNull();
+  });
+});
+
+describe("PD2 — phonePayParked: the dine-in phone-pay door, parked until live keys (decision 2)", () => {
+  it("a dine-in table with the door parked: parked", () => {
+    // MUTATION (checkout-stage/parked-door-admits-a-table): the switch ignored — the Bill draws
+    // its card hero and create-intent mints at a table on TEST keys; red.
+    expect(phonePayParked("dinein", false)).toBe(true);
+  });
+  it("the flip opens it with nothing else changed", () => {
+    expect(phonePayParked("dinein", true)).toBe(false);
+  });
+  it("only a table reads the switch — pickup, scan-and-go and an unreadable mode are never parked", () => {
+    // MUTATION (checkout-stage/parked-door-refuses-pickup): the mode check dropped — every pickup
+    // and market payment is refused at create-intent behind a rule meant for tables; red.
+    expect(phonePayParked("pickup", false)).toBe(false);
+    expect(phonePayParked("scango", false)).toBe(false);
+    expect(phonePayParked(null, false)).toBe(false);
+    expect(phonePayParked(undefined, false)).toBe(false);
+    expect(phonePayParked("", false)).toBe(false);
+  });
+});
+
+describe("Codex round 2 on #331 — doorMode: the parked door reads the AUTHORITATIVE mode", () => {
+  it("the cart view's mode wins — a missed split read cannot un-park a dine-in table", () => {
+    // MUTATION (checkout-stage/door-reads-the-best-effort-mode): the view's mode dropped — a split
+    // read that answered null (or the unchecked "") draws the card hero at a table create-intent
+    // refuses; red.
+    expect(doorMode("dinein", null)).toBe("dinein");
+    expect(doorMode("dinein", "")).toBe("dinein");
+    expect(phonePayParked(doorMode("dinein", null), false)).toBe(true);
+    // The view is the authority even where the two disagree.
+    expect(doorMode("pickup", "dinein")).toBe("pickup");
+  });
+  it("the split's mode is the fallback, and nothing known is null — never a table", () => {
+    expect(doorMode(null, "dinein")).toBe("dinein");
+    expect(doorMode("", "pickup")).toBe("pickup");
+    expect(doorMode(undefined, "")).toBeNull();
+    expect(phonePayParked(doorMode(null, null), false)).toBe(false);
+  });
+});
+
+/**
+ * PD10 · D5 (PATH_DESIGN_2026-10-07 decision 10) — THE SERVED GATE: phone pay at a table opens only
+ * when nothing on the bill is still with the kitchen. Every case is one a `checkout-stage/served-gate-*`
+ * mutant turns red, and several are chosen to SEPARATE this rule from `payBlockedByUnsent` (the
+ * "Everything sent" rule it must not collapse into): a hostless draft, a to-go draft and a fired or
+ * cooking line are each a case where "Everything sent" opens the door and D5 holds it. Times are
+ * relative to a fixed DB clock — the undo window is a comparison against it.
+ */
+describe("PD10 · D5 — servedGateVerdict: the door opens only once everything is served", () => {
+  const NOW = "2026-10-11T19:48:00.000Z";
+  const at = (ms: number) => new Date(Date.parse(NOW) + ms).toISOString();
+  const served = (over: Partial<TrackLine> = {}): TrackLine => ({
+    state: "served",
+    fire_at: at(-600_000),
+    bumped_at: at(-KDS_UNDO_MS - 1_000),
+    fulfillment: "dinein",
+    ...over,
+  });
+  const verdict = (
+    lines: TrackLine[],
+    hostPresent: boolean | null = true,
+    mode: string | null = "dinein",
+  ) => servedGateVerdict(mode, lines, NOW, hostPresent);
+
+  it("a dine-in draft at a table whose host the Bill cannot READ is `unknownHost` — never guessed hostless or hosted (Codex round 2 on #346)", () => {
+    // MUTATION (checkout-stage/served-gate-unknown-host-reads-hostless): an unknown host read as
+    // "no host" — a hosted table's Bill promises the counter, whose own read of the real host_seat
+    // refuses the drafts; red.
+    const draft = served({ state: "draft", fire_at: null, bumped_at: null });
+    expect(verdict([served(), draft], null)).toBe("unknownHost");
+    // The host only matters to a dine-in draft: the kitchen and a to-go draft read the same.
+    expect(verdict([served({ state: "in_progress", bumped_at: null })], null)).toBe("kitchen");
+    expect(
+      verdict([served(), served({ state: "draft", fulfillment: "togo", bumped_at: null })], null),
+    ).toBe("togo");
+    expect(verdict([served()], null)).toBeNull();
+  });
+
+  it("everything served past Mom's undo window → the door is open", () => {
+    expect(verdict([served(), served({ fulfillment: "togo" })])).toBeNull();
+  });
+
+  it("a fired or cooking line holds it — where 'Everything sent' would have opened the door", () => {
+    // MUTATION (checkout-stage/served-gate-only-counts-drafts): a sent line skipped — the
+    // "Everything sent" rule under a new name; Thiri pays while the Mohinga is on the wok; red.
+    const fired = served({ state: "fired", bumped_at: null });
+    const cooking = served({ state: "in_progress", bumped_at: null });
+    expect(verdict([served(), fired])).toBe("kitchen");
+    expect(verdict([served(), cooking])).toBe("kitchen");
+    // The separation, said as values: "Everything sent" answers OPEN for this exact table.
+    expect(payBlockedByUnsent("dinein", 0, true)).toBe(false);
+  });
+
+  it("a served line inside Mom's undo window holds it — `bumped_at` must be KDS_UNDO_MS old on the DB clock", () => {
+    // MUTATION (checkout-stage/served-gate-reads-raw-served): the raw `served` state trusted — a
+    // bump Mom takes back inside her six seconds opens the door and a card is charged; red.
+    expect(verdict([served({ bumped_at: at(-KDS_UNDO_MS + 1) })])).toBe("kitchen");
+    expect(verdict([served({ bumped_at: at(-1_000) })])).toBe("kitchen");
+    // The edge: exactly KDS_UNDO_MS old is settled (the track's own `>=`).
+    expect(verdict([served({ bumped_at: at(-KDS_UNDO_MS) })])).toBeNull();
+    // A served line with no bump stamp has nothing to settle — it holds (fail closed).
+    expect(verdict([served({ bumped_at: null })])).toBe("kitchen");
+  });
+
+  it("a COMPED dish still cooks, so it still holds (its price is $0, its plate is not)", () => {
+    // TrackLine carries no comp flag by design: the hold set is food, not money.
+    expect(verdict([served(), served({ state: "in_progress", bumped_at: null })])).toBe("kitchen");
+  });
+
+  it("a hostless table's dine-in draft HOLDS — with its own reason (the server, the counter)", () => {
+    // MUTATION (checkout-stage/served-gate-exempts-a-hostless-draft): the host exemption inherited
+    // from `payBlockedByUnsent` — a hostless table pays by phone before its drafts are even fired;
+    // red. The separation: "Everything sent" lets this exact table through.
+    const draft = served({ state: "draft", fire_at: null, bumped_at: null });
+    expect(verdict([served(), draft], false)).toBe("hostless");
+    expect(payBlockedByUnsent("dinein", 1, false)).toBe(false);
+    // With a host, the same draft is the host's to send.
+    expect(verdict([served(), draft], true)).toBe("unsent");
+  });
+
+  it("a TO-GO draft holds — it fires only when the bill is paid (Codex round 3)", () => {
+    // MUTATION (checkout-stage/served-gate-ignores-a-togo-draft): the to-go arm deleted — a phone
+    // pays before that dish is cooked, and the head reads Served beside an unsent row; red. The
+    // separation: "Everything sent" never counts a to-go draft.
+    const togo = served({ state: "draft", fulfillment: "togo", fire_at: null, bumped_at: null });
+    expect(verdict([served(), togo])).toBe("togo");
+    expect(kitchenDraftUnitsFromRows([{ state: "draft", fulfillment: "togo", qty: 1 }])).toBe(0);
+  });
+
+  it("precedence: a dine-in draft > a to-go draft > the kitchen", () => {
+    // MUTATION (checkout-stage/served-gate-kitchen-outranks-unsent): the kitchen named first — the
+    // host is told to wait for food when the next act is the Send only they can make; red.
+    const fired = served({ state: "fired", bumped_at: null });
+    const draft = served({ state: "draft", fire_at: null, bumped_at: null });
+    const togo = { ...draft, fulfillment: "togo" };
+    expect(verdict([fired, togo, draft])).toBe("unsent");
+    expect(verdict([fired, togo])).toBe("togo");
+  });
+
+  it("grocery and voided lines never hold it", () => {
+    // MUTATION (checkout-stage/served-gate-holds-grocery): a grocery line (it never fires) holds the
+    // door forever; red.
+    expect(verdict([served(), served({ state: "draft", fulfillment: "grocery" })])).toBeNull();
+    // MUTATION (checkout-stage/served-gate-holds-a-voided-line): a voided dish (nothing is
+    // cooking) holds the door forever; red.
+    expect(verdict([served(), served({ state: "voided", bumped_at: null })])).toBeNull();
+  });
+
+  it("a state this rule was not written for HOLDS — the gate fails closed", () => {
+    // MUTATION (checkout-stage/served-gate-passes-an-unknown-state): only the track's known stages
+    // hold — a line nobody can name lets the charge through; red.
+    expect(verdict([served(), served({ state: "plated" })])).toBe("kitchen");
+    expect(holdsServedGate(served({ state: "plated" }), NOW)).toBe(true);
+  });
+
+  it("only a dine-in table is gated — pickup and scan-and-go pay before the kitchen sees it", () => {
+    // MUTATION (checkout-stage/served-gate-asks-every-mode): the mode check dropped — every pickup
+    // order (its lines are fired AT pay) is refused as "not served"; a revenue outage; red.
+    const cooking = served({ state: "in_progress", bumped_at: null });
+    expect(verdict([cooking], true, "pickup")).toBeNull();
+    expect(verdict([cooking], true, "scango")).toBeNull();
+    expect(verdict([cooking], true, null)).toBeNull();
+    expect(servedGateApplies("dinein")).toBe(true);
+    expect(servedGateApplies("pickup")).toBe(false);
+  });
+});
+
+describe("PD10 — servedGateHost: the host as the Bill can KNOW it (Codex round 2 on #346)", () => {
+  it("a missing split context, or an empty member read, is UNKNOWN — never false", () => {
+    // MUTATION (checkout-stage/served-gate-host-unknown-reads-hostless): the miss read as `false` —
+    // a hosted table whose split read failed is called hostless; red.
+    expect(servedGateHost(null)).toBeNull();
+    expect(servedGateHost(undefined)).toBeNull();
+    // The viewer is always a member: an empty list is a member read that failed.
+    expect(servedGateHost({ members: [] })).toBeNull();
+  });
+  it("a read table answers: a host among the members, or none", () => {
+    expect(servedGateHost({ members: [{ role: "guest" }, { role: "host" }] })).toBe(true);
+    expect(servedGateHost({ members: [{ role: "guest" }] })).toBe(false);
+  });
+});
+
+describe("PD10 · D5 — servedGateDecision: the server's verdict fails CLOSED on an unreadable read", () => {
+  const NOW = "2026-10-11T19:48:00.000Z";
+  it("an unreadable read at a table is `unreadable`, never a guessed 'nothing holds'", () => {
+    // MUTATION (checkout-stage/served-gate-unreadable-passes): the null read answered null — a read
+    // blip lets a card through for food that may be cooking; red.
+    expect(servedGateDecision("dinein", null, true)).toBe("unreadable");
+  });
+  it("…but never on a mode the gate does not apply to (the read is not even spent there)", () => {
+    // MUTATION (checkout-stage/served-gate-unreadable-blocks-pickup): the mode check dropped from
+    // the decision — a pickup order refused 503 over a read whose answer could not matter; red.
+    expect(servedGateDecision("pickup", null, true)).toBeNull();
+    expect(servedGateDecision("scango", null, false)).toBeNull();
+  });
+  it("a readable read is the verdict", () => {
+    const line: TrackLine = {
+      state: "fired",
+      fire_at: NOW,
+      bumped_at: null,
+      fulfillment: "dinein",
+    };
+    expect(servedGateDecision("dinein", { lines: [line], nowIso: NOW }, true)).toBe("kitchen");
+    expect(servedGateDecision("dinein", { lines: [], nowIso: NOW }, true)).toBeNull();
   });
 });

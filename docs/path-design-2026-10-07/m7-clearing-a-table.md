@@ -1068,3 +1068,258 @@ The round-3 consistency pass gave this moment these changes:
 3. TV: a cleared table leaves the wall at once (a non-active session), so the stop card never reaches guests' eyes. The slip says nothing about the TV.
 4. The stop card's button is help.done 'ရပြီ · Got it'. 'Tells the kitchen to stop' stays conditional on the durable stop record (correction 12).
 5. Dad's region keeps 'Ready to serve — Table N' as the console's CALL, ranked below the hold-cap warning as already fixed.
+
+### H · Build notes (2026-10-09, claude/feat/pd7-clearing-a-table)
+
+Built by the counter-floor stream as PD7, stacked on PD6 (#334). The appendix (A–D) and PATH_DESIGN's
+Codex corrections won wherever they disagreed with the spec above; where the build chose under the
+owner's delegation, the reason is below.
+
+**What was built.**
+
+- **M182 · `mms_clear_table`** (`supabase/migrations/20261009120400_m182_table_clear.sql`; prod apply
+  waits for the owner's go, ruling #5). ONE transaction, locking the open cart, the session, the
+  pending approvals, the lines — in that order, each `FOR UPDATE` in id order (the merge's and the
+  no-show's order with the session taken right after the cart). It refuses, writing
+  nothing: `not_found` · `closed` · `counter` (a counter order keeps `mms_clear_counter_cart`) ·
+  `in_flight` (a fresh single-pay lock or split freeze) · `card_live` · `joined` (a member who sat
+  down after `p_seen_at`) · `changed` (a line added after the look, or the SENT set or its figure not
+  the one shown) · the PIN seam (`mms_loss_config.clear_requires_pin`, off — ruling #6). Then it
+  supersedes the cart's pending approvals (D2: they read "Table was cleared first" on m8), writes
+  every SENT dish as a `void` / `table_cleared` approval at `unapproved` (or the stamp's gate),
+  voids the SENT lines, sends in-grace fires back to draft, cancels the cart, closes the session and
+  writes `qr_table_clears` — who, the dishes, the loss, and the durable STOP record (`stop_line_ids`;
+  `mms_ack_table_clear_stop` writes "Got it" once). Pinned by `supabase/tests/m182_table_clear_test.sql`
+  (CI's list) and 31 `clear/*` · `ack/*` SQL mutants in `verify-mode-authority.mjs` (`m182`).
+- **The server half** (`lib/floor.ts`): `getClearPreview` — the fresh look on the DATABASE clock,
+  shaped by `lib/clear-table.ts` (SENT and dropped are the no-show's own rules — `counterSentLine`,
+  `counterNoShowDropped` — the RPC's predicate); any failed read is `unknown`. `clearTable` routes a table through the RPC with the look (`expect`:
+  the line ids, the figure, the clock), reads its answer defensively (`clearAnswerOf`), and says a
+  refusal in the dictionary's English with the table's number.
+- **The pane's Clear** (`ClearTableButton`, a table): the look → the slip (food SENT) or straight
+  into the window (nothing SENT) → `mms_clear_table`. A counter order keeps its two-step confirm;
+  both ride ONE bounded commit. The window is the lane's six seconds, its controls armed at the
+  lane's 400 ms; a keyboard focus holds it (undo-hold, capped, warned 5 s before — its own alert,
+  B11); a table that moved under it (a join, a changed order, a payment) drops it with the reason.
+- **The slip** (screen 2): the ONE outline diamond (B7), the dishes Burmese-first, the menu-price
+  figure over a solid rule (B2), "Did Table N pay?", Take cash (the pane's ONE till through its own
+  trigger — B3), "No — they left without paying" revealing the body, the tail and the one danger
+  commit "Clear · $X loss", armed after 400 ms and described by what it records. While it is armed
+  the settle trigger stands down to secondary (B12).
+- **Seat next party** (corrections 5 · 6 · 9): the screen's ONE mint lock reserved at the tap
+  (`CounterMint.reserve`, refused with the shipped waiting line when held), the clear sent now, the
+  next party started only on its ok and landed in the pane (the bell stays live). The lock and the
+  turnover line now live in `CounterSplit`, around the zones and the pane.
+- **The outcome on the floor** (B10): `TurnoverNews` says "Table N is free." / "Table N cleared — n
+  dishes on the loss list." / the seat's failure in the board's ONE region, below "Ready to serve".
+- **The quiet hint** (B6): `clearHint` (`lib/clear-verdict.ts`) on a paid, finished card the floor
+  can vouch for — words inside the link and its name, never a control; none on a frozen floor or an
+  unknown kitchen read.
+
+**Decided under delegation.**
+
+- **B9 took its alternative:** the window lives in the pane's Clear, and unmounting the pane or the
+  page inside it drops the pending clear — nothing was written, the safe direction. The floor-card
+  in-slot window (one Undo per clear in the slot that outlives the pane) is a follow-up (M270).
+- **No slab** (B5 · B6): the one-tap "They've left — clear" verb on the card is not built; the hint
+  is words only, and the verb lives in the pane.
+- **Undo's seconds leaf** is the shipped `table.send.undoLeft`, aria-hidden; Undo keeps
+  `kds.undo` ပြန်ဖျက် (D3).
+- **"Tells the kitchen to stop" is not said** (correction 12, D4): the STOP record is written, the
+  kitchen-ops stop card that reads it is not built in this PR (M270).
+- **The slip's Merge door** is not drawn: the pane's own Merge stays above it.
+- **A RPC error** says the outage line with the retry: a lost response may hide a commit, but a
+  retry is safe — a cleared table answers `closed`, a moved one `changed`.
+
+**The blind pass on #341 (REJECT, fixed).**
+
+- **A secured tab is never written off as a walkout.** The RPC reads `tab_type` and refuses
+  `secure_tab` when a card-on-file tab has SENT food and no verified manager — a cancelled cart takes
+  the card-on-file close away for good, which is why the merge refuses a secure tab outright. The look
+  answers `secure` (`clearNeedsTheCard`), so the slip and its walkout are never drawn; the pane says
+  "Table N has a card on file — close the bill on that card before you clear it." Nothing sent, nothing
+  to charge: a secured tab with no loss clears free. A manager named in `p_approver` may write it off
+  (recorded as theirs) — the seam a declined card after a walkout needs; the app sends none today
+  (M270 (6)). A tab secured while the slip is armed drops the slip (`cardOnFile`), and the card door
+  is never stood down for it — on a secured tab it is the one exit the server accepts.
+- **A post-dated look is refused.** `p_seen_at` later than the transaction's own clock answers
+  `changed` before any lock — the request carries it, and a future value defeated `joined` and the
+  added-dish test. A past one only makes both stricter.
+- **A split share holding money is re-read under the cart lock** (`in_flight`), narrowing the window
+  the caller's `paymentInFlightReason` read leaves open; a share write takes no cart lock, so it is
+  narrowed, not closed.
+- **The hung clear gives the mint back at the bound.** "Seat next party" releases its reserved lock
+  when the clear is still out at `STAFF_HANG_MS`; a late ok then starts nobody and says
+  `settle.clear.seatFailed` on the floor.
+- **The window says it stopped.** A window that leaves with its pane sends nothing (B9's alternative,
+  unchanged) and the floor now says "Clearing Table N stopped when you left — the clear was not sent."
+  — about that clear only, never the table's state, and not at all when the page's read found the
+  table CLOSED underneath it (cleared on another tablet, merged, swept: `tableGone`).
+- **The clear record is durable:** `qr_table_clears.session_id` is NO ACTION (as `qr_orders`), never a
+  cascade. The header's lock order and file name now match the code; the stamp's `ceiling` gate (at
+  and past the bound) and the 2000 default are pinned (M182.11–14, 13 more SQL mutants, the share re-read's cart scope among them).
+
+**Codex round 1 on #341 (four findings, all fixed).**
+
+- **A cleared table takes no member.** A diner's join issued while a clear held the session row
+  waited on it (the foreign key's KEY SHARE), then landed on the CLOSED session — measured on the
+  throwaway cluster: a 2.1 s wait, then a member — and `/api/session`'s hosted path handed it a fresh
+  open cart there. The refusal now sits where the membership is written, beside the party cap and
+  PD3's solo guard: `session_members_live_session` (`mms_refuse_closed_session_join`, BEFORE INSERT
+  OR UPDATE OF session_id) reads the session's status FOR SHARE — a join that waits on a clear (or
+  any close) re-reads the row once it commits and is refused `session_closed`. FOR SHARE, not FOR KEY
+  SHARE: a plain close (the sweeper's, a merge's) takes NO KEY UPDATE, which KEY SHARE never waits
+  on. Not the party key in the clear: the party cap takes that key before the foreign key's row lock,
+  so a clear holding the row and then asking for the key would deadlock a join, and the key alone
+  refuses nothing. The route answers `session_closed` with the closed-row 409 it already gives a shell
+  adopted under a join ("Could not check the table — try again.") — no new existence oracle; the
+  retry re-resolves the table. Proved two-session by `verify-bind-race.mjs` orders l · m · n.
+- **Any line changed after the look refuses the clear.** A draft re-counted, taken off, sent or
+  turned to-go after the look moved neither `created_at`, the SENT set nor its figure, so "Seat next
+  party" could cancel an order change nobody had seen. `qr_cart_items` has no `updated_at`, so the look
+  carries every live line (`clearLineKey`: `<id>:<qty>:<fulfillment>:draft|sent`) and the RPC compares
+  them as a set (`p_seen_lines`). **Decided under delegation:** the key reads draft-or-sent, never the
+  kitchen state — a cook starting or serving a SENT dish moves neither the figure nor what the clear
+  drops, a walkout's clear must not wait on the kitchen (ruling #6), and the window's own watch
+  (`tillSlipDiverged`) already ignores it. A refused clear now says the clear's own line,
+  `settle.clear.changed` ("…changed after you looked, so it stayed open"), in the pane and when the
+  window drops.
+- **Paid food the kitchen has not finished holds the clear (`paid_unserved`).** Verified first: the
+  kitchen board shows a dine-in line only while its session is ACTIVE (`kdsLineGate`), whatever its
+  cart's status — so a clear over a paid cart still cooking took its tickets off the board, and a paid
+  DRAFT (settlement fires it: `mms_fire_pending_food`, its reconciler) never reached it. **Decided
+  under delegation — the lead's default, not Codex's "stop-only, non-loss" alternative:** a paid dish
+  is never stopped and never written off — the guest paid for it, and stopping it would keep their
+  money for food they never got. A great KDS never lets a ticket vanish, and a great maître d' does
+  not reset a table whose food is still coming. So the look answers `paidUnserved` and the pane says
+  "Table N has paid food the kitchen hasn't finished — serve it or bag it, then clear the table."
+  (`settle.clear.paidUnserved`, K15-HIGH). The RPC refuses the same, writing nothing. It counts a
+  paid cart's lines that are draft, fired or in progress, not grocery (never the kitchen's), comps
+  included (still made), and it takes those lines FOR SHARE first, so a recall in flight (served →
+  in progress) is read after it commits (`verify-bind-race.mjs` order o). Not closed: a recall made
+  AFTER the clear lands on a closed table (M270 (9)).
+- **Seat next keeps the pane as it was at the tap.** `startAdmitted` took its "did they move it"
+  baseline when the clear answered, so staff who picked another table meanwhile had the new party
+  opened over it. The reservation now takes the baseline at its own tap and carries it into the
+  start.
+
+**Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
+→ `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause (both built: §I); the floor
+card's in-slot window; the manager stamp UI behind the PIN seam; a Help door on the full table page
+for `card_live`; the two-session lock-order harness for `mms_clear_table` against a Send, a merge,
+a settle and an approve (beside `verify-merge-race` — the join, a plain close and a recall are driven
+now, `verify-bind-race` l–o); a seated member's REJOIN (no membership insert) as a clear commits, which
+can still find no open cart and make one on the closed table (8); a kitchen recall made after the
+clear, which lands on the closed table (9); the M182 prod apply (ruling #5).
+
+### I · The kitchen's stop card (2026-10-11, `claude/feat/m270-kds-stop-card`, M270 (1), kitchen-ops)
+
+Correction 12's other half: the KDS reads the durable stop record and draws "Table N left — stop
+cooking" until "Got it", so the slip's "tells the kitchen to stop" ships.
+
+- **The read** (`lib/kitchen-stop-read.ts`, beside the served rail in `getKitchenQueue`): open records
+  only (`stop_acknowledged_at` null, a non-empty `stop_line_ids` — refused in the SQL before the cap,
+  because every free clear writes a record nothing ever acknowledges), newest first, capped at 24, then
+  the tables and the stopped lines (names through the one loader). It fails SOFT: any failed leg, a
+  rejection or its 2.5 s budget answer `stops: null`, the queue is answered regardless, and the board
+  keeps the cards it last drew — never "none", which would read as every table acknowledged.
+- **The card** (`KdsStopCard`, m5 A1/B1's shape): one per SEND of each record (m5 B1 — the Send's own
+  `ticketKey`), standing in the slot its ticket stood in (`boardOrder`: among the live tickets by the
+  Send's own stamp, never first, never after the held cards), on a station's view only when it stopped that station's dishes (#347 below), with no flash, no
+  chime, no stub and no clock. Its struck rows are the dishes that Send still had in the kitchen; "Got
+  it" is described by the warn line. It is not counted in Open or Late, the region never says "All
+  clear" while one stands, and a new one is said once in the ONE region (it has no motion and no chime).
+- **"Got it"** (`ackTableClearStop` → `mms_ack_table_clear_stop(p_clear, p_by = the gate's caller)`): the
+  optimistic doctrine (`lib/kds-stop.ts`) — every card of that CLEAR leaves at the tap (the record is the
+  clear's, so one tap retires all its Sends); `ok`, `already` (another tablet was first) and
+  `nothing_to_stop` keep it gone until a read that started after the answer; `not_found` drops the hide
+  and the read decides; a refusal ("Couldn’t update Table N — try again."), a throw or a write still out
+  at the bound brings the cards back (held, the waiting line said, while it is out). Focus that was on
+  the button goes to the board's heading.
+- **The slip's clause** (`clearStopsKitchen`): "Clearing tells the kitchen to stop anything still
+  cooking and puts {n} dishes on the owner’s loss list as not approved." — when the look shows a SENT
+  dish still fired or cooking (a subset of the RPC's stop set); a table whose food the look saw all
+  served keeps the clause-less sentence. K15-HIGH (the slip's money keys are). (#347 below: worded for
+  the race.)
+
+**Decided under delegation.** One card per Send, one "Got it" per clear (the schema acknowledges the
+clear; a per-Send ack would need a migration). No floor on age: m7 decision 20 says no timer — the cap
+bounds the read, and newest-first keeps a fresh clear from being crowded out.
+
+**#347 round 1 (the blind pass's REJECT and Codex r1, each verified against source).**
+
+- **Unknown is never none** (Codex P1 · blind C2). A first stop read that did not answer (an error, or
+  past its 2.5 s budget) was coerced to "no stops" — All clear, "Nothing to cook", the guide claimed —
+  for as long as reads kept failing. Now the board holds it UNKNOWN until a stop read answers: no All
+  clear, an error-tone line in place of the empty state ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing."), no guide; two stop reads in a row that do not answer are said by the
+  board's own stop line (round 2 below — round 1 wore the board's "not updating" line, which froze
+  tickets still landing), and the first that answers ends it.
+- **A station sees its own stops** (blind C1). The first cut drew every stop card on every station's
+  view, so a drinks screen's Got it retired a wok stop on the wok screen still cooking it. A station's
+  view now draws a card only when it stopped one of that station's dishes — WHOLE, every dish it
+  stopped (round 2 below; round 1 trimmed it to the station's own dishes) — the tickets' own station
+  rule (`stationForCategory`, moved to `lib/kitchen-station.ts`); a dish the menu read cannot place
+  counts everywhere. ONE Got it still retires the clear on every screen, and the
+  kitchen guide now says so ("…it stays until the kitchen does, and one Got it clears it on every
+  screen"); per-station acknowledgement needs a migration and a design question (OPEN-ITEMS M271).
+- **The slip's clause is true under the race** (Codex P2). The slip reads a LOOK: a dish served during
+  the slip or the six-second window commits with nothing to stop. The clause now says "tells the
+  kitchen to stop anything still cooking", and `clearStopsKitchen` no longer claims it never over-says.
+- **A stop card's arrival is never lost** (a11y): its sentence stands its own 8 s and rides beside a
+  standing refusal — still the board's ONE region (round 2: beside a bump's notice too, and gone at its
+  own Got it).
+- **The dishes read is chunked** (≤ 100 ids a request, in parallel) and **never cuts a record**: a record
+  larger than the 500-line budget is read whole (one Got it retires it, so a partial card would retire
+  dishes nobody saw).
+- **Justified, no code (the lead's answers on the PR):** no deploy backlog (prod's `qr_table_clears`
+  measured empty); the stop and line reads are not one snapshot (a millisecond, one poll); two stop
+  cards for one table (the device sitting, #12). **Open:** a stop card whose ticket stood on page 2 stays on page 2
+  (said in the region; the "N new" pill counts tickets only) — the device sitting (#12) is the look.
+
+**#347 round 2 (the last capped blind pass over the round-1 commits — REJECT, both criticals verified
+in source by the lead).**
+
+- **A station's card is WHOLE** (C1). Round 1 trimmed a card to the station's own dishes, but ONE Got
+  it acknowledges the whole clear: on a MIXED clear (noodles + a lime juice) the drinks cook saw only
+  the juice, tapped Got it, and the noodles' card left the wok's screen unseen. Now a card stands on a
+  station's view when it stopped ANY of that station's dishes (or one nobody can place), with EVERY
+  dish it stopped; a card that stopped only other stations' dishes stays off (`stopsForStation`). The
+  whole-clear acknowledgement itself is still M271.
+- **Stop misses never touch the board's "not updating" state** (C2). Round 1 routed two stop reads in a
+  row that did not answer into `degraded` — over tickets that were still landing, so the frozen line,
+  "take orders on paper", the bar's not-updating and the muted re-chimes were all false. Now the board
+  says it in its own stop line under the region ("Couldn’t check for tables that left — a “stop
+  cooking” card may be missing.", static text, never a second region; the empty board's unknown line
+  already says it there), and the tickets keep their chimes, hint and bar. Those misses make the stops
+  UNKNOWN again (`stopsUnknown`), so the refusals round 1's degrade carried stay: no All clear, no
+  "Nothing to cook", no guide.
+- **The arrival's words** ride beside a bump's notice in the one region (neither dropped), and each
+  table's words leave at its own Got it (`stopNewsAcked` — a second table that arrived in the same poll
+  keeps its alarm).
+- **The menu read is chunked** like the dishes read (≤ 100 ids a request); any chunk failing makes every
+  station unknown, never some placed and some guessed.
+- **Justified, no code:** the seen-set across a station switch (a card that arrived while another
+  station's view was up is not announced when the cook switches to it — the switch is the cook's own
+  tap, and the card is on screen in its slot); the guide-replaced stamp in `useLayoutEffect` (it must
+  land before the paint that shows the card). _Superseded by Codex round 2 below: the seen-set was a
+  real gap._
+
+**#347 Codex round 2 (on `9bd9973`; three P2s, the last triaged round).**
+
+- **A card the station filter hid was marked said** (fixed). The poll marked EVERY open stop said, so a
+  card that arrived while the view showed another station was drawn, on the switch, with no words — no
+  motion and no chime either, so no alarm at all for a screen reader. Now only the cards the view
+  draws are marked said (`stopsSaidAfter`); a hidden card is said on the first read after the view
+  starts drawing it, and once (a card said stays said while it is open). The server render's cards a
+  RESTORED station never draws are unsaid the same way.
+- **A second table inside the first's dwell replaced it** (fixed). Two tables cleared five seconds
+  apart: the second arrival's words took the region before the first's 8 s. Now a wave joins the
+  words still standing (`stopNewsMerged` — each clear once, the newest wave's words winning) under the
+  newest wave's id, so the dwell restarts for the newest table and the earlier ones stand at least
+  until it ends.
+- **The stop read cannot use M182's partial index** (justified, no code — OPEN-ITEMS M272). The read
+  filters `stop_line_ids <> '{}'` (PostgREST cannot express `cardinality(...)`); the index is keyed on
+  `cardinality(stop_line_ids) > 0`, so every poll scans `qr_table_clears` — 0 rows in prod (measured
+  2026-10-11 16:37Z), at most one row per clear. A matching partial index needs a migration with the
+  owner-gated prod apply (or an RPC), so it is filed, to be measured against the row count first.

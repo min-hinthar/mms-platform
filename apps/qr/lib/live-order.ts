@@ -35,7 +35,14 @@ export type LiveOrder = {
  * (unless a to-go box on the same order is being bagged, when the togo word wins).
  */
 export function liveOrderStatusWord(
-  o: Pick<LiveOrder, "togoStatus" | "kind" | "hasTogoFood">,
+  o: Pick<LiveOrder, "togoStatus" | "kind" | "hasTogoFood"> & {
+    /** M65 (PD3) — has the kitchen GOT the ticket (`isFired`, lib/pickup-promise.ts)? `togo_status =
+     *  'preparing'` lands at PAYMENT, so a scheduled pickup held until `slot − prep` read "Preparing"
+     *  for hours in the chip, the tray and /track. REQUIRED, not defaulted: a caller that forgot it
+     *  would silently restore that defect, and the header pill morphs into /track's chip, so the two
+     *  readers must agree about the very same row. */
+    fired: boolean;
+  },
 ): string {
   // Terminal for EVERY kind, so it is checked BEFORE the grocery short-circuit — a collected basket
   // has been collected. `getMyLiveOrders` filters these out so the tray never sees one, but /track
@@ -56,7 +63,9 @@ export function liveOrderStatusWord(
     case "ready":
       return o.kind === "pickup" ? "Ready for pickup" : "Ready";
     case "preparing":
-      return "Preparing";
+      // M65 — a HELD scheduled pickup is booked, not preparing: the wok has not got it. Ready is
+      // never gated (only the bagger's tap moves it, and a bagged order is bagged).
+      return o.fired ? "Preparing" : "Scheduled";
     default:
       // No kitchen bag in flight. Dine-in reads neutrally; to-go/pickup are freshly placed.
       return o.kind === "dinein" ? "At your table" : "Order received";

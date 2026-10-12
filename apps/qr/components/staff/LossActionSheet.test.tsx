@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { startTransition } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TableLineView } from "@/lib/floor-types";
@@ -52,6 +52,15 @@ const line = {
   modifiers: [],
   refundedCents: 0,
 } as unknown as TableLineView;
+/** A roster of one manager who can sign — the one-eligible shape, which arrives LIT (PD8). */
+const DAW_MYA_ROW = {
+  staffId: "m1",
+  displayName: "Daw Mya",
+  role: "manager",
+  active: true,
+  hasPin: true,
+  self: false,
+};
 
 function mount(lang: "en" | "my" = "en") {
   return render(
@@ -83,10 +92,20 @@ const reason = () =>
   screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.mistake"].en) });
 const confirmVoid = () =>
   screen.getByRole("button", { name: new RegExp(STAFF["table.loss.confirm.void"].en) });
+/** PD8 — one chip says what AND why. "Quality / guest unhappy" sits in BOTH columns (each under its
+ *  own kind mark), so the comp's is found inside its group. */
+const compChip = () =>
+  within(screen.getByRole("group", { name: STAFF["table.loss.seg.comp"].en })).getByRole("button", {
+    name: new RegExp(STAFF["table.loss.reason.quality"].en),
+  });
 
 describe("LossActionSheet — the sheet in the console's tongue", () => {
-  it("under my the title is the dictionary's, marked, with the dish name a Latin run inside it", () => {
+  it("under my the title is the dictionary's, marked, with the dish name a Latin run inside it", async () => {
     mount("my");
+    // PD8 — before a chip is lit the title is the dish itself; the sentence needs the what.
+    await act(async () => {
+      fireEvent.click(reason());
+    });
     const title = document.querySelector('[role="dialog"] h2');
     // The title itself, never a fallback to the first Burmese run in the body (uniqueness ≠ liveness).
     expect(title).not.toBeNull();
@@ -121,23 +140,45 @@ describe("LossActionSheet — the sheet in the console's tongue", () => {
     expect(region().textContent).toBe(STAFF["table.loss.reasonRequired"].en);
   });
 
-  it("manager-7 — the segment halves and the reason rows wear `.staff-chip` with aria-pressed and no inline fill", async () => {
+  it("manager-7 · PD8 — ONE chip picks what AND why: two columns under their kind marks, every chip `.staff-chip` with aria-pressed, at most one lit, no inline fill", async () => {
+    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
     mount();
-    const voidHalf = screen.getByRole("button", { name: STAFF["table.loss.seg.void"].en });
-    const compHalf = screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en });
-    expect(voidHalf.classList.contains("staff-chip")).toBe(true);
-    expect(voidHalf.getAttribute("aria-pressed")).toBe("true");
-    expect(compHalf.getAttribute("aria-pressed")).toBe("false");
-    // MUTATION: restore `style={{ ...segBtn, ...(on ? segBtnOn : null) }}` — an inline fill beats
-    // the shared rule, and this reddens.
-    expect((voidHalf as HTMLElement).style.background).toBe("");
+    await act(async () => {});
+    const voidCol = screen.getByRole("group", { name: STAFF["table.loss.seg.void"].en });
+    const compCol = screen.getByRole("group", { name: STAFF["table.loss.seg.comp"].en });
+    const chips = [
+      ...within(voidCol).getAllByRole("button"),
+      ...within(compCol).getAllByRole("button"),
+    ];
+    expect(chips.length).toBeGreaterThan(0);
+    for (const c of chips) {
+      expect(c.classList.contains("staff-chip")).toBe(true);
+      expect(c.getAttribute("aria-pressed")).toBe("false");
+    }
+    // No segment: nothing is pre-lit, and the title is the dish until a chip says what.
+    expect(document.querySelectorAll('.loss-chip[aria-pressed="true"]').length).toBe(0);
+    expect(document.getElementById("loss-pin")).toBeNull();
     await act(async () => {
       fireEvent.click(reason());
     });
     const row = reason();
-    expect(row.classList.contains("staff-chip")).toBe(true);
     expect(row.getAttribute("aria-pressed")).toBe("true");
+    // MUTATION: an inline fill on the lit chip — it beats the shared cap rule, and this reddens.
     expect((row as HTMLElement).style.background).toBe("");
+    expect(document.querySelectorAll('.loss-chip[aria-pressed="true"]').length).toBe(1);
+    // A comp chip: the what moves with the why, the void chip goes out, and the slip appears (a comp
+    // is gated up-front).
+    await act(async () => {
+      fireEvent.click(compChip());
+    });
+    expect(reason().getAttribute("aria-pressed")).toBe("false");
+    expect(compChip().getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelectorAll('.loss-chip[aria-pressed="true"]').length).toBe(1);
+    // The one eligible signer is lit, so the chip tap lands focus on "Daw Mya, your PIN".
+    const pin = document.getElementById("loss-pin") as HTMLInputElement;
+    expect(pin).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Daw Mya/, pressed: true })).toBeTruthy();
+    expect(document.activeElement).toBe(pin);
   });
 
   it("§17 — the confirm is aria-disabled + busy while the void runs, never native", async () => {
@@ -198,14 +239,15 @@ describe("LossActionSheet — a roster that could not be read (Codex round 2 on 
     const dialog = document.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain(STAFF["pin.manager.loadFailed"].en);
     expect(dialog.textContent).not.toContain(STAFF["pin.manager.noneNote"].en);
-    approvers.mockResolvedValueOnce([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]);
+    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
     });
     expect(approvers).toHaveBeenCalledTimes(2);
-    const select = dialog.querySelector("select")!;
-    expect(select.disabled).toBe(false);
-    expect(document.activeElement).toBe(select);
+    // PD8 — the one eligible signer arrives lit, so the Try again's answer lands focus on the PIN.
+    const pin = document.getElementById("loss-pin") as HTMLInputElement;
+    expect(pin).not.toBeNull();
+    expect(document.activeElement).toBe(pin);
     expect(dialog.textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
   });
 
@@ -229,7 +271,7 @@ describe("LossActionSheet — a roster that could not be read (Codex round 2 on 
     });
     expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
     // Try again recovers: the step-up is still pending, so its sentence comes back — never silence.
-    approvers.mockResolvedValueOnce([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]);
+    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
     });
@@ -256,7 +298,7 @@ describe("LossActionSheet — the roster's LATE answer (Codex r1 follow-up on #3
       await vi.advanceTimersByTimeAsync(ms);
     });
   const retryBtn = () => screen.queryByRole("button", { name: STAFF["out.shell.retry"].en });
-  const DAW_MYA = [{ staffId: "m1", displayName: "Daw Mya", role: "manager" }];
+  const DAW_MYA = [DAW_MYA_ROW];
   /** The Try again's read: it answers only when told to — after its bound. */
   function hungRoster() {
     let answer!: (a: unknown[]) => void;
@@ -293,15 +335,15 @@ describe("LossActionSheet — the roster's LATE answer (Codex r1 follow-up on #3
     expect(document.activeElement).toBe(retry);
     // The read answers after its bound: the list loads (CX1) and the Try again goes.
     await act(async () => answer(DAW_MYA));
-    const select = document.querySelector<HTMLSelectElement>('[role="dialog"] select')!;
-    expect(select.disabled).toBe(false);
+    const pin = document.getElementById("loss-pin") as HTMLInputElement;
+    expect(pin).not.toBeNull();
     expect(retryBtn()).toBeNull();
     // MUTATION (p2h-cx1/roster-region/late-keeps-failure-copy · p2h-cx1/loss/region-unwired): the
     // region still says the list couldn't load, over the picker it just filled; red.
     // MUTATION (p2f-sr-sheet/loss-sheet/recovery-drops-needs-manager): the region reads "" — red.
     expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
     // MUTATION (p2h-cx1/loss/late-load-no-focus): focus fell to the dialog with the Try again; red.
-    expect(document.activeElement).toBe(select);
+    expect(document.activeElement).toBe(pin);
   });
 
   it("with no step-up asked by the server the late list leaves the region empty — and focus the person put on the PIN field stays there", async () => {
@@ -530,24 +572,16 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     await tapVoid();
     await advance(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
-    // Comp — the request shows (nobody on shift: it is the primary). The void's reason does not
-    // apply to a comp, so the first tap asks for one and the region moves off the waiting line.
+    // A comp chip — the request shows (nobody on shift: it is the primary). PD8: the chip carries
+    // its reason, so the region holds the waiting line until the request is tapped.
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+      fireEvent.click(compChip());
     });
     const request = () =>
       screen.getByRole("button", {
         name: (n) => n.includes(STAFF["table.loss.requestApproval.comp"].en),
       });
-    await act(async () => {
-      fireEvent.click(request());
-    });
-    expect(region().textContent).toBe(STAFF["table.loss.reasonRequired"].en);
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
-    });
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
     await act(async () => {
       fireEvent.click(request());
     });
@@ -570,12 +604,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
     // The comp shows the step-up up-front, and with it the deferred request.
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-    });
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
+      fireEvent.click(compChip());
     });
     await act(async () => {
       fireEvent.click(
@@ -591,19 +620,11 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
 
   it("a step-up void SENT with no answer, or thrown, keeps no PIN — voidLine spends the attempt before the RPC, so a re-send walks toward the lockout (critic F4)", async () => {
     vi.useFakeTimers();
-    approvers.mockResolvedValue([{ staffId: "m1", name: "Aye" }]);
+    approvers.mockResolvedValue([{ ...DAW_MYA_ROW, displayName: "Aye" }]);
     const pinField = () => document.getElementById("loss-pin") as HTMLInputElement;
     async function tapComp() {
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-      });
-      await act(async () => {
-        fireEvent.click(
-          screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-        );
-      });
-      fireEvent.change(document.getElementById("loss-mgr") as HTMLSelectElement, {
-        target: { value: "m1" },
+        fireEvent.click(compChip());
       });
       fireEvent.change(pinField(), { target: { value: "1234" } });
       await act(async () => {
@@ -641,12 +662,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     requestApproval.mockReturnValueOnce(late.promise);
     const { onDone } = mountSpied();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-    });
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
+      fireEvent.click(compChip());
     });
     const request = () =>
       screen.getByRole("button", {
@@ -672,12 +688,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     requestApproval.mockRejectedValueOnce(new Error("fetch failed"));
     mountSpied();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-    });
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
+      fireEvent.click(compChip());
     });
     await act(async () => {
       fireEvent.click(request());
@@ -741,12 +752,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     requestApproval.mockReturnValueOnce(late.promise);
     mountSpied();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-    });
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
+      fireEvent.click(compChip());
     });
     const request = () =>
       screen.getByRole("button", {
@@ -791,12 +797,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     requestApproval.mockReturnValueOnce(late.promise);
     mountSpied();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
-    });
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
-      );
+      fireEvent.click(compChip());
     });
     await act(async () => {
       fireEvent.click(

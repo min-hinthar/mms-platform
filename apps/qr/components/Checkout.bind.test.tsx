@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
+import { SAME_GESTURE_MS } from "@mms/ui";
 import type { getCartView } from "@/lib/cart";
 import { BIND_COPY } from "@/lib/bind-copy";
 import type { BindTableResult } from "@/lib/bind-table";
@@ -48,6 +49,10 @@ vi.mock("@/lib/counter-pay", () => ({
 }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+// PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
+vi.mock("@/lib/send-nudge", () => ({
+  nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
+}));
 vi.mock("@/lib/useSessionPeek", () => ({ useSessionPeek: () => [] }));
 vi.mock("posthog-js", () => ({ default: { capture: (...a: unknown[]) => h.capture(...a) } }));
 vi.mock("@mms/ui", async (orig) => ({
@@ -128,6 +133,11 @@ function view(over: Partial<View> = {}): View {
     tabType: "none",
     counterRequestedAt: null,
     tableNumber: null,
+    sendNudge: null,
+    nudgeReady: true,
+    serverNow: "2026-10-08T10:00:00.000Z",
+    dbNow: "2026-10-08T10:00:00.000Z",
+    mode: "dinein",
     ...over,
   } satisfies View;
 }
@@ -167,6 +177,65 @@ function regionText(): string {
     .join(" | ");
 }
 
+/** The region's text, read without throwing (a MutationObserver callback can run after cleanup). */
+function regionTextSafe(): string {
+  return screen
+    .queryAllByRole("status", { hidden: true })
+    .map((r) => r.textContent ?? "")
+    .join(" | ");
+}
+
+/** Observers `recordRegion` started — disconnected after every test, so a test that fails before
+ *  `heard()` (which is exactly how a caught mutant fails) leaks nothing into the next one. */
+const observers = new Set<MutationObserver>();
+
+/**
+ * A BACKSTOP, not the guard: the region's text at every DOM mutation checkpoint from the call until
+ * `heard()`, plus the text of every node removed from inside it (the region swaps a keyed span per
+ * sentence, so a replaced sentence leaves as a removed node, never as an in-place text edit). It sees
+ * COMMITTED DOM only: two updates React merges into one render never put the first into the DOM, so
+ * this cannot see that race on its own. What makes the stale-refusal tests deterministic is
+ * `closeEdgeDone()` below, which commits the close edge's sentence before the send is resolved.
+ */
+function recordRegion(): () => string {
+  const heard: string[] = [regionTextSafe()];
+  const mo = new MutationObserver((records) => {
+    for (const r of records) {
+      const el = r.target instanceof Element ? r.target : r.target.parentElement;
+      if (!el?.closest('[role="status"]')) continue;
+      r.removedNodes.forEach((n) => heard.push(n.textContent ?? ""));
+    }
+    heard.push(regionTextSafe());
+  });
+  mo.observe(document.body, { subtree: true, childList: true, characterData: true });
+  observers.add(mo);
+  return () => {
+    heard.push(regionTextSafe());
+    mo.disconnect();
+    observers.delete(mo);
+    return heard.join(" ‖ ");
+  };
+}
+
+/**
+ * THE GUARD for the stale-refusal tests: wait until the sheet's close edge has RUN, and its sentence
+ * is COMMITTED, before anything competes with it. `onBindClosed` says the stash and then lands focus
+ * on the Send (still "Sending…" while the send is out), so focus there means the close edge ran;
+ * `waitFor` then drains a further timer turn and the empty `act` flushes React, so the sentence is in
+ * the DOM before the test resolves the send. Waiting only for the dialog to leave did not order this:
+ * the close edge rides Radix FocusScope's unmount autofocus, a `setTimeout`, so the "not said" read
+ * could run before it, and the close edge's update could then be merged with the send's update into
+ * one render, its sentence never reaching the DOM (the likely way `checkout-bind/stale-refusal-said`
+ * SURVIVED on main's push run of d9614ae — inferred from the order, not reproduced locally).
+ */
+async function closeEdgeDone() {
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Sending…/ })),
+  );
+  await act(async () => {});
+}
+
 function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
   window.history.replaceState(null, "", "/cart?cart=cart-1");
   return render(
@@ -178,12 +247,18 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
       splitContext={HOST}
       initialTableNumber={null}
       tables={TABLES}
+      initialDbNow={null}
       {...props}
     />,
   );
 }
 
-const sendButton = () => screen.getByRole("button", { name: /^Send to kitchen · 1 item/ });
+const sendButton = () => screen.getByRole("button", { name: /^Send to kitchen(?! now)/ });
+/** PD2 · PD1 (P2y) — the Send→Undo relabel holds taps for `SAME_GESTURE_MS` (the double-tap's
+ *  second half); a test that presses the new Undo waits that gesture out first, in real time. */
+async function afterGesture() {
+  await new Promise((r) => setTimeout(r, SAME_GESTURE_MS + 20));
+}
 async function press(name: string | RegExp) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -191,7 +266,7 @@ async function press(name: string | RegExp) {
 }
 /** Press Send, and the ask opens. */
 async function askTable() {
-  await press(/^Send to kitchen · 1 item/);
+  await press(/^Send to kitchen(?! now)/);
   return screen.getByRole("dialog");
 }
 const chip = (n: number) => screen.getByRole("button", { name: new RegExp(`^Table ${n},`) });
@@ -212,7 +287,11 @@ beforeEach(() => {
   h.counterPayOutcome.mockResolvedValue({ kind: "open" });
   h.sendToKitchen.mockResolvedValue(SENT);
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  for (const mo of observers) mo.disconnect();
+  observers.clear();
+  cleanup();
+});
 
 describe("3c-ii (D27) — the first Send on an unbound session asks, and the hero stays Send", () => {
   it("opens a dialog named 'Pick your table' in both tongues; NOTHING reaches the server; one .checkout-cta, one region, no region in the sheet; mode_selected never fires", async () => {
@@ -278,7 +357,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
       sending.resolve(SENT);
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    const undo = await screen.findByRole("button", { name: /^Undo — \d+s$/ });
+    const undo = await screen.findByRole("button", { name: /^Undo/ });
     // Said through the view's ONE region, after the modal — never under its aria-hidden.
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
     await waitFor(() => expect(document.activeElement).toBe(undo));
@@ -286,9 +365,11 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     // The NEXT send never asks: undo the batch (drafts back), press Send — straight to the server.
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT], tableNumber: 5 }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
-    await press(/^Send to kitchen · 1 item/);
+    await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
     expect(h.bindTable).toHaveBeenCalledTimes(1);
@@ -346,19 +427,21 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.queryByText(/^Table \d+$/)).toBeNull(); // still unbound, honestly
-    await screen.findByRole("button", { name: /^Undo — \d+s$/ });
+    await screen.findByRole("button", { name: /^Undo/ });
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
-    await press(/^Send to kitchen · 1 item/);
+    await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
   });
 
   it("a FROZEN cart is refused with FROZEN_NOTE — no sheet", async () => {
     mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(regionText()).toContain(FROZEN_NOTE);
     expect(h.sendToKitchen).not.toHaveBeenCalled();
@@ -386,7 +469,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
   it("a BOUND table (7) and an EMPTY registry never ask — the send goes straight to the server", async () => {
     mount({ initialTableNumber: 7 });
     expect(screen.getByText("Table 7")).toBeTruthy();
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
     cleanup();
@@ -394,7 +477,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     h.getCartView.mockResolvedValue(view());
     h.sendToKitchen.mockResolvedValue(SENT);
     mount({ tables: [] });
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
   });
@@ -426,7 +509,7 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
   });
 
   it("`already_bound` whose send answers BEFORE the sheet has closed: the region says the destination AND the send's line — the stash composes, it never overwrites (Codex r1 on #314, P2)", async () => {
@@ -448,31 +531,36 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
       .mockResolvedValueOnce({ ok: false, reason: "seated" })
       .mockResolvedValueOnce({ ok: true, tableNumber: 8, already: false });
     mount({ tables: [...TABLES, { tableNumber: 8, occupied: false }] });
+    const heard = recordRegion();
     const dialog = await askTable();
     await act(async () => {
       fireEvent.click(chip(5));
     });
     expect(dialog.textContent).toContain(BIND_COPY.seated);
-    // Deterministic under reduced motion: the close edge precedes the send's answer.
+    // The close edge is awaited and committed (closeEdgeDone) before the send answers.
     const sending = deferred<typeof SENT>();
     h.sendToKitchen.mockReturnValue(sending.promise);
     h.getCartView.mockResolvedValue(view({ items: [FIRED], tableNumber: 8 }));
     await act(async () => {
       fireEvent.click(chip(8)); // another open chip — the bind lands now (5 is a join disclosure)
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await closeEdgeDone();
+    // MUTATION (checkout-bind/stale-refusal-said): the ok edge keeps the stash, so the close edge says
+    // the `seated` refusal. `closeEdgeDone` has committed whatever the close edge said, so THIS read
+    // is the one that catches it, before the send's line can replace or merge with it.
     expect(regionText()).not.toContain(BIND_COPY.seated);
     await act(async () => {
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    expect(regionText()).not.toContain(BIND_COPY.seated);
+    expect(heard()).not.toContain(BIND_COPY.seated); // the backstop: never said, at any checkpoint
   });
 
   it("a refusal followed by 'Send anyway' in one open: the stale refusal is never said", async () => {
     h.bindTable.mockReset(); // a `mockResolvedValueOnce` queue survives clearAllMocks
     h.bindTable.mockResolvedValue({ ok: false, reason: "unavailable" });
     mount();
+    const heard = recordRegion();
     const dialog = await askTable();
     await act(async () => {
       fireEvent.click(chip(5));
@@ -484,13 +572,15 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: BIND_COPY.sendAnyway }));
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await closeEdgeDone();
+    // MUTATION (checkout-bind/send-anyway-says-the-stale-refusal): the escape keeps the stash, so the
+    // close edge says the refusal; this read, after `closeEdgeDone`, is the one that catches it.
     expect(regionText()).not.toContain(BIND_COPY.unavailable);
     await act(async () => {
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    expect(regionText()).not.toContain(BIND_COPY.unavailable);
+    expect(heard()).not.toContain(BIND_COPY.unavailable); // the backstop
   });
 
   it("the SEND edge lands focus on the Send itself while the send is still out — and keeps it there when the send then FAILS", async () => {
@@ -588,7 +678,7 @@ describe("3c-ii (D30) — the table number is LIVE on /cart", () => {
     // — the bill keeps the page-load null, asks a table that is already bound, and the bind answers
     // `already`; red.
     await waitFor(() => expect(screen.getByText("Table 5")).toBeTruthy());
-    await press(/^Send to kitchen · 1 item/);
+    await press(/^Send to kitchen(?! now)/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
   });

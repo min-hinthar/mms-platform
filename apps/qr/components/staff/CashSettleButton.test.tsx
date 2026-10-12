@@ -240,7 +240,12 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     });
     expect(settleCash).toHaveBeenCalledTimes(1);
     // The quote rides along — COMPARE-ONLY: the pre-tip total the cashier read, never a price.
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 0,
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
     expect(settle().getAttribute("aria-busy")).toBe("true");
     expect(settle().getAttribute("aria-disabled")).toBe("true");
     expect(settle().textContent).toBe(STAFF["settle.cash.settling"].en);
@@ -320,7 +325,12 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     // Deliberately rewritten (Phase 2c): the payload now carries `quotedCents`, the PRE-tip total the
     // cashier read — compared by the server, never charged. MUTATION: `tipCents: 0` in the call — red;
     // drop `quotedCents` — red (a stale quote would be recorded silently).
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 800, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 800,
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("'5,00' typed KEY BY KEY into the tip records 500 cents — never 50000", async () => {
@@ -349,7 +359,12 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     });
     // MUTATION: restore the per-keystroke comma drop in the field's onChange — the field builds
     // "500" and the settle carries 50000; red.
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 500,
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("a tip past seven whole-dollar digits is refused as over the cap, never read as zero", async () => {
@@ -497,6 +512,7 @@ describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LAN
       sessionId: "s1",
       tipCents: 0,
       quotedCents: 4265,
+      acknowledgedApprovalIds: [],
     });
     // Deliberately rewritten (critic finding — the figure moved UNDER the open sheet): the parent's
     // read moving the prop to a THIRD figure no longer swaps the label silently. The sheet keeps
@@ -708,7 +724,12 @@ describe("CashSettleButton — the quote is FROZEN when the sheet opens (critic 
     await act(async () => {
       fireEvent.click(settle());
     });
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4610 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 0,
+      quotedCents: 4610,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("the settle carries the quote READ at open — a prop that moved and came back is no drift and no new figure", async () => {
@@ -721,7 +742,12 @@ describe("CashSettleButton — the quote is FROZEN when the sheet opens (critic 
     await act(async () => {
       fireEvent.click(settle());
     });
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 0,
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("a new attempt opens on the live figure", async () => {
@@ -763,7 +789,12 @@ describe("CashSettleButton — a tip intent arriving under an open sheet is froz
     await act(async () => {
       fireEvent.click(settle());
     });
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenCalledWith({
+      sessionId: "s1",
+      tipCents: 500,
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -876,7 +907,7 @@ describe("CashSettleButton — keep the change names the tip it MAKES when a tip
 });
 
 describe("CashSettleButton — an unknown outcome is handed UP (critic finding: the counter's closed-bounce)", () => {
-  it("a rejected settle says unknown to the parent; the next answered attempt says known", async () => {
+  it("a rejected settle says unknown to the parent; a NEWER attempt's refusal never says known (#334, C1); a landed one does", async () => {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const onOutcomeUnknown = vi.fn();
@@ -892,7 +923,16 @@ describe("CashSettleButton — an unknown outcome is handed UP (critic finding: 
     await act(async () => {
       fireEvent.click(settle());
     });
-    // MUTATION: never clear it — a later GENUINE close (cleared from another tablet) is held too; red.
+    // The blind pass on #334 (C1): "That table is closed." after a lost answer is most likely the
+    // FIRST settle landing — the refusal of a newer attempt answers nothing about it, so the page
+    // keeps its hold ("most likely went through"), never a bounce to the floor.
+    expect(onOutcomeUnknown).not.toHaveBeenCalledWith(false);
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o1", totalCents: 4250, tipCents: 0 });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION p2c-register/cash-unknown-never-cleared: a LANDED attempt answers every doubt — never
+    // cleared, a later genuine close is held with a 'most likely went through' it did not earn; red.
     expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
   });
 });
@@ -1063,6 +1103,7 @@ describe("CashSettleButton — a refusal's figure is settled by the page's NEXT 
       sessionId: "s1",
       tipCents: 0,
       quotedCents: 4210,
+      acknowledgedApprovalIds: [],
     });
   });
 });
@@ -1691,5 +1732,61 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     });
     expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.cash.waiting"].en);
     expect(settleCash).toHaveBeenCalledTimes(2);
+  });
+});
+
+const ackFlag = (id: string, lineName: string) => ({
+  id,
+  kind: "void" as const,
+  lineId: null,
+  lineName,
+  nameMy: null,
+  qty: 1,
+  amountCents: 1200,
+  cooked: true,
+  initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
+  createdAt: "2026-10-08T10:00:00Z",
+  lineNow: "unknown" as const,
+});
+
+describe("CashSettleButton — the acknowledgement reaches the action (the blind pass on #333)", () => {
+  it("the trigger tap's displayed ids ride the settle — exactly those, non-empty", async () => {
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210, tipCents: 0 });
+    const { open, settle } = mount({ acknowledgedApprovalIds: ["r-1", "r-2"] });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (approval-ack/cash-trigger-acks-nothing): the tap captures [] — every Take with a
+    // flag up is refused `approval_pending`; red.
+    expect(settleCash).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-1", "r-2"] }),
+    );
+  });
+  it("with no page to re-draw, the sheet names EVERY dish the re-warning carried and the next Take acknowledges exactly those", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      error: "x",
+      code: "approval_pending",
+      pending: [ackFlag("r-3", "Mohinga"), ackFlag("r-4", "Tea leaf salad")],
+    });
+    const { open, settle } = mount({ acknowledgedApprovalIds: [] });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      tf("en", "settle.flag.pendingRefused", { x: "Mohinga · Tea leaf salad" }),
+    );
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210, tipCents: 0 });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (approval-ack/cash-door-forgets-its-warning): the re-sent snapshot is still [] and the
+    // door is refused forever — a block, never "tap again"; red.
+    expect(settleCash).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-3", "r-4"] }),
+    );
   });
 });

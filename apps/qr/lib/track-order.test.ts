@@ -23,6 +23,7 @@ const row = {
   created_at: "2026-08-16T19:00:00Z",
   table_number: 4,
   pickup_slot: null,
+  fire_at: null,
   customer_name: "Min",
   togo_status: "ready",
   arrived_at: null,
@@ -124,6 +125,18 @@ describe("shapeTrackedOrder — verbatim money carriage", () => {
       },
     ]);
     expect(o.itemCount).toBe(3);
+  });
+
+  it("carries fire_at VERBATIM — a held pickup's stamp is what keeps it from reading 'with the kitchen' (M65)", () => {
+    // MUTATION: `fireAt: data.fire_at ?? null` → `fireAt: null` — every scheduled pickup reads as
+    // as-soon-as-possible (fired at payment) and /track says the kitchen has a ticket it has not got.
+    const held = shapeTrackedOrder({
+      ...row,
+      pickup_slot: "2026-08-16T20:00:00Z",
+      fire_at: "2026-08-16T19:48:00Z",
+    });
+    expect(held.fireAt).toBe("2026-08-16T19:48:00Z");
+    expect(shapeTrackedOrder(row).fireAt).toBeNull();
   });
 
   it("carries the real step timestamps and the pickup contact", () => {

@@ -6,15 +6,20 @@
 // amount is derived. An exemption is a claim about what is covered elsewhere; when the file
 // grows a rule the claim does not cover, the exemption is stale, not the rule.
 // `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
-// reddens; this route only wires the refusal (routes have no test runner to own a mutant here).
+// reddens; this route only wires that refusal. (Since PD2 the route HAS a suite —
+// `route.test.ts` — and owns mutants of its own: `surfaces/create-intent-route-answers-open`,
+// `create-intent/refusal-keeps-the-stale-pin` and, since PD10, `served-gate/create-intent-*`; the
+// tip ceiling's rule still lives in lib/tip.ts.)
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
-import { payBlockedByUnsent } from "@/lib/checkout-stage";
-import { kitchenDraftUnits } from "@/lib/unsent-read";
+import { phonePayParked, servedGateApplies, servedGateDecision } from "@/lib/checkout-stage";
+import { servedHoldCopy } from "@/lib/checkout-verb";
+import { surfaceOpen } from "@/lib/surfaces";
+import { readServedGateInput } from "@/lib/unsent-read";
 import { manualCaptureMode } from "@/lib/manual-capture";
 import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
@@ -136,6 +141,66 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ⚠️ HOISTED HERE, DIRECTLY UNDER THE SUPERSEDE (Codex round 2 on #331, P1). It used to sit just
+    // above the pin, below every pre-mint refusal — so each of those refusals (the parked dine-in
+    // door, a sold-out dish, unsent dishes, a full pickup slot) returned AFTER `supersedeCartIntent`
+    // had cancelled and UNLINKED the predecessor but BEFORE its pin was released. Unlinked, the
+    // cancelled intent's webhook no longer matches `releaseByIntent` either, so the pin outlived
+    // the attempt on an unlocked, editable cart — and the counter's settle (`getCartTotals`) then
+    // priced a basket with a discount a different basket earned. A card re-attempt cleared it (the
+    // next attempt releases), but PD2's parked door means a table's NEXT step is the counter, never
+    // another attempt. So the release runs the moment it is SAFE — the predecessor is unusable, the
+    // link is dropped, this attempt holds the lock under its own era — and before any refusal can
+    // return. Nothing between here and the pin reads the pin.
+    // RELEASE THE PREVIOUS ATTEMPT'S PIN, THEN RE-DERIVE (M70 · Codex round 2 on #240). A pin is a
+    // statement about ONE attempt's basket, so every attempt must make its own: `mms_pin_promo_grant`
+    // is a no-op while the pin is non-null, and without this release a grant earned by a $30 basket
+    // would price the $20 basket the diner re-checks-out with — charged for real.
+    //
+    // This is the one place where "the old pin is stale" is actually knowable. We hold the lock we
+    // are releasing under, so the era-scoped RPC cannot touch a successor, and no intent's metadata
+    // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
+    // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
+    // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
+    //
+    // ⚠️ SOUND FOR SEQUENTIAL ATTEMPTS, NOT YET FOR OVERLAPPING ONES (OPEN-ITEMS M151, Codex round
+    // 3). Holding the lock stops us clearing a SUCCESSOR's pin; it does not make a PREDECESSOR's
+    // PaymentIntent unusable. `acquireCartLock` lets the same payer re-acquire by design, and
+    // `withinMutationRate` is a rate limit rather than a mutex — so two overlapping requests can
+    // mint two live intents whose pins differ, and if the promo's state changes between them,
+    // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
+    // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
+    // which every decline used to open. The fix was a cart→intent link so a superseded intent can be
+    // cancelled before its pin is replaced — M151 added it (`live_payment_intent_id`), and the
+    // supersede above now cancels and unlinks the predecessor before this release runs.
+    // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
+    // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
+    // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
+    // false of the RELEASE. `mms_pin_promo_grant` only writes `where promo_granted_cents is null`,
+    // so a release that failed leaves the PREDECESSOR's grant in place and the pin step silently
+    // no-ops: this attempt then derives, mints and charges against a discount a different basket
+    // earned, and the fulfilment reconcile agrees with it, so nothing downstream ever notices.
+    //
+    // M123 (b) sharpened the reason to refuse rather than creating it. The review step now quotes
+    // the LIVE discount, so on this path the diner reads one number and the card is charged another
+    // — but even before that the charge itself was wrong, just wrong in a way the screen matched.
+    // `getCartTotals`' own rule applies (`totals.ts`: "never return a total we are not certain of");
+    // a recoverable outage is the one thing a retry actually fixes, so refuse and let them retry.
+    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
+    if (staleGrantErr) {
+      console.error("[create-intent] stale promo grant not released", {
+        cartId,
+        error: staleGrantErr.message,
+      });
+      // Nothing was pinned by THIS attempt yet, so the lock is all there is to give back — and it
+      // goes back era-scoped like every other refusal.
+      await freeLock();
+      return NextResponse.json(
+        { error: "We’re having trouble on our end — try again in a moment." },
+        { status: 503 },
+      );
+    }
+
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
     // the kitchen's open-hours + per-slot capacity limits by forging state.
@@ -159,6 +224,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Couldn’t start checkout — please try again." },
         { status: 500 },
+      );
+    }
+    // PD2 (the owner, PATH_DESIGN_2026-10-07 decision 2) — THE PARKED DOOR, ANSWERED. Until the
+    // live keys are switched on (C2) a dine-in table pays only at the counter: the Bill draws no
+    // card hero (`phonePayParked`, the SAME rule Checkout reads with the SAME switch,
+    // `SURFACES.dineInPhonePay`), and this is the refusal behind the sign — a raw POST from a
+    // table mints nothing. 410 like the other parked doors (`create-share-intent`, `setup-intent`).
+    //
+    // ⚠️ PLACED HERE, AND NOWHERE HIGHER (PATH_DESIGN round 3, D5; #257's CRITICAL, M151): it
+    // sits AFTER `supersedeCartIntent` and its captured / unknown exits, because like every
+    // pre-mint refusal it frees the lock, and freeing the lock while a predecessor intent can
+    // still be confirmed is the double-charge shape M151 closed. It sits after the mode read
+    // because the rule IS the mode (an unreadable mode already refused above, fail-closed), and
+    // BEFORE the availability gate and PD10's served gate: a parked door is refused before any
+    // further read is spent on the attempt. `scripts/check-phone-pay-door.mjs` parses this file and
+    // pins that order (awaited supersede, in a statement that finishes first; the lock released on
+    // the refusal). The D5 served gate (PD10) sits below, in the unsent refusal's old slot: while
+    // this door is parked it is never reached by a table.
+    if (phonePayParked(sess.mode, surfaceOpen("dineInPhonePay"))) {
+      await freeLock();
+      return NextResponse.json(
+        {
+          error:
+            "Paying on your phone isn’t on at the table yet — pay at the counter, and they’ll settle the whole bill there.",
+        },
+        { status: 410 },
       );
     }
     // W23a — THE AVAILABILITY GATE. Asked before ANY state is consumed on this order's behalf.
@@ -200,23 +291,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Phase 1b (owner, 2026-09-23: "Everything sent") — a dine-in bill is payable only once every
-    // dish the table can send has gone to the kitchen (`payBlockedByUnsent`, the same binding the
-    // Bill's Pay control reads). Refused here, at the charge boundary, because this route is directly
-    // POST-able — the button is the courtesy, this is the gate. Placed with the other pre-mint
-    // refusals: the lock is released and no slot or Stripe state is touched. The read fails OPEN
-    // (lib/unsent-read.ts) — a charge that slips past is today's behaviour, drafts fired on landing.
-    // Only a table WITH a host is gated: nobody else can send (see the rule's docblock).
+    // PD10 · D5 (PATH_DESIGN_2026-10-07 decision 10) — THE SERVED GATE, in the unsent refusal's old
+    // slot, which it REPLACES. Phone pay at a table opens only when nothing on the bill is still
+    // with the kitchen: a food line (dine-in or to-go, comped included) in draft, fired or in
+    // progress holds the door, and so does a served line until its bump is `KDS_UNDO_MS` old on the
+    // DB clock (Mom can still take it back). The rule is `servedGateDecision` (lib/checkout-stage) —
+    // the SAME verdict the Bill draws its held Pay from — over ONE error-aware read that fails
+    // CLOSED (`readServedGateInput`: the clock first, then the lines). Why the unsent refusal had to
+    // go rather than stay above it: every unsent dine-in line holds this gate too, and its sentence
+    // ("— then the bill is ready to pay") is false under D5; this gate also holds a HOSTLESS table's
+    // drafts and a to-go draft, which "Everything sent" exempted.
     //
-    // The copy names a recovery (blind pass on #301): this refusal can reach a screen that shows no
-    // Send control — /cart renders it from the split context, and that read can miss while this
-    // route's own session read, which fails closed, still knows the table is dine-in.
-    if (payBlockedByUnsent(sess.mode, await kitchenDraftUnits(cartId), sess.host_seat != null)) {
+    // ⚠️ PLACED HERE (D5; #257's CRITICAL, M151): AFTER `supersedeCartIntent` and its captured /
+    // unknown exits, because like every pre-mint refusal it frees the lock; after the parked door
+    // (`phonePayParked`), which answers first while the flag is off — so in production today this
+    // gate is reached only by pickup and scan-and-go, which it never reads for; and BEFORE the pickup
+    // block, the promo pin and `paymentIntents.create`, so a refused attempt consumes no slot, pins
+    // nothing and creates nothing at Stripe. `scripts/check-phone-pay-door.mjs` parses this file and
+    // pins all of that. NO GATE AT FULFILLMENT (D5): a recall landing after this read cannot strand
+    // a card that is already charged.
+    //
+    // The read is spent only where the gate could refuse (`servedGateApplies`): an unreadable read
+    // must never become a 503 on a pickup order, whose answer could not matter.
+    const servedHold = servedGateDecision(
+      sess.mode,
+      servedGateApplies(sess.mode) ? await readServedGateInput(cartId) : null,
+      sess.host_seat != null,
+    );
+    if (servedHold !== null) {
       await freeLock();
+      if (servedHold === "unreadable")
+        return NextResponse.json(
+          { error: "We’re having trouble on our end — try again in a moment." },
+          { status: 503 },
+        );
+      // The host is told to send; anyone else hears D5's own sentence — the server knows the host's
+      // SEAT, never the name the table chose, so it names nobody (`servedHoldCopy`). The reload
+      // hint survives from the unsent refusal (blind pass on #301): this refusal can reach a screen
+      // that shows no Send control.
+      const isHost = sess.host_seat === uid;
+      const copy = servedHoldCopy(servedHold, { canSend: isHost, hostName: null });
       return NextResponse.json(
         {
           error:
-            "Send everything to the kitchen first — then the bill is ready to pay. Don’t see Send? Reload this page.",
+            servedHold === "unsent" && isHost ? `${copy} Don’t see Send? Reload this page.` : copy,
         },
         { status: 409 },
       );
@@ -387,53 +505,8 @@ export async function POST(req: NextRequest) {
     // amount is still server-derived from the same authority, and `planCapture` still refuses to
     // charge more than was authorized. Failing the mint would trade a rare cancelled settlement for
     // a certain refused checkout.
-    // RELEASE THE PREVIOUS ATTEMPT'S PIN, THEN RE-DERIVE (M70 · Codex round 2 on #240). A pin is a
-    // statement about ONE attempt's basket, so every attempt must make its own: `mms_pin_promo_grant`
-    // is a no-op while the pin is non-null, and without this release a grant earned by a $30 basket
-    // would price the $20 basket the diner re-checks-out with — charged for real.
-    //
-    // This is the one place where "the old pin is stale" is actually knowable. We hold the lock we
-    // are releasing under, so the era-scoped RPC cannot touch a successor, and no intent's metadata
-    // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
-    // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
-    // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
-    //
-    // ⚠️ SOUND FOR SEQUENTIAL ATTEMPTS, NOT YET FOR OVERLAPPING ONES (OPEN-ITEMS M151, Codex round
-    // 3). Holding the lock stops us clearing a SUCCESSOR's pin; it does not make a PREDECESSOR's
-    // PaymentIntent unusable. `acquireCartLock` lets the same payer re-acquire by design, and
-    // `withinMutationRate` is a rate limit rather than a mutex — so two overlapping requests can
-    // mint two live intents whose pins differ, and if the promo's state changes between them,
-    // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
-    // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
-    // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
-    // cancelled before its pin is replaced; there is no such column today.
-    // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
-    // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
-    // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
-    // false of the RELEASE. `mms_pin_promo_grant` only writes `where promo_granted_cents is null`,
-    // so a release that failed leaves the PREDECESSOR's grant in place and the pin step silently
-    // no-ops: this attempt then derives, mints and charges against a discount a different basket
-    // earned, and the fulfilment reconcile agrees with it, so nothing downstream ever notices.
-    //
-    // M123 (b) sharpened the reason to refuse rather than creating it. The review step now quotes
-    // the LIVE discount, so on this path the diner reads one number and the card is charged another
-    // — but even before that the charge itself was wrong, just wrong in a way the screen matched.
-    // `getCartTotals`' own rule applies (`totals.ts`: "never return a total we are not certain of");
-    // a recoverable outage is the one thing a retry actually fixes, so refuse and let them retry.
-    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
-    if (staleGrantErr) {
-      console.error("[create-intent] stale promo grant not released", {
-        cartId,
-        error: staleGrantErr.message,
-      });
-      // Nothing was pinned by THIS attempt yet, so the lock is all there is to give back — and it
-      // goes back era-scoped like every other refusal above.
-      await freeLock();
-      return NextResponse.json(
-        { error: "We’re having trouble on our end — try again in a moment." },
-        { status: 503 },
-      );
-    }
+    // (The stale-grant release that used to sit here runs right after the supersede now — see the
+    // M70 note there: every refusal between the two used to leave the predecessor's pin behind.)
     const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
@@ -664,10 +737,11 @@ export async function POST(req: NextRequest) {
     // A throw from ABOVE the pin block (an availability read, a pickup RPC) also lands here, and by
     // then any pin on the row belongs to a PREDECESSOR — so this clears a pin whose PaymentIntent
     // may have captured with a merely-delayed webhook, under either arm of the disjunct. That is the
-    // third mouth of OPEN-ITEMS **M152**, and like the other two it needs the cart→intent link: the
-    // predicate has to be able to say `and live_payment_intent_id is null`, which no column supports
-    // today. Not narrowed by a `pinned` flag here, because a money rule written in `app/api/**` sits
-    // outside MONEY_PATHS and outside `verify:slice`'s mutant set — it could not be guarded at all.
+    // third mouth of OPEN-ITEMS **M152**. M151 has since added the cart→intent link and
+    // `mms_release_promo_grant` requires `live_payment_intent_id is null`; the supersede at the top
+    // unlinks only a predecessor it cancelled or found dead (a captured or unreadable one exits
+    // before any release). What remains is an UNLINKED predecessor that captured — M151's overlap
+    // plus a failed cancel — still filed under M152. Not narrowed by a `pinned` flag here.
     if (acquired) {
       const { cartId: abandonedCart, uid: abandonedUid, era: abandonedEra } = acquired;
       try {

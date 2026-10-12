@@ -3,7 +3,9 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { renderToString } from "react-dom/server";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PANE_QUERY, handoffStashKey, stashHandoff } from "@/lib/floor-pane";
+import { CLEAR_UNDO_MS } from "@/lib/clear-window";
+import { PANE_IDLE_QUERY, PANE_QUERY, handoffStashKey, stashHandoff } from "@/lib/floor-pane";
+import { GUIDE_ARM_MS, staffGuideKey } from "@/lib/staff-guide";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { STAFF_HANG_MS, outstanding, youngWrite } from "@/lib/bounded-write";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
@@ -24,6 +26,19 @@ const getTableDetail = vi.fn((id: string) => (answers[id] ?? (() => new Promise(
 vi.mock("@/lib/floor", () => ({
   getTableDetail: (id: string) => getTableDetail(id),
   clearTable: (...a: unknown[]) => clearTable(...(a as [])),
+  // PD7 — a table's Clear takes a fresh look first; nothing sent → the six-second window.
+  getClearPreview: () =>
+    Promise.resolve({
+      kind: "preview",
+      preview: {
+        seenAt: "2026-10-09T18:00:00Z",
+        sent: [],
+        lossCents: 0,
+        units: 0,
+        droppedUnits: 0,
+        lines: [],
+      },
+    }),
   getMergeCandidates: (...a: unknown[]) => getMergeCandidates(...(a as [])),
   mergeTables: (...a: unknown[]) => mergeTables(...(a as [])),
 }));
@@ -103,6 +118,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
   ({
     sessionId,
     settled: false,
+    pendingRequests: [],
     cartId: `c-${tableNumber}`,
     label: `T${tableNumber}`,
     tableNumber,
@@ -207,6 +223,9 @@ function Floor({
 }
 
 let split = true;
+// PD12 — the pane is a column beside the floor (`PANE_IDLE_QUERY`); off unless a case sets it, so
+// every case before PD12 sees exactly the media it always did.
+let wide = false;
 let terminalReady = false;
 const tree = (props: Parameters<typeof Floor>[0] = {}) => (
   <StaffLangProvider lang="en">
@@ -221,6 +240,13 @@ const tree = (props: Parameters<typeof Floor>[0] = {}) => (
 );
 const mount = (props: Parameters<typeof Floor>[0] = {}) => render(tree(props));
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+/** PD7 — focus arrives the TAP way (never `:focus-visible`), as a finger's would in a browser. */
+function tapFocus() {
+  const real = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, sel: string) {
+    return sel === ":focus-visible" ? false : real.call(this, sel);
+  });
+}
 const card = (id: string) =>
   document.querySelector<HTMLAnchorElement>(`.floor-card[data-session-id="${id}"]`)!;
 const paneHeading = () => document.getElementById("table-pane-h")!;
@@ -241,9 +267,10 @@ let backSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   vi.useFakeTimers();
   split = true;
+  wide = false;
   terminalReady = false;
   window.matchMedia = ((q: string) => ({
-    matches: split && q === PANE_QUERY,
+    matches: (split && q === PANE_QUERY) || (wide && q === PANE_IDLE_QUERY),
     media: q,
     addEventListener() {},
     removeEventListener() {},
@@ -276,6 +303,7 @@ afterEach(() => {
   refresh.mockReset();
   push.mockReset();
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe("TablePane — a card tap at split width", () => {
@@ -445,14 +473,15 @@ describe("TablePane — closing", () => {
     await tick(0);
     await tap(card(A));
     await tick(0);
-    fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
-    const confirm = within(pane())
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes(ts("en", "settle.confirm")))!;
+    // PD7 — the look, then the six-second window (nothing written until it closes). A TAP's focus:
+    // jsdom matches `:focus-visible` on any focused element, which would hold the window.
+    tapFocus();
     await act(async () => {
-      fireEvent.click(confirm);
+      fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
     });
+    await tick(CLEAR_UNDO_MS + 500);
     await tick(0);
+    expect(clearTable).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(document.getElementById("floor-h"));
   });
@@ -1294,13 +1323,13 @@ describe("TablePane — a Clear or Merge that answers after a switch", () => {
     await tick(0);
     await tap(card(A));
     await tick(0);
-    fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
-    const confirm = within(pane())
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes(ts("en", "settle.confirm")))!;
+    // PD7 — the look, then the window closes and the clear goes out (and hangs).
+    tapFocus();
     await act(async () => {
-      fireEvent.click(confirm);
+      fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
     });
+    await tick(CLEAR_UNDO_MS + 500);
+    expect(clearTable).toHaveBeenCalledTimes(1);
     await tap(card(B));
     await tick(0);
     backSpy.mockClear();
@@ -2971,5 +3000,135 @@ describe("TablePane — a line edit still out when the pane left its table (Phas
     // into "saved" — a dish change that never saved reads as done; red.
     expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostWrite", { x: tableN(4) }));
     expect(landedLine()).toBeNull();
+  });
+});
+
+/**
+ * PD12 — the counter guide's in-place host (m12; counter-floor's handoff). Offered once per person,
+ * per station, per tablet, in place of "Pick a table", only on a QUIET open decided at mount; never
+ * a modal; work wins. The rules are pure (`counterGuideQuiet`, `lib/guide-seen.ts`); this pins the
+ * wiring: what the pane reads at mount, that a table tap replaces it for good, and its names.
+ */
+describe("TablePane — PD12 · the counter guide in the idle pane", () => {
+  const STAFF_ID = "5c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+  const KEY = staffGuideKey("counter", STAFF_ID);
+  const guided = (askingAtMount = false, props: Parameters<typeof Floor>[0] = {}) =>
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false} guide={{ staffId: STAFF_ID, askingAtMount }}>
+              <Floor {...props} />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  const guideGroup = () =>
+    screen.queryByRole("group", { name: STAFF["floor.strip.label"].en }) as HTMLElement | null;
+
+  it("a quiet first open: the guide stands where 'Pick a table' stood — marked seen, one region, a group in the pane's section", async () => {
+    wide = true;
+    guided();
+    await tick(0);
+    const g = guideGroup()!;
+    expect(g).not.toBeNull();
+    expect(pane().contains(g)).toBe(true);
+    expect(screen.queryByText(ts("en", "floor.pane.empty.title"))).toBeNull();
+    expect(localStorage.getItem(KEY)).toBe("1");
+    // The pane's section keeps ONE name (the Help title), never the guide's — no second region.
+    const label = document.getElementById(pane().getAttribute("aria-labelledby")!)!;
+    expect(label.textContent).toBe(STAFF["help.how.title.counter"].en);
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(g.querySelectorAll('[role="status"], [aria-live], section')).toHaveLength(0);
+    // It offered itself: it took no focus.
+    expect(pane().contains(document.activeElement)).toBe(false);
+  });
+
+  it("work wins: a table tap opens the table in its place — and the guide never comes back", async () => {
+    wide = true;
+    guided();
+    await tick(0);
+    expect(guideGroup()).not.toBeNull();
+    await tap(card(A));
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    await act(async () => {
+      fireEvent.keyDown(paneHeading(), { key: "Escape" });
+    });
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
+  });
+
+  it("Close lands focus on the idle pane's title, and the guide is gone for good", async () => {
+    wide = true;
+    guided();
+    await tick(0);
+    await tick(GUIDE_ARM_MS); // the guide's controls arm after it shows
+    await act(async () => {
+      fireEvent.click(within(guideGroup()!).getByRole("button", { name: "Close" }));
+    });
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(document.activeElement).toBe(paneHeading());
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
+  });
+
+  it("a busy first open (a table asking to pay) offers nothing and marks NOTHING", async () => {
+    wide = true;
+    guided(true);
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("narrower than the pane column, nothing opens itself (no in-place host — B5)", async () => {
+    guided();
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("a table already named by the URL at mount is not an idle pane", async () => {
+    wide = true;
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    guided();
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("this person has seen it on this tablet: the pane is 'Pick a table'", async () => {
+    wide = true;
+    localStorage.setItem(KEY, "1");
+    guided();
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
+  });
+
+  it("a staff id no key can carry is no guide — never a throw in the render: the pane is 'Pick a table'", async () => {
+    // `staff.user_id` is a uuid primary key, so this never arrives — the pane must not depend on it.
+    wide = true;
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit
+              terminalReady={false}
+              guide={{ staffId: "bad id:", askingAtMount: false }}
+            >
+              <Floor />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    expect(guideGroup()).toBeNull();
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.empty.title"));
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("mms.guide.seen:"))).toEqual([]);
   });
 });

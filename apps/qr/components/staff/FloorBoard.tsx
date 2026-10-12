@@ -29,6 +29,7 @@ import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { paneUrl } from "@/lib/floor-pane";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+import { useTurnoverNews } from "./TurnoverNews";
 import { TableStrip } from "./TableStrip";
 import { useCounterAttention } from "./CounterBell";
 // ── Phase 2d · split ──
@@ -55,6 +56,9 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
  */
 export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const lang = useStaffLang();
+  // PD7 (m7 B10) — a clear's outcome, said here because the pane it was tapped in leaves with the
+  // table (`TurnoverNews.tsx`). Null outside the counter's split.
+  const turnover = useTurnoverNews()?.line ?? null;
   const [snap, setSnap] = useState(initial);
   // W10b — outage parity with the KDS/expo boards (the floor previously had NO degraded state: a
   // failing poll wore its live face forever). One state carrying WHEN it started and WHY: `outage`
@@ -385,14 +389,22 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               other branch renders <Chrome>, which marks itself, and an unconditional `lang={lang}`
               on the <p> would then double-mark them. */}
         {/* Phase 2d · floor — the ONE region's precedence: a strip refusal (a start that did not
-              happen, or whose answer never came) > the freeze > "Ready to serve" > the counts. */}
+              happen, or whose answer never came) > the freeze > "Ready to serve" > PD7's turnover
+              line (a clear's outcome — m7 B10 · B11) > the counts. */}
         <p
           role="status"
           lang={!stripNotice && degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: stripNotice || degraded ? "var(--warn)" : upNotice ? "var(--ok)" : "var(--t2)",
+            color:
+              stripNotice || degraded
+                ? "var(--warn)"
+                : upNotice
+                  ? "var(--ok)"
+                  : turnover?.tone === "warn"
+                    ? "var(--warn)"
+                    : "var(--t2)",
           }}
         >
           {stripNotice ? (
@@ -437,6 +449,11 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               )}
               vars={{ id: upNotice.join(", ") }}
             />
+          ) : turnover ? (
+            // Keyed by its sequence: a second clear's equal sentence is a new node, said again.
+            <span key={turnover.seq}>
+              <MsgText lang={lang} msg={turnover.msg} />
+            </span>
           ) : count === 0 ? (
             <Chrome lang={lang} k="floor.rows.none" />
           ) : (
@@ -598,6 +615,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 lang={lang}
                 // Phase 2d · review — a frozen floor holds every wait pill at the last read.
                 frozen={degraded !== null}
+                // PD7 — an unknown kitchen read never shows "Clear when they leave".
+                kitchenUnknown={snap.kitchenUnknown}
                 selected={pane?.selectedId === r.table.sessionId}
                 onSelect={
                   pane

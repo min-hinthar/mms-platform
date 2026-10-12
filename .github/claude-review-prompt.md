@@ -1,6 +1,6 @@
 # Claude PR Review — spec
 
-Calibration for the **in-session** adversarial review — the fresh-context subagent spawned pre-PR and pre-merge (`CLAUDE.md` → Pre-PR self-review sweep; `docs/WORKFLOW.md` → Review). It is **not** wired to a workflow: the `claude-review.yml` Action this file once configured has been retired, and CI runs nothing metered. Be a skeptical senior reviewer; verify by reading code (cite `file:line`); never manufacture findings.
+> **Retired (2026-10-08) — nothing reads this file:** no workflow, script or agent cites it (only `CHANGELOG.md` names it). The review is the blind pass in `docs/WORKFLOW.md` §Review, calibrated by `.claude/agents/adversarial-auditor.md`; the text below is history, kept because CHANGELOG cites this path.
 
 ## Weight findings by these standards (highest first)
 

@@ -10,6 +10,7 @@
 // `tableDisplay`, is exercised through `lib/floor-merge-promo.test.ts` — the merge refusal names the
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
+import type { ClearPreview, ClearRefusal } from "./clear-table";
 import type { LineState } from "@mms/db";
 import type { RefundState, RefundSummary } from "./refund-view";
 import type { CounterCursor, RegisterQueueRow } from "./register-queue";
@@ -19,6 +20,7 @@ import type { KdsThresholds } from "./kitchen-types";
 import type { CounterArm as CounterArmOf } from "./counter-order";
 import type { Handoff } from "./register-ui";
 import type { ReceiptBreakdownish } from "./receipt-view";
+import type { PendingFlag } from "./settle-approvals";
 
 /** Phase 2f — how a counter order was started (re-exported for the client components). */
 export type CounterArm = CounterArmOf;
@@ -186,6 +188,10 @@ export type TableLineView = {
   nameMy: string | null;
   /** Per-slot Burmese for `modifiers` (`pairModifiersMy`), each null where unknown. */
   modifiersMy: (string | null)[];
+  /** P2do (ruling #15) — when the line was added (`qr_cart_items.created_at`), so an ASKED table's
+   *  unsent line can say "Not sent yet · 4m ago" as plain text (no "late" rule). Advisory: absent on a
+   *  settled record line and on a fixture that predates it, and then no age is said. */
+  createdAt?: string | null;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -294,6 +300,13 @@ export type TableDetail = {
    *  in one place, quoted in another" drift the W17 rules name. Null when there is no open cart with
    *  items (there is no total for it to belong to). */
   settlePromoCents: number | null;
+  /** PD8 — the open cart's PENDING approval requests (`readPendingApprovalFlags`, the ONE read the
+   *  three settle doors compare against), oldest first. The flag card at Take payment draws these,
+   *  and every settle door sends exactly the ids IT displayed at ITS tap (Codex correction 13).
+   *  Empty with no open cart — and on an UNREADABLE read (a deliberate degrade: the dish stays
+   *  charged, the safe state, and the door's own server read re-warns if a request is really there;
+   *  the lines' `pendingApproval` degrades the same way, as shipped). */
+  pendingRequests: PendingFlag[];
   /** Tab lifecycle (S3.1) — `none`/`trust`/`secure`. When not `none`, the drill-down shows a "Tab
    *  open" badge + the open-since time, and the settle action reads "Close tab". */
   tab: "none" | "trust" | "secure";
@@ -408,7 +421,27 @@ export function tableDisplay(t: { tableNumber: number | null; label: string }): 
 
 /** `code: "sent"` (Phase 2f) — a counter order whose food reached the kitchen: the page says the
  *  no-show's words instead of the server's sentence. */
-export type ClearTableResult = { ok: true } | { ok: false; error: string; code?: "sent" };
+/** `clearTable`'s answer. PD7 · M182 — a table's clear goes through `mms_clear_table`: `ok` carries
+ *  the RPC's OWN count and figure (the board says "Table 4 cleared — 3 dishes on the loss list" from
+ *  them, never from the slip), and a refusal its name (`ClearRefusal`), or `unreadable` when the
+ *  answer had no known shape (said as "couldn't confirm" — never "cleared"). */
+export type ClearTableResult =
+  | { ok: true; dishes?: number; lossCents?: number }
+  | { ok: false; error: string; code?: "sent" | ClearRefusal | "unreadable" };
+
+/** PD7 (Codex correction 11) — the fresh look at the Clear tap. `unknown`: the read failed, so the
+ *  pane clears NOTHING (an unknown kitchen read is never a no-loss clear). `counter`: a counter order
+ *  keeps its own exits (the plain clear, or "They didn't come"). `secure`: a secured tab with SENT
+ *  food — the saved card pays for it, never a write-off (`clearNeedsTheCard`). `paidUnserved` (Codex
+ *  P1 on #341): a PAID cart's food the kitchen has not finished — serve it or bag it first; a clear
+ *  would take its tickets off the board (`clearPaidUnserved`). */
+export type ClearPreviewResult =
+  | { kind: "preview"; preview: ClearPreview }
+  | { kind: "paidUnserved" }
+  | { kind: "secure" }
+  | { kind: "counter" }
+  | { kind: "closed" }
+  | { kind: "unknown" };
 
 /** W10b: the drill-down read result. `closed` is the ONLY state that bounces back to the floor — a
  *  cleared table is gone, but an unreadable one ISN'T (the old `null` conflated them, so an outage

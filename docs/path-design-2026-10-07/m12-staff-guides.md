@@ -145,7 +145,8 @@ pictures' motions are the board's own where it has one (the arrival flash, the r
    - **Kitchen:** the first ticket that lands replaces the guide, with its normal arrival flash and
      chime.
    - If focus was inside the guide, it moves to the ticket list (`ul.kds-grid` gets `tabIndex -1`),
-     never onto an All done button.
+     never onto an All done button. _(Superseded at build: the board's heading, by its own
+     catch-all — no `tabIndex` on the live grid; §H, the blind pass on #345.)_
 6. **Re-openable from Help, at any time.** The gold circle's first row, "How this screen works", keeps
    its shipped title and sub-line. The sub-line is now true of the guide: "5 things, with pictures —
    it opens itself the first time" (`help.row.how.sub`, `staff.ts:2484-2487`).
@@ -1023,7 +1024,9 @@ pointer-events:none`, with no base shadow.
 - **Eyebrow:** "အဆင့် ၅ / ၅" · "Step 5 of 5".
 - **Title** (English-only, NEW): "Stop cooking".
 - **Line** (English-only, NEW): "When the counter clears a table that still has food on your board,
-  its card turns into this. Stop those dishes, then tap Got it — it stays until you do."
+  its card turns into this. Stop those dishes, then tap Got it — it stays until the kitchen does, and
+  one Got it clears it on every screen." (#347, blind C1: the drawn "— it stays until you do" was
+  false on a kitchen with more than one screen — §I.)
 - **Picture: THE STOP CARD**, at x185–511 (326), y6–354. It is kitchen-ops' card as PATH_DESIGN
   decides it: struck dish rows plus the warn word, ALARM tier with no motion, never dashed, never
   cream, no warn ground fill.
@@ -1070,7 +1073,8 @@ pointer-events:none`, with no base shadow.
 - **Step 5:**
   - Stop cooking (NEW);
   - When the counter clears a table that still has food on your board, its card turns into this.
-    Stop those dishes, then tap Got it — it stays until you do. (NEW);
+    Stop those dishes, then tap Got it — it stays until the kitchen does, and one Got it clears it on
+    every screen. (NEW; re-worded on #347 — §I);
   - picture: 3 · Left — stop cooking (kitchen-ops' card words, English-only in the record) · Mohinga ·
     Shan Noodles · Got it.
 - **Accessible names:** Steps · Step N of 5 · Board status · Service stats · Station filter.
@@ -1141,7 +1145,8 @@ The backdrop never moves. Nothing loops: the pulse stops after 4.8 s. There is n
   - In the product, a step change moves focus to `h2#guide-h`.
   - Close and the last primary move focus to the empty state's title. Give that title `tabIndex -1`;
     kitchen-ops owns KdsBoard.
-  - When the first ticket replaces the guide, focus goes to `ul.kds-grid`, never a bump.
+  - When the first ticket replaces the guide, focus goes to `ul.kds-grid`, never a bump. _(Superseded
+    at build: the board's heading — §H, the blind pass on #345.)_
 - **Landmarks:**
   - The guide is `<section aria-labelledby="guide-h">`.
   - The KDS's h1 is the bar title, so the guide's title is an h2.
@@ -1474,3 +1479,207 @@ Cite the decided docs/path-design-2026-10-07 files, not the canvas-brief bodies.
 
 1. **The arm resets on every step change,** not only at mount. Each new step re-arms its controls for 400 ms, and a pointer sequence that began before the newly rendered control armed is ignored, so a double-tap on step 4's Next never also fires step 5's Finish (the guide is marked seen at open and would never return).
 2. **The guide card is not a second landmark with the pane's name.** It renders inside `TablePane`'s `<section aria-labelledby="table-pane-h">` (`TablePane.tsx:357-361`), so the card is a plain `div` with `role="group"`, labelled by its own step title (`aria-labelledby` on the guide's heading, a distinct id) and described by `guide-step`. On the kitchen's empty board the same rule holds: one region per surface.
+
+### H · Build notes (2026-10-11, `claude/feat/pd12-staff-guides`)
+
+Built by the kitchen-ops stream as PD12, with counter-floor's one handoff (the idle-pane host). The
+appendix (A–C) and Codex round 3 (E) won wherever they disagreed with the spec above; where the build
+chose under the owner's delegation, the reason is below.
+
+**What was built.**
+
+- **The ONE seen-key helper** (`apps/qr/lib/guide-seen.ts`, pure, its own suite; m11 B12 — PD11 imports
+  it unchanged). `guideSeenKey(surface, rev, who?)` → `mms.guide.seen:<surface>:<rev>[:<who>]` (every
+  segment validated; a per-person key and a per-device key never collide); `readGuideMark` (a store that
+  throws answers `GUIDE_STORE_REFUSED`, never `null`); `guideDue({ stored, quiet })` (due only when
+  nothing is stored AND the screen is quiet); `claimGuideFirstRun(store, key, quiet)` — read, decide,
+  and only when due mark BEFORE showing: a busy open marks nothing (the next quiet open still shows it),
+  a refused read or write never auto-shows. Its one React seam is `lib/hooks/useGuideFirstRun.ts` (the
+  microtask read, the claim made by the LIVE pass, the quiet read ONCE at the claim — "decided at
+  mount"). The staff guides key `who` with the signed-in staff id; m11's diner guide leaves it out.
+- **The guide model** (`lib/staff-guide.ts`): five steps per station, each title the control's own key
+  (B7: kitchen 1 is `kds.table` "Table 11", kitchen 5 `kds.stop`, counter 2 `pad.group.unsent` — P2do
+  retired `table.line.notSent` into it), the sample tables named ONCE (`GUIDE_SAMPLE`), the seconds from
+  the windows' own constants (`CLEAR_UNDO_MS`, `KDS_UNDO_MS`), `GUIDE_ARM_MS` (400, the guide's own,
+  pinned ≥ the kit's 350 ms guard) with `guideActAccepted` (refused inside the arm AND for a press that
+  began before it — E1), `counterGuideQuiet` (the pane column from 64em, an idle pane, no ask),
+  `counterAskingAtMount` (the floor's ONE ask tone), `kitchenGuideQuiet` (no ticket of any station,
+  updating, no error — read at mount to offer, every render after to keep), `staffGuideOpensItself`
+  (the Help row's honesty), and `STAFF_GUIDE_SHIPS` — the decision-20 gate.
+- **`StepGuide`** (one component, `inplace` · `sheet`): a `role="group"` named by its title and
+  described by its eyebrow (E2: never a region); no live region; focus to the new title on every step
+  change (in place, the offered step takes none; in the sheet, the title takes focus on open); ONE
+  foot on every step (Back's slot held on step 1, Next one element whose last word is "Got it"); five
+  44px dots named by `help.step`, the current a `--tx` capsule (B6 — shape, never accent); the
+  eyebrow and the footer in `--t2` (B6, C). The arm re-starts at every step's commit.
+- **`GuidePicture`** (in `HelpPicture.tsx`): the ten pictures, each the REAL control — `FloorKitchenLine`,
+  `FloorStatusChip`, `CounterPass` (A5: the pane's ask pass with FloorDetailLive's own tier, class,
+  tear and identity key, parsed and pinned), `KdsStopCard`, `TicketLineText` — or the control's own
+  classes (`.floor-tile`, `.kds-strip`, `.kds-round`, `.clear-window`, `.kds-undo`, `.kds-recall`),
+  in a fixed-height `.help-pic` well that is `aria-hidden` AND `inert`. `guide-pic-*` is held to
+  placement by the same parsed paint refusal as `help-pic-*`. The rail's label moved from an inline
+  style to ONE rule (`.kds-recall-label`) the board and the picture share; the strip's glyph map moved
+  to `lib/floor-tone.ts` (`FLOOR_TONE_GLYPH`).
+- **Motion (B2):** only the controls' own shipped motions, once per step per guide (a revisit draws
+  the final frame): the board's arrival flash on kitchen 1 and 2 (round 2's card only), the till's
+  `mms-pop` on counter 4's change figure. Everything else is the end frame, still — no tile pop, no
+  ring draw, no rise, no strike, and NO pulse anywhere (B1; a test refuses `.kds-strip-pulse` in every
+  picture). No new keyframes.
+- **The hosts.** Counter (`TablePane`): in place of "Pick a table", claimed at mount when
+  `counterGuideQuiet` holds — the media query and the URL hash read at the claim (the split seeds the
+  hash AFTER mount, so `sel` alone would have read idle under a deep link) and the page's
+  `counterAskingAtMount` over the server's floor read. A table selected replaces it for good; Close
+  and Got it land on the empty state's title. While it stands the pane's section is named by the Help
+  title through a `hidden` label (one name, never the guide's). Kitchen (`KdsBoard`): where "Nothing
+  to cook" stands, the board's truth still said above it; work, a freeze or an error replaces it for
+  good, and focus that was inside it follows the board's OWN catch-all to its heading (`#kds-h`),
+  never a bump — the live grid keeps no `tabIndex` (the blind pass on #345, below).
+- **The Help door** (`HelpButton`, the scoped unfreeze — the two rows and the guide host only): on a
+  shipped station row 1 opens the guide in the sheet; NEW row 2 "More on this screen" keeps the shipped
+  cards whole; the cards' device-keyed auto-open is retired there (B5: never this modal AND the guide
+  on one load). Row 1's sub-line keeps "it opens itself the first time" only where the screen makes one
+  (`staffGuideOpensItself`); a narrower counter reads "5 things, with pictures". A guide opened from
+  row 1 is recorded as SEEN under the person's own key (`markGuideSeen`, the host pages hand
+  `HelpButton` the signed-in `staffId`; Codex round 1 on #345): a first open that was busy or narrow
+  marks nothing, and a person who then reads the guide from Help is never offered it again by a later
+  quiet open — an explicit Help open still always shows it.
+
+**Taken and decided.**
+
+1. **The kitchen guide is built and HELD** (`STAFF_GUIDE_SHIPS.kitchen = false`). The brief said every
+   taught control had shipped; measured, the stop card has not — `KdsStopCard` is built, but nothing
+   mounts it until kitchen-ops reads PD7's durable stop record (OPEN-ITEMS M270 (1)). Decision 20 and
+   PATH_DESIGN decision 12 ("only after every control it teaches") settle it: the kitchen keeps its
+   shipped Help door exactly (cards, row, auto-open) until then, and the flip is ONE value in the PR
+   that mounts the card. `staff-guide.test.ts` refuses the flip while `KdsBoard.tsx` renders no
+   `<KdsStopCard>` (parsed, red-first). The kitchen host, pictures and keys are built and pinned
+   (KdsBoard's suite flips the gate in a mock), so the flip turns on a tested path; the board's own
+   consult of the gate is pinned UNMOCKED by `KdsBoard.guide-gate.test.tsx`. **The flip's conditions**
+   (recorded on OPEN-ITEMS M270 (1)): (a) `KdsBoard` renders a LIVE `<KdsStopCard>` (the parsed
+   refusal); (b) a tap aimed at the guide's Next as the first ticket lands — the ticket takes the
+   guide's place under the finger, and a ticket's All done has no arm of its own (its recovery is
+   the Undo bar) — is decided at the flip: the Undo bar as the recovery, or an arm on the controls of
+   the ticket that replaced a guide (the guide's arm cannot hold a control that is not its own); (c) the kitchen's Help door changes
+   with the flip (row 1 opens the guide, row 2 keeps the cards, the device-keyed auto-open retires,
+   exactly as the counter's did) — `HelpButton.test`'s held-kitchen case inverts; (d) the kitchen
+   pictures are looked at in the 34rem sheet and at the board's text sizes (risk 9). The focus rescue
+   needs nothing at the flip: it follows the board's catch-all (a landing snapshot) and the guide's
+   own effect (a freeze, which changes no snapshot), with no reliance on a blur.
+2. **One finish word, "ရပြီ · Got it", on both stations** (the critic's C): "Back to the counter" is
+   the seal's hero in the same pane, and one word would name two acts.
+3. **The arm draws nothing.** The spec asked for `aria-disabled` for the 400 ms; the build refuses in
+   the handler and paints no state, because the kit's disabled dim on every step change would blink
+   the pager five times per read. A 400 ms window is shorter than any assistive-technology gesture.
+4. **English-only sentences became bilingual drafts.** The staff dictionary requires a Myanmar value on
+   every key (`strings.test.ts`), so the spec's English-only lines ship with Claude-authored Burmese
+   drafts built from shipped words, each grounded in place — the K15 · kitchen-ops ledger lists them.
+   None joins `STAFF_K15_HIGH` (final-kitchen-ops); counter 4, counter 5 and kitchen 5 are flagged
+   HIGH-candidates for staff-authority or the owner.
+5. **Counter 3's sentence is the five-step version** ("…with the same total their phone shows"), not
+   the COPY list's "the same pass they're holding": the pane's pass is the twin, not the guest's
+   (decision 16), and the total is the fact the two share (`getCartTotals`).
+6. **Counter 4's sentence drops "in the corner"**: the Change readout sits in the band's money corner
+   only in the till layout (from 85.375em × 44em); the guide shows from 64em, where a narrower tablet's
+   single-column sheet draws the readout above the actions. "…and the change to hand back appears" is
+   true in both.
+7. **Counter 4 is a composed crop, said so** (C): the tray's GAVE tiles from the $50's row (the real
+   ladder for $46.41: $47 · $50 · $60 after Exact; the first row cropped away) with the band's Change
+   readout drawn under them. Inside `.till-sheet`, so from the till's breakpoint it is the tray's own
+   size and below it the single-column sheet's — whatever this device's tray really draws.
+8. **Counter 5 draws the window, not the card** (B3 a–c): the dashed "Clearing Table 7" chip, the
+   in-slot Undo with ONE aria-hidden seconds leaf, Seat next party — no slab, no hatch.
+9. **Kitchen 4 has no head-stat replica** (B4), and every ticket picture is cropped above its bump —
+   a test refuses any non-stop ticket that carries one.
+10. **Kitchen 1's title is the card's identity** ("Table 11", B7) rather than the spec's English-only
+    "One Send, one card"; its sentence carries the lesson (A4's shared stage words).
+
+**The blind pass on #345 (REJECT at `4b79b9a`), fixed in one push.** Each item was verified against
+source before the fix.
+
+1. **The live grid's catch-all is `main`'s again.** The first cut put `tabIndex={-1}` on the shipped
+   `ul.kds-grid` to land the guide's rescue there, which changed the board for every cook, guide or
+   not. Removed; the rescue follows the board's own rule (the heading, only when focus had been on a
+   real control and fell to `<body>`), and a freeze — which changes no snapshot, so the catch-all
+   never answers — is the guide's own effect, declared after the catch-all. Pinned unmocked.
+2. **The board's gate is no longer deletable.** `KdsBoard.test` mocks `staffGuideShips` file-wide, so
+   dropping `staffGuideShips("kitchen") ? …` in `KdsBoard.tsx` left it green. The NEW
+   `KdsBoard.guide-gate.test.tsx` mounts the REAL board, a signed-in person and the REAL gate: the
+   guide shows exactly when the station ships (`pd12/kds-board/kitchen-gate-dropped`).
+3. **The ships refusal counts only a LIVE render.** `{false && <KdsStopCard …/>}` satisfied the first
+   cut; the matcher now excludes the enumerated literal-dead shapes (`false`/`0`/`null`/`undefined`/
+   `""`/`!true` `&&`, `true ||`, a literal ternary or `if`), and 15 evasion rows are committed,
+   watched red under a liveness-off matcher (12) and a substring scan (15).
+4. **The rail-label guard parses.** `HelpPicture.test` finds every LIVE JSX element in `KdsBoard.tsx`
+   whose `className` is the literal `"kds-recall-label"`, requires one, and refuses a `style` or a
+   spread on it; five evasion rows (a style, a spread, a comment, a `false &&` copy, a string), red-
+   first (`pd12/kds-board/rail-label-inline`).
+5. **The counter pictures crop ONE floor** (`guideFloor("calm" | "ask")` in `lib/staff-guide.ts`):
+   step 1 had Table 5 seated while step 3 drew it free. The asking table is ordering on the calm floor
+   and the ONLY tile that changes at the ask; both pictures read the one map, pinned by a test that
+   compares the two rendered strips (`pd12/staff-guide/floor-drifts`).
+
+The open questions, answered: the hosts key through `staffGuideKeyFor` — no person, or an id that is
+no key segment, is no guide, never a render-time `RangeError` (`staff.user_id` is a uuid primary key,
+so the id always is one; `pd12/staff-guide/key-for-throws`); the arm's clock is `null` until the
+first commit stamps it and a tap then is refused (`pd12/staff-guide/arm-pending-armed`); the Help
+sheet's guide has a step 1 Back to the rows in Back's own slot (in place, still none —
+`pd12/step-guide/sheet-back-missing`, `pd12/help-guide/sheet-exit-dropped`); the page's
+`askingAtMount` is parsed off `app/staff/page.tsx` (`pd12/page/asking-hardcoded`); a PIN unlock is the
+SAME signed-in caller (`unlockConsole` → `verifyStaffPin(caller.staffId)`), so on a shared sign-in
+"once per person" is once per account — risk 5 stands as written; and the server/client boundary is
+clean (no `"use client"`, `client-only` or `server-only` anywhere in the guide's lib chain; the
+build passed).
+
+**Measured.** 37 `pd12/*` mutants in `scripts/verify-slice.mjs` (10 on the seen-key helper, 1 on the
+hook, 17 on the guide model, 3 on `StepGuide`, 2 on `HelpButton`, 1 on the counter page, 3 on
+`KdsBoard`), each watched CAUGHT by its owning suite.
+
+**Not measured (open risks).** The headless look at 1366×1024 and in the 34rem sheet (risk 9; the
+critic's C on the kitchen pictures in the sheet): no browser runs in the agent environment, so the
+crop heights (`.guide-well` 260 / 360 / 300 px) and the Burmese title wraps are computed, not seen —
+the device sitting (#12) is the look, and so is risk 3 (a picture bump reached for).
+
+### I · The kitchen flip (2026-10-11, `claude/feat/m270-kds-stop-card`, M270 (1))
+
+The board now draws the stop card the fifth step teaches (one `KdsStopCard` per Send of every open stop
+record, in its ticket's slot, until "Got it" — m7 §I), so `STAFF_GUIDE_SHIPS.kitchen` is `true`. Taken 1's
+conditions, re-checked at the flip:
+
+- **(a) the parsed refusal** stays armed: `staff-guide.test.ts` still refuses the kitchen's ship while
+  `KdsBoard.tsx` renders no LIVE `<KdsStopCard>` — its mutant (`pd12/staff-guide/kitchen-ships-without-its-card`)
+  now parks the board's card in a `false ?` branch instead of flipping the value back.
+- **(b) a tap aimed at Next meets the work that replaced the guide — settled by arming the replacing
+  card**, not by the Undo bar: the Undo bar cannot recover a stop card's "Got it" (no undo), and that card
+  can be the first work to land. When work (a ticket, a stop card, a freeze, an error) replaces the guide,
+  the board's controls — All done, Cook now, a line, the ⋯, Got it — refuse in the handler for
+  `GUIDE_ARM_MS` from that moment (`guideReplacedHeld`, stamped in the guide-left effect, which React
+  flushes before the next discrete event). Nothing is drawn for the hold, as the guide's own arm draws
+  nothing (Taken 3). The person's own Close / Got it holds nothing: their next tap is meant for the board.
+- **(c) the Help door** takes the counter's two rows: row 1 opens the five-step guide, row 2 keeps the
+  cards, the device-keyed auto-open retires. `HelpButton.test`'s held case inverted; the held path stays
+  (the gate is still consulted) and is pinned on a HELD station through the real gate
+  (`heldStations`), as is `KdsBoard.guide-gate.test.tsx`'s board (the consult's mutant stays caught).
+- **(d) not done** — the kitchen pictures in the 34rem sheet and at the board's text sizes are not looked
+  at: no browser runs in the agent environment. The device sitting (#12) is the look.
+- **The focus rescue relies on no blur** (the brief's worry about `onBlurCapture` not firing on node
+  removal): there is no blur handler — `guideHadFocus` went with the blind pass on #345 — and a guide
+  replaced by work follows the board's catch-all (a landing snapshot) or the guide's own effect (a freeze).
+- **A stop card is work:** `kitchenGuideQuiet`'s `tickets` counts the board's stop cards too (every
+  station's), at the mount's claim (a board with only a stop card never offers the guide, and never
+  marks it seen) and on every render after (a stop card landing pushes the guide away, and arms (b)).
+
+**#347 round 1 (the blind pass's REJECT and Codex r1, verified against source).**
+
+- **An unknown stop read is not a quiet board** (Codex P1 · blind C2): while no stop read has answered
+  — the server render's included — the guide is neither offered nor claimed (its seen-mark is not
+  written): `kitchenGuideQuiet` reads the unknown as `degraded`.
+- **(b)'s stamp moved to a layout effect** (blind): `replacedAt` is stamped in the commit that replaces
+  the guide, before the browser paints the card, so no real tap between the paint and a passive effect
+  can act on a Got it (which has no undo). jsdom cannot open that window, so it is pinned by the shape,
+  not a mutant (the #261 rule).
+- **The step's sentence was false on a kitchen with more than one screen** (blind C1): "— it stays
+  until you do" became "— it stays until the kitchen does, and one Got it clears it on every screen"
+  (Burmese re-drafted; K15 · kitchen-ops). A station's view now draws a stop card only where it
+  stopped one of that station's dishes, and WHOLE — every dish on it, since the one Got it retires them
+  all (#347 round 2; round 1 trimmed it to the station's own); per-station acknowledgement is OPEN-ITEMS
+  M271.

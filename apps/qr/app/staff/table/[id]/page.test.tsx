@@ -4,7 +4,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableDetailResult } from "@/lib/floor-types";
 import type { Handoff } from "@/lib/register-ui";
-import { handoffFocusKey, markHandoffFocus } from "@/lib/floor-pane";
+import {
+  handoffFocusKey,
+  handoffStashKey,
+  markHandoffFocus,
+  markSealLanding,
+  sealLandingKey,
+} from "@/lib/floor-pane";
 
 /**
  * Phase 2g · P2em (D2) — the table page's CLOSED branch. A counter session closes behind its settle,
@@ -16,7 +22,16 @@ import { handoffFocusKey, markHandoffFocus } from "@/lib/floor-pane";
  * Mocks: the gate, the read, the PIN check, the language cookie, and the bar (stubbed to the title key
  * it is handed — the bar's own contract is StaffBar.test's). The card and its client island are real.
  */
-const h = vi.hoisted(() => ({ detail: null as unknown as TableDetailResult }));
+const h = vi.hoisted(() => ({
+  detail: null as unknown as TableDetailResult,
+  /** #334 — how THIS document was reached (the seal's landing reads it; real code reads Navigation
+   *  Timing). Default: a document that started before any note — a client-side revisit. */
+  nav: { reload: false, docStartMs: 0 },
+}));
+vi.mock("@/lib/floor-pane", async (orig) => ({
+  ...(await orig<typeof import("@/lib/floor-pane")>()),
+  sealNavNow: () => h.nav,
+}));
 vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Error(`redirect ${to}`);
@@ -245,5 +260,114 @@ describe("the table page — the closed card takes focus ONCE, only when the det
     const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
     // MUTANT p2g-fix-code/closed-card-always-focused — every arrival pulls focus onto the card; red.
     expect(document.activeElement).not.toBe(card);
+  });
+});
+
+describe("PD6 — a same-tab reload after the pad's walk-up landing keeps Cash received and Change (Codex correction 4)", () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  /** The tab RELOADED after the note was written (a later document, of type reload). */
+  const reloaded = () => {
+    h.nav = { reload: true, docStartMs: Date.now() + 1 };
+  };
+  /** A client-side navigation inside the document that wrote the note (Back, the chip's View). */
+  const sameDocument = () => {
+    h.nav = { reload: true, docStartMs: Date.now() - 60_000 };
+  };
+  beforeEach(() => {
+    h.nav = { reload: false, docStartMs: 0 };
+  });
+  it("THIS tab's stash for THIS order, after a RELOAD: the seal lands again with the tender over the row's total", async () => {
+    // The pad's landing wrote it (`stashHandoff`), with the tap's tender — the row never stores one —
+    // and its one-shot landing note (`markSealLanding`) beside it.
+    sessionStorage.setItem(
+      handoffStashKey(ID),
+      JSON.stringify({ ...CARD, totalCents: 1, tenderedCents: 5000 }),
+    );
+    markSealLanding(ID, CARD.orderId, Date.now());
+    reloaded();
+    await mount();
+    await settle();
+    // 5000 − 4210 = 790 (node -e 'console.log(5000-4210)'). MUTATION
+    // till/seal-adopts-the-stash-total → the stash's $0.01 total; red.
+    const seal = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ });
+    expect(seal.textContent).toContain(ts("en", "table.detail.handoff.tendered"));
+    expect(seal.textContent).toContain("$42.10");
+    expect(seal.textContent).toContain("$50.00");
+    // A landing again (B6: a matching same-tab reload), so it wears the wash.
+    expect(seal.hasAttribute("data-landing")).toBe(true);
+  });
+  it("a reload lands ONCE: the next visit in the same tab is the calm seal — the tender still shown, no wash (#334)", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    markSealLanding(ID, CARD.orderId, Date.now());
+    reloaded();
+    await mount();
+    await settle();
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(true);
+    // The note was TAKEN: nothing re-lands it.
+    expect(sessionStorage.getItem(sealLandingKey(ID))).toBeNull();
+    cleanup();
+    // A later revisit (the reader chip's View, Back): the stash still brings the tender, calm.
+    await mount();
+    await settle();
+    const seal = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ });
+    // MUTATION seal-stash/landing-every-visit (the note never cleared) → the wash and the bloom
+    // replay on every revisit; red.
+    expect(seal.hasAttribute("data-landing")).toBe(false);
+  });
+  it("a CLIENT-SIDE revisit inside the document that landed it: calm — and the reload after it still lands, once (#334)", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    markSealLanding(ID, CARD.orderId, Date.now());
+    sameDocument();
+    await mount();
+    await settle();
+    // MUTATION seal-stash/revisit-lands → the wash and the bloom replay on Back / View; red.
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(false);
+    expect(sessionStorage.getItem(sealLandingKey(ID))).not.toBeNull();
+    cleanup();
+    reloaded();
+    await mount();
+    await settle();
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(true);
+  });
+  it("a later document that was NOT a reload (a full-page navigation): calm", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    markSealLanding(ID, CARD.orderId, Date.now());
+    h.nav = { reload: false, docStartMs: Date.now() + 1 };
+    await mount();
+    await settle();
+    // MUTATION seal-stash/any-navigation-lands → red.
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(false);
+  });
+  it("a stash with no landing note (a revisit, never a reload after this sale): calm, the tender shown", async () => {
+    sessionStorage.setItem(handoffStashKey(ID), JSON.stringify({ ...CARD, tenderedCents: 5000 }));
+    await mount();
+    await settle();
+    // MUTATION seal-stash/stash-alone-lands (landing read off the stash again) → red.
+    expect(
+      screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ }).hasAttribute("data-landing"),
+    ).toBe(false);
+  });
+  it("another order's stash, or none: the server card stands, calm, with no invented Change", async () => {
+    sessionStorage.setItem(
+      handoffStashKey(ID),
+      JSON.stringify({ ...CARD, orderId: "o-elsewhere", tenderedCents: 5000 }),
+    );
+    await mount();
+    await settle();
+    const seal = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    // MUTATION till/seal-adopts-another-order → another sale's Change on this seal; red.
+    expect(seal.textContent).not.toContain(ts("en", "settle.cash.changeLabel"));
+    expect(seal.hasAttribute("data-landing")).toBe(false);
   });
 });

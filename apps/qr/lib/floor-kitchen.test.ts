@@ -125,6 +125,27 @@ describe("foldFloorKitchen — what the floor may say about the kitchen", () => 
   });
 });
 
+describe("foldFloorKitchen — an ASKED host table (P2do · ruling #15)", () => {
+  it("counts the diners' own unsent round once the table asked to pay at the counter; a host table that did not ask keeps 5c's rule", () => {
+    const rows = [
+      row({ id: "d1", state: "draft", fire_at: null, by_seat: "s1", qty: 2 }),
+      row({ id: "d2", state: "draft", fire_at: null, by_seat: null, qty: 1 }),
+    ];
+    // MUTATION p2do/kitchen-fold-drops-the-ask (`counterAsk` not passed to the one count): the card
+    // says "1 not sent" over a table whose three unsent dishes hold its payment; red.
+    expect(
+      foldFloorKitchen(rows, { mode: "dinein", hostPresent: true, counterAsk: true, nowMs: NOW })
+        ?.notSent,
+    ).toBe(3);
+    expect(
+      foldFloorKitchen(rows, { mode: "dinein", hostPresent: true, counterAsk: false, nowMs: NOW })
+        ?.notSent,
+    ).toBe(1);
+    // Absent (a fold off the floor's rows) reads as not asked.
+    expect(fold(rows, true)?.notSent).toBe(1);
+  });
+});
+
 describe("foldFloorKitchen — a COUNTER order's card (Phase 2f review PT1 · M2)", () => {
   const counter = (rows: FloorKitchenRow[]) =>
     foldFloorKitchen(rows, { mode: "pickup", hostPresent: false, nowMs: NOW });

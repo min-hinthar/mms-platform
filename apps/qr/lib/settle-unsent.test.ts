@@ -54,6 +54,9 @@ vi.mock("./staff-open-cart", () => ({
 }));
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: (_cart: string, owner: string) => {
     ops.push("acquire");
     owners.push({ op: "acquire", owner });
@@ -101,6 +104,9 @@ vi.mock("./stripe", () => ({
   }),
 }));
 
+// PD8 — the pending-request read behind the acknowledgement compare, mocked by module exactly as the
+// unsent read above: nothing waits here; the compare itself is pinned in staff-cart.test / terminal.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 type Row = { state: string; fulfillment: string; qty: number };
 /** The cart's lines, as the unsent read sees them. */
 let rows: Row[] = [];

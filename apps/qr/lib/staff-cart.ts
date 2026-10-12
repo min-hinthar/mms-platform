@@ -36,6 +36,14 @@ import { maybeRenewSession } from "./authz";
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
 import { lineRpcRefusal } from "./line-rpc-refusal";
+import { readPendingApprovalFlags } from "./approvals-read";
+import {
+  approvalPendingRefusal,
+  approvalsUnreadableRefusal,
+  staffSettleApprovalVerdict,
+  type ApprovalPendingRefusal,
+  type ApprovalsUnreadableRefusal,
+} from "./settle-approvals";
 
 // Named once for this module's refusals (a "use server" file may export only async functions, so
 // these stay local). Plain words — never "void"/"fire"/"settle" in staff copy.
@@ -93,7 +101,11 @@ export type SettleCashRefusal =
   | { ok: false; error: string; code: "moved"; totalCents: number }
   | InFlightRefusal
   | UnsentRefusal
-  | UnreadableRefusal;
+  | UnreadableRefusal
+  // PD8 — a request waits that THIS tap did not display (a re-warning, never a block), or the
+  // pending read could not be made (the door fails closed; the same tap retries).
+  | ApprovalPendingRefusal
+  | ApprovalsUnreadableRefusal;
 export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -328,7 +340,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents, quotedCents } = parsed.data;
+  const { sessionId, tipCents, quotedCents, acknowledgedApprovalIds } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -397,6 +409,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
     if (unsent === "unreadable") return unreadableRefusal();
     if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);
+    // ── PD8 · the acknowledgement compare (PATH_DESIGN decision 4) ── under the freeze, before the
+    // totals, like the gate above: the cart's PENDING requests against the ids THIS tap displayed.
+    // A request the tap did not cover refuses `approval_pending` (the card returns naming it, and
+    // the next tap passes — a re-warning, never a block); an unreadable read refuses too (the staff
+    // doors fail closed, P2dc), with a retry sentence. Returned from INSIDE the try: the `finally`
+    // releases this attempt's freeze. Nothing here is read into an amount.
+    const pendingFlags = await readPendingApprovalFlags(cart.id);
+    const approvalGate = staffSettleApprovalVerdict(
+      pendingFlags === null ? null : pendingFlags.map((f) => f.id),
+      acknowledgedApprovalIds,
+    );
+    if (approvalGate === "unreadable") return approvalsUnreadableRefusal();
+    if (approvalGate !== null) return approvalPendingRefusal(pendingFlags ?? []);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -624,7 +649,8 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // adds no tip (see the "final total, NO added tip" note below). Naming it here would read as if
   // tab-close tips were supported and merely forgotten.
   // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
-  const { sessionId, quotedCents } = parsed.data;
+  // `acknowledgedApprovalIds` is COMPARE-ONLY too (PD8): the pending request ids THIS door displayed.
+  const { sessionId, quotedCents, acknowledgedApprovalIds } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -682,6 +708,20 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (unsent !== null) {
     await releaseSettlementFor(cart.id, attempt);
     return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
+  }
+  // ── PD8 · the acknowledgement compare (Codex correction 13: THIS door's own snapshot) ── under the
+  // freeze, before any PaymentIntent, as on the cash settle; this path has no blanket `finally`, so
+  // each refusal releases its own attempt here.
+  const tabPendingFlags = await readPendingApprovalFlags(cart.id);
+  const tabApprovalGate = staffSettleApprovalVerdict(
+    tabPendingFlags === null ? null : tabPendingFlags.map((f) => f.id),
+    acknowledgedApprovalIds,
+  );
+  if (tabApprovalGate !== null) {
+    await releaseSettlementFor(cart.id, attempt);
+    return tabApprovalGate === "unreadable"
+      ? approvalsUnreadableRefusal()
+      : approvalPendingRefusal(tabPendingFlags ?? []);
   }
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the

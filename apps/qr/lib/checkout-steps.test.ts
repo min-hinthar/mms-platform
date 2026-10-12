@@ -40,6 +40,43 @@ describe("checkoutSteps", () => {
       ),
     ).toEqual(["Basket:done", "Pay:current"]);
   });
+  it("PD2 — a standing counter ask on the Bill makes Pay current: the ask IS the paying step", () => {
+    expect(
+      states(
+        checkoutSteps({
+          staged: true,
+          stage: "bill",
+          step: "review",
+          settle: false,
+          counterAsk: true,
+        }),
+      ),
+    ).toEqual(["Order:done", "Bill:done", "Pay:current"]);
+    // An Order-stage phone hears the ask but stays where it is.
+    expect(
+      states(
+        checkoutSteps({
+          staged: true,
+          stage: "order",
+          step: "review",
+          settle: false,
+          counterAsk: true,
+        }),
+      ),
+    ).toEqual(["Order:current", "Bill:next", "Pay:next"]);
+    // Only a table has a counter: the rail of a two-step checkout never reads it.
+    expect(
+      states(
+        checkoutSteps({
+          staged: false,
+          stage: "order",
+          step: "review",
+          settle: false,
+          counterAsk: true,
+        }),
+      ),
+    ).toEqual(["Order:current", "Pay:next"]);
+  });
   it("the split board is its own surface — no rail", () => {
     expect(checkoutSteps({ staged: true, stage: "bill", step: "review", settle: true })).toEqual(
       [],

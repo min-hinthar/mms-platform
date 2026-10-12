@@ -44,6 +44,9 @@ vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inF
  *  released" is a VALUE, not a count. */
 const lockCalls: { op: "acquire" | "release"; cartId: string; owner: string }[] = [];
 vi.mock("./lock", () => ({
+  // M268 — the settlement's ordinary path releases a stale promo pin under its freeze; here it
+  // answers released (its own suite is settle-takeover / m268-settle-stale-pin).
+  releasePromoGrantFor: () => Promise.resolve(null),
   acquireSettlement: (cartId: string, owner: string) => {
     lockCalls.push({ op: "acquire", cartId, owner });
     return Promise.resolve("acquired");
@@ -57,6 +60,9 @@ vi.mock("./lock", () => ({
 // answered it with a count shape, `kitchenDraftUnits` took its read-FAILURE path (0, fail-open) and
 // every case here ran through the gate's outage branch — green with the gate deleted, or moved
 // after the compare. Each case now says how many dine-in dishes are unsent (0 unless it says).
+// PD8 — the pending-request read behind the acknowledgement compare, mocked by module exactly as the
+// unsent read above: nothing waits here; the compare itself is pinned in staff-cart.test / terminal.test.
+vi.mock("./approvals-read", () => ({ readPendingApprovalFlags: () => Promise.resolve([]) }));
 let unsentUnits = 0;
 let unsentReads = 0;
 vi.mock("./unsent-read", () => ({

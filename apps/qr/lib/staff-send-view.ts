@@ -190,9 +190,19 @@ export function staffSendView(i: StaffSendViewInput): StaffSendView {
  * What the FLOOR may count as "not sent" for a table (the 2d kitchen-row segment reads this): on a
  * hostless table every sendable dish; on a host table only what staff added — a diner's own round in
  * progress is theirs to send, and a count there would teach staff to fire it.
+ *
+ * P2do (owner ruling #15, 2026-10-07) — once the table has ASKED to pay at the counter (`counterAsk`,
+ * the live `counter_requested_at` stamp), every unsent dish is the counter's: the drill-down's Send
+ * already treats them so (`staffSendView` → `note: "counterAsk"`) and Take cash is refused over
+ * them, so the card and the table page say "not sent" over the very dishes that hold the payment —
+ * never "Pay at counter" with nothing owed. No "late" rule: the age is plain text where it shows.
  */
-export function staffOwedSendUnits(hostPresent: boolean, counts: StaffSendCounts): number {
-  return hostPresent ? counts.staffAdded : counts.sendable;
+export function staffOwedSendUnits(
+  hostPresent: boolean,
+  counts: StaffSendCounts,
+  counterAsk = false,
+): number {
+  return hostPresent && !counterAsk ? counts.staffAdded : counts.sendable;
 }
 
 /** One line editor's report up to the table page (`StaffLineEditor`'s `onEditState`). */

@@ -1,26 +1,24 @@
 "use client";
 import { useId, useState, type ReactNode, type RefObject } from "react";
-import { Badge, Button, Field, Icon } from "@mms/ui";
+import { Badge, Button, Field, Icon, KitchenTrack } from "@mms/ui";
 import type { TableDetail, TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import type { PendingAdd } from "@/lib/pad-pending";
 import {
   padDishName,
-  padReceiptRows,
   ticketGroupOf,
   ticketGroups,
   TICKET_GROUP_ORDER,
   type TicketGroupKey,
 } from "@/lib/order-pad";
-import { dollars } from "@/lib/receipt-view";
-import { receiptRowKey } from "@/lib/settled-view";
 import { frozenBoardCopy, type StaffDegraded } from "@/lib/staff-outage";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
-import { al, sx } from "@/lib/staff-labels";
+import { al } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { useLineMotion } from "../useLineMotion";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { Chrome } from "./Chrome";
+import { ReceiptStack } from "./ReceiptStack";
 
 const GROUP_KEY: Record<TicketGroupKey, StaffKey> = {
   unsent: "pad.group.unsent",
@@ -134,7 +132,6 @@ export function StaffTicket({
       : groups;
   const headings = showHeadings || (ghosts.length > 0 && drawn.length >= 2);
   const empty = drawn.length === 0;
-  const receipt = padReceiptRows(detail);
 
   return (
     <section
@@ -220,6 +217,15 @@ export function StaffTicket({
             <div key={g.key} className="pad-ticket-group" data-group={g.key}>
               {headings && (
                 <h3 id={`${ids}-${g.key}`} className="pad-ticket-group-h">
+                  {/* PD1 — the dishes the kitchen has not got sit under the hollow ring. */}
+                  {g.key === "unsent" && (
+                    <KitchenTrack
+                      stage="unsent"
+                      size="glyph"
+                      surface="theme"
+                      className="staff-unsent-ring"
+                    />
+                  )}
                   <Chrome lang={lang} k={GROUP_KEY[g.key]} />
                 </h3>
               )}
@@ -260,32 +266,9 @@ export function StaffTicket({
       </div>
 
       <div className="pad-ticket-foot">
-        {/* Phase 3d · counter (§28) — the guest receipt's rows over the server's own breakdown; the
-            Total IS `settleTotalCents`, the figure Take payment names — never recomputed. No stack
-            before a read priced the order; "—" on every row while anything is pending (§23, the
-            dock's own predicate). A list, not a region: the pad's one Toast stays the one. */}
-        {receipt && (
-          <ul role="list" className="pad-receipts" aria-label={sx(lang, "floor.settled.a11y.rows")}>
-            {receipt.map((r) => {
-              const k = receiptRowKey(r);
-              return (
-                <li
-                  key={r.key}
-                  className="pad-receipt"
-                  data-row={r.key}
-                  data-grand={r.grand ? "" : undefined}
-                >
-                  {/* An unmapped row prints its own English label — never an invented word. */}
-                  <span>{k ? <Chrome lang={lang} k={k} echo="inline" /> : r.label}</span>
-                  <span className="pad-leader" aria-hidden="true" />
-                  <span className="pad-receipt-amt">
-                    {amountsSettled ? (r.negative ? "−" : "") + dollars(r.amountCents) : "—"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {/* Phase 3d · counter (§28) — the receipt stack (`ReceiptStack`, shared with the table page's
+            order card since PD6 · K44): its Total IS the figure the door names. */}
+        <ReceiptStack lang={lang} detail={detail} amountsSettled={amountsSettled} />
         {degraded && (
           // Plain text, not a region: the pad's one Toast announced it once when the feed froze.
           <p className="pad-stale">

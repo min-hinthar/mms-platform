@@ -4,7 +4,9 @@ import { sessionMintInput } from "@mms/db/schemas";
 import {
   generateJoinCode,
   isReservedSessionCode,
+  isSoloMode,
   reservedCodeRefusal,
+  soloJoinVerdict,
   sweepsExpiredSquatter,
 } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
@@ -13,6 +15,7 @@ import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
+import { soloFreshKey, soloRemintKey } from "@/lib/solo-remint";
 import type { BindTableResult } from "@/lib/bind-table";
 import {
   awaitsFirstDiner,
@@ -30,6 +33,15 @@ type Sess = {
   qr_code: string;
   table_number: number | null;
 };
+
+/** A `?j=` code that joins nothing. ONE sentence for "no such code" AND "a solo session refuses a
+ *  second member" (PD3's follow-up), so a refused join is no existence oracle. */
+const NO_TABLE = "No table found for that code";
+
+/** A row that closed under this join (adopted, cleared): "try again" re-resolves the table from the
+ *  top — a sticker scan finds whoever holds it now, a `?j=` code meets {@link NO_TABLE}. The same
+ *  answer as a transient miss, so it says nothing about whether the row exists. */
+const CLOSED_UNDER_JOIN = "Could not check the table — try again.";
 
 /** W10a — the auth/DB plane is unreachable: 503 "we're down", never a verdict about the diner. */
 const unavailable = () =>
@@ -237,7 +249,10 @@ export async function POST(req: NextRequest) {
   // generated code, no number. Decided before the reserved check, the sweep, the bind and the mint,
   // so a dropped code touches nothing. A claim (`tableNumber`) carries its prior code as
   // `priorCode` and never reaches here; a `?j=` is a URL code.
-  if (persisted && !claim && !joinOnly) {
+  // A SOLO session found by a persisted code is the solo branch's to decide below (its member
+  // rejoins; a new identity re-mints under the retry-stable key) — `useTableSession` never marks a
+  // solo key persisted, and the server does not rely on that (the blind pass on #339, (a)).
+  if (persisted && !claim && !joinOnly && !(sess && isSoloMode(sess.mode))) {
     let member = false;
     if (sess) {
       const { data: row, error: memberErr } = await db
@@ -262,8 +277,7 @@ export async function POST(req: NextRequest) {
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
-  if (joinOnly && !sess)
-    return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+  if (joinOnly && !sess) return NextResponse.json({ error: NO_TABLE }, { status: 404 });
 
   // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
   // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
@@ -284,6 +298,67 @@ export async function POST(req: NextRequest) {
       { error: "That order can’t be joined from a phone — please ask staff." },
       { status: 403 },
     );
+
+  // PD3 follow-up (2026-10-09, under the owner's delegation) — a SOLO session (pickup, scan-and-go:
+  // every mode but dine-in) is one device's own order, and a member passes every `is_member` read
+  // and `stampArrival`'s session arm. `findActive` filters on the code, never the mode, so before
+  // this a `?j=<code>` join landed a second member. Decided HERE — before the sweep, the expiry
+  // slide, the host claim and the membership insert — so a refused join touches nothing
+  // (`soloJoinVerdict`, lib/session-code.ts); the write itself is refused in SQL whatever this
+  // decides (`mms_refuse_solo_join`, 20261009120200), and its `solo_session` reads below as the
+  // same 404. A refusal says exactly what a wrong code says. A `remint` is the device's own stored
+  // solo code under a NEW identity: a session for this device under a key derived from (that stored
+  // code, this seat) — `soloRemintKey`, RETRY-STABLE (Codex P2 on #339): a lost response, or a
+  // second tab sending the same stored code, recomputes the SAME key, finds the session the first
+  // request minted (or loses the insert race on the active-code index and re-reads it below), and
+  // converges on one session and one cart. A row under the key is accepted ONLY when it is this
+  // seat's re-mint — a solo session this seat hosts (`ownRemint`) — on both reads; anything else
+  // holding the key (a dine-in sticker mint of the same string, another seat's session) is never
+  // joined or slid: this device mints under a fresh random key instead (`soloFreshKey`), never
+  // stranded, losing only that one re-mint's retry-stability. A dine-in request keeps the server's
+  // own join code (`generateJoinCode`). The client adopts the returned `joinCode`.
+  let remintKey: string | null = null;
+  const ownRemint = (s: Sess | null): s is Sess =>
+    s !== null && s.host_seat === seat && isSoloMode(s.mode);
+  if (sess && isSoloMode(sess.mode)) {
+    const { data: mine, error: mineErr } = await db
+      .from("session_members")
+      .select("id")
+      .eq("session_id", sess.id)
+      .eq("seat_id", seat)
+      .maybeSingle();
+    if (mineErr && isTransportFailure(mineErr)) return unavailable();
+    if (mineErr)
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 500 },
+      );
+    const solo = soloJoinVerdict({
+      mode: sess.mode,
+      member: mine !== null,
+      host: sess.host_seat === seat,
+      joinOnly: !!joinOnly,
+    });
+    if (solo === "refuse") return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+    if (solo === "remint" && !isSoloMode(mode)) {
+      // A dine-in request carrying a solo code: a plain host-start, under the server's join code.
+      sess = null;
+      resolvedQr = undefined;
+    } else if (solo === "remint") {
+      const key = soloRemintKey(mode, sess.qr_code, seat);
+      let found: Sess | null;
+      try {
+        found = await findActive(key); // a retry (or another tab) finds the session already re-minted
+      } catch (e) {
+        if (e instanceof AuthzError && e.code === "unavailable") return unavailable(); // the re-mint read
+        throw e;
+      }
+      sess = ownRemint(found) ? found : null;
+      // None yet → the mint below creates it under `key`; a squatter on `key` → a fresh random key.
+      resolvedQr = found === null || sess !== null ? key : soloFreshKey(mode);
+      remintKey = resolvedQr;
+    }
+  }
 
   // K2 — the picker's CLAIM path (`tableNumber`) expects an EMPTY table. If one is already active
   // (someone claimed/sat this table between the picker's occupancy read and now), do NOT silently
@@ -500,6 +575,13 @@ export async function POST(req: NextRequest) {
           if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
           throw e;
         }
+        // A re-mint converges only on its OWN session (another tab of this seat); a squatter that
+        // won the key meanwhile is never joined — mint under a fresh random key instead.
+        if (remintKey !== null && !ownRemint(sess)) {
+          sess = null;
+          resolvedQr = remintKey = soloFreshKey(mode);
+          continue;
+        }
         break;
       }
       continue; // our generated code collided with a live session → try a fresh one
@@ -578,6 +660,16 @@ export async function POST(req: NextRequest) {
     // 409, not a 500. Any other error means the diner is NOT actually a member, so fail loudly instead
     // of returning a cartId that every later assertCartMember would 403 on (silently broken session).
     if (memErr) {
+      // PD3 follow-up — the SQL refusal (`mms_refuse_solo_join`): a second member reached a solo
+      // session past the check above (a join racing it). The same 404 as a wrong code.
+      if (memErr.message?.includes("solo_session"))
+        return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+      // Codex P1 on #341 — the SQL refusal (`mms_refuse_closed_session_join`): the row closed under
+      // this join — a staff clear (or any close) that held the session row while the insert waited
+      // on it. Refused BEFORE any cart is found or made: the closed-row 409 below, never a cartId
+      // on a dead session.
+      if (memErr.message?.includes("session_closed"))
+        return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
       if (memErr.message?.includes("party_full"))
         return NextResponse.json(
           { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
@@ -595,7 +687,11 @@ export async function POST(req: NextRequest) {
   // ONE read here is definitive. A closed row is never handed out — its cart is cancelled, and a fresh
   // one minted on it would carry this diner's order on a session every write refuses. The retry
   // re-resolves the table from the top (a sticker scan finds whoever holds N now; a claim meets the
-  // party that adopted it). Hosted rows skip this: nothing adopts a party.
+  // party that adopted it). Hosted rows skip this: nothing adopts a party, and a staff CLEAR of one
+  // racing this join is refused at the membership insert itself (Codex P1 on #341 — the SQL trigger
+  // reads the session FOR SHARE, so an insert that waited on the clear's lock sees it closed: the
+  // `session_closed` 409 above). A member already seated who REJOINS (no insert) as the clear
+  // commits is not covered here: OPEN-ITEMS M270 (8).
   if (wasShell) {
     const { data: live, error: liveErr } = await db
       .from("table_sessions")
@@ -604,10 +700,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (liveErr && isTransportFailure(liveErr)) return unavailable();
     if (liveErr || live?.status !== "active")
-      return NextResponse.json(
-        { error: "Could not check the table — try again." },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,9 +64,31 @@ import ts from "typescript";
  */
 
 const COMPONENTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components");
-const readRaw = (rel: string) => readFileSync(path.join(COMPONENTS, rel), "utf8");
-const parse = (rel: string, text: string) =>
-  ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+/** Read and parse each file ONCE for the whole suite (blind pass 2 on #329: every sweep re-read and
+ *  re-parsed every component, and the timeouts were raised to a minute instead of the work cut). */
+const raw = new Map<string, string>();
+const readRaw = (rel: string) => {
+  let text = raw.get(rel);
+  if (text === undefined) {
+    text = readFileSync(path.join(COMPONENTS, rel), "utf8");
+    raw.set(rel, text);
+  }
+  return text;
+};
+const parsed = new Map<string, ts.SourceFile>();
+const parse = (rel: string, text: string) => {
+  const key = `${rel}\0${text}`;
+  let sf = parsed.get(key);
+  if (!sf) {
+    sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    parsed.set(key, sf);
+  }
+  return sf;
+};
+/** The ONE load-dependent step — parsing every component once — runs in a hook named for it, so the
+ *  sweeps below are walks under vitest's default timeout. Measured on the shared agent machine
+ *  (2026-10-09): all ~600 app and ui sources in 1.4 s at load 8.5, 17 s at load 22. */
+const PARSE_ALL_MS = 60_000;
 
 /**
  * Every component that renders the `Sheet` primitive, found on disk rather than listed by hand.
@@ -74,11 +96,13 @@ const parse = (rel: string, text: string) =>
  * Recursive, and `.tsx` only because a `Sheet` is JSX. The primitive itself lives in `packages/ui`
  * and is not swept — this is the caller side.
  */
+let components: string[] | null = null;
 function componentFiles(): string[] {
-  return readdirSync(COMPONENTS, { recursive: true })
+  components ??= readdirSync(COMPONENTS, { recursive: true })
     .map(String)
     .filter((f) => f.endsWith(".tsx") && !/\.test\.tsx?$/.test(f))
     .map((f) => f.split(path.sep).join("/"));
+  return components;
 }
 
 // ── the AST helpers ──────────────────────────────────────────────────────────────────────────────
@@ -593,6 +617,9 @@ const GUARDED: [file: string, because: string][] = [
   // (`table_number` is set ONCE under the CAS) — dismissing mid-write would hide how it ended, with
   // the same send waiting on the answer.
   ["TableBindSheet.tsx", "the chip binds the live session to a table, once, then the send runs"],
+  // PD8 — "Decide it here": the pane's centred sheet around `ApprovalDecision`, whose resolve spends
+  // one of the manager's PIN attempts and voids or comps a line on the bill.
+  ["staff/ApprovalsBoard.tsx", "the decision spends a PIN attempt and takes a dish off the bill"],
 ];
 
 /** StaffModSheet takes its busy as a PROP; the contract lives where the value is produced. */
@@ -607,6 +634,10 @@ const UNGUARDED = [
   "PickupSlotSheet.tsx",
   "grocery/GroceryBasketSheet.tsx",
   "grocery/GroceryItemSheet.tsx",
+  // PD4 — the Name sheet over the live lens. Its add is the PAGE's `add()` (the one server-priced
+  // scanAdd), whose outcome lands above the sheet — the chip in the stage, the Toast — and the sheet
+  // closes only on the server's ok: a dismissal mid-write hides nothing (§16's unguarded shape).
+  "grocery/GroceryNameSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
   // Phase 1a → 3b (D9) — the door sheet behind every door eyebrow, carrying the table's exits: three
@@ -619,9 +650,20 @@ const UNGUARDED = [
   // Phase 2g · P2fz — the oldest-first counter list is a READ (pages of open orders, Show more, Try
   // again). Its rows hand off to the pane or the order's page, where each write has its own sheet.
   "staff/CounterOlderSheet.tsx",
+  // PD1 (m1 screen 2) — "Show a server": a full-screen pass the server READS at the table. It
+  // writes nothing; Done (or a swipe) only returns focus to the opener.
+  "ShowServerPass.tsx",
+  // PD11 (m11) — the diner's first-visit guide: five pages a guest READS. Its one write, the seen
+  // mark, lands when it OPENS (and the server's copy is fire-and-forget), so a dismissal at any
+  // moment hides nothing — Close, Esc and a swipe must always work (an exit is never held).
+  "DinerGuide.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {
+  beforeAll(() => {
+    for (const f of componentFiles()) parse(f, readRaw(f));
+  }, PARSE_ALL_MS);
+
   it.each(GUARDED)("%s passes busy — %s", (rel) => {
     expect(passesBusy(rel)).toBe(true);
   });
@@ -633,6 +675,7 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     },
   );
 
+  // PD4 — the on-disk sweeps below walk every component, parsed ONCE in the hook above.
   it("⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state", () => {
     // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
     // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
@@ -656,7 +699,8 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     }
     // …and those are ALL of its parents, so no third one can wire it from somewhere else.
     expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
-  });
+    // A whole-tree TypeScript parse: past the 5 s default under a loaded full run (5.4 s, 2026-10-08).
+  }, 20_000);
 
   it("⚠️ the sheets that write nothing irreversible stay freely dismissible", () => {
     // The negative half, and the one that keeps this honest. `busy` on a picker is a lock with no
@@ -676,7 +720,7 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     // Now the call sites are discovered on disk and the union must match them exactly, so a new
     // caller fails here until someone triages it into one list or the other.
     expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
-  });
+  }, 20_000); // whole-tree parse, as the case above
 });
 
 // ── the MATCHER, falsified red-first (LEARNINGS #60: "what text satisfies this without shipping

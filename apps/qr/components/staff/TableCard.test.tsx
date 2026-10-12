@@ -196,6 +196,36 @@ describe("TableCard — the refund-honest chip, the kitchen row and the clock", 
     expect(bodies[0]).toMatch(/font-weight:\s*var\(--fw-bold\)\s*;/);
   });
 
+  it("PD1 · P2do — 'not sent' leads with the hollow ring, in --warn: one shape on every surface", async () => {
+    const { container } = mount({
+      ...SETTLED,
+      status: "ordering",
+      paidTotalCents: null,
+      itemCount: 2,
+      runningSubtotalCents: 2000,
+      kitchen: { notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 0, oldestFireAt: null },
+    });
+    const seg = container.querySelector<HTMLElement>(
+      '.floor-kitchen-seg[data-seg="floor.kitchen.notSent"]',
+    )!;
+    // MUTATION pd1/kitchen-row-ring-dropped: the card's "2 not sent" loses the shape the strip, the
+    // pane and the guest's phone share; red.
+    const ring = seg.firstElementChild!;
+    expect(ring.classList.contains("staff-unsent-ring")).toBe(true);
+    expect(ring.getAttribute("data-stage")).toBe("unsent");
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(seg.textContent).toBe("2 not sent");
+    // The ring's ink is the host's override, bound by what it declares (parsed, comments stripped):
+    // --warn on the console, never gold or accent. MUTATION pd1/ring-not-warn → red.
+    const { cssDeclarations } = await import("@/lib/css-declarations");
+    const decls = cssDeclarations(readFileSync(join(__dirname, "../../app/globals.css"), "utf8"));
+    const ink = decls.filter(
+      (d) =>
+        d.selector === '.ui-track[data-stage="unsent"].staff-unsent-ring' && d.prop === "--trk-ink",
+    );
+    expect(ink.map((d) => d.value)).toEqual(["var(--warn)"]);
+  });
+
   it("the kitchen row says what the kitchen has, and the wait's digits are hidden from the name's listeners", () => {
     const { container } = mount(
       {
@@ -266,5 +296,38 @@ describe("TableCard — the table open in the counter's pane", () => {
   it("unselected: no attribute (MUTATION: always set — every card reads as the open one; red)", () => {
     mountCard(false);
     expect(card().hasAttribute("aria-current")).toBe(false);
+  });
+});
+
+describe("PD7 (m7 B6) — the quiet hint on a paid, finished table", () => {
+  const hint = () => document.querySelector(".floor-card-hint");
+  const mount = (over: Partial<FloorTable> = {}, frozen = false, kitchenUnknown = false) =>
+    render(
+      <TableCard
+        table={{ ...SETTLED, ...over }}
+        serverNow={SETTLED.lastActivityAt}
+        thresholds={TH}
+        pulse={undefined}
+        lang="en"
+        frozen={frozen}
+        kitchenUnknown={kitchenUnknown}
+      />,
+    );
+  it("words inside the card's link, said in its name too — never a second control", () => {
+    mount();
+    expect(hint()!.textContent).toBe("Clear when they leave");
+    // MUTATION table-card/hint-unnamed → the hint is colour-and-shape only to a screen reader; red.
+    expect(card().getAttribute("aria-label")).toContain("Clear when they leave");
+    expect(card().querySelectorAll("button")).toHaveLength(0);
+  });
+  it("never on a frozen floor or over an unknown kitchen read", () => {
+    // MUTATION table-card/hint-on-a-frozen-floor → red.
+    mount({}, true);
+    expect(hint()).toBeNull();
+    cleanup();
+    // MUTATION table-card/hint-ignores-unknown → red.
+    mount({}, false, true);
+    expect(hint()).toBeNull();
+    expect(card().getAttribute("aria-label")).not.toContain("Clear when they leave");
   });
 });

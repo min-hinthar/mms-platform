@@ -4,6 +4,7 @@ import { CART } from "./cart";
 import { COMMON } from "./common";
 import { CONFIRM } from "./confirm";
 import { MARKET } from "./market"; // Phase 1c · grocery
+import { TRACK } from "./track"; // PD3 · the pickup promise
 import { STAFF, STAFF_LATIN_BY_DESIGN, STAFF_PLURAL_PAIRS } from "./staff";
 
 /**
@@ -36,6 +37,8 @@ const ALL_MODULES: [string, Record<string, { en: string; my: string }>][] = [
   ["staff", STAFF],
   // ── Phase 1c · grocery ──
   ["market", MARKET],
+  // ── PD3 · the pickup promise (its own module, read by lib/pickup-promise.ts) ──
+  ["track", TRACK],
 ];
 
 const allEntries = ALL_MODULES.flatMap(([mod, m]) =>

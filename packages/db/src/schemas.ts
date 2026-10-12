@@ -400,8 +400,35 @@ export const verifyStaffPinInput = z.object({
 
 /** clearTable (S1.2) — a staff member clears a table on turnover (closes the session + cancels its
  *  open cart). Shape only; the server (requireStaff + service-role) owns the close, refuses mid-payment,
- *  and logs it. The client asserts only the session id. */
-export const clearTableInput = z.object({ sessionId: uuid });
+ *  and logs it.
+ *
+ *  PD7 · M182 — `expect` is the LOOK the staff member saw (`getClearPreview`, a fresh read at the
+ *  Clear tap): the SENT line ids, their value (Σ unit × qty, the ledger's) and the database clock at
+ *  the look. REQUIRED for a table — `mms_clear_table` derives its own set under its locks and refuses
+ *  `changed` (writing nothing) when it is any other, and `joined` when someone sat down after the look
+ *  — so the client never ASSERTS a loss, it only names the one it was shown. A counter order's clear
+ *  ignores it (`mms_clear_counter_cart` decides SENT itself). Bounded like the no-show's (200 lines),
+ *  the figure by a ceiling far past any table ($100,000), the clock as an ISO timestamp with offset.
+ *
+ *  Codex P1 on #341 — `lines` is EVERY live line as the look read it (`clearLineKey`:
+ *  `<id>:<qty>:<fulfillment>:draft|sent`, ≤ 53 characters — a uuid, a 1–99 qty, the longest
+ *  fulfillment, the longer flag), so a draft re-counted, taken off, sent or turned to-go after the look
+ *  refuses the clear (`p_seen_lines`). Bounded at 64 characters a key and 500 keys — far past any
+ *  table; the RPC compares them as a set and trusts none of them. */
+export const clearTableInput = z.object({
+  sessionId: uuid,
+  expect: z
+    .object({
+      lineIds: z.array(uuid).max(200),
+      lossCents: z.number().int().min(0).max(10_000_000),
+      seenAt: z.string().max(40).datetime({ offset: true }),
+      lines: z.array(z.string().max(64)).max(500),
+    })
+    .optional(),
+});
+
+/** getClearPreview (PD7) — the fresh look at the Clear tap: the session only. */
+export const clearPreviewInput = z.object({ sessionId: uuid });
 
 /**
  * staffApplyPromo / staffClearPromo (P3) — a staff member applies or removes a promo code on a
@@ -512,6 +539,12 @@ export const submitFeedbackInput = z.object({
  *  draft line server-side (mms_fire_cart, dine-in only). */
 export const sendToKitchenInput = z.object({ cartId: uuid });
 
+/** nudgeHost (PD1 — "Let Aye know") — a guest asks the host to send. Shape only: the client names
+ *  the cart, never the host or the seat; the server re-derives membership and `mms_nudge_host`
+ *  restates every rule in its WHERE (cart open, a host named, the nudger a member and not the host,
+ *  at most once a minute). */
+export const nudgeHostInput = z.object({ cartId: uuid });
+
 /** undoFire (S2.2) — the host reverses the just-sent batch within the grace window (fired→draft for any
  *  line still in grace). `batch` is the fire_batch sendToKitchen handed back, so undo targets exactly that
  *  send (S4-audit P1-3 — never another actor's make-it-now line). Shape only; the server re-derives
@@ -544,6 +577,12 @@ export const recallTicketInput = z.object({
   cartId: uuid,
   lineIds: z.array(uuid).min(1).max(60),
 });
+
+/** ackTableClearStop (M270 (1) · PD7 correction 12) — the kitchen's "Got it" on a "Table N left — stop
+ *  cooking" card: the clear record it acknowledges, and nothing else. WHO acknowledged is the staff
+ *  gate's caller, never the request; `mms_ack_table_clear_stop` writes it once in one guarded UPDATE
+ *  (a second "Got it" answers `already`). */
+export const ackTableClearStopInput = z.object({ clearId: uuid });
 
 /** fireTicketNow (W3a) — pull a HELD (scheduled pickup) ticket onto the live board early. Shape only;
  *  mms_fire_ticket_now moves only future-fire_at fired lines on a PAID cart (a dine-in send's undo
@@ -635,6 +674,17 @@ export const settleCashInput = z.object({
   // belt — a negative tip would otherwise REDUCE the recorded total, a silent discount wearing a
   // tip's name. Deliberately no ceiling relative to the bill: a tip larger than the order is real.
   tipCents: z.number().int().min(0).max(100000).default(0),
+  // ── PD8 (PATH_DESIGN decision 4 · Codex correction 13) ──
+  /**
+   * The pending approval-request ids THIS door displayed at ITS tap — the acknowledgement. Tapping
+   * Take cash (or the reader, or the tab close) with a flag up IS the acknowledgement: the server
+   * compares these against the cart's pending requests under the freeze and refuses
+   * `approval_pending` ONLY for a request the tap did not display (a re-warning, never a block). Ids
+   * only, COMPARE-ONLY: nothing here is read into an amount or a decision. Bounded (a table never
+   * holds more than a handful of open requests; `.max(50)` is the transport rail), defaulted so a
+   * tablet on an older bundle still settles — it then meets the re-warning once if a request waits.
+   */
+  acknowledgedApprovalIds: z.array(uuid).max(50).default([]),
   // ── Phase 2c · register ──
   /**
    * COMPARE-ONLY. The pre-tip all-in total the cashier was SHOWN (`detail.settleTotalCents`, i.e.
@@ -823,7 +873,10 @@ export const requestApprovalInput = z.object({
  */
 export const resolveApprovalInput = z.object({
   approvalId: uuid,
-  decision: z.enum(["approve", "deny"]),
+  // PD8 · M184 (round 3 D2): `close` — a request whose table paid first (or whose cart was cleared,
+  // or whose line changed after the ask) is closed as `superseded`, never `denied`. The SQL admits
+  // it only once the cart has left `open` or the line changed (`still_open` otherwise).
+  decision: z.enum(["approve", "deny", "close"]),
   approverStaffId: uuid,
   pin: z.string().regex(/^\d{4,8}$/),
 });
@@ -863,6 +916,7 @@ export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type SetStaffRoleInput = z.infer<typeof setStaffRoleInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type ClearPreviewInput = z.infer<typeof clearPreviewInput>;
 export type StaffApplyPromoInput = z.infer<typeof staffApplyPromoInput>;
 export type StaffClearPromoInput = z.infer<typeof staffClearPromoInput>;
 export type OpenTabInput = z.infer<typeof openTabInput>;
@@ -873,6 +927,7 @@ export type BumpLineInput = z.infer<typeof bumpLineInput>;
 export type BumpTicketInput = z.infer<typeof bumpTicketInput>;
 export type RecallTicketInput = z.infer<typeof recallTicketInput>;
 export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
+export type AckTableClearStopInput = z.infer<typeof ackTableClearStopInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
 export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;

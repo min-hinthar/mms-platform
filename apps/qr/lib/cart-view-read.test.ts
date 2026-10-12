@@ -91,18 +91,26 @@ type Res = { data: unknown; error: { message: string } | null };
 /** What each table answers this test. `null` error = success. */
 let cartRes: Res = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
 let itemsRes: Res = { data: [], error: null };
+/** PD1 — the advisory nudge-stamp read on `qr_carts` (selected by its columns). */
+let nudgeRes: Res = { data: null, error: null };
 
 function table(name: string) {
+  let cols = "";
   const answer = (): Promise<Res> =>
     Promise.resolve(
       name === "qr_carts"
-        ? cartRes
+        ? cols.includes("send_nudge")
+          ? nudgeRes
+          : cartRes
         : name === "qr_cart_items"
           ? itemsRes
           : { data: [], error: null },
     );
   const api = {
-    select: () => api,
+    select: (c?: string) => {
+      cols = c ?? "";
+      return api;
+    },
     // `touchCart`'s updated_at write. It answers success and is not what these cases are about —
     // the subject is the view read that follows it.
     update: () => api,
@@ -130,6 +138,84 @@ const { getCartView, setQty } = await import("./cart");
 beforeEach(() => {
   cartRes = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
   itemsRes = { data: [], error: null };
+  nudgeRes = { data: null, error: null };
+});
+
+/** A dine-in draft row as `qr_cart_items` answers it, added at `createdAt`. */
+const draftRow = (createdAt: string) => ({
+  id: `l-${createdAt}`,
+  menu_item_id: "m-1",
+  name: "Mohinga",
+  qty: 1,
+  modifiers: [],
+  unit_price_cents: 1400,
+  tax_cents: 0,
+  by_seat: "u-2",
+  state: "draft",
+  fire_at: null,
+  comped: false,
+  fulfillment: "dinein",
+  notes: null,
+  created_at: createdAt,
+});
+
+describe("getCartView — PD1's nudge stamp is advisory: read when it stands, never an outage", () => {
+  it("a standing stamp reaches the view, both halves", async () => {
+    // A LIVE stamp: the dish it names was added before it, and still waits.
+    itemsRes = { data: [draftRow("2026-10-08T09:59:00.000000+00:00")], error: null };
+    nudgeRes = {
+      data: { send_nudge_seat: "s-thiri", send_nudge_at: "2026-10-08T10:00:00.000Z" },
+      error: null,
+    };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toEqual({ seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" });
+    expect(v.nudgeReady).toBe(true);
+    expect(Number.isNaN(Date.parse(v.serverNow))).toBe(false);
+  });
+  it("an unreadable stamp (the columns not migrated yet: 42703) is null, and the order still renders", async () => {
+    // RED if the stamp rides the cart read (or throws): every /cart would show the outage screen
+    // until the owner applies the migration — on a project the previews share with prod.
+    nudgeRes = { data: null, error: { message: "column qr_carts.send_nudge_seat does not exist" } };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toBeNull();
+    expect(v.items).toEqual([]);
+    // MUTATION (cart/nudge-ready-ignores-the-read-error): the read's error not carried — the Bill
+    // offers "Let {host} know" on a project where every tap fails (the blind pass on #335); red.
+    expect(v.nudgeReady).toBe(false);
+  });
+  it("a readable cart with no stamp is READY — nobody waiting is an answer, not an outage", async () => {
+    nudgeRes = { data: { send_nudge_seat: null, send_nudge_at: null }, error: null };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toBeNull();
+    expect(v.nudgeReady).toBe(true);
+  });
+  it("a STALE stamp — every dish it named has gone — is no wait, whatever was added since", async () => {
+    // The last blind pass on #335: Thiri nudged, took her dish off; Mya's later dish must not read
+    // as "Thiri is waiting on this send." on the host's phone.
+    nudgeRes = {
+      data: { send_nudge_seat: "s-thiri", send_nudge_at: "2026-10-08T10:00:00.000000+00:00" },
+      error: null,
+    };
+    itemsRes = { data: [draftRow("2026-10-08T10:20:00.000000+00:00")], error: null };
+    // MUTATION (cart/nudge-view-skips-the-liveness-rule): the raw stamp reported — a stale wait
+    // drawn over an unrelated dish; red.
+    expect((await getCartView("c-1")).sendNudge).toBeNull();
+    // …and the same stamp with a dish that predates it still stands.
+    itemsRes = {
+      data: [draftRow("2026-10-08T09:59:00.000000+00:00"), draftRow("2026-10-08T10:20:00+00:00")],
+      error: null,
+    };
+    expect((await getCartView("c-1")).sendNudge).toEqual({
+      seat: "s-thiri",
+      at: "2026-10-08T10:00:00.000000+00:00",
+    });
+  });
+  it("half a stamp is no stamp — nothing would ever clear the line it drew", async () => {
+    // MUTATION (cart/nudge-half-stamp-read-as-a-wait): the time half dropped from the check — a seat
+    // with no time reads as a standing wait; red.
+    nudgeRes = { data: { send_nudge_seat: "s-thiri", send_nudge_at: null }, error: null };
+    expect((await getCartView("c-1")).sendNudge).toBeNull();
+  });
 });
 
 describe("getCartView — an unreadable cart is reported, never answered with an empty one", () => {

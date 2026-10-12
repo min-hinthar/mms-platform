@@ -4,6 +4,7 @@ import { useCart } from "@/components/TableCartProvider";
 import { nextSlotCheck, slotIsPast } from "@/lib/pickup-slot";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { WelcomeBack } from "@/lib/rewards";
+import { DinerGuideFirstRun } from "./DinerGuideFirstRun";
 
 /**
  * J2 — the arrival beat (docs/JOURNEY_PLAN.md · place-setting). The first branded moment after the scan:
@@ -99,6 +100,7 @@ export function ArrivalBeat({
         Mingalaba{name ? `, ${name}` : ""} <span aria-hidden>✦</span>
       </p>
       <p className="menu-greet-line">{shown}</p>
+      <DinerGuideFirstRun mode={mode} welcome={welcome} />
     </div>
   );
 }

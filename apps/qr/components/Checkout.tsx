@@ -11,12 +11,20 @@ import {
   type FormEvent,
 } from "react";
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
-import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
+import { CounterSettledCard, PayAtCounterDock, PayAtCounterPass } from "./PayAtCounter";
+import { LivePass } from "./LivePass";
+import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
-import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
+import {
+  counterTakesCard,
+  counterUnsentTapCopy,
+  sameAsk,
+  splitBoardShown,
+} from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
+import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, EmptyState, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
 import {
@@ -74,6 +82,7 @@ import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton, type SendHandle } from "./SendToKitchenButton";
+import { ShowServerPass } from "./ShowServerPass";
 import { TableBindSheet } from "./TableBindSheet";
 // Phase 3c-i (D15) — the send's undo window lives HERE, not in the Send button (the brief's finding 2).
 import { reasonCopy, useUndoGrace } from "./useUndoGrace";
@@ -99,18 +108,60 @@ import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
   payBlockedByUnsent,
+  doorMode,
+  phonePayParked,
+  servedGateHost,
+  servedGateVerdict,
   unsentFoodQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
+import { BILL_GROUPS, BILL_GROUP_KEYS } from "@/lib/bill-groups";
+import {
+  passMemory,
+  planPassMotion,
+  settleRereadDelayMs,
+  trackLineOf,
+  viewClockIso,
+  PASS_STEP_MS,
+  type PassMemory,
+  type PassStep,
+} from "@/lib/live-pass";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
-import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "@/lib/checkout-verb";
+import {
+  billDoorLabel,
+  counterHoldCopy,
+  orderStageHero,
+  payBlock,
+  payBlockCopy,
+} from "@/lib/checkout-verb";
 import { bindTable, type BindTableResult } from "@/lib/bind-table";
 import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
-import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
+import {
+  alreadyNudgedCopy,
+  hostSendsCopy,
+  nudgeCopy,
+  staffCanSendCopy,
+  TABLE_STARTER,
+} from "@/lib/confirm-copy";
+import {
+  chosenName,
+  nudgeOffered,
+  nudgeStands,
+  waitingLine,
+  type SendNudge,
+} from "@/lib/send-nudge-state";
+import { nudgeHost } from "@/lib/send-nudge";
+import {
+  graceRereadDelayMs,
+  passDishes,
+  passListedNow,
+  showServerStatus,
+  waitingDishes,
+} from "@/lib/show-server";
 import { t, type DictKey } from "@/lib/i18n";
 
 // W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
@@ -248,12 +299,18 @@ export function Checkout({
   initialMySeat = null,
   initialTabType = "none",
   initialCounterRequestedAt = null,
+  initialSendNudge = null,
+  initialNudgeReady = false,
+  initialServerNow = null,
+  initialDbNow,
+  initialViewMode = null,
   initialTableNumber = null,
   tables = [],
   canTab = false,
   prepMinutes = 12,
   initialPickupSlot = null,
   asapAvailable = true,
+  readerConfigured = false,
 }: {
   cartId: string;
   initialItems: CartItem[];
@@ -274,6 +331,23 @@ export function Checkout({
   initialTabType?: "none" | "trust" | "secure";
   /** A1 — the table's live "pay at the counter" ask (ISO) from the server view, or null. */
   initialCounterRequestedAt?: string | null;
+  /** PD1 — a guest's "Let {host} know" stamp standing on the cart (`getCartView.sendNudge`). */
+  initialSendNudge?: SendNudge | null;
+  /** PD1 — the stamp read itself succeeded (`getCartView.nudgeReady`); false hides the offer. */
+  initialNudgeReady?: boolean;
+  /** PD1 — the server's clock (ISO) as the first view was made (`getCartView.serverNow`); null =
+   *  unknown, which the pass reads conservatively (a line in its grace stays "Sending…"). */
+  initialServerNow?: string | null;
+  /** PD10 — the DATABASE clock (ISO) as the first view was made (`getCartView.dbNow`, read before
+   *  its lines): the live pass reads every stage against it; null = unknown, which reads
+   *  conservatively (a line in its grace stays "Sending…", a bump stays unsettled, the door held).
+   *  REQUIRED, not defaulted (the capped blind pass on #346, C1): `app/cart/page.tsx` once omitted
+   *  it, so production opened every Bill on the unknown clock and the first self-heal replayed the
+   *  whole kitchen's FILL and TURN as news. A call site that forgets it now fails `tsc`. */
+  initialDbNow: string | null;
+  /** Codex round 2 on #331 — the session's mode from the cart view (`getCartView.mode`, the
+   *  fail-closed authorization read); the parked phone-pay door reads it before the split's. */
+  initialViewMode?: string | null;
   /** A1 — the registered table number the eyebrow and the counter card name; null for an
    *  unregistered sticker or an UNBOUND session. 3c-ii (D30): a SEED, the `initialLocked` idiom —
    *  the number is state afterwards, written by every applied view and by the bind's CONFIRMED
@@ -292,6 +366,10 @@ export function Checkout({
   initialPickupSlot?: string | null;
   /** W5e: is the kitchen taking ASAP right now (open + capacity)? Server-computed; gates the ASAP pill. */
   asapAvailable?: boolean;
+  /** PD2 (m2 decision 7) — a Stripe Terminal reader is configured for the register
+   *  (`STRIPE_TERMINAL_READER_ID`, read by the server page; a client component cannot). Feeds
+   *  `counterTakesCard`: the one sentence says "The counter takes cash." only while it is false. */
+  readerConfigured?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Blind pass on #300 — the header's "Your order · N" is only as fresh as its last publisher, and
@@ -373,7 +451,14 @@ export function Checkout({
   const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
   // Phase 1b — the host's name for a guest's "who sends" line (lib/confirm-copy `hostSendsCopy`).
   const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
-  const hostName = splitContext?.members.find((m) => m.role === "host")?.name?.trim() || null;
+  // PD10 (Codex round 2 on #346) — the SERVED GATE's host: UNKNOWN when the split context missed (or
+  // its member read came back empty), never the guessed `false` above. That guess would call a
+  // hosted table hostless and promise a counter its own server read refuses (`servedGateHost`).
+  const gateHost = servedGateHost(splitContext);
+  // PD1 (m1 graft 3) — the name the table CHOSE, never the default "Guest" read as a person
+  // (`chosenName`): an unnamed host gets the role sentence everywhere this name is spoken.
+  const hostMember = splitContext?.members.find((m) => m.role === "host") ?? null;
+  const hostName = chosenName(hostMember?.name);
   const hostNote = hostSendsCopy(hostName);
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -426,6 +511,9 @@ export function Checkout({
   // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
   // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
   const sessionMode = splitContext?.mode ?? null;
+  // Codex round 2 on #331 — the mode the cart VIEW carries (fail-closed authorization read), kept
+  // beside the split's best-effort one; the parked phone-pay door reads it first (`doorMode`).
+  const [viewMode, setViewMode] = useState<string | null>(initialViewMode);
   const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
   // W9a — the two TABLE-only line controls ("For here / To go", "Make it now") gate on this, NOT on
   // `!isTakeout`. The distinction is load-bearing: `splitContext` is nulled by cart/page.tsx on ANY
@@ -438,6 +526,33 @@ export function Checkout({
   // W5e — the ASAP↔scheduled timing choice is pickup-only: pickup lines fire to the KITCHEN (so timing
   // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
   const isPickupMode = sessionMode === "pickup";
+  // PD2 (the owner, PATH_DESIGN decision 2) — the phone-pay door is PARKED on a dine-in table until
+  // live keys (`SURFACES.dineInPhonePay`). DRAWN here: no card hero, no tip ask, no separate total
+  // row and no "& pay" door — the receipt's own foot carries the total and the docked counter door
+  // is the one way to pay; after the ask, the phone becomes the counter pass. ANSWERED in
+  // create-intent (lib/surfaces: a hidden button with a live action behind it is not parked).
+  // Codex round 2 on #331 — the door asks the AUTHORITATIVE mode (the cart view's, fail-closed),
+  // never the best-effort split context alone: a missed split read must not draw a card hero at a
+  // table whose every Pay tap create-intent refuses.
+  // PD10 — ONE binding for that authoritative mode: the parked door, the served gate and the pay
+  // flow's post-drain re-ask all read it, so the three can never ask different modes.
+  const gateMode = doorMode(viewMode, sessionMode);
+  const phonePayOff = phonePayParked(gateMode, surfaceOpen("dineInPhonePay"));
+  // PD2 (m2 decision 7) — the tender truth, DERIVED: the counter is cash-only unless a reader is
+  // configured (or the owner names a card taken outside the app — a parked constant).
+  const counterCard = counterTakesCard(readerConfigured);
+  // PD2 — the promo field has focus: the dock and its fade hide so they never ride the keyboard,
+  // and return on blur (the keyed pay furniture below reads it).
+  const [promoFocused, setPromoFocused] = useState(false);
+  // The blind passes on #331 — the promo field's focus cannot outlive the INPUT. React fires no
+  // `blur` for an input it removes in its own commit (an ask landing, the settle freeze, a tablemate
+  // emptying the cart into the empty-slip branch), so the input's own unmount is the blur: a STABLE
+  // callback ref (an inline one would be detached and re-attached on every render, clearing the flag
+  // while the field still has focus). Whatever path removes the field, the docked door — the Bill's
+  // ONE door — cannot come back `hidden`.
+  const promoInputRef = useCallback((el: HTMLInputElement | null) => {
+    if (el === null) setPromoFocused(false);
+  }, []);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -497,6 +612,80 @@ export function Checkout({
   // diner's own tap (instant flip, revert-to-confirmed on refusal), never a money value.
   const [counterAt, setCounterAt] = useState<string | null>(initialCounterRequestedAt);
   const [counterBusy, setCounterBusy] = useState(false);
+  // PD2 — THIS phone asked (set beside the optimistic stamp, in the same render): the pass rises on
+  // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
+  // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
+  const [ownAsk, setOwnAsk] = useState(false);
+  // PD1 — the nudge stamp and the server's clock, both from every applied view.
+  const [sendNudge, setSendNudge] = useState<SendNudge | null>(initialSendNudge);
+  const [nudgeReady, setNudgeReady] = useState(initialNudgeReady);
+  const [serverNowMs, setServerNowMs] = useState<number | null>(() =>
+    initialServerNow ? Date.parse(initialServerNow) : null,
+  );
+  // PD10 — the applied view's DB clock (never this phone's): the live pass and the served door read
+  // every stage against it (lib/live-pass), and it is replaced only by the next applied view.
+  const [dbNowMs, setDbNowMs] = useState<number | null>(() =>
+    initialDbNow ? Date.parse(initialDbNow) : null,
+  );
+  // PD10 — each applied view's number, and whether it was the FOREGROUND re-read: the pass plans its
+  // motion once per view, and a view read on return to the foreground (or the first one) plays
+  // nothing (m10 A4: a door already open then is drawn open — no TURN, no POP, no announcement).
+  const [viewNo, setViewNo] = useState(0);
+  const [viewQuiet, setViewQuiet] = useState(false);
+  // PD10 · D5 — THE SERVED GATE, drawn: once the phone-pay door is open (after C2's flip), Pay at a
+  // table opens only when nothing on the bill is still with the kitchen. The SAME pure verdict
+  // create-intent refuses on (`servedGateVerdict`, lib/checkout-stage), fed the applied view's lines
+  // raw (`trackLineOf`) and the view's DB clock — a bump counts once it is `KDS_UNDO_MS` old there,
+  // never on this phone's clock. Null while the door is parked: the parked Bill has no Pay to hold,
+  // and the counter is never gated by served (D5) — the counter door's block below passes null.
+  const dbNowIso = viewClockIso(dbNowMs);
+  const servedHold = phonePayOff
+    ? null
+    : servedGateVerdict(gateMode, viewItems.map(trackLineOf), dbNowIso, gateHost);
+  // PD10 (Codex round 5) — THE TIP CLEARS WHEN THE GATE CLOSES: a recall (or a new round) shutting
+  // the door after a guest lit a tip clears the preset AND any custom amount, so a reopened door
+  // starts with no tip selected, exactly as the design promises ("none pre-selected"). The close
+  // EDGE, adjusted during render (React's derived-state pattern, like the pass's printed rows) —
+  // never an effect (a synchronous setState there is the cascading render the Compiler lint
+  // refuses). While the door is parked `servedHold` is always null, so nothing here ever fires.
+  const [gateSeenOpen, setGateSeenOpen] = useState(servedHold === null);
+  if (gateSeenOpen !== (servedHold === null)) {
+    setGateSeenOpen(servedHold === null);
+    if (servedHold !== null) {
+      setTipRate(0);
+      setCustomTipOpen(false);
+      setCustomTip("");
+    }
+  }
+  // PD10 — the live pass's motion, planned ONCE per applied view (`planPassMotion`) and played one
+  // step at a time (PD9's player): FILL row by row, then the head's TURN, then the door's POP and
+  // its one "Ready to pay.". `token` is the view number the plan answers; the first plan (token -1)
+  // and a quiet foreground view seed the memory and play nothing.
+  const [passMotion, setPassMotion] = useState<{
+    token: number;
+    memory: PassMemory | null;
+    steps: PassStep[];
+    i: number;
+    nonce: number;
+  }>({ token: -1, memory: null, steps: [], i: 0, nonce: 0 });
+  const passStep: PassStep | null = passMotion.steps[passMotion.i] ?? null;
+  useEffect(() => {
+    if (passStep === null) return;
+    const nonce = passMotion.nonce;
+    const id = setTimeout(
+      () => setPassMotion((m) => (m.nonce === nonce ? { ...m, i: m.i + 1 } : m)),
+      PASS_STEP_MS[passStep.kind],
+    );
+    return () => clearTimeout(id);
+  }, [passStep, passMotion.nonce]);
+  const [nudgeBusy, setNudgeBusy] = useState(false);
+  // PD1 — "Show a server": open, and the dish ids it printed when it opened (they stay on the
+  // ticket after they go; `passDishes`).
+  const [passOpen, setPassOpen] = useState(false);
+  const [passListed, setPassListed] = useState<ReadonlySet<string>>(() => new Set());
+  // The window between this phone's tap and the server's answer (Codex round 1 on #331): a view
+  // without the stamp inside it is a stale read, not a withdrawal — `ownAsk` survives it.
+  const askInFlight = useRef(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
   // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
   const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
@@ -617,6 +806,24 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+    // PD1 — the nudge stamp (cleared by the fire, in the same transaction), whether it was
+    // readable, and the server's clock.
+    setSendNudge(v.sendNudge);
+    setNudgeReady(v.nudgeReady);
+    setServerNowMs(Date.parse(v.serverNow));
+    // PD10 — the DB clock the pass reads its stages against, and the view's number for the motion
+    // plan (a quiet foreground re-read marks itself AFTER this, in the same batch).
+    setDbNowMs(Date.parse(v.dbNow));
+    setViewNo((n) => n + 1);
+    setViewQuiet(false);
+    setViewMode(v.mode); // Codex round 2 on #331 — the door's authoritative mode
+    // PD2 (Codex round 1 on #331, comment 4222692016) — the ask's OWNERSHIP follows the confirmed
+    // value: a view with no ask (a tablemate withdrew it; the register settled) ends this phone's
+    // claim to it, so the NEXT null→stamp edge is read as the tablemate's ask it is — said once,
+    // focus moved only if lost — never mistaken for this phone's own tap. Not while this phone's
+    // own ask is still in flight: a ticketed read issued before the tap may land with no stamp
+    // before the server answers, and the confirmed stamp that follows is still this phone's.
+    if (v.counterRequestedAt == null && !askInFlight.current) setOwnAsk(false);
     // 3c-ii (D30) — the table number rides every applied view (a tablemate's bind, the re-sync
     // after a send); a null one never un-names a table a view already named.
     if (v.tableNumber != null) setTableNumber(v.tableNumber);
@@ -1252,22 +1459,110 @@ export function Checkout({
   // W12: dine-in review is STAGED (order | bill) — the stage joins the key so a flip animates the
   // step wrapper and lands focus on the heading exactly like review↔pay always has.
   const onPay = step === "pay" && clientSecret && payTotals;
-  const staged = isDineIn;
-  const viewKey =
-    isGroup && settling && splitContext
-      ? "settle"
-      : onPay
-        ? "pay"
-        : staged
-          ? `review-${stage}`
-          : "review";
+  // Codex round 2 on #331 — a dine-in table the SPLIT read missed is still a table: the cart view's
+  // (fail-closed) mode stages it too, so the Bill reaches the counter door and the pass instead of an
+  // unstaged review whose card controls are gone. PD10 (the capped blind pass on #346, C2) — with the
+  // phone door OPEN as well, not only while it is parked: `isDineIn || phonePayOff` left a split-read
+  // miss after the flip on the unstaged review, its Pay held by the served gate ("…or pay at the
+  // counter") with no counter drawn and no pass. `gateMode` is that ONE authoritative mode (a
+  // superset of the old rule: parked implies a dine-in `gateMode`). Nothing on the staged path reads
+  // `splitContext` unguarded: `isGroup` gates its two `!` reads.
+  const staged = isDineIn || gateMode === "dinein";
+  // Codex round 3 on #346 — Pay names the WHOLE order whenever the table's membership is unreadable
+  // (`gateHost` null at a table: the split read missed, or its member read came back empty).
+  // create-intent charges the whole shared cart, so a plain "Pay · $X" there, with no owner rows to
+  // say otherwise, would read as this phone's own share.
+  const payWholeOrder = isGroup || (staged && gateHost === null);
+  // The blind passes on #331 (guard 6) — the split board is the SELF-SERVE split's screen. While the
+  // split door is parked (`openSettlement` refuses) every freeze is the REGISTER's cash settle, which
+  // flipped a whole table to "splitting the bill" for the length of the counter's settle. The rule is
+  // `splitBoardShown` (lib/counter-pay-state), reading the SAME split door `counterPayRefusalCopy`
+  // reads — never the phone-pay door, which PD10 flips without reopening the split. ONE binding for
+  // the view key and the render.
+  const boardShown = splitBoardShown({
+    isGroup,
+    settling,
+    hasSplit: splitContext != null,
+    selfServeSplitOpen: surfaceOpen("selfServeSplit"),
+  });
+  const viewKey = boardShown ? "settle" : onPay ? "pay" : staged ? `review-${stage}` : "review";
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
   // Phase 3a (D6) — in the market the thing on the slip is a BASKET (`orderNoun`), from the first
   // scan to the pay step; it was "Your order" here while every market surface said basket.
-  const headingKey: DictKey =
-    staged && viewKey !== "settle" && (onPay || stage === "bill")
+  // PD2 (m2 decision 8) — after the ask the phone IS the counter pass, so the heading names that
+  // moment: the shipped `counterTitle` pair ("Pay at the counter"). The eyebrow and the back link
+  // step aside with it; the way back is the pass's quiet withdraw, last.
+  // PD10 (m10 STATES, "The table asked for the counter") — and after the flip too: the ask is m2's
+  // counter pass whether or not the phone-pay door is open (the old flag-on counter card retired);
+  // only its withdraw's words follow the served door.
+  const passShowing =
+    staged &&
+    viewKey !== "settle" &&
+    !onPay &&
+    stage === "bill" &&
+    counterAt != null &&
+    settledClose === null;
+  // PD10 — the Bill is ON SCREEN as the live One Pass: the staged Bill stage, not the pay step, not
+  // the counter pass, not a settled close, not the split board. The pass's motion plays only here,
+  // and the served door's moment is watched only here (`passMemory`'s `door`).
+  const billMounted =
+    staged &&
+    viewKey !== "settle" &&
+    !onPay &&
+    stage === "bill" &&
+    !passShowing &&
+    settledClose === null;
+  // ONE re-read when the CLOCK alone will change a stage — a Send leaving its grace, a bump leaving
+  // Mom's undo window — measured on the view's DB clock (`settleRereadDelayMs`), so the pass (and,
+  // after the flip, the served door) moves on an OBSERVED view, never on this phone's clock. Wherever
+  // the staged cart reads stages: the Bill's pass and the Order stage's door label.
+  const settleRereadMs = staged && !onPay ? settleRereadDelayMs(viewItems, dbNowMs) : null;
+  useEffect(() => {
+    if (settleRereadMs === null) return;
+    const id = window.setTimeout(() => void refresh(), settleRereadMs);
+    return () => window.clearTimeout(id);
+  }, [settleRereadMs, refresh]);
+  // The motion plan for each applied view (adjusted during render, React's derived-state pattern):
+  // the memory always follows the view, and the steps play only while the pass is on screen. The
+  // door is watched only on the Bill with the phone-pay door open — elsewhere `null`, so the Bill's
+  // first sighting of an open door is a first read, drawn open.
+  if (passMotion.token !== viewNo) {
+    const memory = passMemory(
+      viewItems,
+      dbNowIso,
+      !phonePayOff && billMounted ? servedHold === null : null,
+    );
+    const steps = billMounted ? planPassMotion(passMotion.memory, memory, viewQuiet) : [];
+    setPassMotion((m) => ({ token: viewNo, memory, steps, i: 0, nonce: m.nonce + 1 }));
+  }
+  // Codex round 2 on #346 — a sequence the Bill LEAVES mid-way (Back to the order, on to Pay) is
+  // dropped, never played off-screen: its door step would POP nothing and say "Ready to pay." into
+  // the Order screen's region. Clearing the steps also bumps the nonce, so the player's scheduled
+  // advance is void, and `passStep` going null runs the door effect's cleanup, which cancels a frame
+  // already scheduled. Coming back to the Bill is a revisit: the memory has followed every view, so
+  // nothing replays.
+  if (!billMounted && passMotion.steps.length > 0) {
+    setPassMotion((m) => ({ ...m, steps: [], i: 0, nonce: m.nonce + 1 }));
+  }
+  // Codex round 3 on #346 — ENTERING the Bill re-seeds the door it watches. A checkout that opened
+  // on the Order stage seeded `door: null` (no door on screen), and the flip to the Bill applies no
+  // view, so the next served view would compare null → open and play no door step: no POP, and no
+  // "Ready to pay." for a screen-reader user. The entry seeds the door as it stands NOW (held or
+  // open), drawn as it is: the entry itself plays nothing.
+  if (
+    !phonePayOff &&
+    billMounted &&
+    passMotion.memory !== null &&
+    passMotion.memory.door === null
+  ) {
+    const door = servedHold === null;
+    setPassMotion((m) => (m.memory === null ? m : { ...m, memory: { ...m.memory, door } }));
+  }
+  const headingKey: DictKey = passShowing
+    ? "counterTitle"
+    : staged && viewKey !== "settle" && (onPay || stage === "bill")
       ? "yourBill"
       : sessionMode === "scango"
         ? "yourBasket"
@@ -1283,6 +1578,8 @@ export function Checkout({
     step,
     settle: viewKey === "settle" || settledClose !== null,
     noun: orderNoun(sessionMode),
+    // PD2 — the ask IS the paying step, and paying happens at the counter: Pay current, Bill done.
+    counterAsk: passShowing,
   });
 
   // J4 (residual) — the freeze comes from ONE binding that mirrors the server's own predicate.
@@ -1748,13 +2045,29 @@ export function Checkout({
   // a stale kitchen state as current — realtime here is dine-in-gated (a pickup cart has none) and a
   // backgrounded phone misses the flips anyway — so re-sync the server view whenever the tab returns
   // to the foreground.
+  // PD10 — and that view is QUIET: the phone missed whatever moved while it was away, so the live
+  // pass draws it at its final frame — no FILL, no TURN, no door moment — never celebrating late
+  // (m10 A4; the motion language: never on a revisit). The same ticketed read as `refresh`, with the
+  // view marked quiet in the batch that applies it (`applyCartView` clears the mark first).
+  const refreshForeground = useCallback(async () => {
+    const outcome = await readTicketed(
+      viewSeqRef.current,
+      () => getCartView(cartId),
+      (v) => {
+        applyCartView(v);
+        setViewQuiet(true);
+      },
+    );
+    if (outcome === "failed") onReadFailed();
+    return outcome;
+  }, [cartId, applyCartView, onReadFailed]);
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refreshForeground();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [refresh]);
+  }, [refreshForeground]);
 
   function changeQty(id: string, qty: number) {
     // The gesture's id is taken HERE, at tap time — not when its response resolves. See
@@ -1970,10 +2283,15 @@ export function Checkout({
     setStatus(null);
     setCounterBusy(true);
     const confirmed = counterAt;
+    // PD2 — THIS phone asked: the pass rises on its first mount here (and only here — a
+    // tablemate's phone flips without the entrance), and the remote-ask edge below stays quiet.
+    setOwnAsk(true);
     setCounterAt(new Date().toISOString());
+    askInFlight.current = true;
     try {
       const r = await requestCounterPay({ cartId });
       if (!r.ok) {
+        setOwnAsk(false);
         setCounterAt(confirmed);
         setPayError(r.error);
         return;
@@ -1988,12 +2306,130 @@ export function Checkout({
       setStatus("We’ll pay at the counter — show them this screen whenever you’re ready.");
       void refresh();
     } catch {
+      setOwnAsk(false);
       setCounterAt(confirmed);
       setPayError("Couldn’t reach the counter just now — please try again.");
     } finally {
+      askInFlight.current = false;
       setCounterBusy(false);
     }
   }
+  /**
+   * PD2 (m2 screen 2 STATES · A11Y) — the ask's null→stamp edge, seen on THIS phone.
+   *
+   * Own ask: focus lands on the <h1>, now "Pay at the counter" (the dock that held focus has
+   * unmounted). A TABLEMATE's ask: the Bill flips to the pass as a view flip, the one region says
+   * "Your table asked to pay at the counter." once, and focus moves to the <h1> only if it was lost
+   * with an unmounted control (the dock or the promo field) — never stolen from a control the diner
+   * moved to. An Order-stage phone stays where it is and hears the sentence. Keyed on the edge, not
+   * the view: a standing ask at mount is not an event. Through a frame, like every announcement on
+   * this screen (the region must be on screen before its text changes).
+   */
+  const prevCounterAt = useRef(counterAt);
+  // The blind pass on #331 (critical 1) — the last ask this phone SAW. A withdraw is optimistic (the
+  // stamp goes null at the tap), so a refused or failed withdraw's revert — and a read landing during
+  // it that still carries the ask — writes the SAME stamp back: a null→stamp edge that is not a new
+  // ask. Announcing it told the table "Your table asked to pay at the counter." and, through
+  // `sayOutcome`, cleared the very error the revert had set. Only a stamp with a different instant
+  // is a new ask (compared as an instant, never as a string: a view and an action may format it
+  // differently).
+  const lastAsk = useRef(counterAt);
+  // The remote ask's frame, cancelled on UNMOUNT only: the optimistic stamp is replaced by the
+  // server's a beat later (one more run of the effect below, no edge), and a per-run cleanup would
+  // cancel the frame the edge had just armed.
+  const askFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (askFrame.current !== null) cancelAnimationFrame(askFrame.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    const was = prevCounterAt.current;
+    prevCounterAt.current = counterAt;
+    const seen = lastAsk.current;
+    if (counterAt != null) lastAsk.current = counterAt;
+    // PD10 — the counter pass shows whether or not the phone-pay door is open, so the edge is
+    // heard either way (it was parked-only while the flag-on Bill drew the old counter card).
+    if (was != null || counterAt == null) return;
+    if (seen != null && sameAsk(seen, counterAt)) {
+      // The SAME ask, restored: nothing to say. The withdraw control unmounted under the optimistic
+      // null and is back now — focus returns to the page's home only if it was lost with it.
+      if (focusWasLost()) headingRef.current?.focus();
+      return;
+    }
+    if (ownAsk) {
+      // This phone's own tap: the dock that held focus has unmounted — land on the heading now.
+      headingRef.current?.focus();
+      return;
+    }
+    askFrame.current = requestAnimationFrame(() => {
+      askFrame.current = null;
+      sayOutcome(T("tableAskedCounter"), t("my", "tableAskedCounter"));
+      if (focusWasLost()) headingRef.current?.focus();
+    });
+    // `sayOutcome` and `ownAsk` are this render's; the edge is keyed on the stamp.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterAt]);
+  /**
+   * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
+   * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
+   * value the server returned — ITS seat, never this phone's (the blind pass on #335) — after the
+   * M225 barrier (a read issued before the tap must not land after it and erase the stamp); the
+   * confirmation is said once through the view's region. A tablemate's standing stamp (`taken`) is
+   * recorded too and named as theirs: never "{host} can see you're waiting" for a nudge that is not
+   * this guest's. A refusal says the action's own sentence; one that means this view is stale (the
+   * dishes went, the cart closed, a payment holds it) re-reads, so the wait block follows the truth.
+   */
+  async function nudge() {
+    if (nudgeBusy || !hostName) return;
+    const copy = nudgeCopy(hostName);
+    if (nudgeMine) {
+      // The settled control: a tap re-says what stands, and writes nothing.
+      sayOutcome(copy.seen.en, copy.seen.my);
+      return;
+    }
+    setNudgeBusy(true);
+    try {
+      const r = await nudgeHost({ cartId });
+      if (!r.ok && r.reason === "taken") {
+        // A tablemate's nudge stands: the host already knows. Recorded as THEIRS, said as theirs.
+        confirmedWrite(viewSeqRef.current);
+        setSendNudge(r.nudge);
+        const nudger = splitContext?.members.find((m) => m.seat === r.nudge.seat)?.name ?? null;
+        const taken = alreadyNudgedCopy(chosenName(nudger), hostName);
+        sayOutcome(taken.en, taken.my);
+        return;
+      }
+      if (!r.ok) {
+        sayRefusal(r.error);
+        if (r.reason === "nothing_to_send" || r.reason === "closed" || r.reason === "locked")
+          void refresh();
+        return;
+      }
+      confirmedWrite(viewSeqRef.current);
+      setSendNudge(r.nudge);
+      sayOutcome(copy.seen.en, copy.seen.my);
+    } catch {
+      // The action returns every refusal; a throw is transport (Next redacts its message in prod).
+      sayRefusal("That didn’t go through — please try again.");
+    } finally {
+      setNudgeBusy(false);
+    }
+  }
+  // PD1 — "Show a server": the pass prints the dishes waiting NOW, and keeps them after they go.
+  const showServerBtn = useRef<HTMLButtonElement | null>(null);
+  const openPass = () => {
+    setPassListed(new Set(waitingDishes(viewItems).map((i) => i.id)));
+    setPassOpen(true);
+  };
+  // Back to the opener, or — once the wait block has gone (the dishes went, or were removed) — to
+  // the page's one focus home, the <h1>. Never dropped on <body> (WCAG 2.4.3).
+  const onPassClosed = (e: Event) => {
+    e.preventDefault();
+    if (showServerBtn.current?.isConnected) showServerBtn.current.focus();
+    else headingRef.current?.focus();
+  };
   async function withdrawCounter() {
     if (counterBusy) return;
     setPayError(null);
@@ -2018,7 +2454,13 @@ export function Checkout({
       // does.
       confirmedWrite(viewSeqRef.current);
       setCounterAt(null);
-      setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
+      setOwnAsk(false);
+      // PD2 (m2 decision 14) — while phone pay is parked there is no tip and no Pay to pick, so
+      // the shipped sentence would name two parked controls; the quiet "No rush" says the truth.
+      // PD10 · D5 — and while the served door is held there is no tip ask and Pay is held, so the
+      // same quiet sentence: "pick a tip and tap Pay" is said only over an open door.
+      if (phonePayOff || servedHold !== null) sayOutcome(T("noRushBill"), t("my", "noRushBill"));
+      else setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
       void refresh();
     } catch {
       setCounterAt(confirmed);
@@ -2071,6 +2513,11 @@ export function Checkout({
           cartFreeze({ locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat }),
         ),
         unsentBlocks: unsentBlocksFor(f.items),
+        // PD10 · D5 — the served gate re-asked on the view that WON, like the unsent rule beside it
+        // (an undo may have put drafts back; a recall may have landed). Null while parked.
+        servedHold: phonePayOff
+          ? null
+          : servedGateVerdict(gateMode, f.items.map(trackLineOf), dbNowIso, gateHost),
         graceOpen: grace.isOpen(),
         // The chain has drained: nothing of ours is in flight by construction.
         undoInFlight: false,
@@ -2395,6 +2842,8 @@ export function Checkout({
     if (normalizeHash(window.location.hash) === "#bill") window.history.back();
     else flipStage("order");
   }
+  // PD10 — the pay step's "Pay at the counter" is in flight: the leave, then the ask (`payToCounter`).
+  const [counterFromPay, setCounterFromPay] = useState(false);
   // Set synchronously: two Backs before a re-render must not start two leaves (the pop handler's
   // `busy` reads last render's `leavingPay`).
   const leavingRef = useRef(false);
@@ -2406,7 +2855,11 @@ export function Checkout({
       .then((left) => {
         // Stayed on Pay (a superseded tab): put the entry back so the next Back is judged again
         // instead of leaving /cart with the screen still on Pay.
-        if (!left) pushHash("#pay");
+        if (!left) {
+          pushHash("#pay");
+          // PD10 — a counter ask chained from the pay step does not ride a leave that never left.
+          setCounterFromPay(false);
+        }
       })
       .finally(() => {
         leavingRef.current = false;
@@ -2418,6 +2871,37 @@ export function Checkout({
     if (normalizeHash(window.location.hash) === "#pay") window.history.back();
     else runLeavePay();
   }
+  /**
+   * PD10 (m10 decision 7; screen 2's "Pay at the counter") — the counter stays one quiet tap away on
+   * the pay step, composed from TWO SHIPPED WRITES and no new server write: `leavePay` (it releases
+   * the pay-window lock through `editOrder`, through the hash's Back when there is one), then — once
+   * the Bill is back — `askCounter`. The chain crosses `history.back`/popstate, so it is STATE, not
+   * a promise: `counterFromPay` is set at the tap and the effect below asks once the review step has
+   * mounted and the leave has finished. A leave that never left (a superseded tab) clears it
+   * (`runLeavePay`). A tablemate's lock landing between the two writes is said in Pay's own words —
+   * `askCounter` alone would refuse it silently (open risk 7). Every refusal lands on the Bill, whose
+   * own counter door is right there.
+   */
+  function payToCounter() {
+    if (paying || leavingPay || counterFromPay) return;
+    setCounterFromPay(true);
+    leavePay();
+  }
+  useEffect(() => {
+    if (!counterFromPay || step !== "review" || leavingPay) return;
+    const frame = requestAnimationFrame(() => {
+      setCounterFromPay(false);
+      if (payFrozen) {
+        sayRefusal(payBlockCopy("peer", { lockedByName, canSend: canSendToKitchen, hostName }));
+        return;
+      }
+      void askCounter();
+    });
+    return () => cancelAnimationFrame(frame);
+    // `askCounter`, `payFrozen`, `sayRefusal` and the copy's inputs are this render's — the one in
+    // which the Bill is back; the chain is keyed on its state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterFromPay, step, leavingPay]);
   // The pop handler reads THIS render's state; the listener is bound once and calls the latest.
   const onPopRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -2469,8 +2953,9 @@ export function Checkout({
   // kitchenDraftQty (see lib/checkout-stage).
   const unsentQty = unsentFoodQty(viewItems);
   // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
-  // (`payBlockedByUnsent`, the SAME binding create-intent refuses on — this is the courtesy, that is
-  // the gate). Only dine-in has a send step.
+  // (`payBlockedByUnsent`, the SAME binding the counter ask refuses on — this is the courtesy, that
+  // is the gate). Only dine-in has a send step. PD10 — create-intent's gate is D5's served gate now,
+  // which every unsent dine-in line also holds; this rule stays the COUNTER's (`counterBlock`).
   // Phase 3c-i — ONE binding of the rule's inputs: the render reads it on `viewItems`; the drain in
   // `continueToPayment` re-asks it on the view that WON after an undo's re-sync (`freezeFactsRef`).
   const unsentBlocksFor = (items: CartItem[]) =>
@@ -2480,7 +2965,6 @@ export function Checkout({
       hostPresent,
     );
   const sendBlocksPay = unsentBlocksFor(viewItems);
-  const noteQty = sendBlocksPay ? kitchenDraftQty : unsentQty;
 
   // Phase 3c-i (D13) — the Order stage's ONE hero verb: Send (the host, with drafts, no grace) · Undo
   // (the window is open — reversing is never the hero) · the Bill door (everything sent; a guest with
@@ -2489,7 +2973,51 @@ export function Checkout({
     canSend: canSendToKitchen,
     kitchenDraftUnits: kitchenDraftQty,
     graceOpen,
+    hostPresent,
   });
+  // PD1 (m1 · B7) — the guest's quiet nudge: offered to a guest at a table that can NAME its host,
+  // while dishes wait, and never under a pay lock (nobody, staff included, can send until it lifts).
+  const myRole = splitContext?.myRole ?? null;
+  const nudgeShown = nudgeOffered({
+    role: myRole,
+    hostName,
+    kitchenDraftUnits: kitchenDraftQty,
+    frozen: editsFrozen,
+    ready: nudgeReady,
+  });
+  // The guest's confirmation follows the STAMP, and only this seat's.
+  const nudgeMine = nudgeStands(sendNudge, mySeat);
+  // The host's quiet line, named from the table's own names (never the payload).
+  const hostLine = waitingLine(sendNudge, splitContext?.members ?? [], myRole);
+  const waitingMember = sendNudge
+    ? (splitContext?.members.find((m) => m.seat === sendNudge.seat) ?? null)
+    : null;
+  const waitingAvatar = waitingMember && chosenName(waitingMember.name) ? waitingMember : null;
+  const staffNote = staffCanSendCopy(hostName);
+  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and the SERVER's clock
+  // (lib/show-server). Unknown clock = never "sent" (a line in its grace reads "Sending…").
+  // A dish that JOINS the open pass (a tablemate's draft) is kept from the view it joins in, so it
+  // stays on the ticket once sent instead of leaving it — and, the dishes the pass opened on
+  // removed, closing it (Codex's post-merge review of #335). Adjusted during render, like the close
+  // below; `passListedNow` hands back the same set when nothing joins, so this settles.
+  const passPrinted = passOpen ? passListedNow(viewItems, passListed) : passListed;
+  if (passPrinted !== passListed) setPassListed(passPrinted);
+  const passRows = passDishes(viewItems, passPrinted);
+  const passStatus = showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY);
+  const passShown = passOpen && passStatus !== "none";
+  // Every listed dish REMOVED (never sent): the pass closes itself — a removal never reads as a
+  // send. Adjusted during render (React's derived-state pattern), so a dish added later never
+  // re-opens a pass its holder saw close.
+  if (passOpen && passStatus === "none") setPassOpen(false);
+  // ONE re-read at the grace's end while the pass is up (a server-measured duration from this
+  // view's receipt), so the flip lands on an OBSERVED view — never on this phone's clock.
+  const passRereadMs =
+    passShown && serverNowMs !== null ? graceRereadDelayMs(passRows, serverNowMs) : null;
+  useEffect(() => {
+    if (passRereadMs === null) return;
+    const id = window.setTimeout(() => void refresh(), passRereadMs);
+    return () => window.clearTimeout(id);
+  }, [passRereadMs, refresh]);
   // Phase 3c-i (D16) — Pay keeps its name and states its ONE reason, in precedence: a tablemate's lock
   // (`payFrozen`) > dishes still to send (`sendBlocksPay`, READ here — never restated) > this device's
   // undo window (open, or an undo still answering). The Order stage's Total door reads the same block
@@ -2497,12 +3025,27 @@ export function Checkout({
   const block = payBlock({
     frozenByPeer: payFrozen,
     unsentBlocks: sendBlocksPay,
+    // PD10 · D5 — the kitchen holds Pay (after the flip): peer > unsent > the gate > grace.
+    servedHold,
+    graceOpen,
+    undoInFlight: grace.pending,
+  });
+  // PD10 · D5 — THE COUNTER IS NEVER GATED BY SERVED: the docked counter door's own hold is the same
+  // precedence with the kitchen taken out (a tablemate's lock, the Send still owed, the undo window).
+  const counterBlock = payBlock({
+    frozenByPeer: payFrozen,
+    unsentBlocks: sendBlocksPay,
+    servedHold: null,
     graceOpen,
     undoInFlight: grace.pending,
   });
   // The Total door's ONE name key: never "& pay" while Pay is held, nor over a standing counter ask —
   // the Bill it opens hides Pay behind the counter card then (Codex round 3 on #313).
-  const doorLabel = billDoorLabel(block, counterAt != null);
+  // PD2 — and never "& pay" while the phone-pay door is parked: the Bill has no Pay to reach.
+  const doorLabel = billDoorLabel(block, {
+    counterAsk: counterAt != null,
+    phonePayOpen: !phonePayOff,
+  });
   const payReasonId = "pay-reason";
   const blockCopy = block
     ? payBlockCopy(block, { lockedByName, canSend: canSendToKitchen, hostName })
@@ -2545,6 +3088,24 @@ export function Checkout({
     // the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graceOpen]);
+
+  /**
+   * PD10 · D5 — THE DOOR MOMENT, said once: when the plan's `door` step plays (the served door opened
+   * on an OBSERVED view, after the rows' FILL and the head's TURN), the view's one region says
+   * "Ready to pay." — the same sentence the grace edge above says, and the slot's at-rest words.
+   * Only when nothing else still holds Pay (a tablemate's lock, the Send's undo window) and no
+   * counter ask stands: the sentence is a claim the next tap must keep. No sound, no haptic, no focus
+   * move (m10 decision 11) — nobody is hurried to pay. Waits out Mom's undo by construction: the
+   * server's view does not open the door until her bump is `KDS_UNDO_MS` old.
+   */
+  useEffect(() => {
+    if (passStep?.kind !== "door") return;
+    if (block !== null || counterAt != null || onPay) return;
+    const frame = requestAnimationFrame(() => sayRefusal("Ready to pay."));
+    return () => cancelAnimationFrame(frame);
+    // `sayRefusal`, `block`, `counterAt` and `onPay` are this render's; the edge is the step.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passStep]);
 
   if (viewItems.length === 0) {
     // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
@@ -2654,7 +3215,14 @@ export function Checkout({
   // Uses the EFFECTIVE rate (preset OR derived custom) so the preview matches what create-intent charges.
   // A1 — under a counter ask the app charges no tip (the register records a cash tip in hand), so
   // no amount on this screen previews one.
-  const tipPreviewCents = pureGrocery || counterAt != null ? 0 : tipPreview(effectiveTipRate);
+  // PD2 — and none while the phone-pay door is parked: the tip ask is not drawn, so no total may
+  // preview one (the cash tip lives in Dad's sheet, `settle.cash.tipLabel`).
+  // PD10 · D5 — and none while the served door is HELD: no tip is asked before the food, so no
+  // total previews one (the pass's foot and the Pay label read "Total" until the door opens).
+  const tipPreviewCents =
+    pureGrocery || counterAt != null || phonePayOff || servedHold !== null
+      ? 0
+      : tipPreview(effectiveTipRate);
   // W2d → Phase 3c-i (D14) — the estimated tip-inclusive total, named ONCE (W17): the Order stage's
   // Total door, the Bill's hero total and the Pay label all read this binding, so a previewed tip
   // can never show on one and not another. Presentation only — a labelled PREVIEW; the charged figure
@@ -2673,6 +3241,46 @@ export function Checkout({
   // server refuses the stamp on every other mode.
   const counterAsk = showPayFurniture && counterAt != null;
   const showPayControls = showPayFurniture && !counterAsk;
+  // The blind pass on #331 (critical 3) — ONE binding for the docked counter door, read by the dock
+  // AND by the page padding that clears it (the padding used to read the split's `isDineIn`, so a
+  // split-read miss drew the dock over the promo form with nothing to scroll it clear).
+  const dockShown = showPayControls && phonePayOff;
+  // PD10 (m10 decision 15) — the pass stub's Host: "You" on the host's own phone (a solo table too),
+  // else the name the table chose (`chosenName` — never "Guest" read as a person); omitted at a
+  // hostless table or for an unnamed host. And, on a group table, each dish's owner.
+  const passHostLabel = hostMember ? (hostMember.seat === mySeat ? "You" : hostName) : null;
+  const passOwnerOf = isGroup
+    ? (i: CartItem) => {
+        const o = splitContext?.members.find((m) => m.seat === i.bySeat);
+        return o ? (o.seat === splitContext?.mySeat ? "You" : o.name) : null;
+      }
+    : null;
+  // PD10 (m10 screen 1, "THE DOCK") — after the flip the staged (dine-in) Bill's Pay is docked in the
+  // same slot: the one line, the held-or-live Pay, the quiet counter. Pickup and scan-and-go keep the
+  // inline Pay (they have no counter and no served gate).
+  const payDockShown = showPayControls && !phonePayOff && staged;
+  // The slot's ONE line: Pay's held reason, or — the door open and nothing else holding — "Ready to
+  // pay." (m10 decision 9). The register mid-settle holds Pay and the counter alike (m2's sentence).
+  const payLine: { en: string; my: string | null } = settling
+    ? { en: T("registerSettling"), my: t("my", "registerSettling") }
+    : block && blockCopy
+      ? { en: blockCopy, my: block === "grace" ? t("my", "payOpensAfterUndo") : null }
+      : { en: "Ready to pay.", my: null };
+  // The counter's OWN held reason (never the kitchen's — D5), drawn and described on the dock (the
+  // capped blind pass on #346, C3): the register mid-settle, the Send still owed (the host is told to
+  // send, a guest who does), a tablemate's lock, the undo window — `counterHoldCopy`, lib's.
+  const counterReason: { en: string; my: string | null } | null = settling
+    ? { en: T("registerSettling"), my: t("my", "registerSettling") }
+    : counterBlock
+      ? {
+          en: counterHoldCopy(counterBlock, {
+            lockedByName,
+            canSend: canSendToKitchen,
+            hostName,
+          }),
+          my: null,
+        }
+      : null;
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -2701,7 +3309,17 @@ export function Checkout({
   return (
     // W22a — the paper ambient behind the whole bill/pay column (no isolation: the page ground
     // lives on <html>, so the fixed z:-1 layer is visible without trapping fixed overlays).
-    <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
+    <main
+      className="page-col page-col-narrow"
+      // PD2 — while the counter door is docked the page clears it (`--cta-dock-h`, published by the
+      // dock through `useCtaDock`: its height + 16) plus its 24px paper fade, so the promo form
+      // scrolls clear of the dock on a short phone.
+      style={{
+        padding: "24px 20px 40px",
+        paddingBottom:
+          dockShown || payDockShown ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)" : undefined,
+      }}
+    >
       <PaperAmbient />
       {/* tabIndex={-1} = programmatic focus target (focus lands here when the view swaps — the last
           line removed or restored — or a fired line drops focus; a removed line's focus lands on its
@@ -2710,7 +3328,12 @@ export function Checkout({
           the pay moment; hidden for anon). */}
       {/* Phase 1b — table context on the bill, the same eyebrow the menu wears ("At table 7"): at a
           shared table the one fact every screen should answer is WHICH table this is. */}
-      {isDineIn && tableNumber != null && <p className="eyebrow">Table {tableNumber}</p>}
+      {/* PD2 — not while the counter pass shows: the pass IS the table, named once on its stub. */}
+      {/* PD10 — nor while the One Pass shows (the live Bill, the boarded pay step): the pass names
+          the table, once (m10 screens 1 and 2). */}
+      {isDineIn && tableNumber != null && !passShowing && !billMounted && !(onPay && staged) && (
+        <p className="eyebrow">Table {tableNumber}</p>
+      )}
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
@@ -2752,7 +3375,7 @@ export function Checkout({
         key={viewKey}
         className={`checkout-step${stepDir === "back" ? " checkout-step-back" : ""}`}
       >
-        {isGroup && settling && splitContext ? (
+        {boardShown && splitContext ? (
           <>
             <SettlementBoard
               cartId={cartId}
@@ -2808,43 +3431,37 @@ export function Checkout({
               </span>{" "}
               {leavingPay ? "Going back…" : "Back to review"}
             </button>
-            <div className="card card-textured checkout-receipt">
-              {/* W21 (owner: "final pay total bill should organize dine-in and take-out items") —
-                  the pay step used to show ONLY the totals: the diner confirmed a charge with no
-                  itemization on the very screen that takes the card. Same grouped receipt rows as
-                  the Bill moment (the cart is locked here, so these lines are the charged lines). */}
-              <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
-              <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
-                <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
-                {payTotals.promoCents > 0 && <Row k="rowPromo" cents={-payTotals.promoCents} />}
-                {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
-                {/* M22 (Codex round 1, P1) — the shortfall has to be repeated HERE, not just on the
-                    review step's RewardField. `payTotals` is re-derived after the cart lock, so a
-                    peer edit or a void landing between the last review render and that locked read
-                    can produce a shortfall — or grow one — that the diner has never seen, and this
-                    screen is the last thing before the card confirmation. Derived from the same
-                    authoritative totals the amount is minted from, never re-computed here. */}
-                {rewardShortfallCents(payTotals) > 0 && (
-                  <p style={rewardShortfallNote}>
-                    {payTotals.rewardCents > 0
-                      ? `Uses the whole reward — $${(rewardShortfallCents(payTotals) / 100).toFixed(2)} won’t apply to this order.`
-                      : `Nothing here uses your reward — paying now spends all $${(rewardShortfallCents(payTotals) / 100).toFixed(2)} of it.`}
-                    <span lang="my" style={{ display: "block" }}>
-                      ဆုလက်ဆောင် အားလုံး သုံးသွားပါမယ်
-                    </span>
-                  </p>
-                )}
-                {/* The rate note only where tax was actually applied — "(10.5%)" beside $0.00 on a
-                    fully-exempt basket would name a rate that touched nothing (review LOW). */}
-                <Row
-                  k="rowTax"
-                  cents={payTotals.taxCents}
-                  note={payTotals.taxCents > 0 ? TAX_NOTE : undefined}
-                />
-                {payTotals.tipCents > 0 && <Row k="rowTip" cents={payTotals.tipCents} />}
-                <Row k="rowTotal" cents={payTotals.totalCents} strong roll />
-              </dl>
-            </div>
+            {/* PD10 (m10 screen 2) — at a table the charge's rows are the One Pass, BOARDED: the same
+                pass the Bill showed, its rows compact (no track, no word, no owner — the head says
+                where the kitchen is, and the payer pays the whole order), the money rows and the foot
+                from the LOCKED totals the charge was minted from (`payTotals`). Pickup and
+                scan-and-go keep the receipt card. */}
+            {staged ? (
+              <LivePass
+                items={viewItems}
+                nowIso={dbNowIso}
+                tableNumber={tableNumber}
+                hostName={hostName}
+                hostLabel={passHostLabel}
+                ownerOf={null}
+                totalCents={payTotals.totalCents}
+                tipCents={0}
+                filling={null}
+                turning={false}
+                boarded
+              >
+                <MoneyRows totals={payTotals} pay />
+              </LivePass>
+            ) : (
+              <div className="card card-textured checkout-receipt">
+                {/* W21 (owner: "final pay total bill should organize dine-in and take-out items") —
+                    the pay step used to show ONLY the totals: the diner confirmed a charge with no
+                    itemization on the very screen that takes the card. Same grouped receipt rows as
+                    the Bill moment (the cart is locked here, so these lines are the charged lines). */}
+                <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
+                <MoneyRows totals={payTotals} pay total />
+              </div>
+            )}
             <PaymentSection
               cartId={cartId}
               clientSecret={clientSecret}
@@ -2854,7 +3471,16 @@ export function Checkout({
               // While a leave is releasing the pay-window lock, the charge must not start under it.
               hold={leavingPay}
               onPayingChange={setPaying}
-              counterDoor={isDineIn}
+              // The capped blind pass on #346 (C2) — a TABLE is `staged` (the authoritative mode),
+              // never the split's best-effort `isDineIn`: a split-read miss is still a table, with
+              // its counter one tap away.
+              counterDoor={staged}
+              // PD10 (m10 decision 6) — at a table, a wallet present at the reveal leads and the card
+              // form folds behind "Pay with card" (decided once, `cardFoldedAtReveal`); and the
+              // counter stays one quiet tap away (decision 7: leave Pay, then ask — `payToCounter`).
+              fold={staged}
+              onCounter={staged ? payToCounter : undefined}
+              counterBusy={counterFromPay}
             />
           </>
         ) : (
@@ -2887,7 +3513,10 @@ export function Checkout({
             {/* W12 — the way back from the Bill moment, mirroring the pay step's quiet `.nav-link`
                 (never a second filled CTA above "Pay · $X"). A state flip, not a route — same
                 pattern (and same rationale) as the pay step's own back control. */}
-            {!settledClose && staged && stage === "bill" && (
+            {/* PD2 — not while the counter pass shows (decision 8): the one way back is the pass's
+                quiet withdraw, last; the tab bar's Menu still adds dishes, and their prices join
+                the total. */}
+            {!settledClose && staged && stage === "bill" && !passShowing && (
               <button
                 type="button"
                 className="nav-link"
@@ -2994,7 +3623,9 @@ export function Checkout({
                 )}
               </div>
             )}
-            {showLineCards && <TimelineStrip items={viewItems} menuMode={sessionMode} />}
+            {showLineCards && (
+              <TimelineStrip items={viewItems} menuMode={sessionMode} nowIso={dbNowIso} />
+            )}
             {/* W18 (owner: "Your order page needs page navigation buttons?") — the way back to
                 adding food, ON the order view instead of only on the empty state. The EN label is
                 mode-true (menu vs market vs door picker — menuLinkText, same rule as the empty
@@ -3276,63 +3907,25 @@ export function Checkout({
               ));
             })()}
 
-            {/* W19 — the forgot-to-send notice (owner: "What if customers forget to send items to
-                kitchen and move forward to pay?"). A NUDGE, never a block: paying-with-drafts is a
-                supported flow (mms_fire_pending_food fires every still-draft food line the moment
-                payment lands — money is safe, timing is the surprise). The host gets the way back;
-                a guest cannot send, so for them the sentence alone is the honest whole story.
-                Plain content, not a live region — this view keeps its one. */}
-            {!settledClose && staged && stage === "bill" && noteQty > 0 && (
-              <div className="card checkout-unsent-note mms-rise">
-                <p
-                  style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
-                >
-                  {noteQty === 1
-                    ? "1 item hasn’t gone to the kitchen yet"
-                    : `${noteQty} items haven’t gone to the kitchen yet`}
-                  <span
-                    style={{
-                      display: "block",
-                      fontWeight: "var(--fw-regular)",
-                      color: "var(--t2)",
-                      marginTop: 2,
-                    }}
-                  >
-                    {sendBlocksPay
-                      ? canSendToKitchen
-                        ? "Send them to the kitchen, then pay the bill."
-                        : `${hostName ?? TABLE_STARTER} sends them — then the bill is ready to pay.`
-                      : "They’ll be sent to the kitchen the moment you pay."}
-                  </span>
-                  <span
-                    lang="my"
-                    style={{
-                      display: "block",
-                      fontWeight: "var(--fw-regular)",
-                      fontSize: "var(--fs-xs)",
-                      color: "var(--t3)",
-                      marginTop: 2,
-                    }}
-                  >
-                    {sendBlocksPay
-                      ? "မပို့ရသေးတဲ့ ဟင်းတွေကို မီးဖိုချောင်ဆီ အရင်ပို့ပြီးမှ ငွေရှင်းလို့ ရပါမယ်"
-                      : "မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်ဆီ ရောက်သွားပါမယ်နော်"}
-                  </span>
-                </p>
-                {canSendToKitchen && (
-                  <button
-                    type="button"
-                    className="nav-link"
-                    style={{ marginTop: 4 }}
-                    onClick={backToOrder}
-                  >
-                    <span aria-hidden className="nav-arrow nav-arrow-back">
-                      ←
-                    </span>{" "}
-                    Back to send them
-                  </button>
-                )}
-              </div>
+            {/* W19 → PD2 → PD10 — the forgot-to-send notice. On the counter-only Bill (PD2) it was the
+                shared mark — the hollow ring and the console's two words — above the slip; now the
+                slip IS the One Pass, and its head owns the mark (the roll-up's ring, "Not sent yet ·
+                မပို့ရသေး") while each waiting dish wears its own ring: the state is said once per
+                fact, never twice on one screen. The NEXT STEP is said once, in the dock's one line
+                slot (the door's held reason). What stays here is the HOST's quiet way back to the
+                Send (m10 STATES, "Unsent dishes": "← Back to send them"); a guest cannot send, and
+                the slot tells them who does. The ask over unsent dishes stays refused until
+                counter-floor's P2do lands (PD2 decision 12). */}
+            {billMounted && canSendToKitchen && kitchenDraftQty > 0 && (
+              <p className="checkout-unsent-mark">
+                <button type="button" className="nav-link" onClick={backToOrder}>
+                  <span aria-hidden className="nav-arrow nav-arrow-back">
+                    ←
+                  </span>{" "}
+                  {T("backToSendThem")}
+                  <My k="backToSendThem" inline color="var(--t3)" />
+                </button>
+              </p>
             )}
             {/* Phase 3c-i (D15) — the send's undo window follows the diner onto the Bill: ONE Undo
                 control at a time (the stages never co-render), above the receipt, so a flip
@@ -3350,29 +3943,64 @@ export function Checkout({
                 frozen={editsFrozen}
               />
             )}
-            {/* W12 — the Bill moment's lines: the same viewItems as read-only RECEIPT rows inside the
-                textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
-                the owner, and the comped/voided treatment carried over from the cards. Editing lives
+            {/* W12 → PD10 (m10 screen 1) — the Bill moment's lines are THE LIVE ONE PASS: post-pay's
+                CounterPass at the holder tier, its head the kitchen's roll-up, its stub Host · Sent,
+                its body the dishes with their kitchen tracks (live: realtime + the foreground re-read
+                + the one settle re-read), the money rows, and the foot — the ONE total binding
+                (`orderTotalCents`: the server's total, plus a previewed tip only once the served door
+                is open and a chip is lit). Before C2 this is PD2's counter-only Bill with live rows
+                (open risk 15, decided YES); only the pay furniture waits for the flip. Editing lives
                 one tap back on the Order moment — a bill you can quietly read is the point. */}
-            {!settledClose && staged && stage === "bill" && (
-              <div className="card card-textured checkout-receipt">
-                {/* W21 — grouped by destination (BillLines): "At your table" vs "To-go" vs
-                    "Grocery", headings only when the basket really spans 2+. */}
+            {billMounted && (
+              <LivePass
+                items={viewItems}
+                nowIso={dbNowIso}
+                tableNumber={tableNumber}
+                hostName={hostName}
+                hostLabel={passHostLabel}
+                ownerOf={passOwnerOf}
+                totalCents={orderTotalCents}
+                tipCents={tipPreviewCents}
+                filling={passStep?.kind === "fill" ? passStep.id : null}
+                turning={passStep?.kind === "turn"}
+              >
+                <MoneyRows totals={totals} />
+              </LivePass>
+            )}
+            {/* PD2 (m2 screen 2) — after the ask, EVERY phone at the table becomes the counter
+                pass: the table figure, the total, the receipt folded into a "View bill"
+                disclosure, and the quiet withdraw last. The ask is a state every phone agrees on
+                (`counterAt` from every view read), so a tablemate's ask lands here as a view flip.
+                The pass total is `totals.totalCents` — the SAME `getCartTotals` figure the slip's
+                foot and Dad's pane show; never computed here. */}
+            {passShowing && (
+              <PayAtCounterPass
+                tableNumber={tableNumber}
+                hostName={hostName}
+                totalCents={totals.totalCents}
+                sentenceKey={counterCard ? "counterBody" : "counterShowCash"}
+                settling={settling}
+                // Codex round 2 on #331 — EVERY dish the kitchen has not got (`unsentFoodQty`: dine-in
+                // AND to-go drafts; a to-go dish fires only when the counter's payment lands), never
+                // the dine-in-only send count: a tablemate's to-go dish after the ask is not underway.
+                unsent={unsentQty > 0}
+                busy={counterBusy}
+                rise={ownAsk}
+                // PD10 (D5) — "Changed your mind? Pay on your phone" ONLY while the served door is
+                // open (the flip done and every dish served); otherwise the quiet "We’re not done yet".
+                withdrawKey={
+                  !phonePayOff && servedHold === null ? "payOnPhoneInstead" : "notDoneYet"
+                }
+                onWithdraw={withdrawCounter}
+              >
                 <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
-                <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
-                  <Row k="rowSubtotal" cents={totals.subtotalCents} />
-                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
-                  {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
-                  <Row
-                    k="rowTax"
-                    cents={totals.taxCents}
-                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
-                  />
-                </dl>
-              </div>
+                <MoneyRows totals={totals} />
+              </PayAtCounterPass>
             )}
 
-            {showPayFurniture && isGroup && splitContext && (
+            {/* PD2 (Codex round 1 on #331, comment 4222692029) — the pass REPLACES the Bill: its
+                withdraw is the screen's last act, so the split chooser never sits under it. */}
+            {showPayFurniture && !passShowing && isGroup && splitContext && (
               <SplitSection
                 cartId={cartId}
                 items={viewItems}
@@ -3380,6 +4008,9 @@ export function Checkout({
                 ctx={splitContext}
                 onChanged={refresh}
                 onStatus={setStatus}
+                // PD10 (D5) — "Pay as one bill here" is a phone-pay door: said only while that door
+                // is OPEN — the flip done and every dish served; parked or held, the counter's clause.
+                payHere={!phonePayOff && servedHold === null}
                 // T9 — reassignment is a cart mutation (`assignLine`), so it takes the same gate as
                 // every other edit on this screen. The shares themselves keep rendering: they are
                 // derived from server-authoritative totals and stay true while the cart is frozen.
@@ -3409,6 +4040,11 @@ export function Checkout({
                   readOnly={editsFrozen}
                   autoCapitalize="characters"
                   maxLength={40}
+                  // PD2 — the docked counter door hides while this field has focus (it would
+                  // otherwise ride the keyboard) and returns on blur.
+                  ref={promoInputRef}
+                  onFocus={() => setPromoFocused(true)}
+                  onBlur={() => setPromoFocused(false)}
                   className="checkout-promo-input"
                   style={{
                     flex: 1,
@@ -3627,7 +4263,12 @@ export function Checkout({
                 breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
                 the amount rides as a rate (customCents / net) so the server path is identical. Hidden on
                 a pure-grocery basket — self-scanned retail is not table service (W1). */}
-            {showPayControls && !pureGrocery && (
+            {/* PD2 (m2 decision 6) — no tip ask on a dine-in phone while phone pay is parked: the
+                app charges nothing here, and the cash tip lives in Dad's sheet. */}
+            {/* PD10 · D5 — and none before the food: the shipped ask mounts only once the served door
+                opens (m10 "THE DOOR OPENS"), under the pass, none pre-selected — and a recall closing
+                the door again unmounts it and clears the chosen tip (Codex round 5). */}
+            {showPayControls && !pureGrocery && !phonePayOff && servedHold === null && (
               <>
                 {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
                     the ask had no visible label, and the group's aria-label meant accessible name
@@ -3833,7 +4474,11 @@ export function Checkout({
                 standalone grand-total bar (not a second receipt card) so the total reads as the hero
                 figure; the tip is folded into a subline. `.vt-cart-total` makes THIS the single
                 cart-total morph target (J1). Presentation only — the charge stays server-authoritative. */}
-            {showPayFurniture && (
+            {/* PD2 (m2 decision 5) — not while phone pay is parked: the total is the slip's own
+                foot then, and this row existed only to preview a tip. */}
+            {/* PD10 — nor at a table: the staged Bill's total is the One Pass's own foot (the same
+                `orderTotalCents`, "Estimated total · includes $X tip" once a chip is lit). */}
+            {showPayFurniture && !phonePayOff && !staged && (
               <div
                 style={{
                   display: "flex",
@@ -3939,13 +4584,10 @@ export function Checkout({
                     </>
                   )}
                 </button>
-                {/* W19 — the unsent state is VISIBLE before the flip, not discovered after. Plain
-                    content under the door, never inside the button's name. */}
-                {unsentQty > 0 && (
-                  <p className="checkout-total-door-note">
-                    {unsentQty} {unsentQty === 1 ? "item" : "items"} not sent yet
-                  </p>
-                )}
+                {/* PD1 (m1 decision 4; DESIGN-LANGUAGE §21) — W19's "N items not sent yet" note under
+                    the door is GONE: a dine-in cart is SHARED, and its count is a tablemate's tap away
+                    from wrong. The state is said in words where the next step lives — the guest's
+                    wait block, the host's Send — and on the Bill, the count-free mark. */}
               </>
             )}
 
@@ -3954,13 +4596,36 @@ export function Checkout({
                 reversing is never the hero), or the quiet "with the kitchen" line once everything is
                 sent. Only the host fires the table (server-enforced too), so only the host sees it;
                 a guest's hero is the door above, with the note below. */}
+            {/* PD1 (m1 screen 3) — the HOST's quiet line: a guest tapped "Let {host} know", and the
+                stamp waits on the cart until this Send clears it (in the same statement as the fire).
+                No sound, no toast, no sheet: the waiting guest's avatar and one sentence, above the
+                Send it is about, carried in Send's description. Plain text, never live. */}
+            {showLineCards && canSendToKitchen && hero === "send" && hostLine && (
+              <p id="nudge-line" className="checkout-nudge-line">
+                {waitingAvatar && (
+                  <Avatar
+                    initial={seatInitial(waitingAvatar.name)}
+                    color={seatColor(waitingAvatar.seat)}
+                    size="sm"
+                  />
+                )}
+                <span>
+                  {hostLine.en}
+                  <span lang="my" className="checkout-nudge-line-my">
+                    {hostLine.my}
+                  </span>
+                </span>
+              </p>
+            )}
             {showLineCards && canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips); the undo's re-sync is the
               // grace hook's own, since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
                 ref={sendHandle}
                 cartId={cartId}
-                verb={hero}
+                // The host never waits on themselves (`orderStageHero` answers "send" first), so
+                // "wait" is a guest's arm only — narrowed here, never drawn by this control.
+                verb={hero === "wait" ? "bill" : hero}
                 grace={grace}
                 draftCount={kitchenDraftQty}
                 // 3c-ii — stashed while the table sheet is up, said once it has unmounted.
@@ -3974,7 +4639,26 @@ export function Checkout({
                 // predicate, so a freeze has already removed it server-side. The hook keeps the
                 // undo WINDOW open rather than closing it, so it returns the moment the lock lifts.
                 frozen={editsFrozen}
+                // PD1 — Send carries the waiting line and the caption; Undo the caption.
+                describedBy={
+                  hero === "send"
+                    ? hostLine
+                      ? "nudge-line send-caption"
+                      : "send-caption"
+                    : hero === "undo"
+                      ? "send-caption"
+                      : undefined
+                }
               />
+            )}
+            {/* PD1 (m1 decision 14) — the caption under Send AND Undo: feedforward before the tap
+                (the kitchen sees nothing until the window ends — `kdsLineGate`), the SAME node once
+                Send is Undo, so the tap shifts nothing. */}
+            {showLineCards && canSendToKitchen && (hero === "send" || hero === "undo") && (
+              <p id="send-caption" className="checkout-send-caption">
+                {T("sendCaption")}
+                <span lang="my">{t("my", "sendCaption")}</span>
+              </p>
             )}
             {/* 3c-ii (D27) — the Send's question, as a sheet the host owns. Mounted for every dine-in
                 host (never conditioned on the gate: the ok edge clears the gate in the same commit
@@ -3996,21 +4680,117 @@ export function Checkout({
               />
             )}
 
-            {/* Phase 1b — a guest who is not the host sees WHO sends, where the host sees Send. Only
-                the host fires the table; before this a guest's Order moment had no verb and no word
-                about how their dishes reach the kitchen. Plain content, not a live region. */}
-            {showLineCards &&
-              staged &&
-              splitContext?.myRole === "guest" &&
-              hostPresent &&
-              kitchenDraftQty > 0 && (
-                <p className="checkout-host-note">
-                  {hostNote.en}
-                  <span lang="my" className="checkout-host-note-my">
-                    {hostNote.my}
+            {/* PD1 (m1 screen 1; amends PHASE3C D13 — `orderStageHero`'s "wait" arm) — a GUEST whose
+                dishes wait on the host's Send is told the next step and who takes it, and offered two
+                ways forward. Phase 1b's lone "who sends" sentence becomes the block's first row, verbatim
+                (`hostSendsCopy`, the host named only as the table named them — `chosenName`). Then the
+                quiet "Let {host} know" (a DURABLE stamp on the cart, cleared by the Send: a face-down
+                phone finds it when it wakes), the staff fallback, and the ONE filled verb, "Show a
+                server" — the table's ticket held up for Dad, whose console Send fires this round too.
+                Under a tablemate's pay lock both ways forward hide: nobody, staff included, can send
+                until it lifts (m1 decision 18), and the shipped lock line says so. No counts: this
+                cart is shared. Plain content; the view's one region speaks the outcomes. */}
+            {showLineCards && staged && hero === "wait" && (
+              <section className="checkout-wait mms-rise" aria-labelledby="wait-h">
+                <h2 id="wait-h" className="checkout-wait-h">
+                  <span aria-hidden className="mark-ring" />
+                  {STAFF["pad.group.unsent"].en}
+                  <span aria-hidden className="checkout-wait-dot">
+                    ·
                   </span>
-                </p>
-              )}
+                  <span lang="my">{STAFF["pad.group.unsent"].my}</span>
+                </h2>
+                <div className="checkout-wait-grid">
+                  <span className="checkout-wait-lead" aria-hidden>
+                    {hostMember && hostName ? (
+                      <Avatar
+                        initial={seatInitial(hostName)}
+                        color={seatColor(hostMember.seat)}
+                        size="md"
+                      />
+                    ) : (
+                      <Icon name="receipt" size={16} />
+                    )}
+                  </span>
+                  <p className="checkout-wait-text">
+                    {hostNote.en}
+                    <span lang="my" className="checkout-wait-text-my">
+                      {hostNote.my}
+                    </span>
+                  </p>
+                  {nudgeShown && hostName && (
+                    <>
+                      <button
+                        type="button"
+                        className="nav-link checkout-wait-nudge"
+                        // Settled once the stamp stands: never unmounted (focus stays put), never a
+                        // toggle (`aria-pressed` would promise an un-press) — `aria-disabled` and
+                        // described by the confirmation beside it; a tap re-says it.
+                        aria-disabled={nudgeMine || nudgeBusy || undefined}
+                        aria-busy={nudgeBusy || undefined}
+                        aria-describedby={nudgeMine ? "nudge-seen" : undefined}
+                        onClick={() => void nudge()}
+                      >
+                        {nudgeCopy(hostName).button.en}
+                        <span lang="my" className="checkout-wait-nudge-my">
+                          {nudgeCopy(hostName).button.my}
+                        </span>
+                      </button>
+                      {nudgeMine && (
+                        <p id="nudge-seen" className="checkout-wait-seen">
+                          {nudgeCopy(hostName).seen.en}
+                          <span lang="my">{nudgeCopy(hostName).seen.my}</span>
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {!editsFrozen && (
+                    <>
+                      <span className="checkout-wait-rule" aria-hidden />
+                      <span className="checkout-wait-lead" aria-hidden>
+                        <Icon name="receipt" size={16} />
+                      </span>
+                      <p id="wait-staff" className="checkout-wait-text checkout-wait-quiet">
+                        {staffNote.en}
+                        <span lang="my" className="checkout-wait-text-my">
+                          {staffNote.my}
+                        </span>
+                      </p>
+                    </>
+                  )}
+                </div>
+                {!editsFrozen && (
+                  <button
+                    ref={showServerBtn}
+                    type="button"
+                    className="checkout-cta checkout-wait-cta"
+                    aria-haspopup="dialog"
+                    aria-describedby="wait-staff"
+                    onClick={openPass}
+                  >
+                    <span className="checkout-wait-cta-label">{T("showServer")}</span>
+                    <span lang="my" className="checkout-wait-cta-my">
+                      {t("my", "showServer")}
+                    </span>
+                  </button>
+                )}
+              </section>
+            )}
+            {/* PD1 (m1 screen 2) — the pass, mounted for every guest at a staged table so it can EXIT
+                (a sheet its parent unmounts cannot — sheet.tsx) and so it stays up through the flip
+                its holder is waiting for: the wait block above leaves when the dishes go, the pass
+                does not. Open only while it has a status to show (`passShown`). */}
+            {staged && splitContext?.myRole === "guest" && (
+              <ShowServerPass
+                open={passShown}
+                onOpenChange={setPassOpen}
+                onCloseAutoFocus={onPassClosed}
+                tableNumber={tableNumber}
+                hostName={hostName}
+                dishes={passRows}
+                status={passStatus === "none" ? "waiting" : passStatus}
+              />
+            )}
 
             {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
                 with 409 because the lock is exactly the mutex that stops two diners paying at once. It
@@ -4020,7 +4800,12 @@ export function Checkout({
                 send > the send's undo window) is a static line it is `aria-describedby`, and every
                 blocked tap re-says that same sentence through the view's region. `aria-disabled`, never
                 native — the control stays reachable and reads why. */}
-            {showPayControls && (
+            {/* PD2 (decision 2) — the card hero is NOT DRAWN while the phone-pay door is parked:
+                no card button, no card words, no "coming soon". The docked counter door below is
+                the Bill's one door then, and create-intent refuses a raw POST the same way. */}
+            {/* PD10 — and at a table the Pay is DOCKED (`PayDock`, below); the inline Pay is the
+                unstaged pickup / scan-and-go screen's. */}
+            {showPayControls && !phonePayOff && !staged && (
               <>
                 <button
                   type="button"
@@ -4060,14 +4845,14 @@ export function Checkout({
                       "Starting checkout…"
                     ) : (
                       <>
-                        {isGroup
+                        {payWholeOrder
                           ? `${T("payWholeOrder")} · ${ctaTotal}`
                           : `${T("pay")} · ${ctaTotal}`}
                         <span aria-hidden className="checkout-cta-arrow">
                           →
                         </span>
                         {/* W16b — MY line under the EN+amount line (amount stays Latin, EN line only). */}
-                        <My k={isGroup ? "payWholeOrder" : "pay"} color="inherit" />
+                        <My k={payWholeOrder ? "payWholeOrder" : "pay"} color="inherit" />
                       </>
                     )}
                   </span>
@@ -4087,41 +4872,70 @@ export function Checkout({
               </>
             )}
 
-            {/* A1 — the other door, quiet, under the one filled CTA: the register. Same freeze gate
-                as "Pay · $X" — a table mid-card-payment is not sent walking. Dine-in only; the
-                server refuses every other mode, so the button is not drawn there either. */}
-            {/* Phase 2c · gate — the counter is the Bill's other door, so it keeps the Pay CTA's
-                "Everything sent" rule too (`sendBlocksPay`); the unsent note above says why whenever
-                this button is on screen (both render only on the Bill stage of a dine-in table),
-                and a tap on it repeats the reason — the server refuses the ask the same way. */}
-            {showPayControls && isDineIn && (
-              <PayAtCounterButton
-                disabled={block !== null}
-                busy={counterBusy}
-                onClick={askCounter}
-                onRefusedTap={
-                  block === "unsent"
-                    ? () =>
-                        // The host is told to send; a guest is told who does (the note's split).
-                        // Said again on every tap (`sayRefusal`, Phase 2c · review).
-                        sayRefusal(
-                          counterUnsentTapCopy(
+            {/* PD2 (m2 screen 1, appendix A1 · B1) — THE ONE DOOR, docked in the CartBar's own
+                slot, with the Bill's one line slot directly above it: at rest "The counter takes
+                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason —
+                dishes still to send, the send's undo window, or the register mid-settle — never
+                both. Held states are `aria-disabled` with the reason as the description, and every
+                blocked tap re-says it through the view's one region. No amount on the door: it
+                charges nothing, and the total sits on the slip above. */}
+            {dockShown && (
+              <PayAtCounterDock
+                lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
+                // The COUNTER door's own hold (`counterBlock`): parked, the served gate is null, so
+                // this is the same precedence it always was — and never the kitchen (D5).
+                reason={
+                  settling
+                    ? { en: T("registerSettling"), my: t("my", "registerSettling") }
+                    : counterBlock === "unsent"
+                      ? {
+                          en: counterUnsentTapCopy(
                             canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
                           ),
-                        )
-                    : block === "grace" && blockCopy
-                      ? // Phase 3c-i (D16) — the counter waits for the undo window too, in Pay's words.
-                        () => sayRefusal(blockCopy)
-                      : undefined
+                          my: null,
+                        }
+                      : counterBlock === "grace"
+                        ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
+                        : counterBlock === "peer"
+                          ? {
+                              en: payBlockCopy("peer", {
+                                lockedByName,
+                                canSend: canSendToKitchen,
+                                hostName,
+                              }),
+                              my: null,
+                            }
+                          : null
                 }
+                busy={counterBusy}
+                hidden={promoFocused}
+                onClick={askCounter}
+                onRefusedTap={(reason) => sayRefusal(reason)}
               />
             )}
-            {counterAsk && (
-              <PayAtCounterCard
-                tableNumber={tableNumber}
-                totalCents={totals.totalCents}
-                busy={counterBusy}
-                onWithdraw={withdrawCounter}
+            {/* PD10 (m10 screen 1; D5) — after the flip, the staged Bill's ONE dock: the line slot
+                (Pay's held reason — "Pay opens once everything’s served." while the kitchen holds it
+                — or, open, "Ready to pay."), Pay keeping its name and amount (held: dimmed,
+                `aria-disabled`, described by the slot; every blocked tap re-says it), and the quiet
+                counter, which the kitchen NEVER holds. The door moment's POP rides `passStep`. */}
+            {payDockShown && (
+              <PayDock
+                line={payLine}
+                held={settling || block !== null}
+                payKey={payWholeOrder ? "payWholeOrder" : "pay"}
+                amount={ctaTotal}
+                loading={loadingPay}
+                busy={payBusy}
+                popping={passStep?.kind === "door"}
+                hidden={promoFocused}
+                onPay={() => void continueToPayment()}
+                onRefusedPay={() => sayRefusal(payLine.en)}
+                counter={{
+                  reason: counterReason,
+                  busy: counterBusy,
+                  onClick: () => void askCounter(),
+                  onRefusedTap: (reason) => sayRefusal(reason),
+                }}
               />
             )}
             {/* W12 — the ONE quiet card-on-file line (S3.2's machinery, reframed as a benefit, not a
@@ -4149,7 +4963,12 @@ export function Checkout({
                 <SecureTabButton cartId={cartId} onSecured={refresh} />
               </>
             )}
-            {showPayFurniture && tabType === "secure" && (
+            {/* PD2 (PATH_DESIGN Codex correction 2; round 3 D4) — the saved-card note follows the
+                phone-pay door: hidden while it is parked or held, because "pay here" is then a
+                promise this Bill does not keep. Staff can still close the secure tab from the
+                console (`closeSecureTab` is never gated by the flag), so the card is never
+                stranded — and nothing here needs to say so. English-only when it shows. */}
+            {showPayFurniture && tabType === "secure" && !phonePayOff && block === null && (
               <p
                 style={{
                   ...tabNote,
@@ -4160,8 +4979,7 @@ export function Checkout({
                 }}
               >
                 <Icon name="check" size={15} />
-                Your card is saved — pay here anytime, or just leave and we’ll charge the bill to
-                it.
+                Your card is saved — pay here, or just leave and we’ll charge the bill to it.
               </p>
             )}
 
@@ -4343,6 +5161,52 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
   );
 }
 
+/**
+ * The money rows under a bill's dishes — named once for the Bill's One Pass, the counter pass's
+ * folded receipt and the pay step (the receipt card, or the boarded pass). Every figure is the
+ * server's (`getCartTotals` on the Bill; the LOCKED `payTotals` on the pay step); nothing is computed
+ * here. `pay` adds the pay step's two rows: the reward shortfall and the tip; `total` the strong
+ * Total row (the receipt card's — a pass carries its total in its own foot).
+ */
+function MoneyRows({
+  totals,
+  pay = false,
+  total = false,
+}: {
+  totals: CartTotals;
+  pay?: boolean;
+  total?: boolean;
+}) {
+  return (
+    <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
+      <Row k="rowSubtotal" cents={totals.subtotalCents} />
+      {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
+      {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
+      {/* M22 (Codex round 1, P1) — the shortfall has to be repeated on the PAY step, not just on the
+          review step's RewardField. `payTotals` is re-derived after the cart lock, so a peer edit or
+          a void landing between the last review render and that locked read can produce a shortfall
+          — or grow one — that the diner has never seen, and that screen is the last thing before
+          the card confirmation. Derived from the same authoritative totals the amount is minted
+          from, never re-computed here. */}
+      {pay && rewardShortfallCents(totals) > 0 && (
+        <p style={rewardShortfallNote}>
+          {totals.rewardCents > 0
+            ? `Uses the whole reward — $${(rewardShortfallCents(totals) / 100).toFixed(2)} won’t apply to this order.`
+            : `Nothing here uses your reward — paying now spends all $${(rewardShortfallCents(totals) / 100).toFixed(2)} of it.`}
+          <span lang="my" style={{ display: "block" }}>
+            ဆုလက်ဆောင် အားလုံး သုံးသွားပါမယ်
+          </span>
+        </p>
+      )}
+      {/* The rate note only where tax was actually applied — "(10.5%)" beside $0.00 on a
+          fully-exempt basket would name a rate that touched nothing (review LOW). */}
+      <Row k="rowTax" cents={totals.taxCents} note={totals.taxCents > 0 ? TAX_NOTE : undefined} />
+      {pay && totals.tipCents > 0 && <Row k="rowTip" cents={totals.tipCents} />}
+      {total && <Row k="rowTotal" cents={totals.totalCents} strong roll />}
+    </dl>
+  );
+}
+
 function Row({
   k,
   cents,
@@ -4416,16 +5280,6 @@ function Row({
     </div>
   );
 }
-
-/** The ONE destination grouping every basket surface speaks — the editing cards, the Bill's receipt
- *  rows, and the pay step's itemization all read this, so their section labels can't drift. */
-const BILL_GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
-  ["At your table", "dinein"],
-  ["To-go", "togo"],
-  ["Grocery", "grocery"],
-];
-/** The section order the editing cards draw in — where focus looks for a removed dish's neighbour. */
-const BILL_GROUP_KEYS = BILL_GROUPS.map(([, k]) => k);
 
 /**
  * W21 (owner: "cart bill and also final pay total bill should organize dine-in and take-out items

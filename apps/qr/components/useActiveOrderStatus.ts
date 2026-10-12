@@ -4,6 +4,7 @@ import { useActiveOrder, type ActiveOrder } from "./ActiveOrderProvider";
 import { useOrderStatus, type TrackedOrder } from "@/lib/useOrderStatus";
 import { resolveSplitOrderId } from "@/lib/order-actions";
 import { kindFromTrackedOrder, liveOrderStatusWord, type LiveOrderKind } from "@/lib/live-order";
+import { isFired } from "@/lib/pickup-promise";
 
 export type ActiveOrderStatus = {
   order: ActiveOrder | null;
@@ -67,6 +68,15 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   const oid =
     track && order && !order.paymentIntent && resolved?.cartId === cartId ? resolved.id : null;
   const { order: tracked, timedOut } = useOrderStatus(pi, oid);
+  // M65 — a HELD pickup turns "Scheduled" → "Preparing" at its fire_at with no row change to wake
+  // the subscription, so while a stamp lies ahead the pill re-reads the clock once a minute.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const fireAt = tracked?.fireAt ?? null;
+  useEffect(() => {
+    if (fireAt === null || isFired(fireAt, nowMs)) return;
+    const t = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, [fireAt, nowMs]);
 
   // W22b — ONE derivation. The kind comes from the same ladder the server read uses
   // (`kindFromTrackedOrder`), and the word from the same function the tray and /account "Today" speak
@@ -112,6 +122,8 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
           kind,
           togoStatus: tracked.togoStatus,
           hasTogoFood: tracked.hasTogoFood,
+          // M65 — the pill reads the same gate /track does, on its own minute clock below.
+          fired: isFired(tracked.fireAt, nowMs),
         })
       : timedOut
         ? "Placed"
