@@ -134,7 +134,7 @@ export function hostNameAsked(s: {
   role: "host" | "guest" | null;
   /** The table's name for this seat (`session_members.display_name`), or the one this row saved. */
   myName: string | null;
-  /** The table's members (`SplitContext.members.length`), the host included. */
+  /** The table's party, the host included: `partySize` over the page's members and the view's lines. */
   memberCount: number;
   /** "Not now" stands for this visit — or its sessionStorage read has not landed yet. */
   dismissed: boolean;
@@ -146,6 +146,26 @@ export function hostNameAsked(s: {
     chosenName(s.myName) === null &&
     !s.dismissed
   );
+}
+
+/**
+ * PD1 (Codex round 1 on #356) — the party as /cart can see it LIVE, for `hostNameAsked`'s
+ * `memberCount`: the seats of the members the page read, plus every seat that owns a line on the
+ * applied view. /cart's watch is the cart and its lines (`useCartRealtime`), never the members, and
+ * the page reads the members once — so a tablemate who joined after the host opened /cart was
+ * invisible to the gate until a reload. Their first dish is a line with their seat, and it reaches
+ * this view through the watch it already has: that is when the host's Send becomes the thing they
+ * wait on, and when the ask now appears. A tablemate who joined and added nothing is still counted
+ * only from the next page read. A seat is one person however many lines it owns, and a line with no
+ * seat (a staff-added dish) is nobody.
+ */
+export function partySize(
+  memberSeats: ReadonlyArray<string>,
+  lineSeats: ReadonlyArray<string | null | undefined>,
+): number {
+  const seats = new Set(memberSeats);
+  for (const seat of lineSeats) if (seat) seats.add(seat);
+  return seats.size;
 }
 
 /** The visit-scoped key "Not now" is kept under (sessionStorage): per table session, so the next

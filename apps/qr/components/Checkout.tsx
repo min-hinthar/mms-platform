@@ -154,6 +154,7 @@ import {
   nameAskDismissKey,
   nudgeOffered,
   nudgeStands,
+  partySize,
   waitingLine,
   type SendNudge,
 } from "@/lib/send-nudge-state";
@@ -3070,11 +3071,19 @@ export function Checkout({
   // PD1 (m1 decision 16) — the host's name, asked ONCE when the party has reached two and the seat
   // still carries the default (lib's rule, `hostNameAsked`); drawn where their Send is, below.
   const mySeatMember = splitContext?.members.find((m) => m.seat === splitContext.mySeat) ?? null;
+  // Codex round 1 on #356 — the party as this view sees it LIVE (`partySize`): the page's member
+  // read, plus every seat with a line on the confirmed view. The watch here is the cart and its
+  // lines, never the members, so a tablemate who joined after this page loaded counts from their
+  // first dish instead of from the host's next reload.
+  const party = partySize(
+    splitContext?.members.map((m) => m.seat) ?? [],
+    items.map((i) => i.bySeat),
+  );
   const nameAsked = hostNameAsked({
     mode: splitContext?.mode ?? null,
     role: myRole,
     myName: savedName ?? mySeatMember?.name ?? null,
-    memberCount: splitContext?.members.length ?? 0,
+    memberCount: party,
     dismissed: nameAskDismissed !== false,
   });
   // The host's quiet line, named from the table's own names (never the payload).

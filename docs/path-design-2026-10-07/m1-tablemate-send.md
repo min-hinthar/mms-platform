@@ -714,3 +714,11 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   verbatim and ship English-only: the seven Burmese drafts listed under COPY (Burmese) wait for the
   K15 sitting. Residual: a tablemate's /cart reads the members when its page loads, so the new name
   reaches a guest's wait block on their next load; the role sentence covers it until then.
+- **The party the view sees (Codex round 1 on #356).** /cart watches the cart and its lines, never
+  the members, so a host who opened /cart alone was never asked when a tablemate joined afterwards.
+  The gate's party is now `partySize` (lib/send-nudge-state): the page's members plus every seat
+  that owns a line on the applied view. A tablemate's first dish reaches the host's open /cart
+  through the watch it already has, and the ask appears then, which is when the host's Send becomes
+  the thing they wait on. A tablemate who joined and added nothing still counts only from the next
+  page read; a seatless line (a staff-added dish) counts as nobody. Mutants
+  `pdrem/party-size-*` and `pdrem/checkout-name-ask-reads-the-page-party`.

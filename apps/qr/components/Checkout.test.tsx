@@ -3400,6 +3400,25 @@ describe("PD1 — the host's name, asked once when the party reaches two (m1 dec
     expect(field()).toBeNull();
   });
 
+  it("asks once a tablemate who joined after the page loaded has a dish on the view — the party the view sees, not only the page's read (Codex round 1 on #356)", async () => {
+    // Aye opened /cart alone. Thiri joined afterwards: /cart watches the cart and its lines, never
+    // the members, so the page's member read still says one — until her dish lands on a view.
+    const ALONE = { ...UNNAMED_HOST, members: [UNNAMED_HOST.members[0]!] };
+    const MINE: CartItem = { ...DRAFT, bySeat: HOST_SEAT };
+    mountAsk({ splitContext: ALONE, initialItems: [MINE], initialMySeat: HOST_SEAT });
+    await hydrate();
+    expect(field()).toBeNull();
+    h.getCartView.mockResolvedValue(
+      view({ items: [MINE, { ...ITEM_B, bySeat: MY_SEAT }], mySeat: HOST_SEAT }),
+    );
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // MUTATION (pdrem/checkout-name-ask-reads-the-page-party): the gate counts only the page's
+    // members — Aye is never asked until she reloads, though Thiri now waits on her Send; red.
+    await waitFor(() => expect(field()).not.toBeNull(), { timeout: 3000 });
+  });
+
   it("Save renames THIS seat in its session, says 'Name saved' once, leaves, and lands focus on Send", async () => {
     mountAsk();
     await hydrate();
