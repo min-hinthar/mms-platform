@@ -590,10 +590,12 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   offering one whose every tap fails. **Applied** (prod migration row `20261011045025`, verified
   2026-10-11); never re-applied after `20261011123000` (the post-merge review, below).
 - A8 (the console's hollow ring, Dad's pane grouping): counter-floor, with P2do.
-- Decision 16 (the host's name ask, once, when the party reaches two): not built; the role sentence
-  covers an unnamed host meanwhile.
+- Decision 16 (the host's name ask, once, when the party reaches two): ~~not built; the role
+  sentence covers an unnamed host meanwhile.~~ **Built 2026-10-12 (#356)**: "PD1's remainders,
+  built", below.
 - `showServerStatus` derives the pass's stage itself; once kitchen-ops' `lib/kitchen-track.ts` lands
-  (round 3: one derivation for every surface) it should delegate.
+  (round 3: one derivation for every surface) it should delegate. **Delegates since 2026-10-12
+  (#356)**: "PD1's remainders, built", below.
 
 **Appendix C, taken / not.**
 

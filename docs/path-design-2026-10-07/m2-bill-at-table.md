@@ -1059,7 +1059,9 @@ Precedence as read: D > the Codex corrections > the cross-spec reconciliations >
   `verify:slice`'s pre-checks, red-first against seven evasions; the route's first suite.
 - PATH_DESIGN moment 2 ("two reads, one derivation"): `lib/totals.test.ts` pins `getCartTotals(id)`
   equal to `getCartTotals(id, 0)` over a promo'd cart; mutant `totals/default-tip-not-zero`.
-- Codex correction 10 (needed by m1 too): `SplitContext.qrCode`.
+- Codex correction 10 (needed by m1 too): `SplitContext.qrCode`. **Dropped 2026-10-12 (#356):** no
+  pass prints the join code since #335's fix round, so the field had no reader; the context carries
+  `sessionId` instead (m1's "PD1's remainders, built").
 
 **Waits on another stream.**
 
@@ -1077,9 +1079,10 @@ stage="unsent"` in its head; the total, the "View bill" disclosure and the recei
   prop surface: m10's `### H`.
 - Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
   text on the floor chip too.
-- Decision 12: the ask over unsent dishes stays refused (the Bill's door is held with its reason)
+- Decision 12: ~~the ask over unsent dishes stays refused (the Bill's door is held with its reason)
   until counter-floor's P2do lands; the lifted state's line ("You can still ask — the counter will
-  check them with your table.") is not drawn yet.
+  check them with your table.") is not drawn yet.~~ **Lifted 2026-10-12 (#356)** once P2do shipped
+  in PD6 (#334): "Decision 12, built", at the end of this section.
 
 **Appendix C, taken / not.**
 
