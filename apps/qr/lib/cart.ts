@@ -559,6 +559,11 @@ export async function setLineFulfillment(
   );
   await assertMutationRate(uid);
   if (locked || settling) return { ok: false, reason: "busy" };
+  // M230 — a line that has LEFT DRAFT cannot be re-routed, and that is a fact to NAME, in the RPC's
+  // own word: folded into `not_yours` (which `canMutateLine` also answers for ownership and comps) it
+  // was the one reason /cart could not speak, though it is the reachable one — the dine-in kitchen
+  // batch fires the line between this diner's read and the tap.
+  if (lineState !== "draft") return { ok: false, reason: "not_draft" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
   // M17 — no `priceItem` call here, so nothing in TS re-reads the menu item on a flip. It doesn't
@@ -599,6 +604,9 @@ export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResul
   );
   await assertMutationRate(uid);
   if (locked || settling) return { ok: false, reason: "busy" };
+  // M230 — already with the kitchen: the same fact as the toggle's, in the word `mms_fire_line`
+  // itself answers, never folded into the ownership reason.
+  if (lineState !== "draft") return { ok: false, reason: "not_draft" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
   const { data, error } = await serviceClient().rpc("mms_fire_line", { p_line: input.cartItemId });

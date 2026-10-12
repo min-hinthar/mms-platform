@@ -315,6 +315,16 @@ export function reopenFailureNotice(
  * defect above; folding it into `frozen` or `settling` puts a freeze sentence over a cart nobody
  * froze.
  *
+ * ## M230 — the one arm a re-read never produces: `sent`
+ *
+ * Everything above is DIAGNOSED from a re-read. `sent` is NAMED by the server: `setLineFulfillment`
+ * answers `not_draft` for a line that has left draft — the dine-in kitchen batch fired it between
+ * this phone's read and the tap, and the pill flipped optimistically and snapped back. That is not a
+ * freeze, so a re-read could only ever have named a LOCK as its reason (the M116/T14 fabrication),
+ * which is why /cart stayed silent on it. The server's own reason carries the fact, so the arm states
+ * it without claiming a freeze — `serverNamedRefusal` is its only producer and `classifyRefusedWrite`
+ * never returns it.
+ *
  * ## Why `settling` appears here and not in `cartFreeze`
  *
  * The header records that the split freeze is deliberately absent from the review-step resolution: a
@@ -325,6 +335,8 @@ export function reopenFailureNotice(
 export type RefusedWrite =
   | { cause: "frozen"; freeze: BlockingFreeze }
   | { cause: "settling" }
+  /** M230 — server-NAMED, never diagnosed: the line has already gone to the kitchen. */
+  | { cause: "sent" }
   | { cause: "unreachable" }
   | { cause: "unknown" };
 
@@ -403,6 +415,36 @@ export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
 }
 
 /**
+ * M230 — the refusal a SERVER reason names by itself, or null when it names nothing a diner may be
+ * told.
+ *
+ * ONE reason qualifies: `not_draft`, which `setLineFulfillment` returns for a line that has left draft
+ * (its own pre-check, or `mms_set_line_fulfillment`'s re-check under the row lock). The rest stay
+ * unnamed on purpose — `not_yours` is ownership or a comp, `error` a logged RPC failure, `stale` a
+ * race whose winner (a fire, or a pay) the reason does not say, and `busy` is the freeze the re-read
+ * already classifies honestly. Naming any of those would be a guess at a cause, which is the class
+ * this module exists to remove.
+ */
+export function serverNamedRefusal(reason: string): { cause: "sent" } | null {
+  return reason === "not_draft" ? { cause: "sent" } : null;
+}
+
+/**
+ * M230 — does a `sent` refusal still describe this line, in the view that won the screen?
+ *
+ * A server-named refusal is not re-derived from the freeze (the freeze never names it); it is re-asked
+ * of the LINE. The fact holds only while the line is with the kitchen: a send undone inside its grace
+ * puts it back in draft, and a staff void takes it out of the kitchen altogether — "it's already gone
+ * to the kitchen" is false of both, so neither may hear it.
+ */
+export function sentRefusalHolds(line: { lineState: string } | undefined): boolean {
+  if (!line) return false;
+  return (
+    line.lineState === "fired" || line.lineState === "in_progress" || line.lineState === "served"
+  );
+}
+
+/**
  * The CLAUSE for a refused cart write — current state, as a fragment: lowercase-initial, no terminal
  * period, and never a sentence of its own.
  *
@@ -450,6 +492,10 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
       })!;
     case "settling":
       return inertReason({ minting: false, locked: false, settling: true })!;
+    case "sent":
+      // M230 — the server's own fact (`not_draft`), in the vocabulary `setQty`'s refusal already
+      // uses for the same line state. Nothing about a lock: no freeze was involved.
+      return "it’s already gone to the kitchen";
     default:
       // The write did not land as far as we can tell, and the view beside this sentence is server
       // truth (the caller applied the same re-read). Nothing about a lock, a table, or a session.
@@ -475,35 +521,32 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
  *     and does nothing at `d === 0`, so a host RESTORING the pre-add quantity leaves neither growth
  *     nor shrink and falls to `none` — a landed add, reported refused, and `mayRetry` then re-sends
  *     it. OPEN-ITEMS **T43**. So this path is narrower than `setItemQty`'s, not sound.
- *   • `setItemQty` establishes it by comparing ONE ABSOLUTE VALUE — `line?.qty === qty`. A peer write
- *     cannot forge a landing that way, but it can forge a NON-landing: our set to 3 commits, an
- *     authorized host sets the same line to 5 inside the round trip, the re-read reads 5, and the
- *     comparison answers false for a write that landed. Nothing on that path can tell the two apart,
- *     and the cart carries no lock or settle to explain it — so it arrives here as `unknown`.
+ *   • `setItemQty` used to establish it by comparing ONE ABSOLUTE VALUE — `line?.qty === qty` — and
+ *     a peer write can forge a NON-landing that way: our set to 3 commits, an authorized host sets
+ *     the same line to 5 inside the round trip, the re-read reads 5. **T41 closed that path at its
+ *     source**: the stepper's recovery now maps every reading but "the line sits at our target" to
+ *     `unconfirmed`, so it produces no refusal — and no sentence from here — at all.
+ *   • /cart's stepper (`Checkout.tsx`'s `changeQty`) still decides its sentence from the same
+ *     absolute comparison, so the hedge on `unknown` still earns its place there.
  *
  * `frozen` and `settling` keep the assertive opener, and ⚠️ THAT IS A NARROWING, NOT A PROOF (Codex
  * round 2 on #255). An earlier draft of this docblock called the inert cart a WITNESS for the
  * verdict; it is not. A freeze describes the cart at RE-READ time and says nothing about whether our
- * write landed before it — host overwrites our line, THEN starts checkout, and `line?.qty === qty`
- * is false while this function answers `frozen`, so the assertive opener fires on a committed write.
- * The verdict is unsound under every cause on the `setItemQty` path; the hedge on `unknown` shrinks
- * the exposure and does not close it (OPEN-ITEMS T41). Keep the per-cause opener — it is strictly
- * better than asserting everywhere — and do not reason from it as though it were established.
+ * write landed before it — host overwrites our line, THEN starts checkout, and an absolute comparison
+ * is false while this function answers `frozen`. Keep the per-cause opener — it is strictly better
+ * than asserting everywhere — and do not reason from it as though it were established.
+ *
+ * `sent` (M230) keeps the assertive opener on firmer ground than either: the SERVER named it
+ * (`not_draft`), so the refusal is a statement, not a reading.
  *
  * That leaves the opener shared with `unconfirmedWriteNotice()`, and deliberately: the two are no
  * longer opposite claims, they are two degrees of the same uncertainty, and the CLAUSES separate
  * them — "check your order below" where we may hold no current view, "the order below is up to date"
- * where the re-read succeeded and is on screen. Giving `setItemQty` a real `unknown` arm is the
- * source-level fix and is filed as OPEN-ITEMS **T41**. ⚠️ THE COST THIS PARAGRAPH USED TO CITE WAS
- * FALSE (Codex round 2 on #255): it said an `unconfirmed` result would hand `AddButton`’s queue back
- * to its own snapshot and re-create #251’s stale-absolute-quantity P1. It cannot — the queue reads
- * `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)` and SENDS NOTHING when a
- * following op has no view (Codex round 6 on #251 closed exactly that). The fix is cheaper than this
- * docblock claimed, and the claim is what kept it filed.
+ * where the re-read succeeded and is on screen.
  */
 export function refusedWriteNotice(refusal: PublishableRefusal): string {
   // The hedge is CAUSE-BOUND, not path-bound, because the sentence has no path to read. `unknown` is
-  // the only cause `setItemQty`’s forgeable comparison can produce with no lock or settle behind it.
+  // the cause an absolute-value comparison produces with no lock or settle behind it.
   const opener =
     refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
   return `${opener} — ${refusedWriteClause(refusal)}.`;

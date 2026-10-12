@@ -567,10 +567,43 @@ describe("M230's half — the two pills beside the stepper share the same window
     );
   });
 
+  it("M230 — speaks a refusal the SERVER named: the line has already gone to the kitchen", async () => {
+    // The reachable case: the dine-in kitchen batch fires the line between this phone's read and the
+    // tap, so the pill renders on the last view's `draft`, flips optimistically, and the server
+    // answers `not_draft`. A re-read could only have named a LOCK (or hedged); the server's own word
+    // needs neither. Before M230 this snapped back and said nothing.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s already gone to the kitchen"),
+    );
+    // Not the re-read's diagnosis of this cart (no freeze → the `unknown` hedge): the server's fact.
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("M230 — drops the kitchen sentence when the view that WON shows the line back in draft", async () => {
+    // A send undone inside its grace puts the line back in draft before the sentence's frame — and
+    // "it's already gone to the kitchen" is then false of the line on screen. The fact is re-asked of
+    // the winning view's LINE, never re-derived from the freeze (which never names it).
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await settle();
+    expect(regionText()).not.toContain("gone to the kitchen");
+    expect(regionText()).not.toContain("didn’t go through");
+  });
+
   it("stays silent on a refusal the re-read cannot honestly diagnose", async () => {
-    // `not_yours` is an OWNERSHIP fact — the kitchen fired the line between this phone's read and
-    // the tap. A re-read establishes nothing about it, so naming a lock here would be the M116/T14
-    // fabrication on the screen that just removed it. Silence until M230 gives it a real arm.
+    // `not_yours` is an OWNERSHIP (or comp) fact — since M230 a line the kitchen fired answers
+    // `not_draft` instead. A re-read establishes nothing about ownership, so naming a lock here would
+    // be the M116/T14 fabrication on the screen that just removed it, and no clause names it yet.
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });

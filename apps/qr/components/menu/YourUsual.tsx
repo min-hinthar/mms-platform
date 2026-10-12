@@ -144,8 +144,9 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           const confirmed = i - unseenCount - unseen;
           // ⚠️ THIS SENTENCE ASSERTS THE NON-LANDING ON EVERY CAUSE, WHERE `refusedWriteNotice`
           // HEDGES ON `unknown` — and the asymmetry is load-bearing, not an oversight (blind
-          // adversarial pass on this PR). That hedge exists for `setItemQty`, whose evidence is one
-          // absolute-value comparison a concurrent host write can forge into a false negative. THIS
+          // adversarial pass on this PR). That hedge exists for an absolute-value comparison a
+          // concurrent host write can forge into a false negative (/cart's stepper; /menu's
+          // `setItemQty` no longer produces a refusal at all since T41). THIS
           // loop only ever calls `add`, and `add` reaches `refused` only through
           // `classifyAddLanding`'s `none` — nothing of the dish grew AND nothing shrank — while a
           // contested dish answers `unknown` there and routes to `unconfirmed`, which `mayRetry`

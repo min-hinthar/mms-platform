@@ -47,6 +47,8 @@ import {
   freezeNotice,
   refusedWriteNotice,
   reopenFailureNotice,
+  sentRefusalHolds,
+  serverNamedRefusal,
   visibleFreeze,
 } from "@/lib/cart-freeze";
 import {
@@ -1232,6 +1234,9 @@ export function Checkout({
   const [pendingRefusal, setPendingRefusal] = useState<{
     refusal: PublishableRefusal;
     landed: (items: CartItem[]) => boolean;
+    /** M230 — set for a refusal the SERVER named: is its fact still true of the winning view?
+     *  Absent for a diagnosed refusal, which is re-derived from the freeze instead. */
+    holds?: (items: CartItem[]) => boolean;
   } | null>(null);
 
   /**
@@ -1254,8 +1259,12 @@ export function Checkout({
    * mounts empty, then its text changes.
    */
   const announceRefusal = useCallback(
-    (refusal: PublishableRefusal, landed: (items: CartItem[]) => boolean) => {
-      setPendingRefusal({ refusal, landed });
+    (
+      refusal: PublishableRefusal,
+      landed: (items: CartItem[]) => boolean,
+      holds?: (items: CartItem[]) => boolean,
+    ) => {
+      setPendingRefusal({ refusal, landed, holds });
       // ⚠️ THE LATCH IS NOT DEFERRED WITH IT. It answers "has this diner been told", and the
       // question the banner asks a beat later is about THIS commit's freeze — deferring the latch
       // would let the banner run first and take the slot, which is the collision T33 exists for.
@@ -1371,11 +1380,20 @@ export function Checkout({
       // the reason our write failed, which is the M116/T14 fabrication.
       const f = freezeFactsRef.current;
       const notice = refusedWriteNotice(pendingRefusal.refusal);
-      const fresh = classifyRefusedWrite({
-        ok: true,
-        freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
-        settling: f.settling,
-      });
+      // ⚠️ M230 — A REFUSAL THE SERVER NAMED IS RE-ASKED OF THE LINE, NOT RE-DERIVED FROM THE FREEZE.
+      // The freeze never names "it's already gone to the kitchen", so re-deriving that sentence
+      // from it would drop every such refusal. Its own `holds` asks whether the fact is still true
+      // of the view that WON (a send undone in its grace puts the line back in draft); while it is,
+      // the sentence re-derives to itself, and once it is not, this falls to the freeze reading —
+      // which can never equal it — so the publish drops. Still one-directional: silence, never a
+      // claim nobody made.
+      const fresh = pendingRefusal.holds?.(f.items)
+        ? pendingRefusal.refusal
+        : classifyRefusedWrite({
+            ok: true,
+            freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
+            settling: f.settling,
+          });
       if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {
         // ⚠️ THE LATCH GOES WITH IT (Codex round 6 P2). `announceRefusal` latches at PARK time —
         // deliberately, because T33 needs it before the banner runs — so making the publish
@@ -1430,12 +1448,21 @@ export function Checkout({
    * this answer "landed" for a write that was refused, so we say nothing about a refusal that
    * happened. The other way round — announcing "that didn't go through" over a change that DID land
    * — is the one a diner cannot recover from, and it is the one a thrown Server Action cannot rule
-   * out on its own. `refusedWriteNotice`'s own docblock files the source-level fix as T41.
+   * out on its own. (T41 removed /menu's stepper verdict built on this same comparison — it answers
+   * `unconfirmed` there now; this screen still decides its sentence from it, which is why the
+   * `unknown` cause keeps its hedge — `refusedWriteNotice`'s docblock.)
    */
   const lineIn = (items: CartItem[], id: string) => items.find((i) => i.id === id);
 
   const explainAndAnnounce = useCallback(
-    async (gesture: number, landed: (items: CartItem[]) => boolean) => {
+    async (
+      gesture: number,
+      landed: (items: CartItem[]) => boolean,
+      /** M230 — a refusal the SERVER named, with the test of whether its fact still holds. The
+       *  re-read below still runs (it re-syncs the snapped-back control, decides the landing, and
+       *  owes the settle recovery), but its freeze reading is not what is said: the server's is. */
+      named?: { refusal: PublishableRefusal; holds: (items: CartItem[]) => boolean },
+    ) => {
       // ⚠️ THE TEST IS "HAS A NEWER TAP LANDED", NOT "HAS ANYTHING LANDED" (Codex rounds 2 + 3).
       // `qtyChain` orders the WRITES for one line; it does not order this diagnosis against another
       // tap's success, which is a separate round trip running beside it. A refusal a NEWER accepted
@@ -1447,7 +1474,8 @@ export function Checkout({
       if (!refusal) return;
       if (lastAcceptedGesture.current > gesture) return;
       refusalGesture.current = gesture;
-      announceRefusal(refusal, landed);
+      if (named) announceRefusal(named.refusal, landed, named.holds);
+      else announceRefusal(refusal, landed);
     },
     [explainRefusal, announceRefusal],
   );
@@ -2128,32 +2156,45 @@ export function Checkout({
     startCartTransition(async () => {
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
       // ⚠️ TWO FLAGS, NOT ONE (Codex round 3 P2). `accepted` is the server saying yes; `refused` is
-      // the narrower question of whether we may NAME a reason. A `{ ok: false }` the re-read cannot
-      // explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent (M230),
+      // the narrower question of whether a re-read may NAME a reason. A `{ ok: false }` the re-read
+      // cannot explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent,
       // and it must NOT count as an accepted edit, or a rejected toggle would retire a refusal the
       // diner is still looking at and move the watermark past a diagnosis still in flight.
+      //
+      // M230 — and a THIRD answer, which is neither of those: a reason the SERVER named
+      // (`serverNamedRefusal` — `not_draft`, the line already gone to the kitchen). It speaks for
+      // itself; the re-read only re-syncs and checks that the fact still holds.
       let accepted = false;
       let refused = false;
+      let named: PublishableRefusal | null = null;
       try {
         // ⚠️ THE RESULT IS READ. It was dropped entirely, which is why a refusal was invisible.
         const r = await setLineFulfillment(id, ful);
         // ⚠️ ONLY `busy` IS DIAGNOSED, and the narrowing is the point (the blind pass on this slice
         // caught the wider version). `busy` is the server's own "locked || settling", so a re-read
         // classifies a freeze the server actually asserted — and answers `unknown` if it has since
-        // lifted, which is honest. The other three would be FABRICATED: `not_yours` is an ownership
-        // fact this re-read never establishes, and `error` / an RPC-named code carry no freeze at
-        // all, so routing them here would name a lock as the reason a fired line could not be
-        // re-routed — the M116/T14 class, on the screen that just removed it. They stay silent for
-        // now and are filed as **M230**, which needs a refusal ARM they do not have yet.
+        // lifted, which is honest. The others would be FABRICATED by a re-read: `not_yours` is an
+        // ownership fact it never establishes, and `error` / an RPC-named code carry no freeze at
+        // all, so routing them there would name a lock as the reason a fired line could not be
+        // re-routed — the M116/T14 class, on the screen that just removed it. M230 gave the one the
+        // server NAMES its own arm (above); `not_yours` (ownership, a comp), `error` and the other
+        // RPC codes stay silent — no clause states them honestly yet.
         accepted = r.ok;
+        named = r.ok ? null : serverNamedRefusal(r.reason);
         refused = !r.ok && r.reason === "busy";
       } catch {
         // Authz / rate-limit / transport. Same standing as `changeQty`'s throw: the write did not
         // land, and the re-read is what decides whether we can name a reason for it.
         refused = true;
       }
-      if (refused) {
-        await explainAndAnnounce(gesture, (seen) => lineIn(seen, id)?.fulfillment === ful);
+      if (refused || named) {
+        await explainAndAnnounce(
+          gesture,
+          (seen) => lineIn(seen, id)?.fulfillment === ful,
+          named
+            ? { refusal: named, holds: (items) => sentRefusalHolds(lineIn(items, id)) }
+            : undefined,
+        );
         return;
       }
       if (accepted) supersedeRefusals(gesture);
@@ -2195,6 +2236,13 @@ export function Checkout({
     action: ReturnType<typeof makeItNow>,
   ): Promise<void> {
     // `accepted` and `refused` are separate for the same reason as the toggle above.
+    //
+    // M230 — the toggle's THIRD answer is deliberately NOT spoken here. `not_draft` on "Send to
+    // kitchen now" means the dish is already with the kitchen — the outcome the diner asked for, done
+    // by a tablemate's send a beat earlier. The re-sync below closes the sheet (its subject stops
+    // being draft) and the line's chip says where the dish is; "That didn't go through" over a dish
+    // that is cooking would alarm about the one result they wanted, which is the landing this path's
+    // own predicate already counts (`lineState !== "draft"`).
     let accepted = false;
     let refused = false;
     try {
