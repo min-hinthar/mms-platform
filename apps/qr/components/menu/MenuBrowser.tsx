@@ -65,6 +65,12 @@ export type MenuItem = {
  */
 const JUMP_SETTLE_MS = 1200;
 
+/** The "Nothing matches" card's two lines, named once: the card draws them and F31's announcement
+ *  speaks them, so the spoken sentence can never drift from the one on screen. */
+const EMPTY_MATCH_TITLE = "Nothing matches";
+const EMPTY_MATCH_HINT = "Try fewer filters or a different search.";
+const EMPTY_MATCH_SPOKEN = `${EMPTY_MATCH_TITLE}. ${EMPTY_MATCH_HINT}`;
+
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /**
@@ -570,7 +576,7 @@ export function MenuBrowser({
 
   // a11y: when filtering empties the list, pull focus to the recovery action — but NOT while the user is
   // actively typing in the search box (stealing focus would interrupt their query). Only the diet-chip /
-  // post-type empty states move focus; the live region (role="status") announces the change either way.
+  // post-type empty states move focus; the page's one region announces the change either way (below).
   useEffect(() => {
     if (!empty) return;
     const active = document.activeElement;
@@ -578,10 +584,32 @@ export function MenuBrowser({
     // M137 — the dietary pills moved INTO a modal sheet, so toggling one can empty the list while
     // focus is inside an open dialog. `clearBtnRef` is on the page behind it: focusing it either
     // escapes Radix's focus trap or is yanked straight back by it, and either way the diner loses
-    // their place on the pill they just pressed. The live region still announces the empty result.
+    // their place on the pill they just pressed. The sheet's own sentence says the empty result.
     const inDialog = active instanceof Element && !!active.closest('[role="dialog"]');
     if (!typing && !inDialog) clearBtnRef.current?.focus();
   }, [empty]);
+
+  // F31 — the empty result is SAID through /menu's ONE live region (the provider's Toast), never a
+  // second `role="status"` on the card: a region born with its text is skipped by several readers,
+  // and two regions on one view is the QA §A defect. A QUIET claim — spoken, not drawn, because the
+  // "Nothing matches" card is already on screen where the diner acted. Said on the TRANSITION into
+  // empty only (a fourth letter typed into an empty search says nothing new), never at arrival, and
+  // not while a dialog holds focus: the diet sheet speaks that toggle's consequence itself, and one
+  // toggle is one sentence. The words are the card's own two lines.
+  const wasEmpty = useRef(empty);
+  useEffect(() => {
+    const was = wasEmpty.current;
+    wasEmpty.current = empty;
+    if (!empty || was || items.length === 0) return;
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('[role="dialog"]')) return;
+    announce(EMPTY_MATCH_SPOKEN, undefined, undefined, { quiet: true, kind: "claim" });
+  }, [empty, items.length, announce]);
+  // The diet sheet's count sentence, through the same region and on the same terms (DietFilterButton).
+  const announceDietMatches = useCallback(
+    (sentence: string) => announce(sentence, undefined, undefined, { quiet: true, kind: "claim" }),
+    [announce],
+  );
 
   function jumpTo(cat: string) {
     setActiveCat(cat);
@@ -726,6 +754,7 @@ export function MenuBrowser({
             query={q.trim()}
             onToggle={toggleDiet}
             onClear={() => setDiets([])}
+            announce={announceDietMatches}
           />
         </div>
 
@@ -936,8 +965,10 @@ export function MenuBrowser({
         </section>
       ))}
 
+      {/* F31 — not a live region: the transition into empty is spoken through the provider's one
+          region (`EMPTY_MATCH_SPOKEN`, the effect above). */}
       {empty && (
-        <div role="status" style={{ padding: "32px 24px", textAlign: "center" }}>
+        <div style={{ padding: "32px 24px", textAlign: "center" }}>
           <p
             style={{
               fontSize: "var(--fs-h2)",
@@ -950,13 +981,13 @@ export function MenuBrowser({
             }}
           >
             <Icon name="search" size={22} />
-            Nothing matches
+            {EMPTY_MATCH_TITLE}
           </p>
           <p style={{ color: "var(--t2)", marginBottom: 14 }}>
             {/* W10a — a truly empty catalog can only be a deliberate owner state now (a failed read
                 never reaches this branch — the page serves last-good or the outage state). */}
             {items.length
-              ? "Try fewer filters or a different search."
+              ? EMPTY_MATCH_HINT
               : "The kitchen is updating the menu — check back shortly."}
           </p>
           {(q || diets.length > 0) && (
