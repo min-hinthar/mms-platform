@@ -5,7 +5,7 @@
 ### Mandalay Morning Star — dine-in QR ordering, pickup & grocery scan-and-go
 
 [![CI](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=next.js)](https://nextjs.org)
+[![Next.js](https://img.shields.io/badge/Next.js-16.3.8-black?logo=next.js)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 8164 qr tests + 407 ui tests · 4171 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 8165 qr tests + 407 ui tests · 4171 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 

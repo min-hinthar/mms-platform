@@ -14,15 +14,16 @@ import { AccountPanelVisible } from "./AccountPanelVisible";
  * already happened); this only decides which one is showing. A tab tap is instant — no server
  * round-trip, no refetch of the five reads.
  *
- * THE URL IS THE TRUTH, and it is written with a `null` state on purpose. Next 16.2.9 patches
- * `history.replaceState` and syncs its canonical URL — the value `useSearchParams()` is built from —
- * only for a state that does not carry its own `__NA` marker (the A7b note in AccountUpgrade). So a
- * tap writes `?tab=` with `null` state, the router sees it, and `current` is READ BACK from the URL:
- * the browser's Back, a reload, a share, and an in-page link to `?tab=you` (the Orders panel's save
- * line, a server re-render with the SAME `initial`) all land on the panel the address bar names. A
- * prop-change re-seed could not do that — it compared the new prop to the old prop, so a navigation
- * that re-rendered with the same `initial` changed nothing (blind pass on #312, critical 1).
- * `picked` is the fallback for a runtime whose `replaceState` is not patched; the URL wins over it.
+ * THE URL IS THE TRUTH, and it is written with a `null` state on purpose. Next (16.2.9; re-read
+ * unchanged in 16.3.8) patches `history.replaceState` and syncs its canonical URL — the value
+ * `useSearchParams()` is built from — only for a state that does not carry its own `__NA` marker
+ * (the A7b note in AccountUpgrade). So a tap writes `?tab=` with `null` state, the router sees it,
+ * and `current` is READ BACK from the URL: the browser's Back, a reload, a share, and an in-page
+ * link to `?tab=you` (the Orders panel's save line, a server re-render with the SAME `initial`) all
+ * land on the panel the address bar names. A prop-change re-seed could not do that — it compared
+ * the new prop to the old prop, so a navigation that re-rendered with the same `initial` changed
+ * nothing (blind pass on #312, critical 1). `picked` is the fallback for a runtime whose
+ * `replaceState` is not patched; the URL wins over it.
  *
  * WAI-ARIA tabs, MANUAL activation: Arrow keys and Home/End move focus between tabs; Enter/Space
  * selects. Each tab is a REAL LINK to its panel's URL (`?tab=`), so before hydration — or with

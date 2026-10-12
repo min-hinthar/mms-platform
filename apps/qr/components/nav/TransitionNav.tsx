@@ -7,13 +7,14 @@ import { navEpoch } from "@/lib/nav-epoch";
 /**
  * J1 continuity engine — the app's ONE navigation grammar (docs/JOURNEY_PLAN.md).
  *
- * Route changes ride the View Transitions API via `next-view-transitions` (stable-React-compatible —
- * Next 16's native `experimental.viewTransition` needs React's experimental `<ViewTransition>`, which
- * stable React 19.2 doesn't ship; browsers without the API just get today's instant cut). Direction is
- * a DATA ATTRIBUTE on <html> that globals.css turns into a subtle drift grammar: FORWARD (deeper into
- * the journey) drifts in from the right, BACK drifts in from the left, LATERAL cross-fades. The
- * AppHeader carries its own `view-transition-name` so the wayfinding chrome stays put while the page
- * moves under it — the "one camera move" rule.
+ * Route changes ride the View Transitions API via `next-view-transitions` (stable-React-compatible
+ * — Next 16's native path (the `experimental.viewTransition` flag in 16.2; no flag since 16.3)
+ * rides React's `<ViewTransition>`, which stable React 19.2 doesn't ship (the App Router's vendored
+ * canary does: JOURNEY_PLAN's J1 note, OPEN-ITEMS T56); browsers without the API just get today's
+ * instant cut). Direction is a DATA ATTRIBUTE on <html> that globals.css turns into a subtle drift
+ * grammar: FORWARD (deeper into the journey) drifts in from the right, BACK drifts in from the
+ * left, LATERAL cross-fades. The AppHeader carries its own `view-transition-name` so the wayfinding
+ * chrome stays put while the page moves under it — the "one camera move" rule.
  *
  * Direction = journey depth, not URL shape: home(0) → menu/grocery(1) → cart(2) → track(3); /account and
  * /rewards sit at 2 (a "your stuff" side-room off any surface). Unknown routes (staff) are lateral.

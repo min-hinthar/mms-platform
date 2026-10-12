@@ -7,13 +7,13 @@ import { chooserLeavesNote } from "@/lib/save-stars";
 /**
  * A7b — the Google recovery, end to end in a DOM.
  *
- * The owner reported that signing in with Google did nothing and fell back to email OTP. The cause was
- * not the Supabase config this repo had filed it under: Google completes, Supabase correctly refuses at
- * the LINK step with `identity_already_exists`, the card renders the right recovery — and then erases
- * it. `AccountUpgrade` derived the recovery live from `useSearchParams()` and stripped the query in an
- * effect, on the strength of a comment claiming Next's search params do not react to `replaceState`.
- * They do (Next 16.2.9 patches it), so the message vanished and the button reverted to the very call
- * that had just been refused.
+ * The owner reported that signing in with Google did nothing and fell back to email OTP. The cause
+ * was not the Supabase config this repo had filed it under: Google completes, Supabase correctly
+ * refuses at the LINK step with `identity_already_exists`, the card renders the right recovery —
+ * and then erases it. `AccountUpgrade` derived the recovery live from `useSearchParams()` and
+ * stripped the query in an effect, on the strength of a comment claiming Next's search params do
+ * not react to `replaceState`. They do (Next 16.2.9 and 16.3.8 patch it), so the message vanished
+ * and the button reverted to the very call that had just been refused.
  *
  * ⚠️ THE FIRST CASE IS THE RED-FIRST ONE. It renders with the bounce, lets the mount effects flush, then
  * empties the search params exactly as the patched `replaceState` does, and asserts the recovery is

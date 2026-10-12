@@ -313,14 +313,14 @@ export function AccountUpgrade({
   /**
    * ⚠️ A7b — CAPTURED ONCE, NEVER RE-DERIVED, AND THE COMMENT THIS REPLACES WAS WRONG ABOUT NEXT.
    * The previous code read `searchParams` live on every render and then stripped the query in an
-   * effect, justified by "Next's searchParams don't react to it". They do: Next 16.2.9 patches
-   * `window.history.replaceState` and only bails when the state object carries `__NA`/`_N`, so a
-   * `null` state with a truthy url runs `applyUrlFromHistoryPushReplace` → `canonicalUrl` → the very
-   * value `useSearchParams()` is built from. The message and the recovery were therefore erased one
-   * frame after they appeared, and the button reverted to the `linkIdentity` call that had just been
-   * refused. Seeding state ONCE from the URL means the cleanup can do its job without taking the
-   * recovery with it. The initializer is hydration-safe: `app/layout.tsx` is `force-dynamic`, so SSR
-   * and the first client render read the same query.
+   * effect, justified by "Next's searchParams don't react to it". They do: Next (16.2.9; re-read
+   * unchanged in 16.3.8) patches `window.history.replaceState` and only bails when the state object
+   * carries `__NA`/`_N`, so a `null` state with a truthy url runs `applyUrlFromHistoryPushReplace`
+   * → `canonicalUrl` → the very value `useSearchParams()` is built from. The message and the
+   * recovery were therefore erased one frame after they appeared, and the button reverted to the
+   * `linkIdentity` call that had just been refused. Seeding state ONCE from the URL means the
+   * cleanup can do its job without taking the recovery with it. The initializer is hydration-safe:
+   * `app/layout.tsx` is `force-dynamic`, so SSR and the first client render read the same query.
    */
   const [callback, setCallback] = useState<CallbackOutcome | null>(() =>
     readCallbackOutcome(searchParams.get("error_code"), searchParams.get("error")),

@@ -48,6 +48,11 @@ const fallbackCsp = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Next 16.3's `next dev` writes apps/qr/AGENTS.md and apps/qr/CLAUDE.md whenever it detects an AI
+  // agent in the shell (CLAUDECODE / AI_AGENT): measured 2026-10-12 on 16.3.8. Two untracked files
+  // dirty the tree (`pnpm review:bundle` refuses a dirty tree), and a nested CLAUDE.md would load
+  // into every agent session over the repo's own. Off.
+  agentRules: false,
   images: {
     // Dish photos live in Supabase Storage. W1·Q11 pins the optimizer to the two REAL hosts instead
     // of every *.supabase.co tenant: the QR project + the DELIVERY project (photos still hotlink the
