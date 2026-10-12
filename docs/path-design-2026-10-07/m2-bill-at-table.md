@@ -1130,3 +1130,18 @@ promo applied at the register still discounts, re-derived live — the release t
 that flipped to the split board under the register's freeze (shipped before PD2) is FIXED by the blind
 passes on #331: the board shows only while the self-serve split door is open (`splitBoardShown`,
 lib/counter-pay-state — the same door the register's refusal sentence reads).
+
+**Decision 12, built (2026-10-12, `claude/feat/pd1-pd2-remainders`): the ask over unsent dishes is
+LIVE.** Counter-floor's P2do shipped in PD6 (#334). `requestCounterPay` no longer reads the host or
+the drafts, and `counterPayRefusal`'s `unsent` arm and its sentence are gone. The lift moves no money:
+the register's settle doors still refuse over unsent dishes under their freeze (the staff gate), so
+Dad sends them with the table before he takes the cash. On both docks the counter's own hold is
+`counterDoorBlock` (lib/checkout-verb): a tablemate's lock or this device's undo window, never the
+Send still owed and never the kitchen. The parked dock stays live for host, guest and hostless table;
+its line is STATES' "You can still ask — the counter will check them with your table."
+(`counterRestLine`, keyed on `kitchenDraftQty`, the staff gate's own count), English-only until K15
+(the Burmese draft above is listed for it). The host keeps "Back to send them". Phase 2c's held
+sentences ("Send everything to the kitchen first — then pay at the counter.", `counterUnsentTapCopy`,
+and the server's "Everything has to go to the kitchen first…") are retired. After C2's flip Pay keeps
+its served gate and its unsent reason; only the quiet counter is live. Mutants: the eight that pinned
+the old rule are retired with it; `pdrem/counter-*` and `pdrem/checkout-*` pin the new one.
