@@ -13,6 +13,7 @@ import {
   type SettleResult,
 } from "./lock";
 import { SETTLE_TTL_MS } from "./lock-ttl";
+import { releaseStalePinUnderFreeze, type SettleTakeover } from "./supersede";
 import { releaseHold } from "./split-hold";
 import { payBlockedByUnsent } from "./checkout-stage";
 import { kitchenDraftUnits } from "./unsent-read";
@@ -194,7 +195,7 @@ export async function getSettlement(cartId: string): Promise<SettlementResult> {
  * `never` at the end, so the claim is enforced by the compiler instead of asserted by a comment —
  * which is the exact shape of defect this function exists to close, one level up.
  */
-function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
+function openSplitRefusal(r: Exclude<SettleResult | SettleTakeover, "acquired">): string {
   switch (r) {
     case "closed":
       return "This order is no longer open";
@@ -207,6 +208,10 @@ function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
       // One sentence for both: from the host's side an abandoned attempt and a live one look the
       // same, and this door will not act on the difference (see the note at the acquire below).
       return "Someone’s checking out — try again in a moment";
+    case "paying":
+      // M123 — the stale-pin release found a linked intent CHARGING (lib/supersede.ts). The words
+      // create-intent answers the same state with, verbatim, so a diner hears one sentence for it.
+      return "That payment is already going through — give it a moment.";
   }
 }
 
@@ -269,7 +274,9 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   // the same intent client-side and never touches it). So a peer mid-3DS, or one working through a
   // decline, presents as `locked_stale` — and routing this door through the takeover would let any
   // host kill that payment from the split screen. No diner could do that before, and there is no
-  // urgency here that justifies it: a split can wait for the TTL or for staff.
+  // urgency here that justifies it: a split can wait for the TTL or for staff. (M123's stale-pin
+  // release below CAN supersede, and only an intent linked to an UNLOCKED cart — never a locked
+  // one, fresh or stale, both refused right here; `releaseStalePinUnderFreeze` has the argument.)
   const acq = await acquireSettlement(id, uid);
   if (acq !== "acquired") throw new Error(openSplitRefusal(acq));
 
@@ -309,6 +316,18 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     throw new Error("Couldn’t start the split — please try again");
   }
   if (live && live.length > 0) throw new Error("Payments are already in progress");
+
+  // M123 — release a dead card attempt's promo pin under THIS freeze before the grand total is read,
+  // as every other settlement door does since M268. `mms_promo_discount` honours any non-null pin
+  // outright (m70), so without this a pin an abandoned attempt left priced the grand total, every
+  // share was cut from it, and `settle_expected_cents` pinned that discounted figure: the table paid
+  // a discount a different basket earned, and the reconcile agreed. The release WITHOUT the takeover
+  // (`releaseStalePinUnderFreeze` says why that cannot reach a tablemate's live checkout). After the
+  // in-flight check on purpose: a refusal there keeps its freeze over live holds, and nothing here
+  // should touch a pin on that path. Every answer but `acquired` has already released or
+  // deliberately HELD this freeze, so this door only refuses — releasing again would undo a hold.
+  const pin = await releaseStalePinUnderFreeze(id, uid);
+  if (pin !== "acquired") throw new Error(openSplitRefusal(pin));
 
   // ⚠️ W10c pre-merge review — the freeze is ALREADY HELD (acquireSettlement wrote settle_at above),
   // and every failure path below deliberately releases it before throwing. `getCartTotals` became

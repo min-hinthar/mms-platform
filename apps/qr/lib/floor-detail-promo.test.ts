@@ -63,10 +63,11 @@ let totals: Record<string, number> | null = {
  *  parts and the settle total must come off the SAME totals object, and a second read — the drift
  *  the W17 rules name — returns identical values here, so only the call count can see it. */
 const getCartTotals = vi.hoisted(() =>
-  vi.fn<(cartId: string, tipRate: number) => Promise<unknown>>(),
+  vi.fn<(cartId: string, tipRate: number, basis?: string) => Promise<unknown>>(),
 );
 vi.mock("./totals", () => ({
-  getCartTotals: (cartId: string, tipRate: number) => getCartTotals(cartId, tipRate),
+  getCartTotals: (cartId: string, tipRate: number, basis?: string) =>
+    getCartTotals(cartId, tipRate, basis),
 }));
 
 type Row = Record<string, unknown>;
@@ -288,7 +289,12 @@ describe("getTableDetail — the receipt stack's parts", () => {
     // MUTATION p3d-receipt/floor-reads-a-second-total: the parts off a SECOND call — identical values
     // on this fake, a different basket in production if a write lands between the two → red here.
     expect(getCartTotals).toHaveBeenCalledTimes(1);
-    expect(getCartTotals).toHaveBeenCalledWith("c-1", 0);
+    // M123 (b) — the QUOTE basis, tip 0: the review step's exact call (cart-view-read.test.ts), so
+    // the guest's pass and Dad's pane are one derivation (PD2). On the charge basis a pin no intent
+    // names priced this quote while Take cash — which releases that pin first (M268) — charged the
+    // live figure, and the cash sheet's compare-and-swap refused `moved` over the figure staff were
+    // just shown. MUTATION (m123/floor-quotes-the-charge-basis): red.
+    expect(getCartTotals).toHaveBeenCalledWith("c-1", 0, "quote");
   });
 
   it("the Subtotal is the totals read's, never the lines read's", async () => {

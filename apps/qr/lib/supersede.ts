@@ -612,6 +612,31 @@ async function releaseStalePin(
 }
 
 /**
+ * M123 — the SPLIT door's half of M268: `releaseStalePin`, exactly as the counter's ordinary path
+ * runs it, for a door that acquired its freeze with the plain `acquireSettlement`.
+ *
+ * The split deliberately does NOT take `acquireSettlementSuperseding` (lib/split.ts, the blind pass
+ * on #275): that function's TAKEOVER cancels a `locked_stale` attempt at Stripe, and a stale lock
+ * with a live link is exactly how a tablemate mid-3DS, or working through a decline, presents — a
+ * host must never be able to kill that payment from the split screen. This export is the release
+ * WITHOUT the takeover, and it cannot reach that tablemate: `acquireSettlement` refuses a fresh lock
+ * (`locked`) and a stale linked one (`locked_stale`), and the freeze it grants clears the pay-lock
+ * columns, so no era can link afterwards. The only link the release can then meet is one on an
+ * UNLOCKED cart — an intent whose lock went without its link (the shapes `releaseStalePin` names: a
+ * lost link-write response, a cancel that never reached Stripe) — and that intent is superseded under the
+ * settlement rules (a manual hold or committed money refuses; `captured` answers `paying` with the
+ * freeze HELD), its pin and link cleared together, the release re-proved. Every answer but
+ * `acquired` has already given back or deliberately held the freeze; the caller only refuses.
+ */
+export async function releaseStalePinUnderFreeze(
+  cartId: string,
+  /** The owner the caller's `acquireSettlement` wrote — the release's whole proof is that freeze. */
+  owner: string,
+): Promise<SettleTakeover> {
+  return await releaseStalePin(cartId, owner, supersedeSettlementIntent);
+}
+
+/**
  * Give back a freeze THIS REQUEST claimed and could not use — scoped to its request-unique owner.
  *
  * ⚠️ A3 · M201 IS WHAT MAKES THIS LINE WRITABLE. Codex rounds 8, 10, 11, 12 and 13 on #275 each

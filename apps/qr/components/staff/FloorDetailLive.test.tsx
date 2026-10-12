@@ -140,6 +140,7 @@ const DETAIL: TableDetail = {
   refund: null,
   settledOrderCount: 0,
   settledOrderCountCapped: false,
+  settledLinesTruncated: false,
   paidOrderId: null,
   promoCode: null,
   settlePromoCents: null,
@@ -2404,5 +2405,54 @@ describe("PD7 (m7 B3 · B12) — the clear's loss slip beside the settle section
     // ONE till: the dialog is the settle section's own CashSettleButton.
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(cash().className).toContain("ui-btn-primary");
+  });
+});
+
+describe("M211 — a settled record cut at the line read's bound says so", () => {
+  // A settled table: no cart, so the read-only list renders the paid order's lines (K33).
+  const served = (id: string, name: string): TableLineView => ({
+    ...line(id, name),
+    state: "served",
+    sendable: false,
+  });
+  const SETTLED: TableDetail = {
+    ...DETAIL,
+    settled: true,
+    cartId: null,
+    lines: [served("l1", "Mohinga"), served("l2", "Tea Leaf Salad")],
+    itemCount: 0,
+    runningSubtotalCents: 0,
+    paidTotalCents: 2400,
+    paidOrderId: "o1",
+    settledOrderCount: 1,
+    send: { ...DETAIL.send, sendable: 0, staffAdded: 0, foodDraft: false },
+  };
+  const mountSettled = (detail: TableDetail) => {
+    answer = () => Promise.resolve({ kind: "detail", detail });
+    return render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <FloorDetailLive initial={detail} sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  };
+  const lines = () => screen.getByRole("list", { name: ts("en", "table.detail.a11y.lines") });
+
+  it("names the cut beside the list — how many are shown — and the list points at it", () => {
+    // Before M211 the first 500 lines rendered as the complete record, so dishes staff saw before
+    // payment vanished after it with nothing on screen to say so. The count is the list's own
+    // length, never a constant the client would have to keep in step with the server's bound.
+    // MUTATION (m211/note-never-drawn): red.
+    mountSettled({ ...SETTLED, settledLinesTruncated: true });
+    const note = screen.getByText(/Showing the first 2 lines/);
+    expect(note.id).toBeTruthy();
+    expect(lines().getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  it("an uncut record says nothing more, and describes nothing", () => {
+    mountSettled(SETTLED);
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+    expect(lines().hasAttribute("aria-describedby")).toBe(false);
   });
 });

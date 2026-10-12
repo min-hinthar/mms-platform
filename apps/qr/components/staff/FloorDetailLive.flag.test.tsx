@@ -147,6 +147,7 @@ const DETAIL: TableDetail = {
   refund: null,
   settledOrderCount: 0,
   settledOrderCountCapped: false,
+  settledLinesTruncated: false,
   paidOrderId: null,
   promoCode: null,
   settlePromoCents: null,
