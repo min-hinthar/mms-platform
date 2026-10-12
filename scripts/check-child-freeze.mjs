@@ -141,6 +141,27 @@ const unwrapTypeOnly = (e) => {
 
 // ── 1. DERIVE the mutation set from every lib module, not from a list ───────────────────────────
 const AUTHZ_CALLS = new Set(["assertCartMember", "assertCartItemMember"]);
+/**
+ * ⚠️ THE FREEZE HAS A SECOND SERVER FACE (T9's truth pass, 2026-09-08; closed 2026-10-12). Every
+ * mutation above refuses on the `locked` it binds out of the authorization call — but `openSettlement`
+ * refuses through the settlement ACQUIRE instead (`if (acq !== "acquired") throw …`): the freeze IS
+ * the mutex it takes, so it cannot be an `if (locked)` (check-freeze-parity's exemption says why).
+ * A derivation that only knew the first face never put it in the subject set, so `SplitSection`'s
+ * "Split & pay separately" took a frozen tap with this guard green — the one ungated control T9 named.
+ *
+ * So a member-authorized function that REFUSES on a binding of one of these acquires is a mutation
+ * too. MEMBER-authorized, because that is what a Checkout child can fire: the staff settle doors take
+ * the same acquire behind `staffGate`, refuse into the register's own in-flight copy, and are never
+ * rendered by Checkout. The callee is matched as a parsed call (an identifier callee, through `await`),
+ * never as text — a comment naming `acquireSettlement` acquires nothing.
+ */
+const SETTLE_ACQUIRES = new Set(["acquireSettlement", "acquireSettlementSuperseding"]);
+/** `await acquireSettlement(…)` / `acquireSettlement(…)` — a CALL of one of `names`, parsed. */
+const callsOneOf = (e, names) => {
+  let x = unwrapTypeOnly(e);
+  if (ts.isAwaitExpression(x)) x = unwrapTypeOnly(x.expression);
+  return ts.isCallExpression(x) && ts.isIdentifier(x.expression) && names.has(x.expression.text);
+};
 const mutations = new Map(); // exported name -> { rel, kinds: Set<"throw"|"return"> }
 
 /** Every `.ts` under `apps/qr/lib`, RECURSIVELY — same reason the component walk is recursive. */
@@ -153,8 +174,27 @@ const tsTree = (rel) => {
   return out.sort();
 };
 
+/**
+ * The LOCAL names `names` go by in `sf`: each name itself, plus every alias an import gives it
+ * (`import { acquireSettlement as take }`). The component walk below learned this the hard way —
+ * `ImportSpecifier.name` is the local binding — so the second face resolves it from the start.
+ */
+const localNames = (sf, names) => {
+  const out = new Set(names);
+  walk(sf, (n) => {
+    if (!ts.isImportDeclaration(n) || !n.importClause?.namedBindings) return;
+    const nb = n.importClause.namedBindings;
+    if (!ts.isNamedImports(nb)) return;
+    for (const el of nb.elements)
+      if (names.has((el.propertyName ?? el.name).text)) out.add(el.name.text);
+  });
+  return out;
+};
+
 for (const rel of tsTree(LIB)) {
   const sf = parse(rel);
+  const authzNames = localNames(sf, AUTHZ_CALLS);
+  const settleNames = localNames(sf, SETTLE_ACQUIRES);
   for (const { fn, name } of namedFunctions(sf)) {
     let bindsLocked = false;
     /** HOW it refuses, not merely THAT it refuses — rule 3 asks a different question of each. */
@@ -165,6 +205,34 @@ for (const rel of tsTree(LIB)) {
     const authzVars = new Set();
     /** Locals bound from the authz result's `locked` PROPERTY — under any local name. */
     const lockedIdents = new Set(["locked"]);
+    /** The second face: does this function authorize as a cart MEMBER, and which locals hold a
+     *  settlement acquire's answer (declared or assigned)? */
+    let memberAuthz = false;
+    const settleVars = new Set();
+    walk(fn, (n) => {
+      if (ts.isCallExpression(n) && callsOneOf(n, authzNames)) memberAuthz = true;
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        callsOneOf(n.initializer, settleNames)
+      )
+        settleVars.add(n.name.text);
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        callsOneOf(n.right, settleNames)
+      )
+        settleVars.add(n.left.text);
+    });
+    const mentionsSettle = (expr) => {
+      let hit = false;
+      walk(expr, (x) => {
+        if (ts.isIdentifier(x) && settleVars.has(x.text)) hit = true;
+      });
+      return hit;
+    };
     walk(fn, (n) => {
       if (
         ts.isVariableDeclaration(n) &&
@@ -246,7 +314,12 @@ for (const rel of tsTree(LIB)) {
         })
       )
         bindsLocked = true;
-      if (ts.isIfStatement(n) && mentionsLocked(n.expression)) {
+      // The refusal's condition names the lock (the first face) or, in a member-authorized function,
+      // a settlement acquire's answer (the second).
+      if (
+        ts.isIfStatement(n) &&
+        (mentionsLocked(n.expression) || (memberAuthz && mentionsSettle(n.expression)))
+      ) {
         const t = n.thenStatement;
         for (const st of ts.isBlock(t) ? t.statements : [t]) {
           if (ts.isThrowStatement(st)) kinds.add("throw");
@@ -254,7 +327,8 @@ for (const rel of tsTree(LIB)) {
         }
       }
     });
-    if (bindsLocked && kinds.size) mutations.set(name, { rel, kinds });
+    if ((bindsLocked || (memberAuthz && settleVars.size > 0)) && kinds.size)
+      mutations.set(name, { rel, kinds });
   }
 }
 
