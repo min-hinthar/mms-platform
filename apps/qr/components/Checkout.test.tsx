@@ -3061,7 +3061,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       splitContext: GUEST,
       initialItems: [DRAFT],
       initialTableNumber: 7,
-      initialServerNow: "2026-10-08T10:00:00.000Z",
+      initialDbNow: "2026-10-08T10:00:00.000Z",
     });
     await press(/^Show a server/);
     const dialog = await screen.findByRole("dialog");
@@ -3075,23 +3075,30 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(status.textContent).toContain("Not sent yet");
     // No prices, no total on the ticket.
     expect(dialog.textContent).not.toMatch(/\$/);
-    // Dad sends: the view shows the line fired but INSIDE its grace — "Sending…", never the past tense.
+    // Dad sends: the view shows the line fired but INSIDE its grace on the view's DB clock —
+    // "Sending…", never the past tense. PD1's tail: the pass reads the DB clock that stamped
+    // `fire_at` (the kitchen track's clock), so an app server running ahead of the database
+    // (`serverNow` past the grace here) cannot flip it early.
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:00.000Z",
+        dbNow: "2026-10-08T10:00:00.000Z",
+        serverNow: "2026-10-08T10:00:06.000Z",
       }),
     );
     await syncFromServer();
     // MUTATION (checkout/pass-flips-on-the-device-clock): the status read against this phone's
-    // clock instead of the view's server clock — "Sent to kitchen" inside the grace; red.
+    // clock instead of the view's — "Sent to kitchen" inside the grace; red.
+    // MUTATION (pdrem/checkout-pass-reads-the-app-clock): the view's `serverNow` read instead of its
+    // `dbNow` — the app server's clock ahead of the database flips the pass inside the grace; red.
     await waitFor(() => expect(status.textContent).toContain("Sending…"));
     expect(status.textContent).not.toContain("Sent to kitchen");
-    // The re-read past the grace: the first stamp.
+    // The re-read past the grace on the DB clock: the first stamp.
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:05.400Z",
+        dbNow: "2026-10-08T10:00:05.400Z",
+        serverNow: "2026-10-08T10:00:00.000Z",
       }),
     );
     await syncFromServer();
@@ -3142,7 +3149,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     mountPD1({
       splitContext: GUEST,
       initialItems: [DRAFT],
-      initialServerNow: "2026-10-08T10:00:00.000Z",
+      initialDbNow: "2026-10-08T10:00:00.000Z",
     });
     await press(/^Show a server/);
     const dialog = await screen.findByRole("dialog");
@@ -3157,7 +3164,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...LATE, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:00.000Z",
+        dbNow: "2026-10-08T10:00:00.000Z",
       }),
     );
     await syncFromServer();

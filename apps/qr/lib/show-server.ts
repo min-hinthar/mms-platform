@@ -1,4 +1,7 @@
 import type { CartItem } from "@mms/db";
+import { GRACE_REREAD_MARGIN_MS, passHead, viewClockIso } from "./live-pass";
+
+export { GRACE_REREAD_MARGIN_MS };
 
 /**
  * PD1 (PATH_DESIGN_2026-10-07 moment 1) — "Show a server": what the guest's pass lists, and when
@@ -10,8 +13,14 @@ import type { CartItem } from "@mms/db";
  * HONEST (m1 A3 · B3 · B4): it lands only when an APPLIED server view shows the dishes past their
  * 10-second grace — the same instant Mom's KDS draws the ticket (`kdsLineGate`, lib/counter-order)
  * — never on the fire edge (the host can still undo inside the grace, and the past tense would be a
- * claim nothing kept), and never by a client clock: `serverNowMs` is the SERVER's clock as the same
- * view reported it (`getCartView.serverNow`), compared against the lines' own `fire_at`.
+ * claim nothing kept), and never by a client clock.
+ *
+ * WHAT DECIDES THE STAGE IS NOT HERE (PD1's tail; round 3: one derivation for every surface). The
+ * status is the ONE KITCHEN TRACK's roll-up (`lib/kitchen-track.ts`, fed through the live pass's
+ * adapter `passHead`), read on the view's DATABASE clock (`getCartView.dbNow` — the clock that
+ * stamped the lines' `fire_at`, so no second host's skew enters the comparison; it replaced the app
+ * server's `serverNow` here, which m1 §H justified only by a round trip PD10 has since paid on every
+ * view). So this pass, the Bill's live pass, the TV board and Dad's pane flip on one rule.
  *
  * The rows the pass PRINTED stay on it after they go (the ticket then shows what was sent), so the
  * host keeps the ids it listed (`passDishes`) and reads the status over THOSE rows — a second round's
@@ -71,49 +80,60 @@ export function passDishes(
 export type ShowServerStatus = "waiting" | "sending" | "sent" | "none";
 
 /**
- * The pass's status, from one applied view over the rows it lists:
- *  - `waiting` — a dine-in draft is still with the table (the hollow ring);
- *  - `sending` — no draft, and a sent dine-in line is still inside its grace (`fireAt` after the
- *    server's now): the words stay "Not sent yet" — the kitchen has not got it, and an Undo may
- *    bring it back;
- *  - `sent` — no draft, and every sent dine-in line is past its grace (or carries no `fireAt`,
- *    which the KDS treats as fired at or before now): the track's first stamp, "Sent to kitchen ·
- *    ပို့ပြီး";
- *  - `none` — nothing dine-in was sent and nothing waits (every listed dish was REMOVED): the pass
- *    closes itself — a removal never reads as a send.
+ * The pass's status, from one applied view over the rows it lists — the kitchen track's ROLL-UP
+ * (the least-advanced stage) over its DINE-IN rows, on the view's DB clock:
+ *  - `waiting` — `unsent`: a dine-in draft is still with the table (the hollow ring);
+ *  - `sending` — `sending`: no draft, and a sent line is still inside its grace (`fire_at` after
+ *    the view's clock — or a clock this reader cannot compare, which proves nothing about the
+ *    grace): the words stay "Not sent yet" — the kitchen has not got it, and an Undo may bring it
+ *    back;
+ *  - `sent` — `sent`, `cooking` or `served`: every sent line is past its grace (or carries no
+ *    `fire_at`, which the KDS treats as fired at or before now) — the track's first stamp, "Sent to
+ *    kitchen · ပို့ပြီး"; a dish Mom has started is past it by her own tap;
+ *  - `none` — nothing on the track (every listed dish was REMOVED, or only to-go and grocery lines
+ *    are left): the pass closes itself — a removal never reads as a send.
+ *
+ * Only the DINE-IN rows are read: the ticket is what the Send fires, and a to-go draft — on the
+ * track, since it cooks — fires at pay, so it never holds the pass at "waiting".
+ *
+ * `nowMs` is the view's DB clock (`getCartView.dbNow`); null is unknown, and an unknown clock never
+ * reads "sent" (`viewClockIso` → "", which every comparison fails closed against).
  */
 export function showServerStatus(
   dishes: ReadonlyArray<CartItem>,
-  serverNowMs: number,
+  nowMs: number | null,
 ): ShowServerStatus {
-  if (waitingDishes(dishes).length > 0) return "waiting";
-  const sent = dishes.filter(
-    (i) =>
-      i.fulfillment === "dinein" &&
-      (i.lineState === "fired" || i.lineState === "in_progress" || i.lineState === "served"),
+  const head = passHead(
+    dishes.filter((i) => i.fulfillment === "dinein"),
+    viewClockIso(nowMs),
   );
-  if (sent.length === 0) return "none";
-  const inGrace = sent.some((i) => i.fireAt != null && Date.parse(i.fireAt) > serverNowMs);
-  return inGrace ? "sending" : "sent";
+  switch (head.stage) {
+    case null:
+      return "none";
+    case "unsent":
+      return "waiting";
+    case "sending":
+      return "sending";
+    case "sent":
+    case "cooking":
+    case "served":
+      return "sent";
+  }
 }
 
 /**
  * The one re-read the pass schedules: how long (ms, from the receipt of this view) until the
- * earliest in-grace line passes its grace on the SERVER's clock, plus a small margin so the read
- * lands after the instant rather than on it; null when nothing is in grace. Counted as a DURATION
- * between two server stamps, never the server's absolute stamp against this device's clock
- * (lib/send-grace's rule).
+ * earliest in-grace line passes its grace on the view's DB clock, plus the shared margin
+ * (`GRACE_REREAD_MARGIN_MS`, lib/live-pass) so the read lands after the instant rather than on it;
+ * null when nothing is in grace. Counted as a DURATION between two server stamps, never the
+ * server's absolute stamp against this device's clock (lib/send-grace's rule).
  */
-export const GRACE_REREAD_MARGIN_MS = 300;
-export function graceRereadDelayMs(
-  dishes: ReadonlyArray<CartItem>,
-  serverNowMs: number,
-): number | null {
+export function graceRereadDelayMs(dishes: ReadonlyArray<CartItem>, nowMs: number): number | null {
   let soonest: number | null = null;
   for (const i of dishes) {
     if (i.fulfillment !== "dinein" || i.fireAt == null) continue;
     if (i.lineState !== "fired" && i.lineState !== "in_progress") continue;
-    const left = Date.parse(i.fireAt) - serverNowMs;
+    const left = Date.parse(i.fireAt) - nowMs;
     if (left > 0 && (soonest === null || left < soonest)) soonest = left;
   }
   return soonest === null ? null : soonest + GRACE_REREAD_MARGIN_MS;

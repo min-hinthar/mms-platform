@@ -301,7 +301,6 @@ export function Checkout({
   initialCounterRequestedAt = null,
   initialSendNudge = null,
   initialNudgeReady = false,
-  initialServerNow = null,
   initialDbNow,
   initialViewMode = null,
   initialTableNumber = null,
@@ -335,12 +334,10 @@ export function Checkout({
   initialSendNudge?: SendNudge | null;
   /** PD1 — the stamp read itself succeeded (`getCartView.nudgeReady`); false hides the offer. */
   initialNudgeReady?: boolean;
-  /** PD1 — the server's clock (ISO) as the first view was made (`getCartView.serverNow`); null =
-   *  unknown, which the pass reads conservatively (a line in its grace stays "Sending…"). */
-  initialServerNow?: string | null;
   /** PD10 — the DATABASE clock (ISO) as the first view was made (`getCartView.dbNow`, read before
-   *  its lines): the live pass reads every stage against it; null = unknown, which reads
-   *  conservatively (a line in its grace stays "Sending…", a bump stays unsettled, the door held).
+   *  its lines): the live pass — and, since PD1's tail, the "Show a server" pass — reads every stage
+   *  against it; null = unknown, which reads conservatively (a line in its grace stays "Sending…",
+   *  a bump stays unsettled, the door held).
    *  REQUIRED, not defaulted (the capped blind pass on #346, C1): `app/cart/page.tsx` once omitted
    *  it, so production opened every Bill on the unknown clock and the first self-heal replayed the
    *  whole kitchen's FILL and TURN as news. A call site that forgets it now fails `tsc`. */
@@ -616,12 +613,9 @@ export function Checkout({
   // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
   // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
   const [ownAsk, setOwnAsk] = useState(false);
-  // PD1 — the nudge stamp and the server's clock, both from every applied view.
+  // PD1 — the nudge stamp, from every applied view.
   const [sendNudge, setSendNudge] = useState<SendNudge | null>(initialSendNudge);
   const [nudgeReady, setNudgeReady] = useState(initialNudgeReady);
-  const [serverNowMs, setServerNowMs] = useState<number | null>(() =>
-    initialServerNow ? Date.parse(initialServerNow) : null,
-  );
   // PD10 — the applied view's DB clock (never this phone's): the live pass and the served door read
   // every stage against it (lib/live-pass), and it is replaced only by the next applied view.
   const [dbNowMs, setDbNowMs] = useState<number | null>(() =>
@@ -806,13 +800,13 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-    // PD1 — the nudge stamp (cleared by the fire, in the same transaction), whether it was
-    // readable, and the server's clock.
+    // PD1 — the nudge stamp (cleared by the fire, in the same transaction) and whether it was
+    // readable.
     setSendNudge(v.sendNudge);
     setNudgeReady(v.nudgeReady);
-    setServerNowMs(Date.parse(v.serverNow));
-    // PD10 — the DB clock the pass reads its stages against, and the view's number for the motion
-    // plan (a quiet foreground re-read marks itself AFTER this, in the same batch).
+    // PD10 — the DB clock both passes read their stages against (the live pass; since PD1's tail
+    // the "Show a server" pass too), and the view's number for the motion plan (a quiet foreground
+    // re-read marks itself AFTER this, in the same batch).
     setDbNowMs(Date.parse(v.dbNow));
     setViewNo((n) => n + 1);
     setViewQuiet(false);
@@ -2994,8 +2988,9 @@ export function Checkout({
     : null;
   const waitingAvatar = waitingMember && chosenName(waitingMember.name) ? waitingMember : null;
   const staffNote = staffCanSendCopy(hostName);
-  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and the SERVER's clock
-  // (lib/show-server). Unknown clock = never "sent" (a line in its grace reads "Sending…").
+  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and its DB clock: the ONE
+  // kitchen track's roll-up (lib/show-server → lib/kitchen-track), the same rule and clock as the
+  // Bill's live pass. Unknown clock = never "sent" (a line in its grace reads "Sending…").
   // A dish that JOINS the open pass (a tablemate's draft) is kept from the view it joins in, so it
   // stays on the ticket once sent instead of leaving it — and, the dishes the pass opened on
   // removed, closing it (Codex's post-merge review of #335). Adjusted during render, like the close
@@ -3003,7 +2998,7 @@ export function Checkout({
   const passPrinted = passOpen ? passListedNow(viewItems, passListed) : passListed;
   if (passPrinted !== passListed) setPassListed(passPrinted);
   const passRows = passDishes(viewItems, passPrinted);
-  const passStatus = showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY);
+  const passStatus = showServerStatus(passRows, dbNowMs);
   const passShown = passOpen && passStatus !== "none";
   // Every listed dish REMOVED (never sent): the pass closes itself — a removal never reads as a
   // send. Adjusted during render (React's derived-state pattern), so a dish added later never
@@ -3011,8 +3006,7 @@ export function Checkout({
   if (passOpen && passStatus === "none") setPassOpen(false);
   // ONE re-read at the grace's end while the pass is up (a server-measured duration from this
   // view's receipt), so the flip lands on an OBSERVED view — never on this phone's clock.
-  const passRereadMs =
-    passShown && serverNowMs !== null ? graceRereadDelayMs(passRows, serverNowMs) : null;
+  const passRereadMs = passShown && dbNowMs !== null ? graceRereadDelayMs(passRows, dbNowMs) : null;
   useEffect(() => {
     if (passRereadMs === null) return;
     const id = window.setTimeout(() => void refresh(), passRereadMs);
