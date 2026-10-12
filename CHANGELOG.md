@@ -15,8 +15,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     per-SHA line. H3 records the owner's "merge both" for #323 (merged as `533a886`) and #350.
   - G3 is unchanged for later merges.
 - CLAUDE.md's "Where things stand", HANDOFF and the retro stop calling the question open. HANDOFF also
-  records #349's merge (`b1a51cb`) and Codex's return on 2026-10-12. The retro's owner-decisions list
-  keeps only the delegation-mechanism question.
+  records #349's merge (`b1a51cb`) and Codex's return on 2026-10-12. In the retro's owner-decisions
+  list, only the delegation-mechanism part of the former G3 question stays open; its other decisions
+  are unchanged.
 
 ### Next 16.3.8, vitest 4.1.11 and esbuild 0.28: Dependabot #323 made real (2026-10-12)
 
