@@ -4,6 +4,76 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Money guards: the Stripe client and keys, the cash and reader settles, the grocery basket (2026-10-12)
+
+- **Meals are card only (M155, owner ruling #7).** One constant, `MEAL_PAYMENT_METHOD_TYPES`
+  (`apps/qr/lib/payment-methods.ts`, `["card"]`), is named by `create-intent`, `create-share-intent`
+  and `setup-intent` in place of automatic payment methods. Apple Pay and Google Pay ride the card
+  method and stay. Link, Cash App Pay, Klarna, ACH and any other method enabled in the Dashboard no
+  longer appear in the Payment Element or the Express Checkout Element, so no bank debit can sit in
+  `processing` on a cart for days. The parked split share drops `allow_redirects: "never"`, since a
+  card never redirects. `docs/ENV.md`'s cutover step 2 says so.
+- **The Stripe client has a network budget (M72c, partial).** `lib/stripe.ts` now passes a 20 s
+  timeout per attempt and one retry (stripe@22's defaults were 80 s and two retries, so up to three
+  attempts). Every Stripe call takes it, the parked Terminal reader actions included. The pickup
+  capture makes one attempt per webhook delivery (`maxNetworkRetries: 0` beside its key), so a
+  transient capture failure waits for Stripe's redelivery, which re-derives the plan. The
+  setup-intent Customer create is keyed `cus_<cartId>`. A parse guard in `stripe.test.ts` refuses a
+  per-call retry override below one that carries no `idempotencyKey`. Left: 20 s is an upper bound
+  picked without a measurement. Owner ruling #23 sizes it from the Stripe round trip measured from
+  `pdx1`, which an agent sandbox cannot take.
+- **An unreadable Stripe key mode counts as live for the webhook secret (M166).** When the secret
+  key is missing or its prefix is not `sk_`/`rk_` plus test or live, the webhook now ignores
+  `STRIPE_WEBHOOK_SECRET_TEST` and answers 500 "Webhook not configured". Its diagnostic says the
+  mode could not be read rather than claiming live, and reports set-ness only. A local setup on a
+  mock key must set `STRIPE_WEBHOOK_SECRET` or use a real `sk_test_` key.
+- **`resolvedStripeMode` and the key order are executed, not shape-matched (M164 · M165).** The new
+  `lib/stripe.test.ts` runs `stripe.ts` with `server-only` stubbed and a spy around the real SDK
+  class: the mode follows the secret key and never the publishable one, `_TEST` wins when both
+  secret names are set, and a mode mismatch throws before the client is built. The webhook route's
+  signing-secret order is pinned by parsing its array literal.
+- **A Terminal poll that re-takes the freeze re-reads the intent (M216).** After a mid-collect
+  re-acquire the poll retrieves the PaymentIntent again. When staff Cancel or a decline killed the
+  attempt in between, it releases the freeze it just took, scoped to the attempt, and answers
+  canceled or failed, so the table no longer stays frozen until the TTL. If that re-read fails, the
+  poll answers its existing miss ("Couldn’t check the reader just now — still trying.") where it
+  used to answer collecting, and the freeze is kept. No reader is connected yet (ruling #26).
+- **A cash settle refuses a cart with nothing chargeable on it (M252).** A cart whose every line is
+  comped or voided now gets "There’s nothing on this table to settle." instead of a $0 paid order
+  with no snapshot rows. The check runs under the freeze, and only when the subtotal is zero; a
+  chargeable $0 line still settles.
+- **The split door honours the freeze (T9).** "Split & pay separately" is `aria-disabled` under a
+  checkout's freeze, and a tap speaks the section's own freeze sentence instead of calling
+  `openSettlement` and echoing a redacted error. The door is behind `SURFACES.selfServeSplit`, off
+  today. `check:child-freeze` now also derives member-authorized mutations that refuse through the
+  settlement acquire (18 mutations from 7 lib modules), so `openSettlement` is audited.
+- **The Scan & Go basket shows the chargeable lines only (M187).** `readGroceryLines` drops comped
+  lines with the charge authority's own predicate, so "Subtotal · before tax" equals
+  `computeTotals`' subtotal. A comped line now leaves the basket list and count. The /cart checkout
+  still lists it as "On the house". A camera re-sighting of a jar whose line staff comped is now a
+  new item at full price.
+- **Market items go only on a scan-and-go cart (M189, owner ruling §C).** `scanAdd` refuses any cart
+  whose session mode is not `scango`, before the catalog read and any write, answering `unreadable`.
+  So no split can weight a grocery line. The parked kiosk's grocery door is refused too; reopening
+  the kiosk needs a stored session kind first (C20).
+- **A comped line is never a merge target, and an unreadable one writes nothing (T25 · M188).**
+  `insertOrIncLine`'s sibling read skips comped rows, so an add that matched a comped draft line now
+  inserts a fresh one at full price where it used to be a silent no-op; a diner or staff member sees
+  two rows for that dish. A failed sibling read throws `ItemUnreadableError` before any write
+  instead of inserting a twin: reorder skips the line as unreadable, a scan goes to Retry, and the
+  staff pad reads it as unconfirmed. A comp landing between the read and the bump is still a no-op
+  (T27).
+- **Proof.** 36 new `verify:slice` mutants (`stripecfg/` 16, `m252/` 6, `m216/` 4, `t9/` 4,
+  `grocery/` 4, `order-lines/` 2), each caught; `lib/payment-methods.ts`,
+  `app/api/stripe/webhook/route.ts` and `components/SplitSection.tsx` are new mutation targets. New
+  suites: `stripe.test.ts`, `payment-methods.test.ts`, `settle-comp-only.test.ts`,
+  `SplitSection.test.tsx`, `grocery-lines.test.ts`, `order-lines-sibling.test.ts`.
+- **No new copy and no migration.** Every refusal reuses an existing English string; the M166
+  diagnostic is an English server log line. No Burmese string was added, so the K15 ledger is
+  unchanged.
+- **Filed:** M277 (a same-barcode line pair on the Browse card), M278 (no database gate on grocery
+  lines), M279 (a with-tax figure on /grocery) and J55 (the split door's error echo).
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
