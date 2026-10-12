@@ -26,7 +26,7 @@ import {
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, EmptyState, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
+import { Avatar, EmptyState, Field, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -37,6 +37,7 @@ import {
   type PromoReason,
 } from "@/lib/cart";
 import { attemptReleaseBody, readPayAttempt, type PayAttempt } from "@/lib/pay-attempt";
+import { promoRefusalOnField } from "@/lib/promo-field";
 import {
   type CartFreeze,
   type PublishableRefusal,
@@ -550,9 +551,26 @@ export function Checkout({
   // callback ref (an inline one would be detached and re-attached on every render, clearing the flag
   // while the field still has focus). Whatever path removes the field, the docked door — the Bill's
   // ONE door — cannot come back `hidden`.
+  const promoEl = useRef<HTMLInputElement | null>(null);
   const promoInputRef = useCallback((el: HTMLInputElement | null) => {
+    promoEl.current = el;
     if (el === null) setPromoFocused(false);
   }, []);
+  /**
+   * F20 — a refusal of the CODE (lib/promo-field.ts says which), drawn under the promo box by the
+   * `@mms/ui` Field and tied to it (`aria-describedby`, `aria-invalid`). It is said ONCE: when the
+   * Apply came from the button, focus moves to the box and its description speaks (the region stays
+   * quiet); when focus was already in the box (Enter), moving it says nothing, so the view's one
+   * region speaks it — visually hidden, since the words are already under the box. The voice is
+   * decided at the submit, in the handler. Cleared by retyping the code or by the next Apply.
+   */
+  const [promoRefusal, setPromoRefusal] = useState<{
+    text: string;
+    voice: "region" | "focus";
+  } | null>(null);
+  useEffect(() => {
+    if (promoRefusal?.voice === "focus") promoEl.current?.focus({ preventScroll: true });
+  }, [promoRefusal]);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -2251,12 +2269,17 @@ export function Checkout({
     // submits the form directly. The refusal has to live here, or the "disabled" promo control would
     // still fire a write the server rejects — the exact silent-refusal this slice exists to retire.
     if (editsFrozen) return;
+    const voice = document.activeElement === promoEl.current ? "region" : "focus";
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
+      setPromoRefusal(null); // the last refusal is not this Apply's answer
       try {
         const result = await applyPromoAction(cartId, promo.trim());
-        setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
+        // F20 — a refusal of the CODE goes under the box; anything else is the region's, as before.
+        if (!result.ok && promoRefusalOnField(result.reason))
+          setPromoRefusal({ text: PROMO_MESSAGES[result.reason], voice });
+        else setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
       } catch {
         // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
         // it — ONE line in the single status region (a second setStatus would announce the same
@@ -4019,61 +4042,84 @@ export function Checkout({
             )}
 
             {showPayControls && (
-              <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-                <input
-                  value={promo}
-                  onChange={(e) => setPromo(e.target.value)}
-                  // A placeholder can't carry two lang attributes — the one-line bilingual string
-                  // is the W16b convention for plain-text slots (aria-label stays fixed EN).
-                  placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
-                  // ⚠️ THE NAME COMES FROM `freezeMessage`, NOT `lockedByName` (Codex P2 on #246).
-                  // `lockedByName` is populated for a PEER only, by design — so widening this
-                  // condition to `editsFrozen` made a screen reader announce the read-only promo
-                  // field as "Promo code — null is checking out" on every self/held freeze. The
-                  // notice already owns what each case may claim; the label reuses it rather than
-                  // re-deriving a sentence from a field that is null for two of the three states.
-                  aria-label={
-                    editsFrozen && freezeMessage
-                      ? `${T("promoCode")} — ${freezeMessage}`
-                      : T("promoCode")
-                  }
-                  readOnly={editsFrozen}
-                  autoCapitalize="characters"
-                  maxLength={40}
-                  // PD2 — the docked counter door hides while this field has focus (it would
-                  // otherwise ride the keyboard) and returns on blur.
-                  ref={promoInputRef}
-                  onFocus={() => setPromoFocused(true)}
-                  onBlur={() => setPromoFocused(false)}
-                  className="checkout-promo-input"
-                  style={{
-                    flex: 1,
-                    padding: "10px 12px",
-                    borderRadius: "var(--r-sm)",
-                    // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
-                    // --sunken well can apply; an inline background outranks the class, which is
-                    // why the well was invisible at all three of these call sites. Same reason the
-                    // border already lives in the class (so :focus-visible can recolor it).
-                    color: "var(--tx)",
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={pending || !promo.trim()}
-                  aria-disabled={editsFrozen || undefined}
-                  className="checkout-pill checkout-pill-accent"
-                  // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
-                  // and blow out the 320px promo row — column stacks it under, as intended.
-                  style={{
-                    minHeight: 44,
-                    flexDirection: "column",
-                    lineHeight: 1.15,
-                    ...(editsFrozen ? { opacity: 0.55 } : null),
-                  }}
+              <form onSubmit={onPromo} style={{ margin: "12px 0" }}>
+                {/* F20 — the `@mms/ui` Field: v7.2's "Promo code" heading as the box's own label
+                    (both tongues), the box and Apply on one row, and ONE note line under them where
+                    a refusal of the CODE is drawn and tied to the box. */}
+                <Field
+                  label={T("promoCode")}
+                  labelMy={t("my", "promoCode")}
+                  error={promoRefusal?.text ?? null}
                 >
-                  {T("applyPromo")}
-                  <My k="applyPromo" />
-                </button>
+                  {(control) => (
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <input
+                        {...control}
+                        value={promo}
+                        onChange={(e) => {
+                          setPromo(e.target.value);
+                          // A refused code is cleared by retyping it.
+                          if (promoRefusal) setPromoRefusal(null);
+                        }}
+                        // A placeholder can't carry two lang attributes — the one-line bilingual
+                        // string is the W16b convention for plain-text slots.
+                        placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
+                        // ⚠️ THE NAME COMES FROM `freezeMessage`, NOT `lockedByName` (Codex P2 on
+                        // #246). `lockedByName` is populated for a PEER only, by design — so
+                        // widening this condition to `editsFrozen` made a screen reader announce the
+                        // read-only promo field as "Promo code — null is checking out" on every
+                        // self/held freeze. The notice already owns what each case may claim; the
+                        // name reuses it rather than re-deriving a sentence from a field that is null
+                        // for two of the three states. Unfrozen, the Field's label names the box.
+                        aria-label={
+                          editsFrozen && freezeMessage
+                            ? `${T("promoCode")} — ${freezeMessage}`
+                            : undefined
+                        }
+                        readOnly={editsFrozen}
+                        autoCapitalize="characters"
+                        maxLength={40}
+                        // PD2 — the docked counter door hides while this field has focus (it would
+                        // otherwise ride the keyboard) and returns on blur.
+                        ref={promoInputRef}
+                        onFocus={() => setPromoFocused(true)}
+                        onBlur={() => setPromoFocused(false)}
+                        // The checkout's well (M126) over the Field's box — `.checkout-promo-input`
+                        // is declared later in the cascade, so its fill and bevel win.
+                        className={`${control.className} checkout-promo-input`}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: "10px 12px",
+                          borderRadius: "var(--r-sm)",
+                          // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
+                          // --sunken well can apply; an inline background outranks the class, which
+                          // is why the well was invisible at all three of these call sites. Same
+                          // reason the border already lives in the class (so :focus-visible can
+                          // recolor it).
+                          color: "var(--tx)",
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={pending || !promo.trim()}
+                        aria-disabled={editsFrozen || undefined}
+                        className="checkout-pill checkout-pill-accent"
+                        // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
+                        // and blow out the 320px promo row — column stacks it under, as intended.
+                        style={{
+                          minHeight: 44,
+                          flexDirection: "column",
+                          lineHeight: 1.15,
+                          ...(editsFrozen ? { opacity: 0.55 } : null),
+                        }}
+                      >
+                        {T("applyPromo")}
+                        <My k="applyPromo" />
+                      </button>
+                    </span>
+                  )}
+                </Field>
               </form>
             )}
 
@@ -5017,6 +5063,11 @@ export function Checkout({
                   sentence remounts and is said again. */}
               <span key={statusSeq}>
                 {payError ?? status}
+                {/* F20 — a refusal of the promo CODE is drawn under its box; this region says it
+                    only when focus was already in the box at the Apply — hidden, never drawn twice. */}
+                {!payError && status === null && promoRefusal?.voice === "region" && (
+                  <span className="sr-only">{promoRefusal.text}</span>
+                )}
                 {/* Phase 3c-i (D15) — the owner's Burmese half of a send/undo outcome, only while the
                     region still says the EN sentence it belongs to. */}
                 {!payError && outcomeMy && status === outcomeMy.text && (

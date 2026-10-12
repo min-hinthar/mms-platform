@@ -160,6 +160,8 @@ vi.mock("@/lib/surfaces", async (orig) => {
 });
 
 const { Checkout } = await import("./Checkout");
+// F20 — the promo action is the mocked module's `vi.fn()`; a case sets its answer.
+const { applyPromo: applyPromoAction } = await import("@/lib/cart");
 
 const CART = "cart-1";
 const MY_SEAT = "seat-me";
@@ -3837,5 +3839,89 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
       await waitFor(() => expect(regionText()).toContain("to finish"), { timeout: 3000 });
       expect(h.requestCounterPay).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to it", () => {
+  /**
+   * Before F20 every promo refusal was a sentence in the review step's one region, below the tip
+   * and the totals, with nothing tying it to the box. A refusal of the CODE (lib/promo-field.ts) is
+   * now drawn under the box, which is `aria-invalid` and described by it, and it is said ONCE: focus
+   * moves to the box when Apply was pressed (the description speaks; the region stays quiet), and
+   * the region speaks it — hidden — when focus was already in the box (Enter). A refusal about the
+   * ORDER stays the region's, drawn, with the box left alone.
+   */
+  // The served Bill at a table (PD2's fixture): the promo form is on screen there.
+  const FIRED: CartItem = { ...ITEM, lineState: "fired" };
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const bill = () => mount({ splitContext: HOST, initialItems: [FIRED] });
+  const box = () => screen.getByRole("textbox", { name: /promo/i }) as HTMLInputElement;
+  const described = (el: HTMLElement) =>
+    document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  async function apply(code: string, via: "button" | "enter") {
+    fireEvent.change(box(), { target: { value: code } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    await act(async () => {
+      (via === "button" ? btn : box()).focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    await settle();
+  }
+
+  it("Apply pressed: the refusal is drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "button");
+    // MUTATION uia11y/f20-promo-refusal-off-the-box: red.
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-focus-stays-on-apply: red.
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-region-repeats-the-box: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    expect(screen.getAllByText("That code isn’t valid.")).toHaveLength(1);
+  });
+
+  it("Enter in the box: focus stays, and the region SAYS it once — hidden, since the box already shows it", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "expired" });
+    bill();
+    await apply("OLD10", "enter");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-enter-refusal-unsaid: red.
+    expect(regionText()).toContain("That code has expired.");
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code has expired.");
+  });
+
+  it("a refusal about the ORDER stays the region's, drawn, and leaves the box alone", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "locked" });
+    bill();
+    await apply("SAVE10", "button");
+    await waitFor(() => expect(regionText()).toContain("Someone’s checking out"));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("retyping clears the refusal; an applied code is said in the region with the box valid", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "button");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: true, discountCents: 100 });
+    await apply("SAVE10", "button");
+    await waitFor(() => expect(regionText()).toContain("Promo applied."));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
   });
 });
