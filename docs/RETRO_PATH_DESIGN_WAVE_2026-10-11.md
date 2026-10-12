@@ -55,7 +55,7 @@ The numbers that are not cumulative-to-date are wave-scoped (#326–#348). The o
 
 The critic sequenced these. Each states its smallest first step. None may weaken a "never" rule, and item 2 says how it avoids the bypass the owner already refused.
 
-0. **Clear the decks.** #349 is merged by the owner: it edits `CLAUDE.md` and `.claude/**`, and its `codex-review` is red with Codex out of quota (G3). Fix and land Dependabot #323 (Next 16.2.9 → 16.3.8, esbuild, vitest; red since 10-08). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
+0. **Clear the decks.** _(2026-10-12: #349 merged as `b1a51cb`. Codex reviewed its final head `587eaba` with no findings, and the lead merged it on the owner's "merge all": OWNER_RULINGS §H2.)_ ~~Fix and land Dependabot #323~~ (done: merged 2026-10-12 as `533a886`, OWNER_RULINGS §H3). Add a `.github/dependabot.yml`, and make shards fail fast when `pnpm install` fails.
 1. **Make ledger conflicts impossible.** Land this while nothing else is open.
    - A `check:docs` ban on prose counts, red-first.
    - `pnpm state`, which writes the live counts to the job summary and a generated block.
@@ -70,7 +70,7 @@ The critic sequenced these. Each states its smallest first step. None may weaken
    - `merge-audit.yml` in report-only mode.
    - A scoped, expiring delegation record. The gate reads it ONLY if the record can be written solely with a credential no agent session holds, such as a GitHub environment the owner alone approves. Otherwise the record is audited, never read by the gate: an agent posting as the owner must not satisfy its own check. That is the shape CLAUDE.md records as refused.
 
-   This needs the owner's ruling on G3 first.
+   This waits on the owner's answer to whether such a mechanism should exist at all (owner decisions, item 1). G3's coverage question is answered (OWNER_RULINGS §H1).
 
 3. **Memory that loads.**
    - Measure the harness's whole-injection threshold.
@@ -117,11 +117,11 @@ The repo is public, and a staff message can name a guest or hold untranslated Bu
 
 ## Owner decisions this plan waits on
 
-1. **G3.** Did 2026-10-09's "merge all" cover red-`codex-review` heads? Write the answer into OWNER_RULINGS, including whether a scoped, expiring delegation mechanism should exist at all (plan item 2).
-2. Ratify the gate and merge calls listed in HANDOFF's top block.
+1. **G3.** _Answered 2026-10-12: "merge all. Yes it covered" (OWNER_RULINGS §H1). The 15 merges made before Codex had reviewed their head are ratified._ Still open: should a scoped, expiring delegation mechanism exist at all (plan item 2)?
+2. Ratify the other gate and merge calls listed in HANDOFF's top block. The 15 merges are ratified (§H1); the rest stays listed.
 3. The reviewer reorder (plan item 6).
 4. The private intake repo and its token (C17); branch protection (C28).
-5. Dependabot #323, and one look at the Stripe signature stream.
+5. ~~Dependabot #323~~ (merged 2026-10-12 as `533a886` on the owner's "merge both", §H3), and one look at the Stripe signature stream.
 
 ## The self-improvement rule
 

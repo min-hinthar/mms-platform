@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The owner's answer on the wave's merges (2026-10-12, docs only)
+
+- **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
+  Yes it covered"). OWNER_RULINGS gains §H.
+  - H1: the 2026-10-09 delegation covered merging those heads before Codex's review, including ruling
+    #1's money-path wait. The other calls in HANDOFF's ratify lists stay open.
+  - H2: "merge all" was the go for #349, the PR the report asked about. Reading it as also covering
+    Dependabot's #323 is marked as the lead's reading, so #323's fixed head merges on the owner's
+    per-SHA line. H3 records the owner's "merge both" for #323 (merged as `533a886`) and #350.
+  - G3 is unchanged for later merges.
+- CLAUDE.md's "Where things stand", HANDOFF and the retro stop calling the question open. HANDOFF also
+  records #349's merge (`b1a51cb`) and Codex's return on 2026-10-12. In the retro's owner-decisions
+  list, only the delegation-mechanism part of the former G3 question stays open; its other decisions
+  are unchanged.
+
 ### Next 16.3.8, vitest 4.1.11 and esbuild 0.28: Dependabot #323 made real (2026-10-12)
 
 - **Next 16.2.9 → 16.3.8** brings the advisory fixes of 16.3.6 and 16.3.8, among them
