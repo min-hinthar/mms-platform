@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The open-items registry, read against the code (2026-10-12, docs only)
+
+- **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (557) was read against the code
+  at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`: 329 fixable without the
+  owner (19 high), 81 owner-gated, 118 kept open, and 29 closed here. It gives each row's next step.
+  The registry stays the one place open work lives.
+- **29 rows move to Closed, each with its evidence.**
+  - 18 were already fixed by later work (M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew, P2fl, M56, M13, K20,
+    K26, K28, K29, G13, G18, T19, T36).
+  - 6 were duplicates, and each one's note now lives on the row it folds into: M177 → M157, which
+    takes M177's high severity; M195 → M196; M115 → M230; P2ce → P2i; P2iw → P2is; PD7 → M270 (2)–(9).
+  - 5 close on the owner's 2026-10-07 rulings, which left them nothing to build: T47, J33, T37, J38
+    and K16. The reconcile PR those rulings named never closed them.
+- **Every "already fixed" and "duplicate" verdict was re-checked by a pass told to refute it.** Eight
+  were refuted and stay open: P2z, P2ak, P2df, K33, M172, P2ey, J27 and J49. The snapshot keeps the
+  reason for each.
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
