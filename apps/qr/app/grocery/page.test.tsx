@@ -44,7 +44,7 @@ const h = vi.hoisted(() => ({
   /** The model server's lines — what `setQty` writes and the default read returns. */
   server: [] as { lineId: string; qty: number }[],
   /** `setQty`'s answer (set per row; the default writes the model server). */
-  setQty: null as unknown as (lineId: string, qty: number) => Promise<void>,
+  setQty: null as unknown as (lineId: string, qty: number) => Promise<unknown>,
   /** The session: `revalidate()` (the fresh-basket recovery) moves it to `nextCart`. */
   cart: "",
   nextCart: "",
@@ -729,6 +729,41 @@ describe("…and a record never outlives the line it stands for (the reviews of 
       // MUTANT grocery-page/a-refused-step-outlives-a-floored-read — the refused ×2 stays on screen.
       expect(screen.getByRole("button", { name: "Remove Green tea" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "One less Green tea" })).toBeNull();
+    },
+    ROW_MS,
+  );
+});
+
+/**
+ * #362 (blind pass 4) — `setQty` RESOLVES a refusal it names (`{ refused, at }`) where it used to
+ * throw; the stepper read any resolve as a landing, so "Removed {name}" stood over a line the server
+ * kept, and a failed reconcile never rolled it back.
+ */
+describe("the grocery page — a write `setQty` REFUSES as a value is a failed write", () => {
+  it(
+    "the stepper's removal comes back, and the reason is said — never 'Removed'",
+    async () => {
+      // MUTATION (lcb/grocery/stepper-refusal-reads-landed): `wrote = true` on any resolve — the
+      // removed row stays gone over a line the server kept, after a reconcile that failed; red.
+      h.server = [{ lineId: "l-tea", qty: 1 }];
+      // Mount reads the tea; the reconcile after the step fails (radio), so the rollback is the
+      // write's own verdict.
+      h.read = (i) => (i === 0 ? Promise.resolve(linesOk(serverView())) : readFails());
+      h.setQty = () => Promise.resolve({ refused: "not_draft", at: "2026-10-13T12:00:00.000Z" });
+      render(<GroceryPage />);
+      const remove = await screen.findByRole(
+        "button",
+        { name: "Remove Green tea" },
+        { timeout: 20_000 },
+      );
+      await act(async () => {
+        fireEvent.click(remove);
+      });
+      await settle();
+      await until(() =>
+        expect(screen.getByRole("button", { name: "Remove Green tea" })).toBeTruthy(),
+      );
+      await shown(/Green tea can’t be changed now — ask our staff\./);
     },
     ROW_MS,
   );

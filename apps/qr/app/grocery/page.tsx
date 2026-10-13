@@ -95,6 +95,7 @@ import {
 } from "@/lib/scan-billed";
 import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
+import { groceryRefusalSentence, groceryWriteOutcome } from "@/lib/grocery-write";
 import { useTableSession } from "@/lib/useTableSession";
 import { usePublishCart, useRegisterDrain } from "@/components/ActiveOrderProvider";
 import {
@@ -653,8 +654,11 @@ export default function Grocery() {
       let wrote = false;
       writesRef.current = writeStarted(writesRef.current, line.barcode);
       try {
-        await ledger.track(setQty(line.lineId, nextQty));
-        wrote = true;
+        // #362 — a refusal `setQty` NAMES is a resolve, not a landing (`groceryWriteOutcome`): the
+        // flip rolls back below exactly as a throw's does, and the reason is said.
+        const outcome = groceryWriteOutcome(await ledger.track(setQty(line.lineId, nextQty)));
+        if (outcome.landed) wrote = true;
+        else flash(groceryRefusalSentence(outcome.refused, line.name));
       } catch {
         flash("Couldn’t update that — try again.");
       } finally {
@@ -1365,9 +1369,16 @@ export default function Grocery() {
     setUndoRemoving(true);
     setBusyLine(u.lineId);
     let wrote = false;
+    // #362 — a refusal `setQty` NAMES (staff took the line off; it left draft) is not a landing: the
+    // record and the pairing stay as they are, and the Undo window closes — no retry can land it.
+    let named = false;
     try {
-      await ledger.track(setQty(u.lineId, target));
-      wrote = true;
+      const outcome = groceryWriteOutcome(await ledger.track(setQty(u.lineId, target)));
+      if (outcome.landed) wrote = true;
+      else {
+        named = true;
+        flash(groceryRefusalSentence(outcome.refused, u.name));
+      }
     } catch {
       flash("Couldn’t undo that — try again.");
     }
@@ -1405,6 +1416,12 @@ export default function Grocery() {
       // The pill unmounts under focus — the post-commit effect above parks it (never <body>).
       undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
       setUndo(null);
+    } else if (named) {
+      // Nothing to undo any more, and the basket moved under it: close the window (focus parks the
+      // way it does above) and re-read so the list shows what the server holds.
+      undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
+      setUndo(null);
+      syncNow();
     }
     setBusyLine(null);
     setUndoRemoving(false);
