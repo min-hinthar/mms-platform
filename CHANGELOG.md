@@ -4,6 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Session truth — a diner is never silently cut off, frozen or re-minted (2026-10-13, `claude/fix/lifecycle-session-truth`)
+
+- **A table that ends says so, on every phone at it.** A staff Clear, a Merge and the 4-hour sweep close
+  the session in the transaction that ends the cart, so no Realtime event reaches a phone and /menu
+  used to sit frozen ("Mohinga is being made" over a voided dish) until a tap re-minted it and said
+  "Your table sat idle too long". Now every failed read — an echo, focus, a reconnect, the freeze
+  re-check, a write's diagnosis — and a visible-only one-minute poll ask `counterPayOutcome` why. It
+  answers a proven member with `paid` (and whether the table is still seated), `ended` (`cleared` from
+  its `qr_table_clears` record, `expired`, or the neutral `closed` a merge reads as) or `unknown`; the
+  classification is `cartFate` in the new pure `lib/session-truth.ts`. A dine-in end is HELD: one
+  bilingual card (`TableEndedCard`) names the cause, the order controls go inert ("this order has
+  closed"), and nothing re-mints until "Start a new order". A paid table keeps its last kitchen view,
+  labelled, with "Track your order"; /cart shows the same card in place of a stale, editable bill.
+  No sentence says "idle" any more.
+- **M172 closed:** the URL credential is single-use (`dineinMintEntry`), so no re-mint can re-host a
+  table staff just freed. **J18 closed:** the solo recovery banner keeps its place through a retry.
+- **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
+  share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
+- A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
+  is told before "Leave this table" that the Send leaves with it; a thrown Send re-reads.
+- `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
+- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60, J61, S19,
+  K15 · session-truth (9 Burmese drafts for the native sitting).
+
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
