@@ -41,6 +41,7 @@ const later = (sec: number) => new Date(Date.parse(DB_NOW) + sec * 1000).toISOSt
 let tables: Record<string, Row[]> = {};
 let clockFails = false;
 let orderWriteFails = false;
+let clockThrows = false;
 
 function heldTables(order: Partial<Row> = {}): Record<string, Row[]> {
   return {
@@ -100,6 +101,7 @@ function updateChain(name: string, patch: Row) {
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     rpc(fn: string, args: Row) {
+      if (fn === "mms_now" && clockThrows) throw new Error("socket hang up");
       if (fn === "mms_now")
         return Promise.resolve(
           clockFails ? { data: null, error: { message: "boom" } } : { data: DB_NOW, error: null },
@@ -160,6 +162,7 @@ beforeEach(() => {
   tables = heldTables();
   clockFails = false;
   orderWriteFails = false;
+  clockThrows = false;
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   error = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -273,6 +276,19 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
       cartId: CART,
       message: "boom",
     });
+  });
+
+  it("a THROWN order write is logged, never surfaced: the cook never reads a failed Cook now", async () => {
+    clockThrows = true;
+    expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
+    expect(tables.qr_cart_items!.every((l) => l.fire_at === DB_NOW)).toBe(true);
+    expect(error).toHaveBeenCalledWith(
+      "[kitchen] Cook now fired the lines; the order write threw",
+      {
+        cartId: CART,
+        message: "socket hang up",
+      },
+    );
   });
 
   it("an unreadable DB clock moves the order on the app clock, logged", async () => {

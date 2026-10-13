@@ -37696,6 +37696,15 @@ const MUTANTS = [
       '      ? new Date().toISOString()\n      : (() => {\n          console.error("[kitchen] mms_now unreadable — the held order moves on the app clock"',
   },
   {
+    id: "lcr/kitchen/cook-now-throw-surfaces",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — a THROWN order write rejects Cook now after its lines fired: the cook reads a failure and taps a live ticket again",
+    find: '  } catch (e) {\n    console.error("[kitchen] Cook now fired the lines; the order write threw", {',
+    replace:
+      '  } catch (e) {\n    throw e;\n    console.error("[kitchen] Cook now fired the lines; the order write threw", {',
+  },
+  {
     id: "lcr/pickup-promise/started-bag-still-booked",
     file: "apps/qr/lib/pickup-promise.ts",
     suite: "lib/cook-now.test.ts",

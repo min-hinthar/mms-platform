@@ -648,6 +648,19 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
  * success. Nothing here is surfaced to the cook: the tickets are already live.
  */
 async function fireHeldOrderNow(cartId: string): Promise<void> {
+  // A THROW is caught too, not only a returned `{ error }`: the lines are already live, so the cook
+  // must never read "Couldn’t fire that ticket" (and tap again) over an order write that broke.
+  try {
+    await moveHeldOrder(cartId);
+  } catch (e) {
+    console.error("[kitchen] Cook now fired the lines; the order write threw", {
+      cartId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+async function moveHeldOrder(cartId: string): Promise<void> {
   const db = serviceClient();
   const clock = await db.rpc("mms_now");
   const nowIso =
