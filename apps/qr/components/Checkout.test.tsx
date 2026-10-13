@@ -3861,7 +3861,7 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
     qrCode: null,
-  };
+  } as unknown as NonNullable<Parameters<typeof Checkout>[0]["splitContext"]>;
   const bill = () => mount({ splitContext: HOST, initialItems: [FIRED] });
   const box = () => screen.getByRole("textbox", { name: /promo/i }) as HTMLInputElement;
   const described = (el: HTMLElement) =>
