@@ -52,6 +52,9 @@ let dbNow: string | null = DB_NOW;
 /** Called after each page of the open-cart line read, with its 1-based page number. */
 let betweenPages: (page: number) => void = () => {};
 let openPages = 0;
+/** Every IN-list each read asked for, by table and column, in order (#360's blind pass: the lookup
+ *  SET is asserted, and the paid read's chunks are counted). */
+let inLog: { table: string; col: string; vals: unknown[]; select: string }[] = [];
 
 /** One PostgREST filter term — `col.op.value`, or an `and(…)` of terms. The value may be quoted. */
 type Term = { col: string; op: string; val: string } | { and: Term[] };
@@ -162,6 +165,7 @@ function tableApi(name: string) {
     },
     in(col: string, vals: unknown[]) {
       ins.push([col, vals]);
+      inLog.push({ table: name, col, vals, select });
       return api;
     },
     limit(n: number) {
@@ -243,6 +247,7 @@ beforeEach(() => {
   dbNow = DB_NOW;
   betweenPages = () => {};
   openPages = 0;
+  inLog = [];
   rows = {
     table_sessions: [
       {
@@ -601,9 +606,18 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
         menu_item_id: MENU,
       }),
     ];
+    // the LOOKUP itself: inside the window the dish is looked up…
+    const menuAsks = () =>
+      inLog.filter((r) => r.table === "menu_items" && r.col === "id").map((r) => r.vals);
+    expect(menuAsks()).toEqual([[MENU]]);
+    inLog = [];
     const after = (await table7()).t.kitchen;
     expect(after?.inKitchen).toBe(0);
     expect(after?.soldOut).toBe(0);
+    // …and once it has settled it is not looked up at all: the fold drops it from the count either
+    // way, so only the lookup set can show a filter widened to every served dish (#360's blind pass).
+    // lck/floor/sold-out-lookup-widened — red.
+    expect(menuAsks()).toEqual([]);
   });
 
   it("an unreadable menu flags nothing and never takes the room down", async () => {
