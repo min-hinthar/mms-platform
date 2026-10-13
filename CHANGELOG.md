@@ -17,11 +17,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   kitchen"), T59 (`totals.test.ts` answers the charged reads whatever their key), M292 (the split
   door's release owner, guarded only by prose until it reopens) and F38 (a keyboard Apply pulls focus
   back into the promo box).
-- **LEARNINGS #271–#276:** a PR comment states only what the session has read back; reserve an ID
+- **LEARNINGS #271–#277:** a PR comment states only what the session has read back; reserve an ID
   range per parallel stream; parse every registry table with its own header and set-check the read;
   Prettier moves `_…_` emphasis around identifiers with underscores; and a fix round that makes things
   worse is reverted to reviewed bytes and filed, not fixed a third time; and a focus assertion waits
-  for the focus move itself, never reads it straight after the commit.
+  for the focus move itself, never reads it straight after the commit; and the open PRs are probed
+  merged together, cumulatively, before any is called mergeable.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 

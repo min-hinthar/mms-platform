@@ -4202,3 +4202,19 @@ anything an effect does (focus, a scroll, a timer's write) waits for that thing 
 (`await waitFor(() => expect(document.activeElement).toBe(box))`). Never read it straight after a
 `waitFor` on the render that schedules it. A negative check ("focus did not move") is safe only when
 no effect could move it on that path.
+
+## #277
+
+**Merge the open PRs together, cumulatively, before calling any of them mergeable; and never resolve a
+probe merge with `-X ours` (2026-10-13).** Six PRs were green on their own heads, and each one merged
+cleanly into `main` on its own. Merged together, the tree failed typecheck and one test. #356 changed
+`SplitContext` (it dropped `qrCode` and made `sessionId` required), and fixtures that #352, #354 and #355
+had each written against the old shape no longer compiled. #356's PD2 lift also made the counter door
+live over unsent dishes, so #354's new case lost the held door it relied on. The first probe tested
+each PR alone against `main`, which cannot see a clash between two PRs. The second used `-X ours` for
+the docs conflicts, and that silently took one side of a code conflict too, dropping #355's
+`matchesFocusVisible` import. The rule: probe the whole set cumulatively in a scratch worktree, merging
+in the planned order. Resolve only `.md` conflicts by hand, and stop on any code conflict. Then run
+typecheck and the suite on the result. Fix a clash in the PRs themselves with a change that holds on
+both sides of the other PR's merge (here, the suite's own fixture cast, and an assertion that reads
+whatever answer the screen gives).
