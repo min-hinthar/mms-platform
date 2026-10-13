@@ -436,14 +436,25 @@ export async function getFloorView(): Promise<FloorPoll> {
     cartIds.length
       ? readOpenLines()
       : Promise.resolve({ data: [] as FloorLineRow[], error: null, saturated: false }),
+    // #360's blind pass (question c) — the paid carts in IN-lists of at most `REFUND_ID_CHUNK`, in
+    // parallel: the order read above has no cap, so one session past 200 rounds put 200+ uuids in
+    // one URL (~7.8 KB) against a gateway limit nobody has measured. Each chunk keeps the line cap;
+    // the merged rows fold, and a merge AT the cap still says the kitchen is unknown below.
     paidCartIds.length
-      ? db
-          .from("qr_cart_items")
-          // `id` — Phase 2d · Codex round 1 · ready: half of a served line's ready key (`upKey`).
-          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat,menu_item_id")
-          .in("cart_id", paidCartIds)
-          .in("state", ["fired", "in_progress", "served"])
-          .limit(FLOOR_LINE_CAP)
+      ? Promise.all(
+          chunkIds(paidCartIds, REFUND_ID_CHUNK).map((chunk) =>
+            db
+              .from("qr_cart_items")
+              // `id` — Phase 2d · Codex round 1 · ready: half of a served line's ready key (`upKey`).
+              .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat,menu_item_id")
+              .in("cart_id", chunk)
+              .in("state", ["fired", "in_progress", "served"])
+              .limit(FLOOR_LINE_CAP),
+          ),
+        ).then((reads) => ({
+          data: reads.flatMap((r) => r.data ?? []),
+          error: reads.find((r) => r.error)?.error ?? null,
+        }))
       : Promise.resolve({ data: [] as PaidLineRow[], error: null }),
   ]);
   if (open.data === null || paidLinesError) return { ok: false, reason: "outage" };
@@ -455,7 +466,9 @@ export async function getFloorView(): Promise<FloorPoll> {
     return { ok: false, reason: "outage" };
   }
   const lines = open.data;
-  // A full paid-cart page: the kitchen is unknown this poll — said once, never folded partial.
+  // A full paid-cart page: the kitchen is unknown this poll — said once, never folded partial. Read in
+  // chunks, any chunk at the cap makes the merge reach it too (conservatively: a merge of short
+  // chunks that reaches it also reads as unknown — a degrade, never a partial fold).
   const kitchenUnknown = queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say";
   if (kitchenUnknown)
     console.error("[floor] paid-cart line read saturated — the kitchen row is unknown this poll", {

@@ -651,4 +651,33 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
     ];
     expect((await table7()).snap.settleInMs).toBeNull();
   });
+
+  it("a session past 200 rounds reads its paid carts in IN-lists of at most 50, every chunk folded (#360's blind pass, question c)", async () => {
+    // The floor's order read has no cap, so one long night puts 200+ cart uuids in one URL (~7.8 KB
+    // at 200) against an unmeasured gateway limit. lck/floor/paid-lines-one-in-list — red.
+    // lck/floor/paid-lines-chunk-dropped — red.
+    rows.qr_orders = Array.from({ length: 202 }, (_, i) => ({
+      id: `o-${i}`,
+      session_id: S7,
+      cart_id: `c-paid-${i}`,
+      total_cents: 1200,
+      created_at: ago(30 + i),
+      status: "paid",
+      refunded_cents: 0,
+    }));
+    rows.qr_cart_items = [
+      line({ id: "l-first", cart_id: "c-paid-0", state: "fired", fire_at: ago(9) }),
+      line({ id: "l-last", cart_id: "c-paid-201", state: "in_progress", fire_at: ago(8) }),
+    ];
+    const { snap, t } = await table7();
+    const paidAsks = inLog.filter(
+      (r) =>
+        r.table === "qr_cart_items" &&
+        r.col === "cart_id" &&
+        !r.select.includes("unit_price_cents"),
+    );
+    expect(paidAsks.map((r) => r.vals.length)).toEqual([50, 50, 50, 50, 2]);
+    expect(t.kitchen?.inKitchen).toBe(2);
+    expect(snap.kitchenUnknown).toBe(false);
+  });
 });
