@@ -25,6 +25,7 @@ vi.mock("./nav/TransitionNav", () => ({
 }));
 
 const { MenuTimeline } = await import("./TableTimeline");
+const { passClock } = await import("@/lib/live-pass");
 
 const NOW = "2026-10-08T10:00:00.000Z";
 const COOKING: CartItem = {
@@ -71,7 +72,10 @@ describe("MenuTimeline — session truth", () => {
     }
   });
 
-  it("finding 7 — a PAID table keeps its last view, QUIET (no dessert, no pay nudge) and labelled as no longer live", () => {
+  it("finding 7 — a PAID table keeps its last view, QUIET (no dessert, no pay nudge), captioned with when that view was READ", () => {
+    // CRITICAL 2 (the blind pass on #361): the caption names the last successful read's DATABASE
+    // clock (`dbNow`), never the settle moment — the view may predate a pocketed phone by an hour.
+    // MUTATION (lcs/strip-caption-ignores-the-read): caption without the read's clock.
     ctx.current = {
       ...LIVE,
       ended: { kind: "paid", tender: "counter", orderId: "o-1", sessionLive: true },
@@ -79,7 +83,9 @@ describe("MenuTimeline — session truth", () => {
     render(<MenuTimeline />);
     const strip = screen.getByRole("region", { name: "Kitchen status" }).textContent ?? "";
     expect(strip).toContain("Mohinga is being made");
-    expect(strip).toContain("As it stood when your bill was paid — this list won’t update here.");
+    expect(passClock(NOW)).not.toBe("");
+    expect(strip).toContain(`Last updated ${passClock(NOW)} — this list won’t update here.`);
+    expect(strip).not.toContain("when your bill was paid");
     expect(strip).not.toContain("Room for dessert");
   });
 

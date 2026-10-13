@@ -181,16 +181,66 @@ export function dineinMintEntry(s: {
 export const CLOSED_ORDER_CLAUSE = "this order has closed";
 
 /**
- * The correction for a write the ENDED table refused or swallowed. A write refused before it left
- * (the table already known ended) did not go through. One discovered on the way — the write threw
- * and the explanation came back terminal — did not either, with one exception: a PAID table, where
- * the dish can have committed a beat before the register took the bill, so that sentence says only
- * what we know.
+ * The correction for a write whose answer was LOST when the table turned out to have ended under it.
+ *
+ * ⚠️ NEVER "DIDN'T GO THROUGH" — the provider's own invariant: A THROW IS NOT PROOF THE WRITE DID NOT
+ * LAND (the blind pass on #361, CRITICAL 1). `addItem` commits its line and only THEN reads the view,
+ * so an Add racing a staff MERGE can land its line, have the merge re-parent that line onto the
+ * target table's cart and cancel this one, and then throw `cart_closed` on its trailing read — with
+ * the dish on the target table's order, cooking and charged there. A clear (which voids or cancels
+ * it) and the sweep cannot be told apart from that by this phone either, and a paid table may have
+ * taken the dish into its bill a beat before the register closed it. So every arm says the write is
+ * UNCONFIRMED and names the one person who can see where it went: re-adding it is the one action that
+ * can put it on two bills.
+ *
+ * A write refused BEFORE it left (the table already held) is a different sentence — nothing was
+ * sent — and the provider says that one itself (`CLOSED_ORDER_CLAUSE`).
  */
 export function endedWriteNotice(end: TableEnd, name?: string): string {
   if (end.kind === "paid")
     return `We couldn’t confirm ${name ?? "that"} — your table’s bill was paid just then.`;
-  return `${name ?? "That"} didn’t go through — ${CLOSED_ORDER_CLAUSE}.`;
+  return `We couldn’t confirm ${name ?? "that"} — this table’s order has closed; ask our staff whether it made it onto your order before you add it again.`;
+}
+
+/**
+ * The caption under a paid table's LAST kitchen view (the read is gone for good, `cart_closed`).
+ *
+ * It names when the last SUCCESSFUL read landed — `lastReadIso`, the applied view's DATABASE clock
+ * (`getCartView.dbNow`) — never the settle moment: the view may predate a pocketed phone by an hour,
+ * and "as it stood when your bill was paid" would then be a claim nothing proves (the blind pass on
+ * #361, CRITICAL 2). `clock` formats the instant (the house's restaurant-zone wall clock); an
+ * unreadable or absent instant says only what is certain.
+ */
+export function staleCaption(lastReadIso: string | null, clock: (iso: string) => string): string {
+  const at = lastReadIso ? clock(lastReadIso) : "";
+  return at ? `Last updated ${at} — this list won’t update here.` : "This list won’t update here.";
+}
+
+/**
+ * Is keyboard focus ORPHANED — nowhere, on <body>, or left on a control that has just gone inert
+ * under it (a natively `disabled` Add or Send, or one held `aria-disabled`)? The card a table that
+ * ended draws takes focus only then (WCAG 2.4.3), and never from a live control the diner chose.
+ */
+export function focusOrphaned(active: Element | null, body: Element | null): boolean {
+  if (!active || active === body) return true;
+  if (active.getAttribute("aria-disabled") === "true") return true;
+  return typeof (active as HTMLElement).matches === "function" && active.matches(":disabled");
+}
+
+/**
+ * Finding 5 — does "Leave this table" take the Send from someone else? Only the host sends, so only
+ * the host's leave strands a round, and only when the table's DURABLE party (`session_members`, via
+ * `getSplitContext`) holds another seat. Presence is not the party: it is empty before the first
+ * sync and drops a phone that is merely face down (Codex round 1 on #361). Unknown (`null`, a read
+ * that has not landed or failed) claims nothing.
+ */
+export function leaveTakesTheSend(s: {
+  role: "host" | "guest" | null;
+  mySeat: string | null;
+  partySeats: readonly string[] | null;
+}): boolean {
+  if (s.role !== "host" || s.partySeats === null) return false;
+  return s.partySeats.some((seat) => seat !== s.mySeat);
 }
 
 /** The sentence the one live region says when a table is HELD — the card's own title. */

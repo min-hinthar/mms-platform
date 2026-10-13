@@ -34,6 +34,8 @@ vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
 vi.mock("@/components/MenuTableEnded", () => ({ MenuTableEnded: none }));
+// Session truth — the host's durable party is read through a Server Action; nobody here is a host.
+vi.mock("@/lib/durable-party", () => ({ useDurableParty: () => null }));
 vi.mock("@/components/DoorSheet", () => ({ DoorSheet: none }));
 vi.mock("@/components/PullToRefresh", () => ({ PullToRefresh: none }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: none }));

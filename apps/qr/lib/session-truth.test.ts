@@ -10,9 +10,11 @@ import {
   endPollDelayMs,
   END_POLL_MS,
   endTrackHref,
+  leaveTakesTheSend,
   mintNotice,
   sessionLive,
   settleEdgeNotice,
+  staleCaption,
   tableEnded,
   type CartOutcome,
   type TableEnd,
@@ -329,16 +331,54 @@ describe("the words — never 'idle', always the cause we know", () => {
     expect(mintNotice({ ...base, created: true, replacedStored: true })).toBeNull();
   });
 
-  it("a write the ENDED table swallowed is retracted with the cause; a paid table only says what we know", () => {
-    expect(endedWriteNotice(CLEARED, "Mohinga")).toBe(
-      `Mohinga didn’t go through — ${CLOSED_ORDER_CLAUSE}.`,
-    );
-    expect(endedWriteNotice(CLOSED)).toBe(`That didn’t go through — ${CLOSED_ORDER_CLAUSE}.`);
-    // MUTATION (lcs/paid-write-claims-a-refusal): say "didn't go through" for a paid table — the
-    // dish may have committed a beat before the register took the bill, and a re-add charges twice.
+  it("a write whose answer was lost when the table ENDED is UNCONFIRMED, never refused — on every end", () => {
+    // The blind pass on #361, CRITICAL 1. An Add commits its line, a racing staff MERGE re-parents
+    // that line onto the target table's cart and cancels this one, and the Add's trailing read
+    // throws `cart_closed`: the dish is on the target's order, cooking and charged there. "Mohinga
+    // didn't go through" invited the re-add that puts it on two bills. A clear and the sweep look
+    // the same from this phone, so every end says what we know — and who can see where it went.
+    // MUTATION (lcs/ended-write-claims-a-refusal): the retired "didn't go through" sentence back.
+    for (const end of [CLEARED, CLOSED, EXPIRED]) {
+      expect(endedWriteNotice(end, "Mohinga")).toBe(
+        "We couldn’t confirm Mohinga — this table’s order has closed; ask our staff whether it made it onto your order before you add it again.",
+      );
+      expect(endedWriteNotice(end)).toMatch(/^We couldn’t confirm that — /);
+      expect(endedWriteNotice(end, "Mohinga")).not.toMatch(/didn’t go through/);
+    }
+    // MUTATION (lcs/paid-write-claims-a-refusal): drop the paid arm — the paid table borrows the
+    // closed table's sentence, which names no payment.
     expect(endedWriteNotice(PAID, "Mohinga")).toBe(
       "We couldn’t confirm Mohinga — your table’s bill was paid just then.",
     );
+    // The DOOR's refusal (nothing was sent) is the provider's own sentence, from this clause.
+    expect(CLOSED_ORDER_CLAUSE).toBe("this order has closed");
+  });
+
+  it("CRITICAL 2 — the paid strip's caption names when the last READ landed, never the settle moment", () => {
+    // MUTATION (lcs/stale-caption-claims-the-settle): the retired "As it stood when your bill was
+    // paid" — unprovable when the last view predates a pocketed phone by an hour.
+    const clock = (iso: string) => (iso === "2026-10-13T02:42:00.000Z" ? "7:42 PM" : "");
+    expect(staleCaption("2026-10-13T02:42:00.000Z", clock)).toBe(
+      "Last updated 7:42 PM — this list won’t update here.",
+    );
+    // No view ever read, or a clock that cannot be read: only what is certain.
+    expect(staleCaption(null, clock)).toBe("This list won’t update here.");
+    expect(staleCaption("not a date", clock)).toBe("This list won’t update here.");
+    for (const c of [staleCaption("2026-10-13T02:42:00.000Z", clock), staleCaption(null, clock)])
+      expect(c).not.toMatch(/paid/);
+  });
+
+  it("finding 5 — the leave takes the Send only from a HOST whose DURABLE party holds another seat; unknown claims nothing", () => {
+    // MUTATION (lcs/leave-warning-counts-the-host-alone): count every seat — a host alone at the
+    // table is warned about others who do not exist.
+    expect(leaveTakesTheSend({ role: "host", mySeat: "me", partySeats: ["me", "aye"] })).toBe(true);
+    expect(leaveTakesTheSend({ role: "host", mySeat: "me", partySeats: ["me"] })).toBe(false);
+    // A guest's leave strands nothing: only the host sends.
+    expect(leaveTakesTheSend({ role: "guest", mySeat: "me", partySeats: ["me", "aye"] })).toBe(
+      false,
+    );
+    // The party not read yet (or unreadable): no claim either way.
+    expect(leaveTakesTheSend({ role: "host", mySeat: "me", partySeats: null })).toBe(false);
   });
 
   it("the card names each end by its own words, and the paid arms reuse the Bill's close", () => {
@@ -379,6 +419,17 @@ describe("the words — never 'idle', always the cause we know", () => {
     expect(t("en", "tableClearedBody")).toBe(
       "Anything not yet served was cancelled — you won’t be charged for it.",
     );
+    // The blind pass on #361 — after a MERGE the dishes are still cooking and charged on the table
+    // it moved to: the closed card sends the diner to staff before a second order.
+    expect(t("en", "tableClosedBody")).toBe(
+      "Nothing more can be added from this phone — if your table was moved, ask our staff before you order again.",
+    );
+    // The sweep closes the SESSION, not the bill: the register can still take what is owed, so the
+    // expired card never says "it closed".
+    expect(t("en", "tableExpiredBody")).toBe(
+      "Nothing had changed on it for hours, so this phone can’t add to it any more — anything owed can still be paid at the counter.",
+    );
+    expect(t("en", "tableExpiredBody")).not.toMatch(/so it closed/);
   });
 
   it("the tracker is offered only for an order this seat may see", () => {

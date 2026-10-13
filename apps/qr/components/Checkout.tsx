@@ -13,7 +13,8 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterDock, PayAtCounterPass } from "./PayAtCounter";
 import { TableEndedCard } from "./TableEnded";
-import { endedNewsKey, type TableEndReason } from "@/lib/session-truth";
+import { endedNewsKey, endPollDelayMs, type TableEndReason } from "@/lib/session-truth";
+import { useEndPoll } from "@/lib/end-poll";
 import { LivePass } from "./LivePass";
 import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
@@ -1043,6 +1044,17 @@ export function Checkout({
     if (outcome === "failed") onReadFailed();
     return outcome;
   }, [cartId, applyCartView, onReadFailed]);
+
+  // Session truth (Codex round 1 on #361) — the terminal-state probe while the Bill stays OPEN. A
+  // staff Clear or a Merge closes the session in the transaction that ends the cart, so no Realtime
+  // event reaches this phone, and a Bill nobody taps stayed stale and editable for as long as it was
+  // open. So a dine-in Bill asks the failed read's own question (`onReadFailed`: the pay step is
+  // skipped, one ask at a time) once a minute while visible — the menu's cadence and tick, shared
+  // (`endPollDelayMs`, `useEndPoll`), never copied — and stops once a close is drawn.
+  useEndPoll(
+    endPollDelayMs({ isGroup: isDineIn, hasCart: true, ended: settledClose !== null }),
+    onReadFailed,
+  );
 
   /**
    * M224 — DIAGNOSE a refused cart write from ONE ticketed re-read, and say what it found.
@@ -3858,7 +3870,10 @@ export function Checkout({
                 (`releasePayAttempt` is scoped to `locked_by = uid` and would match nothing), and
                 offering a button that silently does nothing is the defect this row is about, one
                 layer up. `held` gets no action either: we do not know the lock is ours. */}
-            {freezeMessage && (
+            {/* Session truth (Codex round 1 on #361) — never beside a close: a table that ended
+                (or paid) has no freeze left to wait on, and "Check again" / "Reopen the order"
+                next to the card that says it closed would offer a door that does not exist. */}
+            {freezeMessage && settledClose === null && (
               <div
                 style={{
                   display: "flex",

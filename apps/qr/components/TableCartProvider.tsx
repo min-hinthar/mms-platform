@@ -58,6 +58,7 @@ import {
   endedNewsKey,
   endedWriteNotice,
   endPollDelayMs,
+  focusOrphaned,
   mintNotice,
   settleEdgeNotice,
   tableEnded,
@@ -66,6 +67,7 @@ import {
 } from "@/lib/session-truth";
 import { surfaceOpen } from "@/lib/surfaces";
 import { t } from "@/lib/i18n";
+import { useEndPoll } from "@/lib/end-poll";
 import {
   useCartRealtime,
   useGroupCart,
@@ -351,6 +353,15 @@ export function TableCartProvider({
   useLayoutEffect(() => {
     cartIdRef.current = cartId;
   }, [cartId]);
+  // Session truth (the blind pass on #361) — and NULLED on unmount: `holdEnd` and `settleFate` act
+  // only on an answer about `cartIdRef.current`, so a poll or diagnosis answer that lands after the
+  // provider is gone (a navigation away mid-ask) can never speak or set state on an unmounted tree.
+  useEffect(
+    () => () => {
+      cartIdRef.current = null;
+    },
+    [],
+  );
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -814,15 +825,20 @@ export function TableCartProvider({
   const prevCartIdRef = useRef<string | null>(null);
 
   /**
-   * Session truth — WHY could this cart not be read? Asked once per failed read, of the one
-   * member-gated server answer (`counterPayOutcome`, classified by `cartFate`), and DEDUPED while one
-   * is out: an echo burst, a focus and a poll tick landing together ask once. A throw is `unknown`
-   * (an outage establishes nothing — the M116 rule).
+   * Session truth — WHY could this cart not be read? Asked of the one member-gated server answer
+   * (`counterPayOutcome`, classified by `cartFate`). A throw is `unknown` (an outage establishes
+   * nothing — the M116 rule).
+   *
+   * DEDUPED for PASSIVE triggers only — an echo burst, a focus and a poll tick landing together ask
+   * once. A WRITE's diagnosis passes `fresh` and always issues its own ask (the blind pass on #361):
+   * a poll asked a beat BEFORE a Clear committed answers `open`, and a write that reused that stale
+   * answer skipped the hold and re-minted under the diner — the exact silent re-mint this exists to
+   * end. The fresh ask also becomes the one later passive triggers share.
    */
   const whyRef = useRef<{ cartId: string; p: Promise<CartOutcome> } | null>(null);
-  const askWhy = useCallback((id: string): Promise<CartOutcome> => {
+  const askWhy = useCallback((id: string, fresh = false): Promise<CartOutcome> => {
     const out = whyRef.current;
-    if (out && out.cartId === id) return out.p;
+    if (!fresh && out && out.cartId === id) return out.p;
     const p = counterPayOutcome({ cartId: id })
       .catch((): CartOutcome => ({ kind: "unknown" }))
       .finally(() => {
@@ -938,12 +954,16 @@ export function TableCartProvider({
       replacedStored: session.replacedStored,
     });
     void Promise.resolve().then(() => {
+      // J18 — a mint that SUCCEEDED ends the diner's retry: the solo banner's "Reconnecting…" belongs
+      // to the retry the diner pressed, never to a later automatic re-mint (the blind pass on #361,
+      // CRITICAL 3 — the tick was never reset, so every later re-mint raised a `role="alert"`
+      // "Reconnecting to your order…" while the polite region said a new order had started).
+      setSoloRetryTick(0);
       if (restarted) {
         setRestarting(false);
         // The card — and the button the diner pressed — has just left the page: give focus to the
         // menu's heading rather than <body> (WCAG 2.4.3), only if nothing else has taken it.
-        const active = document.activeElement;
-        if (!active || active === document.body)
+        if (focusOrphaned(document.activeElement, document.body))
           document.querySelector<HTMLElement>("main h1")?.focus({ preventScroll: true });
       }
       if (notice) flash(notice.text, notice.ms);
@@ -1000,16 +1020,16 @@ export function TableCartProvider({
    * covers the return). The ask is `counterPayOutcome` itself, not a full view read: an open cart
    * answers in three indexed reads and changes nothing on screen. The poll stops the moment the
    * table is held (`endPollDelayMs`). It renews nothing — an abandoned tab never keeps a table alive.
+   * The interval and its visibility rule are `useEndPoll` (lib/end-poll), shared with /cart.
    */
+  // The cadence (`endPollDelayMs`) and the visible-only tick (`useEndPoll`) are shared with the Bill.
   const endPollMs = endPollDelayMs({ isGroup, hasCart: cartId !== null, ended: endedNow !== null });
-  useEffect(() => {
-    if (endPollMs === null || !cartId) return;
-    const id = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void askWhy(cartId).then((o) => settleFate(cartId, o, false));
-    }, endPollMs);
-    return () => window.clearInterval(id);
-  }, [endPollMs, cartId, askWhy, settleFate]);
+  const endPollTick = useCallback(() => {
+    const id = cartIdRef.current;
+    if (!id) return;
+    void askWhy(id).then((o) => settleFate(id, o, false));
+  }, [askWhy, settleFate]);
+  useEndPoll(endPollMs, endPollTick);
 
   /**
    * T20 — the one thing that lets a stale freeze heal on /menu.
@@ -1214,7 +1234,7 @@ export function TableCartProvider({
       // re-mints with its cause said, and only an unknowable answer takes the shipped re-mint.
       let held: TableEnd | null = null;
       if (refusalNeedsRemint(refusal)) {
-        const o = await askWhy(id);
+        const o = await askWhy(id, true);
         if (isGroup && tableEnded(o)) held = o;
         settleFate(id, o, true);
       }

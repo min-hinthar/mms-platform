@@ -17,6 +17,8 @@ import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { MenuTableEnded } from "@/components/MenuTableEnded";
+import { useDurableParty } from "@/lib/durable-party";
+import { leaveTakesTheSend } from "@/lib/session-truth";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -212,9 +214,12 @@ export function MenuBrowser({
   // sheet cannot read it itself and the menu — which has it — passes it down.
   const { cartId, announce, refresh, tableNumber, role, members, me } = useCart();
   // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
-  // and someone else is at the table: leaving takes the Send with it, and the DoorSheet says so before
-  // the tap (`hostOfParty`). Presence is what the menu has; a party not yet synced reads as alone.
-  const sendsForOthers = role === "host" && members.some((m) => m.seat !== me?.seat);
+  // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
+  // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
+  // before the first sync, and missing every phone that is face down (Codex round 1 on #361). Re-read
+  // when presence grows: a join shows there first.
+  const partySeats = useDurableParty(cartId, mode === "dinein" && role === "host", members.length);
+  const sendsForOthers = leaveTakesTheSend({ role, mySeat: me?.seat ?? null, partySeats });
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed

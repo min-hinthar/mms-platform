@@ -172,7 +172,11 @@ describe("PD1 — the guest's two ways forward, named from the table's own names
   });
   it("a tablemate's standing nudge is named as THEIRS — never 'Aye can see you're waiting'", () => {
     const c = alreadyNudgedCopy("Thiri", " Aye ");
-    expect(c.en).toBe("Thiri already let Aye know — they can see the table’s waiting.");
+    // Session truth (the lead's call, m1 §H item 3) — like the confirmation, it claims nothing the
+    // code cannot keep: "they can see the table's waiting" promised a screen nobody may be looking at.
+    // MUTATION (lcs/tablemate-nudge-claims-the-host-sees): the old "can see" line back; red.
+    expect(c.en).toBe("Thiri already let Aye know — if they’re away, Show a server sends it too.");
+    expect(c.en).not.toMatch(/can see/);
     expect(c.my).toContain("Thiri");
     expect(c.my).toContain("Aye");
     expect(c.en).not.toContain("you’re waiting");
@@ -180,7 +184,7 @@ describe("PD1 — the guest's two ways forward, named from the table's own names
       // MUTATION (confirm-copy/already-nudged-names-nobody): the blank name printed — " already let
       // Aye know"; red.
       expect(alreadyNudgedCopy(nameless, "Aye").en).toBe(
-        "Someone at your table already let Aye know — they can see the table’s waiting.",
+        "Someone at your table already let Aye know — if they’re away, Show a server sends it too.",
       );
     }
   });

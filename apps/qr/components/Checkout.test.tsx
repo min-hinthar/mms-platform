@@ -856,7 +856,61 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
         screen.getByRole("heading", { name: /Our staff closed this table’s order/ }),
       ).toBeTruthy(),
     );
-    expect(screen.getByText(/Nothing more can be added to it from this phone/)).toBeTruthy();
+    // Honest after a merge (the blind pass on #361): the dishes may be cooking — and charged — on
+    // the table it moved to, so the card sends the diner to staff before a second order.
+    expect(
+      screen.getByText(
+        /Nothing more can be added from this phone — if your table was moved, ask our staff before you order again\./,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("Codex round 1 on #361 (b) — a close never sits beside the freeze bar: no 'Check again' for a table that ended", async () => {
+    // MUTATION (lcs/bill-close-keeps-the-freeze-bar): the bar drawn under a close — "Check again"
+    // and the lock's sentence beside a card that says the table closed, a door that does not exist.
+    mount({ splitContext: DINE_IN, initialLocked: true, initialLockedBy: PEER_SEAT });
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+    await syncFromServer();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/is checking out/);
+  });
+
+  it("Codex round 1 on #361 (a) — a Bill left OPEN learns of a clear: the shared one-minute probe, visible-only, no tap needed", async () => {
+    // MUTATION (lcs/bill-never-probes): no probe on /cart — a clear or a merge leaves a stale,
+    // editable bill on screen for as long as it is open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({ kind: "open" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+      expect(screen.queryByRole("heading", { name: /Our staff closed this table/ })).toBeNull();
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("heading", { name: /Our staff closed this table’s order/ }),
+        ).toBeTruthy(),
+      );
+      // Once a close is drawn the probe stops.
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {
@@ -3465,7 +3519,8 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       ok: false,
       reason: "taken",
       nudge: { seat: MYA_SEAT, at: STAMP_AT },
-      error: "Someone at your table already let them know — they can see the table’s waiting.",
+      error:
+        "Someone at your table already let them know — if they’re away, Show a server sends it too.",
     });
     mountPD1({
       splitContext: {
@@ -3478,7 +3533,9 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     await settle();
     // MUTATION (checkout/taken-said-as-a-refusal): the `taken` branch dropped — the generic
     // sentence instead of the tablemate's name; red.
-    expect(regionText()).toContain("Mya already let Aye know — they can see the table’s waiting.");
+    expect(regionText()).toContain(
+      "Mya already let Aye know — if they’re away, Show a server sends it too.",
+    );
     // MUTATION (checkout/taken-recorded-as-this-phones-seat): the stamp recorded in this phone's
     // seat — the control settles over Mya's nudge with Thiri's confirmation; red.
     expect(document.getElementById("nudge-seen")).toBeNull();

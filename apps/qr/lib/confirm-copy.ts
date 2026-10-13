@@ -177,6 +177,11 @@ export function nudgeCopy(hostName: string): {
  * waiting", which would claim a stamp that is not theirs. The tablemate is named only by a name the
  * table CHOSE (`chosenName`); otherwise "Someone at your table". Both MY lines are K15 drafts (m1,
  * quiet).
+ *
+ * Session truth (the lead's call, m1 §H item 3) — like the confirmation above, it claims only what the
+ * code keeps: "they can see the table's waiting" was a promise about a screen nobody may be looking
+ * at, so it names the wait block's own "Show a server" instead. Both MY lines are K15 drafts
+ * (session truth), built from `showServer`'s words.
  */
 export function alreadyNudgedCopy(
   nudgerName: string | null,
@@ -186,11 +191,11 @@ export function alreadyNudgedCopy(
   const host = hostName.trim();
   return who
     ? {
-        en: `${who} already let ${host} know — they can see the table’s waiting.`,
-        my: `${who} က ${host} ကို ပြောပြီးသားပါ — စားပွဲက စောင့်နေတာ မြင်ရပါတယ်`,
+        en: `${who} already let ${host} know — if they’re away, Show a server sends it too.`,
+        my: `${who} က ${host} ကို ပြောပြီးသားပါ — ${host} မရှိရင် ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ`,
       }
     : {
-        en: `Someone at your table already let ${host} know — they can see the table’s waiting.`,
-        my: `စားပွဲက တစ်ယောက်က ${host} ကို ပြောပြီးသားပါ — စောင့်နေတာ မြင်ရပါတယ်`,
+        en: `Someone at your table already let ${host} know — if they’re away, Show a server sends it too.`,
+        my: `စားပွဲက တစ်ယောက်က ${host} ကို ပြောပြီးသားပါ — ${host} မရှိရင် ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ`,
       };
 }

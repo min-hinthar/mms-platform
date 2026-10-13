@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import type { CartItem } from "@mms/db";
 import { KitchenTrack, type KitchenStage } from "@mms/ui";
 import { DINER_STAGE_WORD } from "@/lib/line-state-copy";
-import { passRowStage, trackLineOf } from "@/lib/live-pass";
+import { passClock, passRowStage, trackLineOf } from "@/lib/live-pass";
 import { rollUp } from "@/lib/kitchen-track";
 import { useCart } from "./TableCartProvider";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { surfaceOpen } from "@/lib/surfaces";
+import { staleCaption } from "@/lib/session-truth";
 
 /**
  * J3 — the wait, designed (docs/JOURNEY_PLAN.md). A slim strip that narrates the meal's REAL kitchen
@@ -309,8 +310,9 @@ export function MenuTimeline() {
   // Session truth — a table that CLOSED (a staff Clear voided its sent dishes; a merge moved them;
   // the sweep ended it) has nothing cooking here: the strip would say "being made" over food the
   // kitchen was told to stop. A PAID table's food is still cooking, but no read reaches its cart
-  // any more — so its last view stays, quiet and labelled as such, under the card that links the
-  // live tracker when this seat may see it.
+  // any more — so its last view stays, quiet, captioned with when that view was READ (`dbNow`, the
+  // last applied view's database clock — never the settle moment, which nothing here observed),
+  // under the card that links the live tracker when this seat may see it.
   if (ended && ended.kind !== "paid") return null;
   return (
     <TimelineStrip
@@ -331,7 +333,7 @@ export function MenuTimeline() {
       // is OPEN: parked, every freeze is the register's, and GuestList's banner already says the
       // register's own sentence (`registerSettling`) on this screen.
       settling={settling && surfaceOpen("selfServeSplit")}
-      stale={ended ? "As it stood when your bill was paid — this list won’t update here." : null}
+      stale={ended ? staleCaption(dbNow, passClock) : null}
     />
   );
 }

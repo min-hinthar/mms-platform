@@ -1610,6 +1610,15 @@ describe("TableCartProvider — the cart ref moves in the commit, not after it (
  * end is HELD (one card, no re-mint), a solo end re-mints with its cause said, and no sentence says
  * "idle".
  */
+/** A promise the test settles by hand — an answer still out while something else happens. */
+function deferred<T>() {
+  let resolve: (v: T) => void = () => {};
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 describe("session truth — a table that ended is held, named and never silently re-minted", () => {
   const COOKING: CartItem = { ...line(1), lineState: "in_progress" };
   const mountAt = (mode: "dinein" | "scango") => {
@@ -1662,23 +1671,103 @@ describe("session truth — a table that ended is held, named and never silently
     expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
   });
 
-  it("a write that finds the table MERGED away is retracted with the cause and does NOT re-mint (it used to re-mint and say 'sat idle')", async () => {
+  it("CRITICAL 1 — an Add whose line COMMITTED before a racing MERGE cancelled the cart is UNCONFIRMED, never 'didn't go through' — and nothing re-mints", async () => {
+    // The merge interleaving (the blind pass on #361): `addItem` commits the line, the merge
+    // re-parents it onto the target table's cart and cancels this one, and `addItem`'s TRAILING
+    // `getCartView` throws `cart_closed` — so the action rejects with the dish already on the
+    // target's order. The diagnosis read fails the same way and the explanation is `closed`. The
+    // dish may be cooking on the other table: "didn't go through" invited the re-add that puts it
+    // on two bills.
     // MUTATION (lcs/write-arm-re-mints-before-asking): `explainCaught` re-mints on the spot again —
     // the sticker re-hosts a table staff freed (M172) and the diner hears a false "idle" line.
+    const lineOnTheTarget = deferred<void>();
     mountAt("dinein");
     await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
-    h.addItem.mockRejectedValue(new Error("cart_closed"));
+    h.addItem.mockImplementation(async () => {
+      // The write lands (the target cart now holds it), THEN its own view read meets the closed cart.
+      lineOnTheTarget.resolve();
+      throw new Error("cart_closed");
+    });
     h.getCartView.mockRejectedValue(new Error("cart_closed"));
     h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
     let r: AddResult | undefined;
     await act(async () => {
       r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
     });
+    await lineOnTheTarget.promise;
     expect(r?.state).toBe("unconfirmed");
+    expect(r && mayRetry(r)).toBe(false);
     await drainDeferredAnnounces();
-    expect(spoken()).toContain("Mohinga didn’t go through — this order has closed.");
+    expect(spoken()).toContain(
+      "We couldn’t confirm Mohinga — this table’s order has closed; ask our staff whether it made it onto your order before you add it again.",
+    );
+    expect(spoken()).not.toContain("didn’t go through");
     expect(h.revalidate).not.toHaveBeenCalled();
     expect(ctl.ended).toEqual({ kind: "ended", why: "closed" });
+  });
+
+  it("a WRITE's diagnosis asks afresh — a poll's stale 'open', asked before the Clear committed, never decides it", async () => {
+    // The blind pass on #361. The poll asked a beat before staff's Clear committed and its answer
+    // is still out (it will say `open`); the Add then fails on the cleared cart. Reusing that
+    // in-flight answer skipped the hold and re-minted under the diner.
+    // MUTATION (lcs/write-reuses-a-passive-ask): the write's ask is deduped like a passive one.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      const stale = deferred<unknown>();
+      h.counterPayOutcome.mockReturnValueOnce(stale.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000); // the poll's ask, still out
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(1);
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+      h.addItem.mockRejectedValue(new Error("cart_closed"));
+      h.getCartView.mockRejectedValue(new Error("cart_closed"));
+      await act(async () => {
+        await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(2);
+      expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" });
+      expect(h.revalidate).not.toHaveBeenCalled();
+      // The stale answer, landing last, changes nothing.
+      await act(async () => {
+        stale.resolve({ kind: "open" });
+        await Promise.resolve();
+      });
+      expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" });
+      expect(h.revalidate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an answer that lands after the provider UNMOUNTED neither speaks nor schedules anything", async () => {
+    // The blind pass on #361: `cartIdRef` is nulled on unmount, so `holdEnd` and `settleFate` drop
+    // an answer about a cart this provider no longer shows.
+    // MUTATION (lcs/unmounted-provider-still-answers): drop the unmount clear — the late answer
+    // flashes into a tree that is gone and leaves its notice timer behind.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const utils = mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      await drainDeferredAnnounces();
+      const late = deferred<unknown>();
+      h.counterPayOutcome.mockReturnValueOnce(late.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(1);
+      utils.unmount();
+      vi.clearAllTimers();
+      late.resolve({ kind: "ended", why: "cleared" });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a held table refuses the next write AT THE DOOR — nothing is sent, the cause rides the result", async () => {
@@ -1893,5 +1982,47 @@ describe("J18 — the solo recovery banner stays mounted through its own retry",
     expect(screen.getByRole("alert").textContent).toContain("Reconnecting to your order…");
     fireEvent.click(busy);
     expect(h.revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("CRITICAL 3 — a retry that SUCCEEDED is over: a later automatic re-mint raises no 'Reconnecting…' alert", async () => {
+    // The blind pass on #361: the tick was never reset, so after one solo Try again every later
+    // automatic re-mint raised `role="alert"` "Reconnecting to your order…" while the polite region
+    // said a new order had started — two regions contradicting each other.
+    // MUTATION (lcs/solo-retry-never-ends): drop the reset — the alert returns on the next re-mint.
+    h.session.current = null;
+    h.error.current = "Couldn’t get you connected — try again";
+    h.revalidate.mockImplementation(() => {
+      h.error.current = null;
+      h.loading.current = true;
+    });
+    const tree = () => (
+      <TableCartProvider mode="pickup">
+        <Probe />
+      </TableCartProvider>
+    );
+    const { rerender } = render(tree());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Reconnecting…" });
+    // The retry's mint succeeds.
+    h.loading.current = false;
+    h.session.current = {
+      cartId: CART,
+      seat: MY_SEAT,
+      sessionId: "sess-1",
+      accessToken: "tok",
+      role: "host",
+      joinCode: null,
+      tableNumber: null,
+      created: false,
+    };
+    rerender(tree());
+    await drainDeferredAnnounces();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Later, an AUTOMATIC re-mint (a recovery the diner did not press): no session for a beat.
+    h.session.current = null;
+    h.loading.current = true;
+    rerender(tree());
+    await drainDeferredAnnounces();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

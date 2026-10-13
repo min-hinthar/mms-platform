@@ -3,7 +3,7 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { Button, Icon, buttonClass } from "@mms/ui";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { t } from "@/lib/i18n";
-import { endCardWords, type TableEnd } from "@/lib/session-truth";
+import { endCardWords, focusOrphaned, type TableEnd } from "@/lib/session-truth";
 
 /**
  * Session truth — the ONE card a table that ENDED shows, on the menu and on the Bill.
@@ -18,8 +18,9 @@ import { endCardWords, type TableEnd } from "@/lib/session-truth";
  *
  * It is NOT a live region: the provider says the title once through the view's one region when it
  * holds the table, and the Bill says it through its own. A persistent card, never a toast — the
- * fact does not expire. When it arrives while keyboard focus was orphaned (the Add the diner was on
- * goes inert under it), focus lands on its heading; otherwise it is left where the diner put it.
+ * fact does not expire. When it arrives while keyboard focus was orphaned — on <body>, or left on an
+ * Add or Send that went `disabled` / `aria-disabled` under it — focus lands on its heading; focus on
+ * a live control the diner chose is left where they put it.
  * Motion is the kit's dynamic-mount rise, reduced-motion-escorted by the kit.
  *
  * Pure props — the menu's mount (`MenuTableEnded`) reads the cart provider in its own file, so the
@@ -41,8 +42,10 @@ export function TableEndedCard({
   const words = endCardWords(end);
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    const active = document.activeElement;
-    if (!active || active === document.body) headingRef.current?.focus({ preventScroll: true });
+    // Orphaned includes focus left on an Add or Send that went inert under it (`focusOrphaned`):
+    // disabled, it is no place to keep a keyboard user.
+    if (focusOrphaned(document.activeElement, document.body))
+      headingRef.current?.focus({ preventScroll: true });
   }, []);
   const startPrimary = trackHref === null;
   const startLabel = (

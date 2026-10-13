@@ -196,24 +196,28 @@ export const CART = {
     my: "မထုတ်ရသေးတဲ့ ဟင်းတွေကို ဖျက်လိုက်ပါပြီ — အဲ့ဒါတွေအတွက် ငွေ မယူပါဘူး", // K15 draft (session truth)
   },
   // A close that left no record — a merge into another table, today. Neutral on purpose: nothing
-  // here may claim WHERE the order went (a `merged_into` marker is OPEN-ITEMS M293).
+  // here may claim WHERE the order went (a `merged_into` marker is OPEN-ITEMS M293). And it must not
+  // invite a duplicate (the blind pass on #361): after a merge the dishes are still cooking and
+  // charged on the target table, so the body sends the diner to staff before they order again.
   tableClosedTitle: {
     en: "Our staff closed this table’s order",
     my: "ဝန်ထမ်းက ဒီစားပွဲရဲ့ အော်ဒါကို ပိတ်လိုက်ပါပြီ", // K15 draft (session truth)
   },
   tableClosedBody: {
-    en: "Nothing more can be added to it from this phone.",
-    my: "ဒီဖုန်းကနေ ဘာမှ ထပ်ထည့်လို့ မရတော့ပါဘူး", // K15 draft (session truth)
+    en: "Nothing more can be added from this phone — if your table was moved, ask our staff before you order again.",
+    my: "ဒီဖုန်းကနေ ဘာမှ ထပ်ထည့်လို့ မရတော့ပါဘူး — စားပွဲ ပြောင်းသွားတာဆိုရင် ထပ်မမှာခင် ဝန်ထမ်းကို မေးပါနော်", // K15 draft (session truth) — HIGH: a duplicate order is a second charge
   },
   // The sweep: a session whose expiry passed (it slides on every touch, renewed once under half of
-  // `SESSION_TTL_MS` is left — so at least two quiet hours; "hours" claims no more than that).
+  // `SESSION_TTL_MS` is left — so at least two quiet hours; "hours" claims no more than that). The
+  // sweep closes the SESSION, not the bill (the blind pass on #361): the cart stays open and the
+  // register can still take what is owed, so the body says this PHONE can't add — never "it closed".
   tableExpiredTitle: {
     en: "This table’s order timed out",
     my: "ဒီစားပွဲရဲ့ အော်ဒါ အချိန်ကုန်သွားပါပြီ", // K15 draft (session truth)
   },
   tableExpiredBody: {
-    en: "Nothing had changed on it for hours, so it closed.",
-    my: "နာရီပေါင်းများစွာ ဘာမှ မပြောင်းလဲတော့လို့ ပိတ်သွားပါတယ်", // K15 draft (session truth)
+    en: "Nothing had changed on it for hours, so this phone can’t add to it any more — anything owed can still be paid at the counter.",
+    my: "နာရီပေါင်းများစွာ ဘာမှ မပြောင်းလဲတော့လို့ ဒီဖုန်းကနေ ထပ်ထည့်လို့ မရတော့ပါဘူး — ပေးစရာ ကျန်ရင် ကောင်တာမှာ ရှင်းလို့ ရပါသေးတယ်", // K15 draft (session truth) — HIGH: money (what is still owed)
   },
   startNewOrder: { en: "Start a new order", my: "အော်ဒါ အသစ် စမယ်" }, // K15 draft (session truth)
   trackYourOrder: {

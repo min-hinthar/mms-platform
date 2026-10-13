@@ -96,19 +96,48 @@ describe("TableEndedCard — the cause, in both tongues, and the way on", () => 
     );
   });
 
-  it("focus orphaned by the now-inert controls lands on the heading; focus the diner placed elsewhere is left alone", () => {
-    // MUTATION (lcs/card-steals-or-drops-focus): focus unconditionally, or never — either strands
-    // a keyboard user (WCAG 2.4.3).
-    (document.activeElement as HTMLElement | null)?.blur();
-    const first = render(<TableEndedCard end={CLEARED} trackHref={null} start={mint()} />);
-    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2 }));
-    first.unmount();
-    const other = document.createElement("button");
-    document.body.appendChild(other);
-    other.focus();
-    render(<TableEndedCard end={CLEARED} trackHref={null} start={mint()} />);
-    expect(document.activeElement).toBe(other);
-    other.remove();
+  describe("focus — orphaned focus lands on the heading; a live control the diner chose is left alone", () => {
+    const heading = () => screen.getByRole("heading", { level: 2 });
+    const card = () => render(<TableEndedCard end={CLEARED} trackHref={null} start={mint()} />);
+
+    it("focus on <body> (nowhere) moves to the heading", () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      card();
+      expect(document.activeElement).toBe(heading());
+    });
+
+    it("focus left on an Add that went natively DISABLED under it moves to the heading", () => {
+      // MUTATION (lcs/disabled-focus-is-not-orphaned): only <body> counts — a keyboard user stays
+      // parked on a dead Add while the card that says why appears elsewhere (the blind pass on #361).
+      const add = document.createElement("button");
+      document.body.appendChild(add);
+      add.focus();
+      add.disabled = true;
+      card();
+      expect(document.activeElement).toBe(heading());
+      add.remove();
+    });
+
+    it("focus left on a control held aria-disabled (the Send, the stepper) moves to the heading", () => {
+      const send = document.createElement("button");
+      document.body.appendChild(send);
+      send.focus();
+      send.setAttribute("aria-disabled", "true");
+      card();
+      expect(document.activeElement).toBe(heading());
+      send.remove();
+    });
+
+    it("focus on an unrelated LIVE control is left where the diner put it", () => {
+      // MUTATION (lcs/card-steals-or-drops-focus): focus unconditionally — the card steals focus the
+      // diner placed elsewhere (WCAG 2.4.3).
+      const other = document.createElement("button");
+      document.body.appendChild(other);
+      other.focus();
+      card();
+      expect(document.activeElement).toBe(other);
+      other.remove();
+    });
   });
 });
 
