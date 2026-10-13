@@ -16,20 +16,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   classification is `cartFate` in the new pure `lib/session-truth.ts`. A dine-in end is HELD: one
   bilingual card (`TableEndedCard`) names the cause, the order controls go inert ("this order has
   closed"), and nothing re-mints until "Start a new order". A paid table keeps its last kitchen view,
-  labelled, with "Track your order"; /cart shows the same card in place of a stale, editable bill.
-  No sentence says "idle" any more.
+  captioned with when it was read ("Last updated 7:42 PM"), with "Track your order"; /cart shows the
+  same card in place of a stale, editable bill, runs the same visible-only probe while it stays open,
+  and drops its freeze bar under the card. A write whose answer was lost when the table ended is
+  said UNCONFIRMED ("ask our staff whether it made it onto your order before you add it again"),
+  never "didn't go through" — a racing merge can have landed it on the other table. No sentence says
+  "idle" any more.
 - **M172 closed:** the URL credential is single-use (`dineinMintEntry`), so no re-mint can re-host a
   table staff just freed. **J18 closed:** the solo recovery banner keeps its place through a retry.
 - **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
   share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
 - A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
-  is told before "Leave this table" that the Send leaves with it; the guest's nudge confirmation
-  claims only what the code keeps ("We’ve let Aye know — if they’re away, Show a server sends it
-  too.", never "Aye can see you’re waiting"); a thrown Send re-reads.
+  is told before "Leave this table" that the Send leaves with it (read from the table's durable
+  party, not presence); the guest's nudge confirmation and the tablemate line claim only what the
+  code keeps ("We’ve let Aye know — if they’re away, Show a server sends it too.", never "can see");
+  a thrown Send re-reads.
 - `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
 - Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
-  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (10 Burmese
-  drafts for the native sitting).
+  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (9 Burmese
+  drafts and 3 re-worded lines for the native sitting, 3 of them HIGH).
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
