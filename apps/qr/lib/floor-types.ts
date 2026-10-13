@@ -103,6 +103,9 @@ export type FloorKitchen = {
   /** The lifecycle audit — dishes counted in `inKitchen` whose menu item was 86'd after they were
    *  sent (the floor's advisory menu read). A question for the kitchen, never a cancel. Absent = 0. */
   soldOut?: number;
+  /** The lifecycle audit — dishes counted in `inKitchen` on a cart refunded IN FULL
+   *  (`lib/refunded-cart.ts`): the KDS keeps them, tagged, and so does the card. Absent = 0. */
+  refunded?: number;
   /** Served before that window (or with no bump stamp). */
   done: number;
   /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */
@@ -221,6 +224,9 @@ export type PaidKitchenLine = {
   modifiers: string[];
   /** A to-go dish — bagged at the counter, never served to the table. */
   togo: boolean;
+  /** #360 (CRITICAL 1) — on a cart refunded IN FULL (`lib/refunded-cart.ts`): still drawn and still
+   *  cooking, tagged exactly as the KDS tags its card. Absent = not refunded. */
+  refunded?: true;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -305,6 +311,9 @@ export type TableDetail = {
    *  with its stage; [] when none, null when that ADVISORY read failed (the group is not drawn), and
    *  absent on a fixture that predates it. */
   paidKitchen?: PaidKitchenLine[] | null;
+  /** #360 (CRITICAL 3) — the paid-round read hit its cap: the group shows the NEWEST dishes only and
+   *  says so ("Showing the latest 100 dishes"). Absent = not capped. */
+  paidKitchenCapped?: boolean;
   /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
    *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null

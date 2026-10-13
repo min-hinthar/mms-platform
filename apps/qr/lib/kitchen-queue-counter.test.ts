@@ -145,7 +145,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { getKitchenQueue } = await import("./kitchen");
+const { getKitchenQueue, readLineFates } = await import("./kitchen");
 
 const line = (over: Row = {}): Row => ({
   id: "l1",
@@ -251,24 +251,31 @@ describe("getKitchenQueue — pay-first, with ONE staff-only exception", () => {
     expect(t[0]).toMatchObject({ unpaid: false, held: false, shortCode: "ABCDEF" });
   });
 
-  it("a FULLY REFUNDED order's food leaves the board and is named for the stop marker", async () => {
-    // lck/kitchen/refunded-order-keeps-cooking — the refund never reached the KDS: the pickup kept
-    // its card (now with no #CODE, since the code read filters paid), and the cook made it.
+  it("a FULLY REFUNDED order's food STAYS on the board, tagged — a refund is not a cancel", async () => {
+    // The blind pass on #360 (CRITICAL 1) — a full refund can be a goodwill comp at a table still
+    // eating, and settlement fires its drafts onto that very cart. Dropped off the board, nobody could
+    // bump it and the floor counted it "in kitchen" forever.
+    // lck/kitchen/refund-hides-the-food — the old drop: the card is gone; red.
+    // lck/kitchen/refund-untagged — the card stays but says nothing; red.
     setup({ code: "T7", cartStatus: "paid", order: true });
     tables.qr_orders = [{ id: "order-00abcdef", cart_id: "cart-1", status: "refunded" }];
     const r = await getKitchenQueue();
     if (!r.ok) throw new Error("expected a queue");
-    expect(r.queue.tickets).toEqual([]);
-    expect(r.queue.refunded).toEqual(["l1"]);
-    // …while a PAID order beside it keeps the cart's food (a partial refund leaves it `paid`)
+    expect(r.queue.tickets.map((t) => [t.lines.map((l) => l.id), t.refunded])).toEqual([
+      [["l1"], true],
+    ]);
+    // the guest's code is still on it (the counter looks the order up by it)
+    expect(r.queue.tickets[0]!.shortCode).toBe("ABCDEF");
+    // …while a PAID order beside it untags the cart (a partial refund leaves the order `paid`)
     tables.qr_orders = [
       { id: "order-00abcdef", cart_id: "cart-1", status: "refunded" },
       { id: "order-11abcdef", cart_id: "cart-1", status: "paid" },
     ];
     const kept = await getKitchenQueue();
     if (!kept.ok) throw new Error("expected a queue");
-    expect(kept.queue.tickets.map((t) => t.shortCode)).toEqual(["ABCDEF"]);
-    expect(kept.queue.refunded).toEqual([]);
+    expect(kept.queue.tickets.map((t) => [t.shortCode, t.refunded])).toEqual([
+      ["ABCDEF", undefined],
+    ]);
   });
 
   it("a paid counter line still inside its grace is hidden — never drawn held", async () => {
@@ -848,5 +855,35 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by its batch", ()
     expect(t).toHaveLength(1);
     expect(t[0]).toMatchObject({ held: true, key: "cart-1|h", fireBatch: B1 });
     expect(t[0]!.lines.map((l) => l.id)).toEqual(["h1", "h2"]);
+  });
+});
+
+describe("readLineFates — the KDS's confirmation read, by id (the blind pass on #360, CRITICAL 4)", () => {
+  const X = "11111111-1111-4111-8111-111111111111";
+  const Y = "22222222-2222-4222-8222-222222222222";
+  beforeEach(() => {
+    tables = {
+      qr_cart_items: [
+        { id: X, state: "served" },
+        { id: Y, state: "voided" },
+        { id: "33333333-3333-4333-8333-333333333333", state: "fired" },
+      ],
+    };
+  });
+
+  it("answers each asked line's CURRENT state — a bump reads served, a void reads voided", async () => {
+    // lck/kitchen/fates-unscoped — read without the id filter, a line nobody asked about answers.
+    expect(await readLineFates([X, Y])).toEqual({
+      ok: true,
+      states: { [X]: "served", [Y]: "voided" },
+    });
+  });
+
+  it("refuses anything but a short list of line ids", async () => {
+    // lck/kitchen/fates-unbounded — the read takes any list.
+    expect(await readLineFates([])).toEqual({ ok: false });
+    expect(await readLineFates(["not-a-uuid"])).toEqual({ ok: false });
+    expect(await readLineFates("x")).toEqual({ ok: false });
+    expect(await readLineFates(Array.from({ length: 51 }, () => X))).toEqual({ ok: false });
   });
 });

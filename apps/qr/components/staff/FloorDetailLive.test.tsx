@@ -97,6 +97,7 @@ const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+const { PAID_KITCHEN_CAP } = await import("@/lib/paid-round");
 /** K44 — the retired pre-tax line and note, in their own last words (the keys are deleted). */
 const RETIRED_SO_FAR = "subtotal so far";
 const RETIRED_PRETAX_NOTE = "Running pre-tax subtotal — tax is added when they pay.";
@@ -2493,6 +2494,35 @@ describe("the lifecycle audit — the table page names a paid round's food and r
     const text = container.textContent ?? "";
     expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
     expect(text).toContain(`2× Chicken curry · ${STAFF["table.line.state.inProgress"].en}`);
+  });
+
+  it("a refunded round's dish is drawn TAGGED, and a capped read says it shows only the latest", () => {
+    // #360 (CRITICAL 1 · 3). lck/floor-detail/paid-round-refund-untagged · paid-round-cap-unsaid
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 1,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+          refunded: true,
+        },
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidKitchenCapped: true,
+    });
+    const items = [...container.querySelectorAll("li")].filter((li) =>
+      /Chicken curry|Tea/.test(li.textContent ?? ""),
+    );
+    expect(items[0]!.textContent).toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    expect(items[1]!.textContent).not.toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    expect(container.textContent).toContain(
+      tf("en", "table.detail.paidKitchen.capped", { n: PAID_KITCHEN_CAP }),
+    );
   });
 
   it("a dine-in table's draft dish offers For here / To go", () => {

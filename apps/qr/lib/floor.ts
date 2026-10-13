@@ -24,6 +24,7 @@ import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
+import { refundedCarts } from "./refunded-cart";
 import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
@@ -54,7 +55,7 @@ import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
 import { settleLeftMs } from "./bump-settle";
-import { paidRoundKitchen } from "./paid-round";
+import { PAID_KITCHEN_CAP, paidRoundKitchen } from "./paid-round";
 import { trackStage } from "./kitchen-track";
 import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
@@ -129,9 +130,6 @@ const SETTLED_ORDER_CAP = 20;
  *      honestly UNKNOWN for the poll (`kitchenUnknown`: no kitchen row on any card, one note in the
  *      board's region) while the room — cards, strip, starts — keeps working. */
 const FLOOR_LINE_CAP = 900;
-/** The lifecycle audit — the paid rounds' kitchen lines a table page reads (a table's paid food still
- *  on the wok or just out: a handful). Past it the group shows the first rows. */
-const PAID_KITCHEN_CAP = 100;
 /** Phase 2d · review — pages of `FLOOR_LINE_CAP` the open-cart read may walk (4,500 lines in the
  *  room's open carts, a ceiling no real service reaches) before it refuses to draw a partial sum. */
 const FLOOR_OPEN_LINE_PAGES = 5;
@@ -473,6 +471,9 @@ export async function getFloorView(): Promise<FloorPoll> {
       });
     for (const m of sold ?? []) soldOutIds.add(m.id);
   }
+  // The lifecycle audit (#360, CRITICAL 1) — a paid cart refunded IN FULL keeps its dishes counted,
+  // TAGGED like the KDS tags its card (the ONE rule, `lib/refunded-cart.ts`): never hidden.
+  const refundedPaidCarts = refundedCarts(orders ?? []);
   // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
   const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
   const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
@@ -505,6 +506,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       by_seat: l.by_seat,
       onOpenCart: false,
       soldOut: soldOutIds.has(l.menu_item_id),
+      refunded: refundedPaidCarts.has(l.cart_id),
     });
   const serverNowMs = Date.parse(serverNow);
 
@@ -781,7 +783,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       .from("mms_tab_config")
       .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
       .maybeSingle(),
-    counterOrder ? db.rpc("mms_now") : Promise.resolve({ data: null, error: null }),
+    // #360 (question c) — the DB clock for EVERY table, never only a counter order's: the page's
+    // stage tags (`trackStage`, the paid round) are judged on the clock the floor card folds on.
+    db.rpc("mms_now"),
   ]);
   // Party/cart/paid feed the order view — an error misstates the table (an empty party, a "settled"
   // read over an open cart), so it's an outage. Tab config alone falls back (advisory, safe default).
@@ -793,18 +797,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   const settledOrders = paidRes.data ?? [];
   const paid = settledOrders[0] ?? null;
   const tabConfig = tabConfigRes.data;
-  // Phase 2f — the DB clock on a counter order. ADVISORY: it only decides what the page SAYS (the
-  // Unpaid flag, the no-show's count); every write re-decides in SQL on its own `now()`. An
-  // unreadable clock is logged and falls back to the process clock rather than failing the page.
+  // Phase 2f — the DB clock (#360: on every table, not only a counter order). ADVISORY: it only
+  // decides what the page SAYS (the Unpaid flag, the no-show's count, each line's kitchen stage);
+  // every write re-decides in SQL on its own `now()`. An unreadable clock is logged and falls back
+  // to the process clock rather than failing the page.
   let dbNowMs = Date.now();
-  if (counterOrder) {
-    const parsed = typeof clockRes.data === "string" ? Date.parse(clockRes.data) : Number.NaN;
-    if (clockRes.error || !Number.isFinite(parsed))
-      console.error("[floor] getTableDetail mms_now failed — Unpaid is timed on the app clock", {
-        message: clockRes.error?.message,
-      });
-    else dbNowMs = parsed;
-  }
+  const parsedNow = typeof clockRes.data === "string" ? Date.parse(clockRes.data) : Number.NaN;
+  if (clockRes.error || !Number.isFinite(parsedNow))
+    console.error("[floor] getTableDetail mms_now failed — the page is timed on the app clock", {
+      message: clockRes.error?.message,
+    });
+  else dbNowMs = parsedNow;
   let sentLineIds: string[] = [];
   let droppedLineIds: string[] = [];
   let compedKitchenLineIds: string[] = [];
@@ -1057,24 +1060,30 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // record with no stage — and once a new round opened, nothing of that food at all. The paid carts'
   // kitchen lines, with their stage on the ONE track (`paidRoundKitchen`). ADVISORY and bounded: a
   // failed read logs and the group is simply not drawn (null), never an outage of the page.
+  // #360 (CRITICAL 1) — a cart refunded IN FULL is read too, and its dishes TAGGED (the KDS keeps
+  // them: a full refund can be a goodwill comp at a table still eating) — the ONE rule.
   const paidCartIds = [
     ...new Set(
       settledOrders
-        // A REFUNDED order's food is nobody's (the KDS takes it off the board): only paid rounds.
-        .filter((o) => o.status === "paid")
         .map((o) => o.cart_id)
         .filter((c): c is string => !!c && c !== (cart?.id ?? null)),
     ),
   ];
+  const refundedRound = refundedCarts(settledOrders);
   let paidKitchen: TableDetail["paidKitchen"] = null;
+  let paidKitchenCapped = false;
   if (paidCartIds.length > 0) {
+    // #360 (CRITICAL 3) — the NEWEST end of a long night: newest first, one past the cap so the page
+    // can say it is showing only the latest (oldest first was keeping the first rounds and dropping
+    // the one still cooking); reversed below for the page's oldest-first order.
     const { data: pk, error: pkError } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,state,fire_at,bumped_at,fulfillment,notes,modifiers,comped")
+      .select("id,cart_id,name,qty,state,fire_at,bumped_at,fulfillment,notes,modifiers,comped")
       .in("cart_id", paidCartIds)
       .in("state", ["fired", "in_progress", "served"])
-      .order("created_at", { ascending: true })
-      .limit(PAID_KITCHEN_CAP);
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(PAID_KITCHEN_CAP + 1);
     if (pkError)
       console.error(
         "[floor] getTableDetail paid-round kitchen read failed — the group is not drawn",
@@ -1083,7 +1092,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
           message: pkError.message,
         },
       );
-    else paidKitchen = paidRoundKitchen(pk ?? [], new Date(dbNowMs).toISOString());
+    else {
+      const got = pk ?? [];
+      paidKitchenCapped = got.length > PAID_KITCHEN_CAP;
+      paidKitchen = paidRoundKitchen(
+        got
+          .slice(0, PAID_KITCHEN_CAP)
+          .reverse()
+          .map((r) => ({ ...r, refunded: refundedRound.has(r.cart_id) })),
+        new Date(dbNowMs).toISOString(),
+      );
+    }
   } else paidKitchen = [];
 
   const paymentInFlight =
@@ -1225,6 +1244,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     settledLinesTruncated,
     // The lifecycle audit — the paid rounds' food still in the kitchen (or just out), with its stage.
     paidKitchen,
+    paidKitchenCapped,
     // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
     // new read): the session the webhook's best-effort, single-shot close left active (its after() is
     // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on
@@ -1248,7 +1268,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // Phase 2a · send — create-intent's binding for "someone at the table can send".
     hostPresent: session.host_seat != null,
     send,
-    serverNow: counterOrder ? new Date(dbNowMs).toISOString() : nowIso,
+    serverNow: new Date(dbNowMs).toISOString(),
     // ── Phase 2f · P2v ──
     counterOrder,
     counterArm: counterOrder && cart ? counterArmOf(cart.counter_arm) : null,

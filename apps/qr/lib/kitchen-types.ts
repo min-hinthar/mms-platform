@@ -106,6 +106,10 @@ export type KitchenTicket = {
   /** Phase 2f · P2v — an OPEN counter (`reg-`) order's ticket, past its grace: the food is cooking
    *  before it is paid ("Unpaid — collect at pickup"). False on every other ticket. */
   unpaid: boolean;
+  /** The lifecycle audit — the cart's order was refunded IN FULL (`lib/refunded-cart.ts`): the card
+   *  stays, its food still cooks and bumps, and it says "Refunded — check with the counter before
+   *  cooking". A tag, never a cancel. Absent = not refunded. */
+  refunded?: true;
   lines: KitchenLine[];
   /** Earliest fire on the ticket (its age for the urgency strip; the due time while held). */
   firedAt: string;
@@ -221,10 +225,6 @@ export type KitchenQueue = {
    *  the board keeps the stop cards it last drew rather than read "none" — a card that vanished
    *  without a "Got it" would say the kitchen had acknowledged a table it never saw leave. */
   stops: KitchenStop[] | null;
-  /** The lifecycle audit — the ids of the lines this read took OFF the board because their order was
-   *  refunded in full (`kitchen.ts`): the board says "Refunded: … — stop" the poll a card leaves for
-   *  it (`lib/kds-removed.ts`). Absent reads as none. */
-  refunded?: string[];
 };
 
 /**

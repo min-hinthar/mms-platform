@@ -3,6 +3,7 @@ import { useId, type CSSProperties } from "react";
 import type { PaidKitchenLine } from "@/lib/floor-types";
 import type { StaffLang } from "@/lib/staff-lang";
 import { lineTagKey } from "@/lib/staff-line-tag";
+import { PAID_KITCHEN_CAP } from "@/lib/paid-round";
 import { Chrome } from "./Chrome";
 
 /**
@@ -12,13 +13,20 @@ import { Chrome } from "./Chrome";
  * before this group it showed the settled record with no stage, and nothing at all once a new round
  * opened. Read-only (a paid dish changes through a refund, never here); a labelled list, no live
  * region, no motion — the 5 s poll brings each stage.
+ *
+ * #360 — a dish on a round refunded IN FULL is drawn TAGGED, as the KDS tags its card (a full refund
+ * can be a goodwill comp at a table still eating — never a cancel); and past the read's cap the group
+ * holds the NEWEST dishes and says so, rather than passing a partial list off as the whole.
  */
 export function PaidRoundKitchen({
   lang,
   lines,
+  capped = false,
 }: {
   lang: StaffLang;
   lines: readonly PaidKitchenLine[];
+  /** The read hit `PAID_KITCHEN_CAP`: only the newest dishes are here. */
+  capped?: boolean;
 }) {
   const id = useId();
   return (
@@ -26,6 +34,16 @@ export function PaidRoundKitchen({
       <p id={id} style={title}>
         <Chrome lang={lang} k="table.detail.paidKitchen.title" echo="inline" />
       </p>
+      {capped && (
+        <p style={capNote}>
+          <Chrome
+            lang={lang}
+            k="table.detail.paidKitchen.capped"
+            vars={{ n: PAID_KITCHEN_CAP }}
+            echo="stack"
+          />
+        </p>
+      )}
       <ul role="list" aria-labelledby={id} style={list}>
         {lines.map((l) => (
           <li key={l.id} style={row}>
@@ -42,6 +60,11 @@ export function PaidRoundKitchen({
                 </>
               )}
             </span>
+            {l.refunded && (
+              <span style={refundTag}>
+                <Chrome lang={lang} k="table.detail.paidKitchen.refunded" echo="stack" />
+              </span>
+            )}
             {l.modifiers.length > 0 && <span style={mods}>{l.modifiers.join(" · ")}</span>}
             {l.notes && <span style={note}>“{l.notes}”</span>}
           </li>
@@ -68,3 +91,9 @@ const row: CSSProperties = { padding: "6px 0", fontSize: "var(--fs-sm)" };
 const tag: CSSProperties = { color: "var(--t3)" };
 const mods: CSSProperties = { display: "block", color: "var(--t3)" };
 const note: CSSProperties = { display: "block", fontWeight: "var(--fw-semibold)" };
+const refundTag: CSSProperties = { display: "block", color: "var(--warn)" };
+const capNote: CSSProperties = {
+  margin: "var(--s1) 0 0",
+  fontSize: "var(--fs-sm)",
+  color: "var(--t2)",
+};

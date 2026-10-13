@@ -58,3 +58,13 @@ export function boardOrderWindowOr(floorIso: string): string {
 export function boardOrderFireOr(nowIso: string): string {
   return `togo_status.eq.ready,fire_at.is.null,fire_at.lte.${nowIso}`;
 }
+
+/**
+ * The two narrowing filters as ONE PostgREST expression, `and(or(window),or(fire))` (#360, question
+ * a). Chained `.or()`s send two `or=` params (`postgrest-js` APPENDS each); that two top-level logic
+ * params AND together is PostgREST's behaviour but nothing in this repo PROVES it, so the read sends
+ * one parameter whose conjunction is explicit. Still only a NARROWING (the TS rule decides).
+ */
+export function boardOrderReadOr(floorIso: string, nowIso: string): string {
+  return `and(or(${boardOrderWindowOr(floorIso)}),or(${boardOrderFireOr(nowIso)}))`;
+}

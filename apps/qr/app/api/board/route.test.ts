@@ -515,6 +515,15 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
     expect(orderCols).not.toContain("picked_up");
   });
 
+  it("narrows the orders read with ONE `or` parameter — the window AND the fire gate, explicitly (#360, question a)", async () => {
+    // lck/board/route-chains-two-ors — two `or=` params whose conjunction nothing here proves.
+    await GET(req());
+    expect(orderOrs).toHaveLength(1);
+    expect(orderOrs[0]).toMatch(
+      /^and\(or\(pickup_slot\.gte\.[^,]+,and\(pickup_slot\.is\.null,created_at\.gte\.[^)]+\)\),or\(togo_status\.eq\.ready,fire_at\.is\.null,fire_at\.lte\.[^)]+\)\)$/,
+    );
+  });
+
   it("never reads a COLLECTED bag — a handed-over code drawn as a Ready pass would be the room's one call for food someone holds (`board/collected-bags-on-the-wall`)", async () => {
     orders = [order(TOGO, "sess-togo", "picked_up")];
     const body = (await (await GET(req())).json()) as Body;

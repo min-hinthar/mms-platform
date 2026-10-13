@@ -28,6 +28,10 @@ import type { KdsThresholds } from "./kitchen-types";
  *                   on the row, the floor's advisory menu read). Still COUNTED in the kitchen: the
  *                   86's own words are "orders already on the board stay — tell the counter if you
  *                   can't make them", so the flag is a question for the kitchen, never a cancel.
+ *   refunded        a dish in the kitchen on a cart whose order was refunded IN FULL (`refunded` on the
+ *                   row, `lib/refunded-cart.ts`). Still COUNTED: the KDS keeps the card (a full refund
+ *                   can be a goodwill comp at a table still eating) and says "check with the counter
+ *                   before cooking" — the floor says the same of the same dishes (#360, CRITICAL 1).
  *   not sent        2a's ONE count (plan conflict "floor × send-kitchen"): `staffOwedSendUnits(
  *                   hostPresent, staffSendCounts(…))` over the OPEN cart — every sendable dish on a
  *                   hostless table, only staff-added ones on a host table (owner decision 5c) — plus,
@@ -54,6 +58,8 @@ export type FloorKitchenRow = {
   /** The lifecycle audit — the dish has been 86'd since it was sent (the floor's ADVISORY menu
    *  read; absent or false when unknown). */
   soldOut?: boolean;
+  /** The lifecycle audit — the line's cart was refunded IN FULL (`refundedCarts`); absent = no. */
+  refunded?: boolean;
 };
 
 export type FloorKitchenContext = {
@@ -106,6 +112,7 @@ export function foldFloorKitchen(
   const upKeys: string[] = [];
   let bagUp = 0;
   let soldOut = 0;
+  let refunded = 0;
   let done = 0;
   let oldestMs = Number.POSITIVE_INFINITY;
   let oldestFireAt: string | null = null;
@@ -115,6 +122,7 @@ export function foldFloorKitchen(
   const cooking = (r: FloorKitchenRow, fireMs: number) => {
     inKitchen += r.qty;
     if (r.soldOut === true) soldOut += r.qty;
+    if (r.refunded === true) refunded += r.qty;
     if (fireMs < oldestMs) {
       oldestMs = fireMs;
       oldestFireAt = r.fire_at ?? new Date(fireMs).toISOString();
@@ -157,7 +165,7 @@ export function foldFloorKitchen(
     }
   }
   if (notSent === 0 && inKitchen === 0 && up === 0 && bagUp === 0 && done === 0) return null;
-  return { notSent, inKitchen, up, upKeys, bagUp, soldOut, done, oldestFireAt };
+  return { notSent, inKitchen, up, upKeys, bagUp, soldOut, refunded, done, oldestFireAt };
 }
 
 /** One segment of the card's kitchen row — a count key with its `{n}`, or the all-done word. */
@@ -167,6 +175,7 @@ export type KitchenSegment =
         | "floor.kitchen.notSent"
         | "floor.kitchen.inKitchen"
         | "floor.kitchen.soldOut"
+        | "floor.kitchen.refunded"
         | "floor.kitchen.up"
         | "floor.kitchen.up.pickup";
       n: number;
@@ -183,10 +192,12 @@ export function kitchenSegments(k: FloorKitchen | null): KitchenSegment[] {
   if (k === null) return [];
   const bagUp = k.bagUp ?? 0;
   const soldOut = k.soldOut ?? 0;
+  const refunded = k.refunded ?? 0;
   const out: KitchenSegment[] = [];
   if (k.notSent > 0) out.push({ k: "floor.kitchen.notSent", n: k.notSent });
   if (k.inKitchen > 0) out.push({ k: "floor.kitchen.inKitchen", n: k.inKitchen });
   if (soldOut > 0) out.push({ k: "floor.kitchen.soldOut", n: soldOut });
+  if (refunded > 0) out.push({ k: "floor.kitchen.refunded", n: refunded });
   if (k.up > 0) out.push({ k: "floor.kitchen.up", n: k.up });
   if (bagUp > 0) out.push({ k: "floor.kitchen.up.pickup", n: bagUp });
   if (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && bagUp === 0 && k.done > 0)

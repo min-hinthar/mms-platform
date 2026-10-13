@@ -379,8 +379,9 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
     expect(d.droppedLineIds).toEqual([]);
     expect(d.compedKitchenLineIds).toEqual([]);
     expect(d.mergeable).toBe(true);
-    // no DB clock read off a counter order
-    expect(rpcCalls).not.toContain("mms_now");
+    // #360 (question c) — the DB clock is read for EVERY table now: the page's kitchen stages are
+    // judged on the clock the floor card folds on. lck/floor/detail-clock-counter-only — red.
+    expect(rpcCalls).toContain("mms_now");
   });
 
   it("an unreadable DB clock falls back to the app clock (advisory — the SQL decides writes)", async () => {

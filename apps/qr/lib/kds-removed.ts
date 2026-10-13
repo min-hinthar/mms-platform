@@ -1,38 +1,39 @@
 import type { KitchenLine, KitchenStation, KitchenTicket } from "./kitchen-types";
 
 /**
- * The lifecycle audit (2026-10-13, kitchen ↔ floor ↔ board) — a dish taken off the board while the
+ * The lifecycle audit (2026-10-13, kitchen ↔ floor ↔ board) — a dish VOIDED off the board while the
  * kitchen may still be cooking it, said ONCE, until a cook taps Got it.
  *
- * A server's Remove of a sent dish (`mms_void_line`) and a refund of a paid order reached the KDS only
- * as a silent disappearance: the board's read holds fired and cooking lines alone, so the row simply
- * was not there on the next poll — no flash, no chime, no words. A cook head-down at the wok kept
- * cooking a dish nobody would pay for, or carried it to the table. The durable answer is a per-line
- * stop record written by the void and the refund themselves (a migration — OPEN-ITEMS); until then the
- * board diffs two consecutive snapshots of its own read and names what LEFT:
+ * A server's Remove of a sent dish (`mms_void_line`) reached the KDS only as a silent disappearance:
+ * the board's read holds fired and cooking lines alone, so the row simply was not there on the next
+ * poll — no flash, no chime, no words. A cook head-down at the wok kept cooking a dish nobody would
+ * pay for, or carried it to the table. The durable answer is a per-line stop record written by the
+ * void itself (a migration — OPEN-ITEMS M306); until then the board works in two steps:
  *
- *   refunded  the line's order was refunded (the read reports its ids — `KitchenQueue.refunded`),
- *             whatever the rest of its card did: a refunded order's whole card leaves.
- *   removed   the line left a card that is STILL ON the board (its session live, its cart live), it
- *             was not bumped from THIS device, and the served rail carries no bump of it — so no
- *             cook served it anywhere. What is left is a void (or a fulfillment change, which the
- *             kitchen must hear about all the same).
+ *   1. CANDIDATES (`removalCandidates`) — the lines on the previous good snapshot that are on no card
+ *      of this one, that this device did not bump, and that no stop card already strikes (a cleared
+ *      table has its own card). A line can leave for many reasons: a bump on another tablet, a merge
+ *      folding it into another line, a session closing, a void. The diff cannot tell them apart.
+ *   2. CONFIRMATION (`confirmRemovals`) — ONE read of `qr_cart_items` by those ids, for each line's
+ *      CURRENT state. Only `voided` is a removal. A line now `served` was bumped (a teammate's Done —
+ *      the served rail is a different statement from the line read, so a bump landing between the two
+ *      used to read as a void: the blind pass on #360, CRITICAL 4). A line the read does not return
+ *      (a merge folded it away), any other state, or a read that failed says NOTHING — a false "stop"
+ *      is its own harm.
  *
- * What it can NOT tell, and so never says: a whole card that leaves without a refund (a cleared table
- * has its own stop card; a merged one reappears under its new table by line id; a closed session
- * hides its lines) — and anything at all while the served rail is unreadable (`served === null`): a
- * teammate's Done on another tablet would read as a void, and a false "stop" is its own harm. Both
- * gaps close with the durable stop record.
+ * Because the confirmation is by id, it holds for a whole card that left too: a one-dish card whose
+ * dish was voided, or a card whose every dish was, is said like any other.
  *
- * Pure: no React, no I/O. The board owns the snapshots, its own bumps and the acknowledgements.
+ * A FULL REFUND IS NOT HERE. A refunded order's food stays on the board, tagged (`refundedCarts`); it
+ * never leaves, so it is never a removal (the blind pass on #360, CRITICAL 1).
+ *
+ * Pure: no React, no I/O. The board owns the snapshots, its own bumps, the read and the
+ * acknowledgements.
  */
 
-export type KdsRemovalWhy = "removed" | "refunded";
-
-/** One dish the board says left it. `key` is the line's own (one line, one marker). */
+/** One dish the board says was voided off it. `key` is the line's own (one line, one marker). */
 export type KdsRemoval = {
   key: string;
-  why: KdsRemovalWhy;
   line: KitchenLine;
   /** The card it stood on, for the name the marker says ("Table 6", "#A1B2C3", "Min"). */
   ticket: Pick<
@@ -41,43 +42,35 @@ export type KdsRemoval = {
   >;
 };
 
-export type KdsRemovalInput = {
+export type KdsCandidateInput = {
   /** The board's previous GOOD snapshot. */
   prev: readonly KitchenTicket[];
   /** This good snapshot. */
   next: readonly KitchenTicket[];
   /** Line ids THIS device bumped (All done, or a line's Done) — their leaving is the cook's own tap. */
   ownBumps: ReadonlySet<string>;
-  /** Line ids on this snapshot's served rail (a bump stamp exists), or null when that read failed. */
-  served: ReadonlySet<string> | null;
-  /** Line ids this snapshot reports on a refunded order (`KitchenQueue.refunded`). */
-  refunded: ReadonlySet<string>;
+  /** Line ids a stop card of this snapshot strikes (a cleared table's card says it already). */
+  stopped: ReadonlySet<string>;
 };
 
-/** The dishes that left the board between `prev` and `next` and must be called out (see above). */
-export function kdsRemovals(i: KdsRemovalInput): KdsRemoval[] {
+/** Step 1 — the lines that left the board without this device's bump: each a removal only if the
+ *  confirmation read says the line is now `voided`. */
+export function removalCandidates(i: KdsCandidateInput): KdsRemoval[] {
   const nowOn = new Set<string>();
-  const liveCards = new Set<string>();
-  for (const t of i.next) {
-    liveCards.add(t.key);
-    for (const l of t.lines) nowOn.add(l.id);
-  }
+  for (const t of i.next) for (const l of t.lines) nowOn.add(l.id);
   const out: KdsRemoval[] = [];
-  const said = new Set<string>();
+  const seen = new Set<string>();
   for (const t of i.prev) {
     for (const l of t.lines) {
       // Still on the board — under this card or any other (a merge re-keys, a Cook now re-keys).
-      if (nowOn.has(l.id) || said.has(l.id)) continue;
+      if (nowOn.has(l.id) || seen.has(l.id)) continue;
       // The cook's own tap on this tablet: never an alarm about her own bump.
       if (i.ownBumps.has(l.id)) continue;
-      let why: KdsRemovalWhy | null = null;
-      if (i.refunded.has(l.id)) why = "refunded";
-      else if (liveCards.has(t.key) && i.served !== null && !i.served.has(l.id)) why = "removed";
-      if (why === null) continue;
-      said.add(l.id);
+      // A cleared table's stop card already strikes it: one word per dish, never two.
+      if (i.stopped.has(l.id)) continue;
+      seen.add(l.id);
       out.push({
-        key: `${why}:${l.id}`,
-        why,
+        key: `removed:${l.id}`,
         line: l,
         ticket: {
           key: t.key,
@@ -94,8 +87,29 @@ export function kdsRemovals(i: KdsRemovalInput): KdsRemoval[] {
   return out;
 }
 
-/** The markers standing after a poll: every one not yet acknowledged, each line once (the newest
- *  wave's word wins — a removed line later reported refunded is the same dish). */
+/** The most candidates one confirmation read asks about. A poll that loses more than this many lines
+ *  at once is a clear or a merge, not a void; the rest say nothing (never guessed). */
+export const FATE_CAP = 50;
+
+/** The ids the confirmation read asks about — the first `FATE_CAP` candidates. */
+export function fateIds(candidates: readonly KdsRemoval[]): string[] {
+  return candidates.slice(0, FATE_CAP).map((c) => c.line.id);
+}
+
+/**
+ * Step 2 — the candidates the read CONFIRMS: the line's current state is `voided`. `fates` maps a
+ * line id to its state as the read returned it; `null` is a read that failed or never answered, and
+ * a candidate the read did not return (folded away, past the cap) is unknown. Unknown says nothing.
+ */
+export function confirmRemovals(
+  candidates: readonly KdsRemoval[],
+  fates: ReadonlyMap<string, string> | null,
+): KdsRemoval[] {
+  if (fates === null) return [];
+  return candidates.filter((c) => fates.get(c.line.id) === "voided");
+}
+
+/** The markers standing after a confirmation: every one not yet acknowledged, each line once. */
 export function mergeRemovals(
   standing: readonly KdsRemoval[],
   arrived: readonly KdsRemoval[],
@@ -121,4 +135,11 @@ export function ownBumpsAfter(
 ): Set<string> {
   const on = new Set(next.flatMap((t) => t.lines.map((l) => l.id)));
   return new Set([...ownBumps].filter((id) => on.has(id)));
+}
+
+/** The line ids the stop cards of a read strike — none when the stop read did not answer. */
+export function stoppedLineIds(
+  stops: readonly { lines: readonly { id: string }[] }[] | null,
+): Set<string> {
+  return new Set((stops ?? []).flatMap((s) => s.lines.map((l) => l.id)));
 }

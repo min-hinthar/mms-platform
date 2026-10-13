@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
 
 /**
  * A4·2 · K30 (B) — `getExpoQueue`'s WIRING of the kitchen state: the cart-lines read is by the
@@ -204,9 +205,16 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
     // The lifecycle audit — a mis-tapped All done read "Kitchen done" within the realtime debounce,
     // lifted the bag and rang the bell; the Undo three seconds later took none of it back. Two
     // seconds after the bump (NOW is the fake's DB clock) the bag is cooking, and the lane learns the
-    // window closes in four.
+    // window closes in the rest of `KDS_UNDO_MS` — computed from the constant and the offset, never
+    // transcribed (#360).
+    const BUMP_AGO_MS = 2_000;
     cartLineRows = [
-      { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:58Z" },
+      {
+        cart_id: CART_A,
+        state: "served",
+        fulfillment: "togo",
+        bumped_at: new Date(Date.parse(NOW) - BUMP_AGO_MS).toISOString(),
+      },
       { cart_id: CART_B, state: "fired", fulfillment: "togo" },
     ];
     const res = await getExpoQueue();
@@ -215,7 +223,7 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
       [ORDER_B, "cooking"],
       [ORDER_A, "cooking"],
     ]);
-    expect(res.queue.settleInMs).toBe(4_000);
+    expect(res.queue.settleInMs).toBe(KDS_UNDO_MS - BUMP_AGO_MS);
     // …and once it has settled there is nothing left to wait for
     cartLineRows = [
       { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:00Z" },

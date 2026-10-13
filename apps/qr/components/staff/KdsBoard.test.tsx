@@ -51,6 +51,11 @@ const recallTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({
 // Phase 2h — the line tap's and the held ticket's writes, each a case's to hang or refuse.
 const bumpLine = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const fireTicketNow = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
+// The lifecycle audit — the removal confirmation read (CRITICAL 4 on #360): each line's CURRENT state.
+const readLineFates = vi.fn(
+  (_ids: string[]): Promise<{ ok: true; states: Record<string, string> } | { ok: false }> =>
+    Promise.resolve({ ok: true, states: {} }),
+);
 const haptic = vi.fn();
 // kitchen-8 — the device's remembered sound preference and whether this "device" has audio. Phase
 // 3d: the mock's setter WRITES the flag (a store), so the chime's mute predicate reads the answer.
@@ -130,6 +135,7 @@ vi.mock("@/lib/kitchen", () => ({
   bumpLine: (...a: unknown[]) => bumpLine(...(a as [])),
   fireTicketNow: (...a: unknown[]) => fireTicketNow(...(a as [])),
   recallTicket: (...a: unknown[]) => recallTicket(...(a as [])),
+  readLineFates: (ids: string[]) => readLineFates(ids),
 }));
 vi.mock("@/lib/menu-availability", () => ({
   setItemSoldOut: (...a: unknown[]) => setItemSoldOut(...(a as [])),
@@ -3492,26 +3498,79 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     total: ids.length,
   });
 
-  it("a per-line Done offers the card's Undo pill, named for the dish, and the Undo brings it back", async () => {
-    // lck/kds/line-done-unundoable — the row went straight to served with no pill and no chip, and
-    // nothing on any surface could restore it (SPEC-KDS §4: "a mis-bump is never unrecoverable").
+  it("a per-line Done leaves a DISH chip and its own sentence — never the card's pill (decision 15)", async () => {
+    // lck/kds/line-done-unundoable — the row went straight to served with nothing on any surface to
+    // restore it (SPEC-KDS §4: "a mis-bump is never unrecoverable").
     const q = mount("en", twoLines());
     await act(async () => {
       fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
     });
     expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
-    const pill = await waitFor(() => {
-      const p = q.container.querySelector(".kds-undo");
-      if (!p) throw new Error("no pill yet");
-      return p as HTMLElement;
+    const chip = await waitFor(() => {
+      const c = q.container.querySelector<HTMLButtonElement>(".kds-recall-btn");
+      if (!c) throw new Error("no chip yet");
+      return c;
     });
-    expect(pill.textContent).toContain(tf("en", "kds.undo.line", { x: `Mohinga · ${T4}` }));
-    // …and the Bring-back rail carries it for its two minutes
-    expect(q.container.querySelector(".kds-recall")?.textContent).toContain(`Mohinga · ${T4}`);
+    expect(chip.textContent).toContain(`Mohinga · ${T4}`);
+    // lck/kds/line-done-takes-the-pill — a single dish took the ONE undo pill; red.
+    expect(q.container.querySelector(".kds-undo")).toBeNull();
+    // lck/kds/line-done-says-all-done — "Mohinga · Table 4 all done" is false for one dish; red.
+    const live = document.querySelector('.kds-head [role="status"]')!.textContent ?? "";
+    expect(live).toContain(tf("en", "kds.live.line", { x: `Mohinga · ${T4}` }));
+    expect(live).not.toContain(tf("en", "kds.live.bumped", { x: `Mohinga · ${T4}` }));
     await act(async () => {
-      fireEvent.click(within(pill).getByRole("button"));
+      fireEvent.click(chip);
     });
     expect(recallTicket).toHaveBeenCalledWith({ cartId: "cart-1", lineIds: ["line-1"] });
+  });
+
+  it("a dish Done never displaces a card's pill, and never pushes a card's chip off the rail", async () => {
+    // Decision 15 · B6. Five cards bumped (the rail's five card chips, the last one's pill up), then
+    // a single dish of a sixth card: the pill still names the card, and all five chips stand.
+    const six = queue();
+    const base = six.tickets[0]!;
+    six.tickets = Array.from({ length: 6 }, (_, i) => ({
+      ...base,
+      key: keyOf(`cart-${i}`, `batch-${i}`),
+      cartId: `cart-${i}`,
+      sessionId: `sess-${i}`,
+      fireBatch: `batch-${i}`,
+      label: `T${i + 1}`,
+      tableNumber: i + 1,
+      lines: [
+        { ...base.lines[0]!, id: `line-${i}`, state: "in_progress" as const },
+        { ...base.lines[0]!, id: `tea-${i}`, name: "Tea", menuItemId: "mi-tea" },
+      ],
+    }));
+    currentQueue = six;
+    const q = mount("en", six);
+    const allDone = () =>
+      q.getAllByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) });
+    for (let i = 0; i < 5; i++) {
+      // the board re-reads after each bump: that card is gone from it
+      currentQueue = { ...six, tickets: six.tickets.slice(i + 1) };
+      await act(async () => {
+        fireEvent.click(allDone()[0]!);
+      });
+      await act(async () => {});
+    }
+    const pillBefore = q.container.querySelector(".kds-undo")?.textContent ?? "";
+    expect(pillBefore).toContain(tf("en", "kds.table", { id: 5 }));
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-5")!);
+    });
+    await act(async () => {});
+    // lck/kds/line-done-takes-the-pill — red
+    expect(q.container.querySelector(".kds-undo")?.textContent ?? "").toBe(pillBefore);
+    // lck/kds/line-done-evicts-a-card — the one-cap rail dropped Table 1's chip; red
+    const chips = [...q.container.querySelectorAll(".kds-recall-btn")].map((c) => c.textContent);
+    for (let i = 1; i <= 5; i++)
+      expect(
+        chips.some((c) => c?.includes(tf("en", "kds.table", { id: i })) && !c.includes("·")),
+      ).toBe(true);
+    expect(chips.some((c) => c?.includes(`Mohinga · ${tf("en", "kds.table", { id: 6 })}`))).toBe(
+      true,
+    );
   });
 
   it("a Start (fired → cooking) is not a bump: no pill", async () => {
@@ -3587,7 +3646,7 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     expect(fireTicketNow).toHaveBeenCalledWith({ cartId: "cart-1" });
   });
 
-  it("a dish removed from a card still on the board is called out — once, until Got it", async () => {
+  it("a dish VOIDED off the board is called out — once, until Got it", async () => {
     // lck/kds/removal-unwired — a server's Remove of a dish the cook had started vanished from the
     // card with no word, no chime: the wok kept going for a dish nobody would pay for.
     vi.useFakeTimers();
@@ -3597,7 +3656,10 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     const after = twoLines();
     after.tickets[0] = { ...after.tickets[0]!, lines: [after.tickets[0]!.lines[1]!] };
     currentQueue = { ...after, served: servedRail() };
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
     await flush(5_000);
+    // lck/kds/removal-unconfirmed — the board asks about exactly the line that left
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
     const said = tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` });
     const marker = q.container.querySelector(".kds-removed")!;
     expect(marker.textContent).toContain(said);
@@ -3613,56 +3675,89 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     expect(region().textContent).not.toContain(said);
   });
 
-  it("this tablet's own Done, a teammate's bump on the rail, and an unreadable rail are never a removal", async () => {
+  it("THE SKEW: a teammate's bump on neither the rail nor the line read is SERVED by id — no 'stop'", async () => {
+    // The blind pass on #360 (CRITICAL 4): the served rail is one statement and the live read
+    // another, so a Done landing between them reached neither — and read as a void.
+    // lck/kds/removal-unconfirmed — said on the diff alone; red.
     vi.useFakeTimers();
     currentQueue = twoLines();
     const q = mount("en", currentQueue);
+    const after = twoLines();
+    after.tickets[0] = { ...after.tickets[0]!, lines: [after.tickets[0]!.lines[1]!] };
+    currentQueue = { ...after, served: servedRail() }; // the rail does NOT list line-1
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "served" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")).toBeNull();
+  });
+
+  it("an unreadable confirmation, and this tablet's own Done, are never a removal", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const gone = () => {
       const a = twoLines();
       a.tickets[0] = { ...a.tickets[0]!, lines: [a.tickets[0]!.lines[1]!] };
       return a;
     };
-    // a teammate's Done: the served rail carries the bump
-    currentQueue = { ...gone(), served: servedRail(["line-1"]) };
-    await flush(5_000);
-    expect(q.container.querySelector(".kds-removed")).toBeNull();
-    cleanup();
-    // an unreadable rail: never guessed
     currentQueue = twoLines();
     const r = mount("en", currentQueue);
-    currentQueue = { ...gone(), served: null };
+    currentQueue = gone();
+    readLineFates.mockResolvedValueOnce({ ok: false });
     await flush(5_000);
     expect(r.container.querySelector(".kds-removed")).toBeNull();
     cleanup();
+    currentQueue = twoLines();
+    const t = mount("en", currentQueue);
+    currentQueue = gone();
+    readLineFates.mockRejectedValueOnce(new Error("lost"));
+    await flush(5_000);
+    expect(t.container.querySelector(".kds-removed")).toBeNull();
+    cleanup();
     // lck/kds/own-bump-unmarked — this tablet's own Done, read back before the rail lists it
+    readLineFates.mockClear();
     currentQueue = twoLines();
     const own = mount("en", currentQueue);
-    currentQueue = { ...gone(), served: servedRail() };
+    currentQueue = gone();
     await act(async () => {
       fireEvent.click(own.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
     });
     await flush(0);
     expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
     await flush(5_000);
+    expect(readLineFates).not.toHaveBeenCalled();
     expect(own.container.querySelector(".kds-removed")).toBeNull();
   });
 
-  it("a refunded order's card leaves with 'Refunded: … — stop'", async () => {
+  it("a one-dish card whose dish was voided is said too — the whole card left", async () => {
+    // The CHANGELOG's claim, made true: the confirmation is by id, so a card that vanished is asked
+    // about like any other.
     vi.useFakeTimers();
-    const pickup = queue();
-    pickup.tickets[0] = {
-      ...pickup.tickets[0]!,
-      channel: "pickup",
-      tableNumber: null,
-      customerName: null,
-      shortCode: "A1B2C3",
-    };
-    currentQueue = pickup;
+    currentQueue = queue();
     const q = mount("en", currentQueue);
-    currentQueue = { ...queue(), tickets: [], refunded: ["line-1"] };
+    currentQueue = { ...queue(), tickets: [] };
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
     await flush(5_000);
     expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
-      tf("en", "kds.refunded", { x: "1× Mohinga · #A1B2C3" }),
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
     );
+  });
+
+  it("a fully refunded order's card STAYS, tagged — never a 'stop' (CRITICAL 1 on #360)", async () => {
+    // lck/kds/refund-tag-undrawn — the card stays but says nothing; red.
+    const refunded = queue();
+    refunded.tickets[0] = { ...refunded.tickets[0]!, refunded: true };
+    currentQueue = refunded;
+    const q = mount("en", refunded);
+    const card = q.container.querySelector(".kds-ticket")!;
+    expect(card.querySelector(".kds-refunded")?.textContent).toContain(
+      ts("en", "kds.ticket.refunded"),
+    );
+    expect(card.getAttribute("aria-label")).toContain(ts("en", "kds.ticket.refunded"));
+    // its dishes still bump
+    expect(q.container.querySelector("#kds-line-line-1")).not.toBeNull();
+    // a card that is not refunded says nothing of it
+    cleanup();
+    const plain = mount("en", queue());
+    expect(plain.container.querySelector(".kds-refunded")).toBeNull();
   });
 });

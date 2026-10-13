@@ -368,6 +368,7 @@ export function StaffLineEditor({
             {line.qty}× {dish}
             {mods}
           </span>
+          {soldOutTag}
           {note}
         </span>
         <span style={badge}>

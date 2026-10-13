@@ -68,6 +68,10 @@ function pick(row: Row, cols: string): Row {
 function tableApi(name: string) {
   let cols = "*";
   let inCarts: unknown[] | null = null;
+  // #360 (CRITICAL 3) — the paid read's ORDER and CAP are evaluated, so a read that keeps the wrong
+  // end of a long night keeps the wrong rows here too.
+  const sorts: [string, boolean][] = [];
+  let cap: number | null = null;
   const api: Record<string, unknown> = {
     select(c: string) {
       cols = c;
@@ -78,8 +82,14 @@ function tableApi(name: string) {
       if (name === "qr_cart_items" && col === "cart_id") inCarts = v;
       return api;
     },
-    order: () => api,
-    limit: () => api,
+    order(col: string, o?: { ascending?: boolean }) {
+      sorts.push([col, o?.ascending !== false]);
+      return api;
+    },
+    limit(n: number) {
+      cap = n;
+      return api;
+    },
     gt: () => api,
     not: () => api,
     or: () => api,
@@ -121,7 +131,16 @@ function tableApi(name: string) {
         if (inCarts !== null) {
           paidAsked = inCarts;
           if (paidReadFails) return resolve({ data: null, error: { message: "down" } });
-          return resolve({ data: paidRows.map((r) => pick(r, cols)), error: null });
+          const sorted = [...paidRows].sort((a, b) => {
+            for (const [c, asc] of sorts) {
+              const x = String(a[c]);
+              const y = String(b[c]);
+              if (x !== y) return (x < y ? -1 : 1) * (asc ? 1 : -1);
+            }
+            return 0;
+          });
+          const capped = cap === null ? sorted : sorted.slice(0, cap);
+          return resolve({ data: capped.map((r) => pick(r, cols)), error: null });
         }
         return resolve({ data: openRows.map((r) => pick(r, cols)), error: null });
       }
@@ -138,6 +157,7 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { getTableDetail } = await import("./floor");
+const { PAID_KITCHEN_CAP } = await import("./paid-round");
 
 const line = (over: Row): Row => ({
   id: "l-1",
@@ -218,7 +238,10 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     ]);
   });
 
-  it("a refunded round is nobody's food; no paid round reads nothing; a failed read draws no group", async () => {
+  it("a round refunded IN FULL is still drawn, TAGGED — a refund is not a cancel (#360, CRITICAL 1)", async () => {
+    // A full refund can be a goodwill comp at a table still eating: the KDS keeps the card, and the
+    // page names the same dish the same way. lck/floor/paid-round-refund-hides-food — the old filter
+    // to `paid` orders only: the group is empty; red. lck/floor/paid-round-refund-untagged — red.
     orders = [
       {
         id: "o-1",
@@ -230,13 +253,69 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
         cart_id: PAID,
       },
     ];
+    paidRows = [line({ id: "main", cart_id: PAID, state: "in_progress" })];
+    expect((await detail()).paidKitchen?.map((l) => [l.id, l.stage, l.refunded])).toEqual([
+      ["main", "cooking", true],
+    ]);
+    expect(paidAsked).toEqual([PAID]);
+    // a PAID round says nothing of a refund
+    orders = [{ ...orders[0]!, status: "paid", refunded_cents: 0 }];
+    expect((await detail()).paidKitchen?.map((l) => l.refunded)).toEqual([undefined]);
+  });
+
+  it("no paid round reads nothing; a failed read draws no group", async () => {
     paidRows = [line({ id: "main", state: "in_progress" })];
     expect((await detail()).paidKitchen).toEqual([]);
     expect(paidAsked).toBeNull();
-    orders = [{ ...orders[0]!, status: "paid", refunded_cents: 0 }];
+    orders = [
+      {
+        id: "o-1",
+        total_cents: 2140,
+        created_at: ago(900_000),
+        status: "paid",
+        refunded_cents: 0,
+        tip_cents: 0,
+        cart_id: PAID,
+      },
+    ];
     paidReadFails = true;
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await detail()).paidKitchen).toBeNull();
     spy.mockRestore();
+  });
+
+  it("past the cap the NEWEST dishes are kept, oldest first on the page, and the page says so (#360, CRITICAL 3)", async () => {
+    // A long night's paid rounds: 105 dishes still on the track. Read oldest-first and capped, the
+    // first 100 were kept and the round still cooking was the one dropped.
+    // lck/floor/paid-round-keeps-the-oldest — red. lck/floor/paid-round-cap-unsaid — red.
+    orders = [
+      {
+        id: "o-1",
+        total_cents: 2140,
+        created_at: ago(900_000),
+        status: "paid",
+        refunded_cents: 0,
+        tip_cents: 0,
+        cart_id: PAID,
+      },
+    ];
+    const n = PAID_KITCHEN_CAP + 5;
+    paidRows = Array.from({ length: n }, (_, i) =>
+      line({
+        id: `d-${String(i).padStart(3, "0")}`,
+        cart_id: PAID,
+        // created one second apart, oldest first; ISO strings sort by time
+        created_at: new Date(Date.parse(ago(3_000_000)) + i * 1000).toISOString(),
+      }),
+    );
+    const d = await detail();
+    const ids = d.paidKitchen?.map((l) => l.id) ?? [];
+    expect(ids).toHaveLength(PAID_KITCHEN_CAP);
+    expect(ids[0]).toBe("d-005");
+    expect(ids[ids.length - 1]).toBe(`d-${String(n - 1).padStart(3, "0")}`);
+    expect(d.paidKitchenCapped).toBe(true);
+    // exactly at the cap: nothing was cut, nothing is said
+    paidRows = paidRows.slice(0, PAID_KITCHEN_CAP);
+    expect((await detail()).paidKitchenCapped).toBe(false);
   });
 });

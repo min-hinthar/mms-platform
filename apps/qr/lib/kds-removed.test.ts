@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { kdsRemovals, mergeRemovals, ownBumpsAfter, removalsForStation } from "./kds-removed";
+import {
+  confirmRemovals,
+  FATE_CAP,
+  fateIds,
+  mergeRemovals,
+  ownBumpsAfter,
+  removalCandidates,
+  removalsForStation,
+  stoppedLineIds,
+} from "./kds-removed";
 import type { KitchenLine, KitchenTicket } from "./kitchen-types";
 
 /**
- * The lifecycle audit — the KDS calls out a dish that LEFT its board without a bump, until Got it.
- * Every case is the one a `lck/kds-removed/*` mutant turns red: each fixture separates a void from
- * the bumps, merges and clears that also take a line off the board.
+ * The lifecycle audit — the KDS calls out a dish VOIDED off its board, until Got it. Two steps: the
+ * snapshot diff proposes, a by-id read of each line's CURRENT state confirms. Every case is one a
+ * `lck/kds-removed/*` mutant turns red.
  */
 const line = (id: string, over: Partial<KitchenLine> = {}): KitchenLine => ({
   id,
@@ -47,98 +56,111 @@ const card = (
   ...over,
 });
 const none = new Set<string>();
-const run = (
+const candidates = (
   prev: KitchenTicket[],
   next: KitchenTicket[],
-  over: { ownBumps?: Set<string>; served?: Set<string> | null; refunded?: Set<string> } = {},
+  over: { ownBumps?: Set<string>; stopped?: Set<string> } = {},
 ) =>
-  kdsRemovals({
+  removalCandidates({
     prev,
     next,
     ownBumps: over.ownBumps ?? none,
-    served: over.served === undefined ? none : over.served,
-    refunded: over.refunded ?? none,
+    stopped: over.stopped ?? none,
   });
+const fates = (o: Record<string, string>) => new Map(Object.entries(o));
 
-describe("kdsRemovals — a dish that left the board without a bump", () => {
+describe("removalCandidates — what LEFT the board, before anyone says why", () => {
   const mohinga = line("l-mohinga");
   const tea = line("l-tea", { name: "Tea", station: "drinks" });
   const before = [card("b|1", [mohinga, tea])];
 
-  it("a line that left a card still on the board, bumped by nobody, is REMOVED", () => {
-    // lck/kds-removed/void-unsaid — the server voided the Mohinga the cook had started; the row
-    // vanished from Table 6's card with no word.
-    const r = run(before, [card("b|1", [tea])]);
-    expect(r.map((x) => [x.key, x.why, x.line.name, x.ticket.tableNumber])).toEqual([
-      ["removed:l-mohinga", "removed", "Mohinga", 6],
+  it("a line that left, bumped by nobody here, is a candidate — with the card it stood on", () => {
+    const r = candidates(before, [card("b|1", [tea])]);
+    expect(r.map((x) => [x.key, x.line.name, x.ticket.tableNumber])).toEqual([
+      ["removed:l-mohinga", "Mohinga", 6],
     ]);
   });
 
-  it("the cook's own tap on this tablet is never an alarm", () => {
-    // lck/kds-removed/own-bump-alarms — a per-line Done here would read as "Removed — stop".
-    expect(run(before, [card("b|1", [tea])], { ownBumps: new Set(["l-mohinga"]) })).toEqual([]);
+  it("the cook's own tap on this tablet is never a candidate", () => {
+    // lck/kds-removed/own-bump-alarms
+    expect(candidates(before, [card("b|1", [tea])], { ownBumps: new Set(["l-mohinga"]) })).toEqual(
+      [],
+    );
   });
 
-  it("a teammate's bump on another tablet carries a stamp on the served rail — not a removal", () => {
-    // lck/kds-removed/served-elsewhere-alarms — another tablet's Done is on the rail.
-    expect(run(before, [card("b|1", [tea])], { served: new Set(["l-mohinga"]) })).toEqual([]);
+  it("a line a stop card strikes is the stop card's to say — never said twice", () => {
+    // lck/kds-removed/stop-card-said-twice — a cleared table's dishes read "Removed — stop" beside
+    // its own "Table 6 left — stop cooking".
+    expect(candidates(before, [], { stopped: new Set(["l-mohinga", "l-tea"]) })).toEqual([]);
   });
 
-  it("an unreadable served rail says nothing: a teammate's Done would read as a void", () => {
-    // lck/kds-removed/unknown-rail-guesses — never a false "stop".
-    expect(run(before, [card("b|1", [tea])], { served: null })).toEqual([]);
-  });
-
-  it("a whole card that leaves is not a removal (a clear has its stop card; a session closed)", () => {
-    // lck/kds-removed/whole-card-guesses — a closed session or a cleared table hides every line.
-    expect(run(before, [])).toEqual([]);
+  it("a WHOLE card that left is a candidate too — the confirmation decides, by id", () => {
+    // lck/kds-removed/vanished-card-unasked — a one-dish card whose dish was voided disappeared with
+    // no word, because the diff only looked at cards still on the board.
+    expect(candidates([card("b|9", [mohinga])], []).map((x) => x.key)).toEqual([
+      "removed:l-mohinga",
+    ]);
   });
 
   it("a line still on the board under ANOTHER card (a merge, a Cook now) never left", () => {
-    expect(run(before, [card("b|1", [tea]), card("b|2", [mohinga])])).toEqual([]);
-  });
-
-  it("a REFUNDED order's dishes are said whether or not their card is still up — refunded wins", () => {
-    // lck/kds-removed/refund-unsaid — a refunded pickup's card left the board silently while the
-    // wok kept going; a refund reported for a line still on a live card is said as a refund too.
-    const pickup = card("b|9", [line("l-curry", { name: "Curry" })], {
-      channel: "pickup",
-      tableNumber: null,
-      shortCode: "A1B2C3",
-    });
-    const r = run([pickup], [], { refunded: new Set(["l-curry"]), served: null });
-    expect(r.map((x) => [x.key, x.ticket.shortCode])).toEqual([["refunded:l-curry", "A1B2C3"]]);
-    // …and the cook's own tap still wins over a refund (she bumped it before the refund landed)
-    expect(
-      run([pickup], [], { refunded: new Set(["l-curry"]), ownBumps: new Set(["l-curry"]) }),
-    ).toEqual([]);
+    expect(candidates(before, [card("b|1", [tea]), card("b|2", [mohinga])])).toEqual([]);
   });
 
   it("each line once, even if two prior cards held it", () => {
-    const r = run([card("b|1", [mohinga, tea]), card("b|1b", [mohinga])], [card("b|1", [tea])]);
+    const r = candidates(
+      [card("b|1", [mohinga, tea]), card("b|1b", [mohinga])],
+      [card("b|1", [tea])],
+    );
     expect(r.map((x) => x.key)).toEqual(["removed:l-mohinga"]);
   });
 });
 
-describe("mergeRemovals / removalsForStation / ownBumpsAfter", () => {
-  const a = {
-    key: "removed:l-a",
-    why: "removed" as const,
-    line: line("l-a"),
-    ticket: card("b|1", []),
-  };
-  const b = {
-    key: "removed:l-b",
-    why: "removed" as const,
-    line: line("l-b", { station: "drinks" }),
-    ticket: card("b|1", []),
-  };
-  it("a new wave keeps the standing markers and replaces a line's own", () => {
-    const refundA = { ...a, key: "refunded:l-a", why: "refunded" as const };
-    expect(mergeRemovals([a, b], [refundA]).map((r) => r.key)).toEqual([
-      "removed:l-b",
-      "refunded:l-a",
+describe("confirmRemovals — only a line whose CURRENT state is voided is said", () => {
+  const c = candidates([card("b|1", [line("l-x"), line("l-y")])], []);
+
+  it("voided is a removal", () => {
+    // lck/kds-removed/void-unsaid
+    expect(confirmRemovals(c, fates({ "l-x": "voided" })).map((r) => r.key)).toEqual([
+      "removed:l-x",
     ]);
+  });
+
+  it("THE SKEW: the rail never listed X and the line read no longer holds X — but X is SERVED", () => {
+    // The blind pass on #360 (CRITICAL 4): the served rail and the live line read are two
+    // statements, so a teammate's bump landing between them was on neither, and the diff read it as
+    // a void. The by-id read sees the bump. lck/kds-removed/served-said-as-removed — red.
+    expect(confirmRemovals(c, fates({ "l-x": "served", "l-y": "served" }))).toEqual([]);
+  });
+
+  it("a line the read did not return, any other state, or a read that failed says nothing", () => {
+    // lck/kds-removed/unread-fate-guessed — a failed read is not a void.
+    expect(confirmRemovals(c, fates({}))).toEqual([]);
+    expect(confirmRemovals(c, fates({ "l-x": "fired", "l-y": "draft" }))).toEqual([]);
+    expect(confirmRemovals(c, null)).toEqual([]);
+  });
+
+  it("the read asks about at most FATE_CAP lines — a mass departure is a clear, not a void", () => {
+    const many = candidates(
+      [
+        card(
+          "b|1",
+          Array.from({ length: FATE_CAP + 5 }, (_, i) => line(`l-${i}`)),
+        ),
+      ],
+      [],
+    );
+    expect(fateIds(many)).toHaveLength(FATE_CAP);
+    expect(fateIds(many)[0]).toBe("l-0");
+  });
+});
+
+describe("mergeRemovals / removalsForStation / ownBumpsAfter / stoppedLineIds", () => {
+  const [a, b] = candidates(
+    [card("b|1", [line("l-a"), line("l-b", { station: "drinks" })])],
+    [],
+  ) as [ReturnType<typeof candidates>[number], ReturnType<typeof candidates>[number]];
+  it("a new wave keeps the standing markers and replaces a line's own", () => {
+    expect(mergeRemovals([a, b], [a]).map((r) => r.key)).toEqual(["removed:l-b", "removed:l-a"]);
   });
   it("a station draws only its own dishes; the all view draws every one", () => {
     expect(removalsForStation([a, b], "drinks").map((r) => r.key)).toEqual(["removed:l-b"]);
@@ -149,5 +171,12 @@ describe("mergeRemovals / removalsForStation / ownBumpsAfter", () => {
     // line once a recall put it back.
     const left = ownBumpsAfter(new Set(["l-a", "l-b"]), [card("b|1", [line("l-b")])]);
     expect([...left]).toEqual(["l-b"]);
+  });
+  it("the stop cards' struck lines; none when the stop read did not answer", () => {
+    expect([...stoppedLineIds([{ lines: [{ id: "l-a" }] }, { lines: [{ id: "l-b" }] }])]).toEqual([
+      "l-a",
+      "l-b",
+    ]);
+    expect(stoppedLineIds(null).size).toBe(0);
   });
 });

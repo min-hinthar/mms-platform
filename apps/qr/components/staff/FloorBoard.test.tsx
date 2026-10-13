@@ -110,7 +110,11 @@ const snap = (tables: FloorTable[], over: Partial<FloorSnapshot> = {}): FloorSna
 });
 const ok = (s: FloorSnapshot) => () => Promise.resolve({ ok: true, snapshot: s });
 
-function mount(initial: FloorSnapshot, withStart = false, closedTable: string | null = null) {
+function mount(
+  initial: FloorSnapshot,
+  withStart = false,
+  closedTable: number | "unnamed" | null = null,
+) {
   const utils = render(
     <StaffLangProvider lang="en">
       <CounterMintProvider>
@@ -549,7 +553,7 @@ describe("the ONE region", () => {
     // The lifecycle audit — a colleague cleared Table 6 while a server stood on its page; the page
     // jumped to the floor with no word. lck/floor-board/closed-table-unsaid — red.
     window.history.replaceState(null, "", "/staff?floor=1&closed=6#floor-h");
-    const { region } = mount(snap([table(3)]), false, "6");
+    const { region } = mount(snap([table(3)]), false, 6);
     await tick(0);
     expect(region().textContent).toBe(tf("en", "floor.tableClosed", { id: "6" }));
     // lck/floor-board/closed-param-kept — a reload would say it again; red.
@@ -558,6 +562,14 @@ describe("the ONE region", () => {
     // It dwells like any strip notice, then the counts return.
     await tick(ERR_DWELL_MS);
     expect(region().textContent).toBe("1 active table");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("an unregistered table's line names no label — the address never carried one", async () => {
+    window.history.replaceState(null, "", "/staff?floor=1&closed=table");
+    const { region } = mount(snap([table(3)]), false, "unnamed");
+    await tick(0);
+    expect(region().textContent).toBe(ts("en", "floor.tableClosed.unnamed"));
     window.history.replaceState(null, "", "/");
   });
 

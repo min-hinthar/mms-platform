@@ -28,7 +28,7 @@ import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { localizeCount, plural } from "@/lib/i18n/fill";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { paneUrl } from "@/lib/floor-pane";
-import { withoutClosedParam } from "@/lib/floor-closed-note";
+import { withoutClosedParam, type ClosedNote } from "@/lib/floor-closed-note";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useTurnoverNews } from "./TurnoverNews";
@@ -63,7 +63,7 @@ export function FloorBoard({
   initial: FloorSnapshot;
   /** The lifecycle audit — the table that closed under this device's table page or pad
    *  (`closedFloorHref`), said once in the region; null when nothing closed. */
-  closedTable?: string | null;
+  closedTable?: ClosedNote | null;
 }) {
   const lang = useStaffLang();
   // PD7 (m7 B10) — a clear's outcome, said here because the pane it was tapped in leaves with the
@@ -338,7 +338,11 @@ export function FloorBoard({
     // Deferred a tick (the house's lint-safe mount say — never a setState in the effect body).
     void Promise.resolve().then(() => {
       if (!alive.current) return;
-      onStripNotice({ k: "floor.tableClosed", vars: { id: closedTable } });
+      onStripNotice(
+        closedTable === "unnamed"
+          ? { k: "floor.tableClosed.unnamed" }
+          : { k: "floor.tableClosed", vars: { id: closedTable } },
+      );
     });
     try {
       window.history.replaceState(null, "", withoutClosedParam(window.location.href));

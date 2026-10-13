@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   boardOrderFireOr,
+  boardOrderReadOr,
   boardOrderIsBag,
   boardOrderLive,
   boardOrderWindowOr,
@@ -62,5 +63,12 @@ describe("the narrowing filters — a superset of the rule", () => {
       `pickup_slot.gte.${FLOOR},and(pickup_slot.is.null,created_at.gte.${FLOOR})`,
     );
     expect(boardOrderFireOr(NOW)).toBe(`togo_status.eq.ready,fire_at.is.null,fire_at.lte.${NOW}`);
+  });
+
+  it("travel as ONE parameter whose conjunction is explicit (#360, question a)", () => {
+    // lck/board-orders/filters-ored — the two narrowings joined by OR widen the read past the rule.
+    expect(boardOrderReadOr(FLOOR, NOW)).toBe(
+      `and(or(${boardOrderWindowOr(FLOOR)}),or(${boardOrderFireOr(NOW)}))`,
+    );
   });
 });

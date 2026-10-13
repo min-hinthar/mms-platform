@@ -778,11 +778,20 @@ describe("the lifecycle audit — what a sent dish still says, and where a draft
     }
   });
 
-  it("a sent dish 86'd since it was sent says Sold out, as the KDS does", () => {
+  it("a sent dish 86'd since it was sent says Sold out, as the KDS does — removed and free rows too", () => {
     // lck/staff-line-editor/sold-out-hidden-once-sent
     const { container } = draw(sent({ soldOut: true }));
     expect(container.textContent).toContain(STAFF["table.line.soldOut"].en);
     cleanup();
+    // Codex on #360 — the REMOVED row dropped it (the PR said removed lines keep it).
+    // lck/staff-line-editor/sold-out-hidden-once-removed — red.
+    for (const l of [
+      sent({ soldOut: true, state: "voided" }),
+      sent({ soldOut: true, comped: true }),
+    ]) {
+      expect(draw(l).container.textContent).toContain(STAFF["table.line.soldOut"].en);
+      cleanup();
+    }
     expect(draw(sent({ soldOut: false })).container.textContent).not.toContain(
       STAFF["table.line.soldOut"].en,
     );

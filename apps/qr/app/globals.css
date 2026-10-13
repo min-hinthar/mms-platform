@@ -9495,7 +9495,8 @@ a .chrome-en {
   cursor: progress;
 }
 .kds-slot,
-.kds-unpaid {
+.kds-unpaid,
+.kds-refunded {
   margin: 0;
   padding: 8px 14px 0;
   font-size: var(--kfs-mod);
@@ -16693,6 +16694,11 @@ html[data-reloading] body::after {
   font-weight: var(--fw-bold);
   color: var(--ok);
 }
+/* #360 (CRITICAL 1) — dishes still cooking on a cart refunded in full: the KDS's warn tag, here too
+   (a server may be the one asked "is this still going out?"). */
+.floor-kitchen-seg[data-seg="floor.kitchen.refunded"] {
+  color: var(--warn);
+}
 /* THE WAIT PILL — the kitchen's own clock and rule (`kdsUrgency`). ok is quiet; amber is the audited
    gold-tint pair with a gold edge (the edge is amber's SHAPE cue against ok); red is the warn pair
    with an edge and the alert glyph. Inline-flex so the one-shot `.mms-pop` can transform it (its RM
@@ -17042,10 +17048,16 @@ html[data-reloading] body::after {
 }
 /* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
    only the glyph beside it is its own. */
-.kds-unpaid {
+.kds-unpaid,
+.kds-refunded {
   display: flex;
   align-items: center;
   gap: var(--s2);
+}
+/* The lifecycle audit — a fully refunded order's card: the same line, in warn (it may change what is
+   cooked; Unpaid never does). */
+.kds-refunded {
+  color: var(--warn);
 }
 /* A counter order's floor card: its Unpaid flag and its kitchen row, one wrapping line. */
 .counter-card-kitchen {

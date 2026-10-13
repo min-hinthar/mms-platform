@@ -18,12 +18,7 @@ import {
   type BoardTable,
 } from "@/lib/board-tables";
 import { readRounds, roundFor } from "@/lib/kitchen-round-read";
-import {
-  boardOrderFireOr,
-  boardOrderIsBag,
-  boardOrderLive,
-  boardOrderWindowOr,
-} from "@/lib/board-orders";
+import { boardOrderIsBag, boardOrderLive, boardOrderReadOr } from "@/lib/board-orders";
 import { paidBagCompLine } from "@/lib/expo-rules";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
@@ -222,8 +217,7 @@ export async function GET(req: NextRequest) {
     // (fire_at still ahead) stays off until the kitchen starts it — but a READY bag is on the wall
     // whatever the schedule said (Cook now moves only the cart lines' fire time).
     .eq("status", "paid")
-    .or(boardOrderWindowOr(dayFloor))
-    .or(boardOrderFireOr(dbNowIso))
+    .or(boardOrderReadOr(dayFloor, dbNowIso))
     // NEWEST READINESS first, then creation (the blind pass on A4·1, CRITICAL 3; the key reshaped
     // by Codex round 1): `picked_up` is a manual expo tap, so untapped `ready` rows accumulate all
     // day and an oldest-first cap would drop the bag that just came up in favour of one handed over

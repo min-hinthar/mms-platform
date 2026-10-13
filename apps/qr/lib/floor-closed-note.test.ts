@@ -9,49 +9,42 @@ import { STAFF_DOOR_TARGET } from "./staff-door";
  * The lifecycle audit — a table closed under a server's page says so on the floor it lands on. Every
  * case is one a `lck/closed-note/*` mutant turns red.
  */
-describe("closedFloorHref — the bounce carries the table's name", () => {
-  it("a registered table carries its NUMBER (what the floor calls it)", () => {
+describe("closedFloorHref — the bounce carries WHICH table, never text", () => {
+  it("a registered table carries its NUMBER", () => {
     // lck/closed-note/bounce-unnamed — the floor never hears which table closed.
     expect(closedFloorHref({ kind: "closed", label: "T6", tableNumber: 6 })).toBe(
       `${STAFF_DOOR_TARGET.counter}&closed=6`,
     );
   });
 
-  it("an unregistered table carries its label, encoded", () => {
+  it("an unregistered table carries the fixed token — never its label", () => {
+    // #360 (security) — the label is free text; it never rides the address.
+    // lck/closed-note/label-in-the-address — red.
     expect(closedFloorHref({ kind: "closed", label: "Patio 2", tableNumber: null })).toBe(
-      `${STAFF_DOOR_TARGET.counter}&closed=Patio%202`,
+      `${STAFF_DOOR_TARGET.counter}&closed=table`,
     );
   });
 
-  it("a COUNTER order (its verdict carries the handoff key) keeps the plain floor — no table to name", () => {
-    // lck/closed-note/counter-named-a-table — "Table reg-7f3a closed" on the floor.
-    for (const handoff of [null, undefined]) {
-      const v = { kind: "closed" as const, label: "reg-7f3a", tableNumber: null, handoff };
-      expect(closedFloorHref(v)).toBe(
-        handoff === undefined
-          ? `${STAFF_DOOR_TARGET.counter}&closed=reg-7f3a`
-          : STAFF_DOOR_TARGET.counter,
-      );
-    }
+  it("a COUNTER order (its verdict carries the handoff key) keeps the plain floor", () => {
+    // lck/closed-note/counter-named-a-table — "Table … closed" on the floor for a walk-up.
+    for (const handoff of [null, { orderId: "o" }] as const)
+      expect(
+        closedFloorHref({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff } as never),
+      ).toBe(STAFF_DOOR_TARGET.counter);
   });
 
   it("a verdict with no row has nothing to say: the plain floor", () => {
     expect(closedFloorHref({ kind: "closed" })).toBe(STAFF_DOOR_TARGET.counter);
   });
-
-  it("a name the floor would not say is never carried", () => {
-    expect(closedFloorHref({ kind: "closed", label: "x".repeat(40), tableNumber: null })).toBe(
-      STAFF_DOOR_TARGET.counter,
-    );
-  });
 });
 
 describe("closedNoteOf — the server page's read of the param", () => {
-  it("a table's name passes; anything else is no note", () => {
-    expect(closedNoteOf("6")).toBe("6");
-    expect(closedNoteOf("Patio 2")).toBe("Patio 2");
-    // lck/closed-note/any-text-said — a typed address puts its own sentence in the floor's region.
-    for (const bad of ["", " 6", "<b>6</b>", "x".repeat(25), "6\n7"])
+  it("a table number or the unnamed token; anything else is no note", () => {
+    expect(closedNoteOf("6")).toBe(6);
+    expect(closedNoteOf("10")).toBe(10);
+    expect(closedNoteOf("table")).toBe("unnamed");
+    // lck/closed-note/any-text-said — a typed address puts its own words in the floor's region.
+    for (const bad of ["", "0", "06", "1000", "Patio 2", "6 closed", "<b>6</b>", "Table", "6\n7"])
       expect(closedNoteOf(bad)).toBe(null);
     expect(closedNoteOf(["6", "7"])).toBe(null);
     expect(closedNoteOf(undefined)).toBe(null);

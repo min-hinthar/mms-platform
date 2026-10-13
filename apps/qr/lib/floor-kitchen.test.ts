@@ -406,4 +406,23 @@ describe("foldFloorKitchen — the lifecycle audit: one track, the bag's verb, a
       { k: "floor.kitchen.up", n: 1 },
     ]);
   });
+
+  it("a dish on a cart refunded IN FULL is still COUNTED in the kitchen, and tagged (CRITICAL 1 on #360)", () => {
+    // A full refund can be a goodwill comp at a table still eating: the KDS keeps the card, so the
+    // floor keeps counting it — and says it is on a refunded order, exactly as the KDS does.
+    // lck/floor-kitchen/refunded-uncounted — red
+    const k = fold([
+      row({ id: "l-r1", refunded: true, fire_at: at(-9 * MIN), qty: 2 }),
+      row({ id: "l-ok", fire_at: at(-2 * MIN) }),
+      // finished food on that cart is no question for anyone
+      row({ id: "l-r2", refunded: true, state: "served", bumped_at: at(-MIN) }),
+    ]);
+    expect(k?.inKitchen).toBe(3);
+    expect(k?.refunded).toBe(2);
+    expect(kitchenSegments(k)).toEqual([
+      { k: "floor.kitchen.inKitchen", n: 3 },
+      { k: "floor.kitchen.refunded", n: 2 },
+      { k: "floor.kitchen.up", n: 1 },
+    ]);
+  });
 });

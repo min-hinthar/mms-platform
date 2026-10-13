@@ -29,7 +29,13 @@ export type PaidKitchenRow = {
   fulfillment: string | null;
   notes: string | null;
   modifiers: unknown;
+  /** #360 (CRITICAL 1) — the line's cart was refunded IN FULL (`refundedCarts`): drawn, tagged. */
+  refunded?: boolean;
 };
+
+/** The paid rounds' kitchen lines a table page reads (a table's paid food still on the wok or just
+ *  out: a handful). Past it the read keeps the NEWEST and the page says so (#360, CRITICAL 3). */
+export const PAID_KITCHEN_CAP = 100;
 
 const SHOWN: ReadonlySet<KitchenStage> = new Set<KitchenStage>(["sending", "sent", "cooking"]);
 
@@ -59,6 +65,7 @@ export function paidRoundKitchen(
       notes: r.notes ?? null,
       modifiers: Array.isArray(r.modifiers) ? (r.modifiers as string[]) : [],
       togo: r.fulfillment === "togo",
+      ...(r.refunded === true ? { refunded: true as const } : {}),
     });
   }
   return out;
