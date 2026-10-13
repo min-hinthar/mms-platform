@@ -196,6 +196,7 @@ const { padDishName } = await import("@/lib/order-pad");
 const { sx, al } = await import("@/lib/staff-labels");
 const { fmtElapsed } = await import("@/lib/kds-time");
 const { staffGuideKey, GUIDE_ARM_MS } = await import("@/lib/staff-guide");
+const { staffClock } = await import("@/lib/staff-clock");
 
 afterEach(() => {
   cleanup();
@@ -2320,14 +2321,22 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     held.tickets[0] = { ...held.tickets[0]!, held: true, pickupSlot: NOW };
     const write = deferred<KitchenActionResult>();
     fireTicketNow.mockImplementationOnce(() => write.promise);
+    holdClock();
     const q = mount("en", held);
-    const fire = q.container.querySelector<HTMLButtonElement>(".kds-bump-fire")!;
+    // The lifecycle audit — Cook now asks first; "Yes" stands in its zone, past the same gesture.
     await act(async () => {
-      fireEvent.click(fire);
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>(".kds-bump-fire")!);
     });
-    expect(fire.getAttribute("aria-busy")).toBe("true");
+    clock += SAME_GESTURE_MS;
+    const yes = q.container.querySelector<HTMLButtonElement>(".kds-fire-confirm .kds-bump-fire")!;
+    await act(async () => {
+      fireEvent.click(yes);
+    });
+    expect(yes.getAttribute("aria-busy")).toBe("true");
     // MUTATION (p2h-boards/kds/fire-transition): the old transition holds pending; red.
     await flush(STAFF_HANG_MS);
+    // At the bound the question is put away: Cook now is back, free, and the region says why.
+    const fire = q.container.querySelector<HTMLButtonElement>(".kds-bump-fire")!;
     expect(fire.getAttribute("aria-busy")).toBeNull();
     expect(region().textContent).toBe(waiting(T4));
     // Critic B1 — the ticket is held: Cook now says so and a second tap sends nothing.
@@ -2338,6 +2347,8 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     });
     await flush();
     expect(fireTicketNow).toHaveBeenCalledTimes(1);
+    // …and asks nothing: no question is raised over a write that is still out
+    expect(q.container.querySelector(".kds-fire-confirm")).toBeNull();
     expect(region().textContent).toBe(waiting(T4));
     await act(async () => {
       write.resolve({ ok: true });
@@ -3438,5 +3449,220 @@ describe("KdsBoard — PD12 · the kitchen guide on the empty board", () => {
     mount("en", emptyQ());
     await act(async () => {});
     expect(guideGroup()).toBeNull();
+  });
+});
+
+describe("the lifecycle audit — every kitchen mistake can be taken back, and nothing leaves silently", () => {
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const region = () => document.querySelector('.kds-head [role="status"]')!;
+  const T4 = tf("en", "kds.table", { id: 4 });
+  const twoLines = (): KitchenQueue => {
+    const q = queue();
+    const base = q.tickets[0]!;
+    q.tickets[0] = {
+      ...base,
+      lines: [
+        { ...base.lines[0]!, state: "in_progress" },
+        { ...base.lines[0]!, id: "line-tea", name: "Tea", menuItemId: "mi-tea" },
+      ],
+    };
+    return q;
+  };
+  const servedRail = (ids: string[] = []) => ({
+    lines: ids.map((id) => ({
+      id,
+      name: "Mohinga",
+      nameMy: null,
+      qty: 1,
+      modifiers: [],
+      modifiersMy: [],
+      bumpedAt: NOW,
+      bumpedAtLabel: "11:00",
+      voided: false,
+      channel: "dinein" as const,
+      label: "T4",
+      tableNumber: 4,
+      shortCode: null,
+      fulfillment: "dinein" as const,
+    })),
+    truncated: false,
+    total: ids.length,
+  });
+
+  it("a per-line Done offers the card's Undo pill, named for the dish, and the Undo brings it back", async () => {
+    // lck/kds/line-done-unundoable — the row went straight to served with no pill and no chip, and
+    // nothing on any surface could restore it (SPEC-KDS §4: "a mis-bump is never unrecoverable").
+    const q = mount("en", twoLines());
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
+    const pill = await waitFor(() => {
+      const p = q.container.querySelector(".kds-undo");
+      if (!p) throw new Error("no pill yet");
+      return p as HTMLElement;
+    });
+    expect(pill.textContent).toContain(tf("en", "kds.undo.line", { x: `Mohinga · ${T4}` }));
+    // …and the Bring-back rail carries it for its two minutes
+    expect(q.container.querySelector(".kds-recall")?.textContent).toContain(`Mohinga · ${T4}`);
+    await act(async () => {
+      fireEvent.click(within(pill).getByRole("button"));
+    });
+    expect(recallTicket).toHaveBeenCalledWith({ cartId: "cart-1", lineIds: ["line-1"] });
+  });
+
+  it("a Start (fired → cooking) is not a bump: no pill", async () => {
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "in_progress" });
+    await act(async () => {});
+    expect(q.container.querySelector(".kds-undo")).toBeNull();
+  });
+
+  it("a held card for TOMORROW says so — on the strip and on its slot line", () => {
+    // lck/kds-slot/tomorrow-reads-as-today — a 6 PM pickup booked for tomorrow read "5:40 PM" on
+    // today's board and looked overdue by 6:05 PM.
+    const held = queue();
+    held.tickets[0] = {
+      ...held.tickets[0]!,
+      channel: "pickup",
+      held: true,
+      tableNumber: null,
+      customerName: "Aye",
+      shortCode: "A1B2C3",
+      firedAt: "2026-09-22T00:40:00.000Z", // 5:40 PM, Sep 21 at the restaurant
+      pickupSlot: "2026-09-22T01:00:00.000Z", // 6:00 PM, Sep 21 — NOW is 11 AM, Sep 20
+    };
+    const { container } = mount("en", held);
+    expect(container.querySelector(".kds-clock")?.textContent).toBe(
+      tf("en", "kds.when.tomorrow", { t: staffClock("2026-09-22T00:40:00.000Z") }),
+    );
+    expect(container.querySelector(".kds-slot")?.textContent).toContain(
+      tf("en", "kds.slot", {
+        t: tf("en", "kds.when.tomorrow", { t: staffClock("2026-09-22T01:00:00.000Z") }),
+      }),
+    );
+  });
+
+  it("Cook now asks first, naming the day and the slot; the tap's own echo and Cancel send nothing", async () => {
+    // lck/kds/cook-now-unasked — one tap cooked tomorrow's order today, with no undo.
+    holdClock();
+    const held = queue();
+    held.tickets[0] = {
+      ...held.tickets[0]!,
+      channel: "pickup",
+      held: true,
+      tableNumber: null,
+      customerName: "Aye",
+      shortCode: "A1B2C3",
+      firedAt: "2026-09-22T00:40:00.000Z",
+      pickupSlot: "2026-09-22T01:00:00.000Z",
+    };
+    const q = mount("en", held);
+    fireEvent.click(q.getByRole("button", { name: ts("en", "kds.fire") }));
+    expect(fireTicketNow).not.toHaveBeenCalled();
+    const group = q.getByRole("group", {
+      name: tf("en", "kds.fire.confirm", {
+        t: tf("en", "kds.when.tomorrow", { t: staffClock("2026-09-22T01:00:00.000Z") }),
+      }),
+    });
+    const yes = within(group).getByRole("button", { name: ts("en", "kds.fire.yes") });
+    expect(document.activeElement).toBe(yes);
+    // the second half of a double-tap lands on "Yes" — the same gesture, refused
+    fireEvent.click(yes);
+    expect(fireTicketNow).not.toHaveBeenCalled();
+    fireEvent.click(within(group).getByRole("button", { name: ts("en", "settle.cancel") }));
+    expect(q.queryByRole("group", { name: /cook it now/ })).toBeNull();
+    // asked again and answered past the hold: it cooks
+    fireEvent.click(q.getByRole("button", { name: ts("en", "kds.fire") }));
+    clock += SAME_GESTURE_MS;
+    await act(async () => {
+      fireEvent.click(q.getByRole("button", { name: ts("en", "kds.fire.yes") }));
+    });
+    expect(fireTicketNow).toHaveBeenCalledWith({ cartId: "cart-1" });
+  });
+
+  it("a dish removed from a card still on the board is called out — once, until Got it", async () => {
+    // lck/kds/removal-unwired — a server's Remove of a dish the cook had started vanished from the
+    // card with no word, no chime: the wok kept going for a dish nobody would pay for.
+    vi.useFakeTimers();
+    soundWanted = true;
+    currentQueue = twoLines();
+    const q = mount("en", currentQueue);
+    const after = twoLines();
+    after.tickets[0] = { ...after.tickets[0]!, lines: [after.tickets[0]!.lines[1]!] };
+    currentQueue = { ...after, served: servedRail() };
+    await flush(5_000);
+    const said = tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` });
+    const marker = q.container.querySelector(".kds-removed")!;
+    expect(marker.textContent).toContain(said);
+    expect(region().textContent).toContain(said);
+    expect(played).toHaveBeenCalledWith("dinein");
+    // a poll after it says nothing new and keeps the marker
+    await flush(5_000);
+    expect(q.container.querySelectorAll(".kds-removed")).toHaveLength(1);
+    fireEvent.click(
+      within(marker as HTMLElement).getByRole("button", { name: ts("en", "help.done") }),
+    );
+    expect(q.container.querySelector(".kds-removed")).toBeNull();
+    expect(region().textContent).not.toContain(said);
+  });
+
+  it("this tablet's own Done, a teammate's bump on the rail, and an unreadable rail are never a removal", async () => {
+    vi.useFakeTimers();
+    currentQueue = twoLines();
+    const q = mount("en", currentQueue);
+    const gone = () => {
+      const a = twoLines();
+      a.tickets[0] = { ...a.tickets[0]!, lines: [a.tickets[0]!.lines[1]!] };
+      return a;
+    };
+    // a teammate's Done: the served rail carries the bump
+    currentQueue = { ...gone(), served: servedRail(["line-1"]) };
+    await flush(5_000);
+    expect(q.container.querySelector(".kds-removed")).toBeNull();
+    cleanup();
+    // an unreadable rail: never guessed
+    currentQueue = twoLines();
+    const r = mount("en", currentQueue);
+    currentQueue = { ...gone(), served: null };
+    await flush(5_000);
+    expect(r.container.querySelector(".kds-removed")).toBeNull();
+    cleanup();
+    // lck/kds/own-bump-unmarked — this tablet's own Done, read back before the rail lists it
+    currentQueue = twoLines();
+    const own = mount("en", currentQueue);
+    currentQueue = { ...gone(), served: servedRail() };
+    await act(async () => {
+      fireEvent.click(own.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    await flush(0);
+    expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
+    await flush(5_000);
+    expect(own.container.querySelector(".kds-removed")).toBeNull();
+  });
+
+  it("a refunded order's card leaves with 'Refunded: … — stop'", async () => {
+    vi.useFakeTimers();
+    const pickup = queue();
+    pickup.tickets[0] = {
+      ...pickup.tickets[0]!,
+      channel: "pickup",
+      tableNumber: null,
+      customerName: null,
+      shortCode: "A1B2C3",
+    };
+    currentQueue = pickup;
+    const q = mount("en", currentQueue);
+    currentQueue = { ...queue(), tickets: [], refunded: ["line-1"] };
+    await flush(5_000);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.refunded", { x: "1× Mohinga · #A1B2C3" }),
+    );
   });
 });

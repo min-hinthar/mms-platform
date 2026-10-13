@@ -9789,6 +9789,84 @@ a .chrome-en {
   font-size: var(--kfs-meta);
   color: var(--warn);
 }
+/* The lifecycle audit (2026-10-13) — a dish taken off the board without a bump (a server's Remove, a
+   refund): one marker per dish, "Removed: 1× Mohinga · Table 6 — stop", until Got it. The stop card's
+   vocabulary at row size — warn border, warn glyph, the words in --tx (never colour alone), the
+   stop card's own Got it — and no motion of its own beyond the kit's RM-escorted entrance. */
+.kds-removed-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s2);
+}
+.kds-removed {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 2px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+}
+.kds-removed > svg {
+  flex: none;
+  color: var(--warn);
+}
+.kds-removed-text {
+  flex: 1;
+  min-width: 0;
+}
+.kds-removed-ack {
+  flex: none;
+  min-height: 48px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--warn);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+/* The lifecycle audit — Cook now asks first ("Pickup Tomorrow 6:00 PM — cook it now?"): the question
+   over the card's foot, "Yes" in the 64px zone where Cook now stood, Cancel beside it (48px). */
+.kds-fire-confirm {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s2) 10px 0;
+}
+.kds-fire-q {
+  margin: 0;
+  font-size: var(--kfs-mod);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.kds-fire-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.kds-fire-actions > .kds-bump {
+  flex: 1;
+  margin: 0 0 10px;
+}
+.kds-fire-cancel {
+  flex: none;
+  min-height: 48px;
+  margin: 0 0 10px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
 
 /* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits
    ABOVE the button, so a message grows the bottom-anchored sheet upward and the button never moves

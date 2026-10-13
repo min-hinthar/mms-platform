@@ -245,8 +245,14 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // No mode/status filter (W3a): dine-in enforces active below; pickup/scango outlive their session.
     db.from("table_sessions").select("id,qr_code,table_number,mode,status").in("id", sessionIds),
     // The order anchors the pickup/scango identity: its uuid tail IS the short code the diner's
-    // /track + exit pass show, so the kitchen and the customer's phone always agree.
-    db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
+    // /track + exit pass show, so the kitchen and the customer's phone always agree. The lifecycle
+    // audit — REFUNDED orders are read too: a fully refunded order's food is no longer anyone's, and
+    // the board takes it off (and says so — `refunded` below) instead of cooking it.
+    db
+      .from("qr_orders")
+      .select("id,cart_id,status")
+      .in("cart_id", cartIds)
+      .in("status", ["paid", "refunded"]),
     menuIds.length
       ? db
           .from("menu_items")
@@ -275,9 +281,17 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const optionNameMy = names.optionNameMy;
   const sessById = new Map((sessRes.data ?? []).map((s) => [s.id, s]));
   const orderByCart = new Map<string, string>();
+  const refundedOrderCarts = new Set<string>();
   for (const o of orderRes.data ?? []) {
-    if (o.cart_id && !orderByCart.has(o.cart_id)) orderByCart.set(o.cart_id, o.id);
+    if (!o.cart_id) continue;
+    if (o.status === "refunded") refundedOrderCarts.add(o.cart_id);
+    else if (!orderByCart.has(o.cart_id)) orderByCart.set(o.cart_id, o.id);
   }
+  // A cart whose order was refunded IN FULL, and that holds no paid order besides: nobody will
+  // collect or pay for its food. (A partial refund leaves the order `paid` — which LINE it returned
+  // is not readable without a migration: OPEN-ITEMS, the order line's cart line.)
+  const refundedCarts = new Set([...refundedOrderCarts].filter((c) => !orderByCart.has(c)));
+  const refunded: string[] = [];
   const stationByItem = new Map<string, KitchenStation>();
   // W23a — which dishes are ALREADY off the menu, so the ticket's 86 control shows the current answer
   // instead of an affordance the server would refuse. Same read, one more column.
@@ -372,6 +386,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       nowMs,
     });
     if (!gate.show) continue;
+    // The lifecycle audit — a line the board would show, on a fully refunded order: off the board,
+    // and named in `refunded` so the KDS says "Refunded: … — stop" the poll it leaves.
+    if (refundedCarts.has(l.cart_id)) {
+      refunded.push(l.id);
+      continue;
+    }
     const modifiers = Array.isArray(l.modifiers) ? (l.modifiers as string[]) : [];
     const line: KitchenLine = {
       id: l.id,
@@ -442,7 +462,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     ...all.filter((t) => !t.held).sort(byFire),
     ...all.filter((t) => t.held).sort(byFire),
   ];
-  return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
+  return await withServed({ tickets, serverNow: nowIso, thresholds, stats, refunded });
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };

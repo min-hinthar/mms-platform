@@ -199,6 +199,24 @@ export const STAFF = {
     my: "{t} လာယူ — အလိုအလျောက် စချက်ပါမယ်",
   }, // K15-HIGH
   "kds.fire": { en: "Cook now", my: "အခု စချက်" }, // K15-HIGH — no undo, only a second ticket
+  // ── The lifecycle audit (2026-10-13) · kitchen ↔ floor ↔ board — K15 drafts, each grounded below ──
+  // A held card's day: "Tomorrow 5:40 PM" ({t} the Latin clock). Read as today, a card for tomorrow
+  // is cooked a day early (Cook now has no undo).
+  "kds.when.tomorrow": { en: "Tomorrow {t}", my: "မနက်ဖြန် {t}" }, // K15-HIGH draft — grounded: the diner's pickup "Tomorrow" (pickupTime)
+  // Cook now asks first, naming the day and the slot: the write has no reverse edge.
+  "kds.fire.confirm": { en: "Pickup {t} — cook it now?", my: "{t} လာယူ — အခု စချက်မလား?" }, // K15-HIGH draft — grounded: kds.slot "{t} လာယူ", kds.fire "အခု စချက်"
+  "kds.fire.yes": { en: "Yes, cook now", my: "ဟုတ်ကဲ့ — အခု စချက်" }, // K15-HIGH draft — grounded: kds.fire
+  // A per-line Done takes the same 6 s Undo and Bring-back chip as All done ({x} "Mohinga · Table 4").
+  "kds.undo.line": { en: "{x} done", my: "{x} ပြီးသွားပြီ" }, // K15-HIGH draft — grounded: kds.undo.bumped's first Burmese “{x} ပြီးသွားပြီ”
+  "kds.live.line": {
+    en: "{x} done — undo available.",
+    my: "{x} ပြီးသွားပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
+  }, // K15 draft — grounded: kds.live.bumped without အားလုံး
+  // A dish that LEFT the board without a bump: a server's Remove, or a refund. {x} "1× Mohinga ·
+  // Table 6". Read wrong, a cook keeps cooking a dish nobody will pay for.
+  "kds.removed": { en: "Removed: {x} — stop", my: "ဖျက်ပြီး: {x} — ချက်တာ ရပ်ပါ" }, // K15-HIGH draft — grounded: table.detail.line.voided ဖျက်ပြီး, kds.stop ချက်တာ ရပ်ပါ
+  "kds.refunded": { en: "Refunded: {x} — stop", my: "ပြန်အမ်းပြီး: {x} — ချက်တာ ရပ်ပါ" }, // K15-HIGH draft — grounded: floor.status.refunded ပြန်အမ်းပြီး, kds.stop
+  "kds.a11y.removed": { en: "Dishes taken off the board", my: "ဘုတ်ပေါ်က ဖယ်လိုက်တဲ့ ဟင်းများ" }, // K15 draft — grounded: entry.pin.remove ဖယ်
   // Blind review (2026-09-24): the ticket carried TWO "Done" buttons — this whole-ticket one and each
   // line's `kds.line.done`. The ticket's is "All done". K15 draft; was “ပြီးပြီ”.
   "kds.bump": { en: "All done", my: "အားလုံး ပြီးပြီ" }, // K15-HIGH — the tap made most; a 6s undo is the only way back
@@ -4586,14 +4604,20 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.bump",
   "kds.empty.outage",
   "kds.fire",
+  "kds.fire.confirm",
+  "kds.fire.yes",
   "kds.held",
   "kds.recall",
   "kds.slot",
   "kds.stat.late",
   "kds.stop",
   "kds.stops.unknown",
+  "kds.removed",
+  "kds.refunded",
+  "kds.when.tomorrow",
   "kds.undo",
   "kds.undo.86",
+  "kds.undo.line",
   "out.err.body",
   "out.err.bodySustained",
   "out.shell.body",

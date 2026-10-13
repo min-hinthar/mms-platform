@@ -251,6 +251,26 @@ describe("getKitchenQueue — pay-first, with ONE staff-only exception", () => {
     expect(t[0]).toMatchObject({ unpaid: false, held: false, shortCode: "ABCDEF" });
   });
 
+  it("a FULLY REFUNDED order's food leaves the board and is named for the stop marker", async () => {
+    // lck/kitchen/refunded-order-keeps-cooking — the refund never reached the KDS: the pickup kept
+    // its card (now with no #CODE, since the code read filters paid), and the cook made it.
+    setup({ code: "T7", cartStatus: "paid", order: true });
+    tables.qr_orders = [{ id: "order-00abcdef", cart_id: "cart-1", status: "refunded" }];
+    const r = await getKitchenQueue();
+    if (!r.ok) throw new Error("expected a queue");
+    expect(r.queue.tickets).toEqual([]);
+    expect(r.queue.refunded).toEqual(["l1"]);
+    // …while a PAID order beside it keeps the cart's food (a partial refund leaves it `paid`)
+    tables.qr_orders = [
+      { id: "order-00abcdef", cart_id: "cart-1", status: "refunded" },
+      { id: "order-11abcdef", cart_id: "cart-1", status: "paid" },
+    ];
+    const kept = await getKitchenQueue();
+    if (!kept.ok) throw new Error("expected a queue");
+    expect(kept.queue.tickets.map((t) => t.shortCode)).toEqual(["ABCDEF"]);
+    expect(kept.queue.refunded).toEqual([]);
+  });
+
   it("a paid counter line still inside its grace is hidden — never drawn held", async () => {
     setup({ code: "reg-ab12", cartStatus: "paid", order: true, fireAt: at(3) });
     expect(await tickets()).toEqual([]);
