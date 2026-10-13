@@ -11,8 +11,8 @@ import {
 
 /**
  * PD1 — the "Show a server" pass: what it lists and when it flips, as VALUES. The flip is the
- * honest one (m1 B3 · B4): past the grace on the SERVER's clock, never on the fire edge; and a
- * removal is never a send.
+ * honest one (m1 B3 · B4): past the grace on the VIEW's clock (its DB clock since PD1's tail — the
+ * kitchen track's own rule and clock), never on the fire edge; and a removal is never a send.
  */
 const base: CartItem = {
   id: "l",
@@ -117,7 +117,7 @@ describe("passListedNow — a dish that JOINS the open pass stays on it once sen
   });
 });
 
-describe("showServerStatus — the flip waits for the grace on the server's clock", () => {
+describe("showServerStatus — the flip waits for the grace on the view's clock", () => {
   it("a waiting dish: waiting", () => {
     expect(showServerStatus([line({})], NOW)).toBe("waiting");
   });
@@ -146,8 +146,50 @@ describe("showServerStatus — the flip waits for the grace on the server's cloc
   it("every waiting dish removed, nothing sent: none — a removal never reads as a send", () => {
     // MUTATION (show-server/removal-reads-as-a-send): an empty ticket answers sent; red.
     expect(showServerStatus([], NOW)).toBe("none");
+    // MUTATION (pdrem/show-server-status-counts-a-togo-draft): the dine-in filter dropped — a to-go
+    // draft (on the track, since it cooks, but fired only at pay) holds the ticket at "waiting"; red.
     expect(showServerStatus([line({ fulfillment: "togo" })], NOW)).toBe("none");
     expect(showServerStatus([line({ lineState: "voided" })], NOW)).toBe("none");
+  });
+});
+
+describe("showServerStatus — PD1's tail: the ONE kitchen track decides, on the view's DB clock", () => {
+  it("a dish Mom has STARTED reads sent — the track's Cooking is past Sent, whatever its fire_at says", () => {
+    // The pass's own derivation read any sent line with a future `fire_at` as "sending"; the track
+    // (lib/kitchen-track `trackStage`) reads Mom's Start as Cooking, past the Sent stamp — and so do
+    // the Bill's live pass, the TV board and Dad's pane. One rule, every surface.
+    // MUTATION (pdrem/show-server-derives-its-own-stage): the pass's own grace test restored over
+    // the track's roll-up; red.
+    expect(
+      showServerStatus(
+        [line({ lineState: "in_progress", fireAt: "2026-10-08T10:00:09.000Z" })],
+        NOW,
+      ),
+    ).toBe("sent");
+    // A served dish still inside Mom's undo window is Cooking on the track — past Sent too.
+    expect(
+      showServerStatus(
+        [
+          line({
+            lineState: "served",
+            fireAt: "2026-10-08T09:50:00.000Z",
+            bumpedAt: "2026-10-08T09:59:58.000Z",
+          }),
+        ],
+        NOW,
+      ),
+    ).toBe("sent");
+  });
+  it("an UNKNOWN clock never reads sent — not null, not NaN, and never this phone's clock", () => {
+    // Long past on any device clock: read on the phone's clock it would be "sent".
+    const fired = line({ lineState: "fired", fireAt: "2020-01-01T00:00:00.000Z" });
+    // MUTATION (pdrem/show-server-status-reads-the-phone-clock): the view's clock swapped for
+    // `new Date()` — a phone whose view has no clock yet reads "Sent to kitchen" on its own time; red.
+    expect(showServerStatus([fired], null)).toBe("sending");
+    // The pass's own comparison read NaN as "past the grace" (`fire > NaN` is false): "sent".
+    expect(showServerStatus([fired], Number.NaN)).toBe("sending");
+    // A known clock past the stamp: sent.
+    expect(showServerStatus([fired], NOW)).toBe("sent");
   });
 });
 

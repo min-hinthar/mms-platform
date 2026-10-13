@@ -590,10 +590,12 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   offering one whose every tap fails. **Applied** (prod migration row `20261011045025`, verified
   2026-10-11); never re-applied after `20261011123000` (the post-merge review, below).
 - A8 (the console's hollow ring, Dad's pane grouping): counter-floor, with P2do.
-- Decision 16 (the host's name ask, once, when the party reaches two): not built; the role sentence
-  covers an unnamed host meanwhile.
+- Decision 16 (the host's name ask, once, when the party reaches two): ~~not built; the role
+  sentence covers an unnamed host meanwhile.~~ **Built 2026-10-12 (#356)**: "PD1's remainders,
+  built", below.
 - `showServerStatus` derives the pass's stage itself; once kitchen-ops' `lib/kitchen-track.ts` lands
-  (round 3: one derivation for every surface) it should delegate.
+  (round 3: one derivation for every surface) it should delegate. **Delegates since 2026-10-12
+  (#356)**: "PD1's remainders, built", below.
 
 **Appendix C, taken / not.**
 
@@ -688,3 +690,37 @@ Precedence as read: E > D > the Codex corrections > B > A > the body. Stacked on
   also KEEPS a tablemate's draft that joined the open pass (`passListedNow`). Once sent, it reads
   "Sending…" and then "Sent to kitchen" like the dishes the pass opened on. Before this it left the
   ticket, and the pass closed when those dishes had been removed.
+
+**PD1's remainders, built (2026-10-12, `claude/feat/pd1-pd2-remainders`).**
+
+- **The join code leaves the context.** `SplitContext.qrCode` and its select are gone:
+  `getSplitContext` neither reads nor returns `table_sessions.qr_code` (`lib/split-context.test.ts`;
+  mutants `pdrem/split-context-*`). The context carries `sessionId` instead, for decision 16's save.
+  The two pass tests now hand Checkout a context that LEAKED the code, so the pass's own rule stays
+  pinned (`checkout/*-pass-prints-the-join-code`).
+- **`showServerStatus` delegates.** The pass's status is the kitchen track's roll-up
+  (`lib/kitchen-track.ts`, through the live pass's `passHead`) over its dine-in rows, read on the
+  view's DB clock (`dbNow`, the clock that stamped `fire_at`). This retires "Two clocks on the pass,
+  justified" above: the round trip it avoided is the one PD10 pays on every view, and
+  `initialServerNow` is gone. Two readings change with it: a dish Mom has started reads "Sent to
+  kitchen" whatever its `fire_at` says (Cooking is past Sent), and an unreadable clock reads
+  "Sending…", never "Sent". `GRACE_REREAD_MARGIN_MS` moved to `lib/live-pass.ts` (re-exported).
+- **Decision 16, the host's name ask.** On the host's own Order stage, above the waiting line and
+  Send, while their seat carries the default name and the party is two or more
+  (`hostNameAsked`, lib/send-nudge-state). One inline row: the question and its reason are the
+  field's label and hint (`Field`), the field is the recessed 52px well, Save is a paper secondary
+  (B11) and "Not now" a 44px quiet button. Save renames the caller's own seat
+  (`setDisplayName(sessionId, …)`, lib/members), keeps it as the device name, says "Name saved" once
+  and lands focus on Send; a failure marks the field, says it once and keeps focus there. "Not now"
+  holds for the visit (sessionStorage, per table session). The words are screen 3's COPY (English)
+  verbatim and ship English-only: the seven Burmese drafts listed under COPY (Burmese) wait for the
+  K15 sitting. Residual: a tablemate's /cart reads the members when its page loads, so the new name
+  reaches a guest's wait block on their next load; the role sentence covers it until then.
+- **The party the view sees (Codex round 1 on #356).** /cart watches the cart and its lines, never
+  the members, so a host who opened /cart alone was never asked when a tablemate joined afterwards.
+  The gate's party is now `partySize` (lib/send-nudge-state): the page's members plus every seat
+  that owns a line on the applied view. A tablemate's first dish reaches the host's open /cart
+  through the watch it already has, and the ask appears then, which is when the host's Send becomes
+  the thing they wait on. A tablemate who joined and added nothing still counts only from the next
+  page read; a seatless line (a staff-added dish) counts as nobody. Mutants
+  `pdrem/party-size-*` and `pdrem/checkout-name-ask-reads-the-page-party`.

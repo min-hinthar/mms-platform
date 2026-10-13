@@ -10,9 +10,6 @@ import {
 } from "./counter-pay-state";
 import { surfaceOpen } from "./surfaces";
 import { getCartOrderId } from "./order";
-// ── Phase 2c · gate ──
-import { payBlockedByUnsent } from "./checkout-stage";
-import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * A1 — the diner's "Pay at the counter" ask, and its withdrawal.
@@ -61,39 +58,27 @@ export async function requestCounterPay(raw: unknown): Promise<CounterPayResult>
   // ask and the chip agree about what "something to settle" means. A table whose every line was
   // voided or comped has nothing for the register to take; asking would light a card here and
   // nothing on the floor.
-  const countRead = db
+  //
+  // PD2 (m2 STATES "Unsent dishes", decision 12) — the ask CARRIES unsent dishes to the counter.
+  // Phase 2c refused it while the table held dishes its host could send; the spec kept that refusal
+  // only until counter-floor's P2do, which shipped in PD6 (#334): the floor reads "Not sent yet" on
+  // an asked table with every sendable dish counted (`staffOwedSendUnits(…, counterAsk)`), and the
+  // console's Send leads the pane. So the count is the only read here. The ask still moves no money:
+  // the register's settle doors refuse over unsent dishes on their own, under their freeze (the staff
+  // gate — lib/staff-cart, lib/terminal), so Dad sends them, checked with the table, before he takes
+  // the cash; and a card on the Bill goes through create-intent's served gate.
+  const { count, error: countError } = await db
     .from("qr_cart_items")
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cartId)
     .neq("state", "voided")
     .eq("comped", false);
-  // Phase 2c · gate — "Everything sent" at this door too: the ask is refused while the table holds
-  // dishes its host can send (`payBlockedByUnsent`, the Bill's own binding — a hostless table, where
-  // nobody at the table can send, is never gated). Both reads run beside the count and fail OPEN,
-  // the posture `kitchenDraftUnits` documents: a read blip reads as "no host" / "nothing unsent",
-  // and the ask goes through. That is safe because the ask moves no money — the two charge
-  // boundaries behind it refuse on their own: the register's settle doors run the staff gate under
-  // their freeze (lib/staff-cart, lib/terminal), and a card on the Bill goes through create-intent's.
-  const [{ count, error: countError }, hostSeat, units] = await Promise.all([
-    countRead,
-    db
-      .from("table_sessions")
-      .select("host_seat")
-      .eq("id", authz.sessionId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (error) console.error("[counter-pay] host read failed — the unsent gate fails open");
-        return error ? null : (data?.host_seat ?? null);
-      }),
-    kitchenDraftUnits(cartId),
-  ]);
   if (countError) return { ok: false, reason: "error", error: OUTAGE };
   const refusal = counterPayRefusal({
     mode: authz.mode,
     locked: authz.locked,
     settling: authz.settling,
     itemCount: count ?? 0,
-    unsentBlocks: payBlockedByUnsent(authz.mode, units, hostSeat != null),
   });
   // PD2 (m2 decision 15) — the settling sentence names who holds the freeze: with the self-serve
   // split parked, only the register does.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CartItem } from "@mms/db";
 import { KDS_UNDO_MS } from "./kds-undo";
 import {
+  GRACE_REREAD_MARGIN_MS,
   passClock,
   passHead,
   passMemory,
@@ -12,7 +13,6 @@ import {
   viewClockIso,
   type PassMemory,
 } from "./live-pass";
-import { GRACE_REREAD_MARGIN_MS } from "./show-server";
 
 /**
  * PD10 — the guest's live One Pass, decided as values (lib/live-pass). Each case is the one a

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   chosenName,
   DEFAULT_SEAT_NAME,
+  hostNameAsked,
+  nameAskDismissKey,
   nudgeLive,
   nudgeOffered,
   nudgeStands,
+  partySize,
   waitingLine,
 } from "./send-nudge-state";
 
@@ -140,5 +143,73 @@ describe("nudgeLive — a stamp is a wait only while a dish that predates it sti
     expect(
       nudgeLive({ seat: "s", at: "yesterday" }, [line("2026-10-08T09:59:00+00:00")]),
     ).toBeNull();
+  });
+});
+
+describe("hostNameAsked — the host is asked for a name once, when the party first reaches two (m1 decision 16)", () => {
+  // The neighbour every case below changes ONE input of: an unnamed host at a dine-in table of two.
+  const host = {
+    mode: "dinein",
+    role: "host" as const,
+    myName: DEFAULT_SEAT_NAME,
+    memberCount: 2,
+    dismissed: false,
+  };
+  it("asks an unnamed host at a dine-in table of two — blank reads as unnamed too", () => {
+    expect(hostNameAsked(host)).toBe(true);
+    expect(hostNameAsked({ ...host, myName: "  " })).toBe(true);
+    expect(hostNameAsked({ ...host, myName: null })).toBe(true);
+    expect(hostNameAsked({ ...host, memberCount: 5 })).toBe(true);
+  });
+  it("never once a name is chosen — the table's or the one this row just saved", () => {
+    // MUTATION (pdrem/name-ask-asks-a-named-host): the chosen-name check dropped — "Aye" is asked
+    // what her table should call her; red.
+    expect(hostNameAsked({ ...host, myName: "Aye" })).toBe(false);
+  });
+  it("never a guest — only the host is named as the one who sends", () => {
+    // MUTATION (pdrem/name-ask-asks-a-guest): the role check dropped — a guest is told "Your table
+    // sees you as the one who sends", which is false; red.
+    expect(hostNameAsked({ ...host, role: "guest" })).toBe(false);
+    expect(hostNameAsked({ ...host, role: null })).toBe(false);
+  });
+  it("never at a solo table — nobody else reads the name yet", () => {
+    // MUTATION (pdrem/name-ask-asks-a-solo-host): the party bound loosened to one — a host alone
+    // at the table is asked before the name matters; red.
+    expect(hostNameAsked({ ...host, memberCount: 1 })).toBe(false);
+    expect(hostNameAsked({ ...host, memberCount: 0 })).toBe(false);
+  });
+  it("never again this visit after Not now", () => {
+    // MUTATION (pdrem/name-ask-ignores-not-now): the dismissal ignored — "Not now" hides nothing;
+    // red.
+    expect(hostNameAsked({ ...host, dismissed: true })).toBe(false);
+  });
+  it("only at a dine-in table — pickup and scan-and-go have no Send to be named for", () => {
+    // MUTATION (pdrem/name-ask-outside-dine-in): the mode check dropped; red.
+    expect(hostNameAsked({ ...host, mode: "pickup" })).toBe(false);
+    expect(hostNameAsked({ ...host, mode: null })).toBe(false);
+  });
+  it("Not now is kept per table session", () => {
+    expect(nameAskDismissKey("s-1")).not.toBe(nameAskDismissKey("s-2"));
+    expect(nameAskDismissKey("s-1")).toContain("s-1");
+  });
+});
+
+describe("partySize — the party as /cart can see it live: the page's members plus every seat with a line (Codex round 1 on #356)", () => {
+  it("a tablemate who joined after the page loaded is counted from their first line on the view", () => {
+    // MUTATION (pdrem/party-size-ignores-the-lines): the lines' seats dropped — the host who
+    // opened /cart alone stays a party of one after Thiri's dish lands, and is never asked; red.
+    expect(partySize(["seat-aye"], ["seat-aye", "seat-thiri"])).toBe(2);
+    // The page's read failed (no members) — the lines alone still count the table.
+    expect(partySize([], ["seat-aye", "seat-thiri"])).toBe(2);
+  });
+  it("a seat is one person however many lines it owns, and whichever read named it", () => {
+    expect(partySize(["seat-aye", "seat-thiri"], ["seat-aye", "seat-thiri", "seat-thiri"])).toBe(2);
+    expect(partySize(["seat-aye"], ["seat-aye", "seat-aye"])).toBe(1);
+  });
+  it("a line with no seat is nobody — never a second person at a solo table", () => {
+    // MUTATION (pdrem/party-size-counts-a-seatless-line): a seatless line counted — a host alone
+    // with a staff-added dish reads as a party of two and is asked before anyone reads the name;
+    // red.
+    expect(partySize(["seat-aye"], [undefined, null, ""])).toBe(1);
   });
 });

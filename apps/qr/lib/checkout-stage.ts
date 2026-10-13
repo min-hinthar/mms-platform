@@ -69,9 +69,12 @@ export function unsentFoodQty(
  * The same binding on both sides: the split doors (`openSettlement`, `create-share-intent`) still
  * refuse on it server-side while the self-serve split is parked (wiring D5's verdict into them is on
  * `selfServeSplit`'s reopen list, lib/surfaces), and the Bill reads it to say why before the diner
- * taps — the counter's hold, and Pay's unsent reason. `create-intent` NO LONGER refuses on it: PD10
- * replaced that refusal with D5's served gate (`servedGateDecision` below), which every unsent dine-in
- * line also holds, and `check:phone-pay-door` (rule 7) refuses a live `payBlockedByUnsent(` there.
+ * taps — Pay's unsent reason (never the diner's counter ask: PD2's lift, m2 decision 12, took it off
+ * the ask and the counter door, which carry unsent dishes to the register; the register's own settle
+ * doors still read it, through `staffSettleBlockedByUnsent` below). `create-intent` NO LONGER
+ * refuses on it: PD10 replaced that refusal with D5's served gate (`servedGateDecision` below),
+ * which every unsent dine-in line also holds, and `check:phone-pay-door` (rule 7) refuses a live
+ * `payBlockedByUnsent(` there.
  * Pickup and scan-and-go have no send step — paying IS ordering — so it never applies there.
  */
 export function payBlockedByUnsent(
@@ -221,9 +224,9 @@ export function holdsServedGate(line: TrackLine, nowIso: string): boolean {
  *  - `kitchen`  everything is sent, and something is not served yet (or served inside Mom's undo);
  *  - `unknownHost` a dine-in draft at a table whose host the Bill cannot READ (Codex round 2 on
  *               #346: the split context missed, or its member read came back empty). It is never
- *               guessed as `hostless`: that reason promises the counter, and the counter's own
- *               server read (`requestCounterPay`, the real `host_seat`) refuses a hosted table's
- *               drafts. Nor is it guessed as `unsent`, which would tell a guest to send. It says only
+ *               guessed as `hostless`: that reason says a server will send the dishes, which is
+ *               false at a hosted table, whose host sends them. Nor is it guessed as `unsent`, which
+ *               would tell a guest to send. It says only
  *               what is known: some dishes have not gone to the kitchen yet. The server always
  *               knows `host_seat`, so `create-intent` never reaches this reason.
  */
