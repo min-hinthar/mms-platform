@@ -30,6 +30,7 @@ import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
+import { MEAL_PAYMENT_METHOD_TYPES } from "./payment-methods";
 import { logTabEvent } from "./tab-events";
 import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
@@ -811,6 +812,10 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
         currency: "usd",
         customer: secure.stripe_customer_id,
         payment_method: secure.stripe_payment_method_id,
+        // M155 (owner ruling #7) — the tab's saved method is charged as a CARD or not at all. A create
+        // naming no list runs under the Dashboard's automatic methods, so a bank debit saved before
+        // the card-only SetupIntent would confirm here and sit in `processing` after the table left.
+        payment_method_types: [...MEAL_PAYMENT_METHOD_TYPES],
         off_session: true,
         confirm: true,
         // Same metadata shape the webhook fulfill path expects (cartId + tipRate) — it reconciles against
