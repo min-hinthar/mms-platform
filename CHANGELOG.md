@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
+
+- **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook
+  now fires a held pickup's lines, `fireTicketNow` moves the paid order's own fire time to the DB clock
+  in one statement-guarded write (paid, still ahead, row count read back; a failure is logged, never
+  surfaced), so the guest's /track stops saying "You’re booked … closer to your time", the tray, pill
+  and /account stop saying "Scheduled", and the wall shows the code as Preparing while Mom cooks. And
+  a bag the kitchen has started (Start or Done) reads as with the kitchen on /track even if that write
+  failed — #359's "It’s cooking now." line then shows.
+- **Staff can mark a grocery item sold out (M190 closed).** `grocery_items.available` had no writer, so
+  the shopper's "That item isn’t available today." could never fire. /staff/menu has a second list
+  (Kitchen menu · Market): Mark sold out / Put back per item, the menu 86's gate, words and chip; the
+  write is a compare-and-swap with its row count read, and the scan refuses and the aisles drop the
+  item at once.
+- **The console's Send names a sold-out dish it would fire, before the tap (P2ad's console half).**
+  "Mohinga is sold out — remove it, or send it and tell the cook." sits under the Send on the table page
+  and the order pad, in both tongues; it is a re-warning, never a block (the race-proof SQL refusal is
+  M318, a migration).
+- **A server's half-typed note no longer vanishes (P2ar's visible half).** When the host's phone sends
+  the round before Save, the row keeps the typed text read-only ("Not saved — tell the kitchen"), the
+  page says "Mohinga went to the kitchen before this note saved — tell the kitchen.", focus lands on the
+  kept text, and "Got it" lets it go.
+- Registry: M315–M318 and J65 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
+  P2ar to the server-side signal; 18 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
+
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 
 - **Every staff surface tells the same truth, live, and a mistake can be taken back (#360)** — a bump
