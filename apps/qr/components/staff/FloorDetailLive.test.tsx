@@ -97,6 +97,9 @@ const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+/** K44 — the retired pre-tax line and note, in their own last words (the keys are deleted). */
+const RETIRED_SO_FAR = "subtotal so far";
+const RETIRED_PRETAX_NOTE = "Running pre-tax subtotal — tax is added when they pay.";
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -2326,7 +2329,9 @@ describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till,
     // No money row in the order card on an asked table: the pass carries the one figure (m2 B4).
     // MUTATION k44/receipt-on-an-asked-table → red.
     expect(order.closest("section")!.querySelector(".pad-receipts")).toBeNull();
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+    // A LITERAL, not a key: K44 retired `table.detail.subtotalSoFar`, and a negative read through a
+    // deleted key would assert the absence of `undefined`. The words are the retired line's own.
+    expect(document.body.textContent).not.toContain(RETIRED_SO_FAR);
   });
 
   it("K44 — an open table that has not asked: the receipt stack, its Total the very figure Take cash names; no pre-tax 'so far'", () => {
@@ -2342,8 +2347,8 @@ describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till,
       ["tax", "$4.41"],
       ["total", "$46.41"],
     ]);
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.pretaxNote"));
+    expect(document.body.textContent).not.toContain(RETIRED_SO_FAR);
+    expect(document.body.textContent).not.toContain(RETIRED_PRETAX_NOTE);
   });
 
   it("P2do (ruling #15) — an ASKED table's unsent dish wears the ring and says how long, as plain text; an un-asked one does not", () => {

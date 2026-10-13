@@ -1428,7 +1428,7 @@ its own PR (PATH_DESIGN D5). Where the code reads the spec one way of several, t
   context is missing or its member list is empty (the viewer is always a member). It never returns
   `false`. A dine-in draft at such a table holds with its own reason, `unknownHost`: "Some dishes
   haven’t gone to the kitchen yet — Pay opens once everything’s served." It never says `hostless`,
-  whose counter promise the counter's own read of the real `host_seat` refuses, and never `unsent`,
+  whose "a server will send these" is false of a table whose host only went unread, and never `unsent`,
   which would tell a guest to send. `create-intent` always knows `host_seat` and never reaches it.
 - **Boarded rows keep their words.** The pay step drops only the kitchen track and the owner.
   "On the house", "Removed", "In your basket" and a to-go draft's sentence stay, because a

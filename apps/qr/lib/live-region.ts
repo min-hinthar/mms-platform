@@ -133,9 +133,10 @@ export function explanationHolds(explained: ExplainedFreeze, current: LiveFreeze
  * `forgetRefusal`, justified by a recovery read that LOST the screen latching a freeze no release
  * edge could ever retire. That hole is real, and it is closed at the SOURCE instead: `publishRefusal`
  * runs `explanationHolds` against the refs `applyView` writes, so an explanation the rendered cart
- * does not carry is never latched in the first place. `forgetRefusal` therefore does not clear this
- * ref, deliberately, and its own docblock records that arc — a contract here demanding otherwise
- * would read as a bug in the caller and invite the clear back.
+ * does not carry is never latched in the first place. No per-write clear exists, deliberately (T42
+ * retired `forgetRefusal` with the latch it cleared; `explainedFreezeRef`'s own docblock in the
+ * provider records the arc) — a contract here demanding otherwise would read as a bug in the caller
+ * and invite the clear back.
  *
  * What the caller DOES still owe is the per-FACT clear at each release edge, scoped to that axis:
  * a peer releasing and re-locking with no write in between would otherwise leave a stale

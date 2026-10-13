@@ -1553,7 +1553,9 @@ limiter became one (`assertMutationRate` → `withinRate` → rpc), so the order
 "first write" on the rate-limit call every mutation makes BEFORE its lock refusal — all twelve
 subjects red on a change with no behavioural content. The guard's notion of "write" (any
 `.update/.insert/.upsert/.delete/.rpc`) is too coarse to close transitively; it needs to know WHICH
-table. That is T44. The entry was deleted, with the arc written beside the exemption map.
+table. That is T44. The entry was deleted, with the arc written beside the exemption map. (T44
+closed 2026-10-12, #354: the reach now closes to a fixpoint only from writes whose chain names
+`qr_carts`/`qr_cart_items`, resolved by import identity, and `releasePayLock` is back in EXEMPT.)
 
 Two rules from this. **Measure a guard change against the subject set before trusting it** — print
 the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is

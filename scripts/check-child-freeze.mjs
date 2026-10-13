@@ -659,6 +659,61 @@ if (deadExemptions.length)
       "  documented exemption that matches nothing excuses nothing — delete it or fix the path.",
   );
 
+// THE EXPECTED COMPONENT SET, with BOTH directions (OPEN-ITEMS T28). The sibling
+// `check-freeze-parity.mjs` has carried `EXPECTED_SUBJECTS` since Codex P2 on #246; the
+// countermeasure never crossed to this file, so an audited component could LEAVE the subject set
+// silently: point `RewardField` at a hook or the cart CONTEXT instead of `@/lib/cart` and the
+// `localToExported.size === 0` skip above drops it before the exemption check, rules 1-3 never run,
+// rule 4 stops owing its wiring (its owed set is DERIVED from `audited`), and the summary prints one
+// fewer with exit 0. That is the identical escape the whole /menu tap surface took (T18). The
+// exempt set needs no list of its own: the dead-exemption rule above already fails when an EXEMPT
+// entry stops firing.
+//
+// MEASURED, never transcribed: produced by instrumenting this file to print `audited.sort()` and
+// pasting the output. A component joining the set fails here once, on purpose — read its gate,
+// then add the path.
+const EXPECTED_COMPONENTS = [
+  "apps/qr/components/PickupWhenChoice.tsx",
+  "apps/qr/components/RewardField.tsx",
+  "apps/qr/components/SendToKitchenButton.tsx",
+  "apps/qr/components/SplitSection.tsx",
+];
+{
+  const found = [...audited].sort();
+  const missing = EXPECTED_COMPONENTS.filter((r) => !found.includes(r));
+  const extra = found.filter((r) => !EXPECTED_COMPONENTS.includes(r));
+  if (missing.length)
+    fail(
+      `these components left the audited set: ${missing
+        .map((r) => {
+          let exists = true;
+          try {
+            readFileSync(path.join(ROOT, r));
+          } catch {
+            exists = false;
+          }
+          return !exists
+            ? `${r} (no longer on disk — renamed or removed)`
+            : r === SOURCE || EXEMPT.has(r)
+              ? `${r} (now exempt, or now the freeze SOURCE)`
+              : `${r} (on disk, but it no longer imports a derived mutation BY NAME from apps/qr/lib)`;
+        })
+        .join(", ")}.\n` +
+        "  A component drops out when it reaches a mutation some other way — a hook, the cart context,\n" +
+        "  a wrapper — and then NOTHING here checks that it receives the freeze fact, refuses the tap\n" +
+        "  or tells the diner. That is the exact escape the /menu tap surface took (T18). Restore the\n" +
+        "  direct import, teach the derivation the new shape, or — if the component truly no longer\n" +
+        "  fires a cart write — delete its entry here deliberately, with the reason in the commit.",
+    );
+  if (extra.length)
+    fail(
+      `new components joined the audited set: ${extra.join(", ")}.\n` +
+        "  Each one fires a lock-refusing mutation and IS being held to rules 1-4 — this is a deliberate\n" +
+        "  speed bump so a new firing component cannot join (or a renamed one swap in) unnoticed. Read\n" +
+        "  its gate, then add the path to EXPECTED_COMPONENTS.",
+    );
+}
+
 // ── 3. Rule 4 — Checkout must hand each child the RAW edit-freeze binding ───────────────────────
 //
 // ⚠️ NOTHING CHECKED THE WIRING (Codex on #247). Rules 1–3 audit how a child uses its own `frozen`
