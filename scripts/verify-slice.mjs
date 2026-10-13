@@ -6223,8 +6223,8 @@ const MUTANTS = [
     suite: "components/Checkout.test.tsx",
     why: "F20 — one voice per refusal: when focus moved to the box its description says it, so the region repeating it reads the same sentence twice",
     // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
-    find: '          if (said === "region") setStatus(text);',
-    replace: "          setStatus(text);",
+    find: '          if (said === "region") {\n',
+    replace: "          {\n",
   },
   {
     id: "uia11y/f20-promo-enter-refusal-unsaid",
@@ -6232,8 +6232,8 @@ const MUTANTS = [
     suite: "components/Checkout.test.tsx",
     why: "F20 — Enter in the box leaves focus where it is, so the region is the only voice left; silenced, the refusal reaches no screen reader at all",
     // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
-    find: '          if (said === "region") setStatus(text);\n',
-    replace: "",
+    find: "            setStatus(text);\n            setPromoSaid(text);\n",
+    replace: "            setPromoSaid(text);\n",
   },
   {
     id: "uia11y/f20-promo-tap-steals-focus",
@@ -6267,6 +6267,22 @@ const MUTANTS = [
     why: "F20 · blind pass on #355 — retyping clears the box's refusal; left in `status`, the region's hidden voice of it is no longer hidden and is DRAWN under the totals as a refusal of a code nobody has applied",
     find: "                            setStatus((cur) => (cur === said ? null : cur));\n",
     replace: "",
+  },
+  {
+    id: "uia11y/f20-promo-said-outlives-the-order",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass over #355's fix commits — the last Apply's refusal answers the order as it stood; kept through a change to the lines, the unmet minimum's sentence stood over a pickup order an edit had brought over it, and the empty cart's region printed the code refusal raw",
+    find: "    if (promoSaid !== null) {\n      setPromoSaid(null);\n      if (status === promoSaid) setStatus(null);\n    }\n",
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-promo-said-outlives-the-view",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass over #355's fix commits — the settlement board holds no promo box and its region prints `status` raw, so a change of VIEW retires the refusal as a change of lines does",
+    find: "const promoSaidOver = `${viewKey}|${viewItems",
+    replace: "const promoSaidOver = `${viewItems",
   },
   {
     id: "oauth-store/attempt-marker-reports-success-it-did-not-have",

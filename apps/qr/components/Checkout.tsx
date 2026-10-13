@@ -591,6 +591,14 @@ export function Checkout({
   useEffect(() => {
     if (promoRefusal?.voice === "focus") promoEl.current?.focus({ preventScroll: true });
   }, [promoRefusal]);
+  /**
+   * The sentence the last Apply's REFUSAL put in `status` — the region's voice of a code refusal,
+   * or a refusal about the order ("doesn't meet this code's minimum yet"). Either answers the order
+   * AS IT STOOD at that Apply, so a change to the order's lines or to the view retires it (the
+   * layout effect below `viewKey`). The box's own note (`promoRefusal`) stays: it is about the
+   * CODE, which no edit changes.
+   */
+  const [promoSaid, setPromoSaid] = useState<string | null>(null);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -1524,6 +1532,25 @@ export function Checkout({
     selfServeSplitOpen: surfaceOpen("selfServeSplit"),
   });
   const viewKey = boardShown ? "settle" : onPay ? "pay" : staged ? `review-${stage}` : "review";
+  /**
+   * Retire the last Apply's refusal (`promoSaid`) when the order's lines or the view change (blind
+   * pass over #355's fix commits). Before, only a handler that wrote the region retired it, so on
+   * pickup and scan-and-go, where nothing stages, "doesn't meet this code's minimum yet" stood
+   * over an order an edit had since brought over the minimum, and the region of a screen with no
+   * promo box printed it raw: the empty cart after the last line went (this diner's removal or a
+   * tablemate's), and the settlement board. Adjusted DURING render (React's derived-state
+   * pattern, like the tip's gate edge above), so the empty cart is never committed with it and no
+   * effect cascades a second render (the Compiler lint refuses a synchronous setState in one).
+   */
+  const promoSaidOver = `${viewKey}|${viewItems.map((i) => `${i.id}:${i.qty}`).join(",")}`;
+  const [promoSaidAt, setPromoSaidAt] = useState(promoSaidOver);
+  if (promoSaidAt !== promoSaidOver) {
+    setPromoSaidAt(promoSaidOver);
+    if (promoSaid !== null) {
+      setPromoSaid(null);
+      if (status === promoSaid) setStatus(null);
+    }
+  }
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
@@ -2298,6 +2325,7 @@ export function Checkout({
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
       setPromoRefusal(null); // the last refusal is not this Apply's answer
+      setPromoSaid(null);
       try {
         const result = await applyPromoAction(cartId, promo.trim());
         // F20 — a refusal of the CODE goes under the box; anything else is the region's, as before.
@@ -2307,8 +2335,15 @@ export function Checkout({
           const said = document.activeElement === promoEl.current ? "region" : voice;
           setPromoRefusal({ text, voice: said });
           // The region's voice is `status` itself — hidden by the region while it is this sentence.
-          if (said === "region") setStatus(text);
-        } else setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
+          if (said === "region") {
+            setStatus(text);
+            setPromoSaid(text);
+          }
+        } else if (result.ok) setStatus("Promo applied.");
+        else {
+          setStatus(PROMO_MESSAGES[result.reason]);
+          setPromoSaid(PROMO_MESSAGES[result.reason]);
+        }
       } catch {
         // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
         // it — ONE line in the single status region (a second setStatus would announce the same

@@ -4006,6 +4006,60 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     expect(described(box())).toBe("");
   });
 
+  it("on pickup, where nothing stages, an edit to the order retires the minimum's sentence", async () => {
+    // Blind pass over #355's fix commits: only a stage flip retired the region's sentence, so on
+    // pickup and scan-and-go it stood over an order the next edit had brought over the minimum.
+    const MIN = "Your order doesn’t meet this code’s minimum yet.";
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain(MIN));
+    const more = { ...ITEM, qty: 2 };
+    h.setQty.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    await press(`Add another ${ITEM.name}`);
+    await settle();
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red.
+    expect(regionText()).not.toContain(MIN);
+  });
+
+  it("the last line removed: the empty cart never prints the refusal, and the settlement board never does", async () => {
+    // Blind pass over #355's fix commits: the empty cart's region (and the board's) prints
+    // `status` raw — only the review step's hides the code refusal it holds — so "That code isn't
+    // valid." stood under "Your order is empty", with no box on that screen.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.setQty.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    await press(`Remove ${ITEM.name}`);
+    await settle();
+    expect(document.body.textContent).toContain("Nothing added yet");
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red here too.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    cleanup();
+    // The board: a group's Bill, then the split's settle starts under it.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED] });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], settling: true }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByTestId("settlement-board")).not.toBeNull());
+    // MUTATION uia11y/f20-promo-said-outlives-the-view: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
   it("focus moved INTO the box during the round trip: the region says it, since moving focus there says nothing", async () => {
     // Blind pass on #355: the voice was fixed at the press. A keyboard Apply chose "focus", the
     // diner tabbed back into the box while the server answered, and `.focus()` on the focused box

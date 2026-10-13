@@ -12,8 +12,9 @@ import type { PromoReason } from "./cart";
  * invalid for it would tell the diner their code is wrong when it may be fine.
  *
  * ⚠️ AN UNMET MINIMUM IS THE ORDER'S (blind pass on #355). The code is good; the edits that meet the
- * minimum never touch the box, and a box refusal outlives a stage flip (the region's sentence does
- * not), so bound to the box it stood under a code that now applies, marked invalid.
+ * minimum never touch the box, and a box refusal outlives them and a stage flip, so bound to the box
+ * it stood under a code that now applies, marked invalid. The region's sentence is retired by a
+ * change to the order's lines or to the view (Checkout's `promoSaid`).
  *
  * A `Record` over the whole union, so a reason added to `PromoReason` is a COMPILE error here until
  * someone decides which kind it is — never silently the region's by omission.

@@ -14,7 +14,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     them: no account for the address, GoTrue refusing the address, a wrong or expired code. OTP
     switched off, a rate limit or a dropped request stays the card's status line and focus stays put.
     On the checkout, `lib/promo-field.ts` keeps the order's refusals (an unmet minimum, someone is
-    checking out, too many tries, the order is being paid) in the region, as before.
+    checking out, too many tries, the order is being paid) in the region, as before. A refusal the
+    region says is retired when the order's lines or the view change, so an edit that meets the
+    minimum takes its sentence with it, and the empty cart and the settlement board never show it.
   - On the checkout, focus moves into the promo box only for a keyboard Apply. After a tap the region
     says the refusal, because focus in that box hides PD2's docked door with no keyboard on screen.
   - What diners see: the account labels take the Field label style; the promo gains a visible
