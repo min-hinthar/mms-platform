@@ -348,13 +348,68 @@ describe("the '−' revert-refocus cannot steal focus either", () => {
 
     fireEvent.click(minus());
     await settle();
-    // The stepper is back, frozen (its buttons natively disabled), so the revert-refocus waits.
-    expect(minus().hasAttribute("disabled")).toBe(true);
+    // F30 — the stepper is back, frozen, and focus landed on its held "−" (below). The diner moves
+    // on; the hold ends with the blur, so the frozen "−" is natively inert again.
     act(() => elsewhere().focus());
+    expect(minus().hasAttribute("disabled")).toBe(true);
 
     ctx.current.locked = false;
     rerender(<Row />);
     await settle();
     expect(document.activeElement).toBe(elsewhere());
+  });
+});
+
+/**
+ * F30 (the focus half) — a reverted emptying "−" under a freeze stranded focus. The "−" moved focus to
+ * the Add pill that replaced it; the refusal brought the stepper back FROZEN, so the pill unmounted and
+ * the "−" — natively disabled — could not take focus: it fell to <body> for as long as the freeze
+ * lasted. The pill's own focus-hold pattern now applies to the "−": focusable as `aria-disabled`, its
+ * reason in its name, until it blurs; its click is still gated on the freeze.
+ */
+describe("F30 — a reverted '−' under a freeze keeps focus on the row", () => {
+  const refusedUnderLock = () => {
+    ctx.current.items = [ownLine(1)];
+    ctx.current.setItemQty.mockImplementation(async () => {
+      // The removal is refused by a lock that the recovery view applies before it returns.
+      ctx.current.locked = true;
+      return { state: "refused", view: [ownLine(1)] };
+    });
+  };
+  const reason = () =>
+    inertReason({ minting: false, locked: true, lockedByYou: false, settling: false });
+
+  it("lands focus on the '−', focusable with its reason, and a tap there writes nothing", async () => {
+    // MUTATION (lcb/addbutton/minus-revert-strands-focus): the "−" natively disabled under any
+    // freeze again — it cannot take focus, which falls to <body>; red.
+    refusedUnderLock();
+    renderRow();
+
+    fireEvent.click(minus());
+    await settle();
+
+    expect(document.activeElement).toBe(minus());
+    expect(minus().getAttribute("aria-disabled")).toBe("true");
+    expect(minus().hasAttribute("disabled")).toBe(false);
+    expect(minus().getAttribute("aria-label")).toBe(`Remove ${NAME} — ${reason()}`);
+
+    // MUTATION (lcb/addbutton/held-minus-writes-under-a-freeze): the held "−" is focusable, never
+    // live — a tap or Enter there must not send a write the freeze refuses; red.
+    fireEvent.click(minus());
+    await settle();
+    expect(ctx.current.setItemQty).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refusal while focus is ELSEWHERE holds nothing — the '−' stays natively disabled", async () => {
+    refusedUnderLock();
+    renderRow();
+
+    fireEvent.click(minus());
+    act(() => elsewhere().focus());
+    await settle();
+
+    expect(document.activeElement).toBe(elsewhere());
+    expect(minus().hasAttribute("disabled")).toBe(true);
+    expect(minus().hasAttribute("aria-disabled")).toBe(false);
   });
 });

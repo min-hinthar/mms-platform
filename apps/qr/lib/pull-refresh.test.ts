@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ambientRefreshDue,
-  MENU_AMBIENT_REFRESH_MS,
-  PULL_MAX_PX,
-  PULL_TRIGGER_PX,
-  pullArmed,
-  pullTravel,
-} from "./pull-refresh";
+import { PULL_MAX_PX, PULL_TRIGGER_PX, pullArmed, pullTravel } from "./pull-refresh";
 
 describe("the rubber band", () => {
   it("arms at exactly 96px of finger travel", () => {
@@ -49,24 +42,5 @@ describe("the rubber band", () => {
   it("keeps the trigger comfortably below the cap", () => {
     // If the trigger ever met the cap, the band would have to be pulled infinitely far to arm.
     expect(PULL_TRIGGER_PX).toBeLessThan(PULL_MAX_PX);
-  });
-});
-
-/**
- * Lifecycle audit (out-of-stock 5) — the open menu re-reads on a slow interval, and only while it is
- * VISIBLE and nothing is already in flight. A hidden tab is the wake re-read's to catch up; spending
- * the room's catalog reads from a background tab buys nothing anyone sees.
- */
-describe("ambientRefreshDue — the interval asks only a visible, idle menu", () => {
-  it("visible and idle → due; hidden, or a pull in flight → not", () => {
-    // MUTATION (lcb/pull/ambient-reads-a-hidden-tab): drop the visibility term; red.
-    expect(ambientRefreshDue("visible", false)).toBe(true);
-    expect(ambientRefreshDue("hidden", false)).toBe(false);
-    // MUTATION (lcb/pull/ambient-tramples-an-asked-pull): drop the in-flight term; red.
-    expect(ambientRefreshDue("visible", true)).toBe(false);
-  });
-
-  it("is slow — never faster than a minute (every open phone in the room makes the read)", () => {
-    expect(MENU_AMBIENT_REFRESH_MS).toBeGreaterThanOrEqual(60_000);
   });
 });

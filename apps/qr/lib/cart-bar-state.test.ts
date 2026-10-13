@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CartItem } from "@mms/db";
-import { cartBarCountShown, cartBarLine2, cartBarName, orderUnitCount } from "./cart-bar-state";
+import {
+  cartBarCountShown,
+  cartBarLine2,
+  cartBarName,
+  cartBarShown,
+  orderUnitCount,
+} from "./cart-bar-state";
 
 /**
  * PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21 "a count is a claim") — the /menu order bar on a SHARED
@@ -115,5 +121,26 @@ describe("orderUnitCount — a removed line is not counted", () => {
       ]),
     ).toBe(5);
     expect(orderUnitCount([{ qty: 1, lineState: "voided" }])).toBe(0);
+  });
+});
+
+/**
+ * Lifecycle audit (diner-live-status 3, the synthesizer's (b)) — leaving the removed unit out of the
+ * COUNT must not take the BAR away. A table whose only dish staff removed ("Removed — we ran out")
+ * counts 0, and a bar gated on `count > 0` vanished with the one door to the line that says why.
+ */
+describe("cartBarShown — the bar stays while a removed dish is on the order", () => {
+  it("shows for a counted unit, and for a cart whose only line was removed", () => {
+    expect(cartBarShown({ count: 1, items: [] })).toBe(true);
+    // MUTATION (lcb/cart-bar/removed-only-cart-hides-the-bar): gate on the count alone; red.
+    expect(cartBarShown({ count: 0, items: [{ lineState: "voided" }] })).toBe(true);
+  });
+
+  it("hides when nothing is on the order — including the diner's own last dish, taken off optimistically", () => {
+    expect(cartBarShown({ count: 0, items: [] })).toBe(false);
+    // The diner's own "−" on their last draft drops the count to 0 before the view lands; that line
+    // is still in `items` but is not a removal, so the bar goes at once, as it always did.
+    // MUTATION (lcb/cart-bar/any-line-keeps-the-bar): keep the bar for ANY line; red.
+    expect(cartBarShown({ count: 0, items: [{ lineState: "draft" }] })).toBe(false);
   });
 });

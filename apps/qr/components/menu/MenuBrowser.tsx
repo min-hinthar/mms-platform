@@ -32,7 +32,6 @@ import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
 import { spyAdoption } from "@/lib/menu-spy";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { cartSoldOutReading, freshestSoldOut } from "@/lib/dish-sold-out";
-import { MENU_AMBIENT_REFRESH_MS } from "@/lib/pull-refresh";
 import type { WelcomeBack } from "@/lib/rewards";
 import type { DineInTable } from "@/lib/tables"; // type-only: the read stays server-side
 
@@ -709,8 +708,12 @@ export function MenuBrowser({
             Prices are confirmed when you add a dish.
           </DegradedStrip>
         )}
-        {/* W22c — the catalog is the one diner surface with neither a push channel nor a wake
-            re-read, so an 86 landing mid-service never reaches a phone already sitting here. The
+        {/* W22c — the catalog is the one diner surface with no push channel: an 86 landing
+            mid-service reaches a phone already sitting here only when the page re-reads — on WAKE
+            (PullToRefresh's visibilitychange + focus re-read), on a pull, or on this Refresh button
+            (and, for a dish already in the cart, on the cart's next view — `soldOutNow`). A phone
+            left in the FOREGROUND, never switched away from, gets none of those until the diner
+            acts; that residual and its poll-budget question are filed in OPEN-ITEMS (J64). The
             control lives on the eyebrow row because it IS the mechanism (WCAG 2.5.1 — the pull is
             the shortcut); the transient pull indicator it also renders is viewport-fixed, so this
             spot in the flow only positions the button. Suppressed while an ItemSheet is open: the
@@ -732,7 +735,6 @@ export function MenuBrowser({
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
             disabled={!!sheetItem || doorSheetOpen}
-            ambientEveryMs={MENU_AMBIENT_REFRESH_MS}
           />
         </div>
         <h1 ref={menuHeadingRef} tabIndex={-1} className="menu-title" style={{ outline: "none" }}>

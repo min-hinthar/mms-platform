@@ -170,14 +170,23 @@ export function AddButton({
   const plusBtnRef = useRef<HTMLButtonElement>(null);
   const minusBtnRef = useRef<HTMLButtonElement>(null);
   const refocusStepper = useRef(false);
+  // F30 (the focus half) — the pill's focus-hold, applied to the "−". A revert that brings the stepper
+  // back FROZEN (the refusal applied a lock or settle view before `setItemQty` returned) used to wait
+  // here: the "−" is natively disabled under a freeze, so it could not take the focus its own removal
+  // had moved to the (now unmounted) pill, and focus sat on <body> for as long as the freeze lasted.
+  // `holdMinus` keeps THAT "−" focusable as `aria-disabled`, its reason in its name, until it blurs —
+  // armed only when focus was orphaned or on this row's own pill, so it never lands anywhere else.
+  const [holdMinus, setHoldMinus] = useState(false);
   useEffect(() => {
-    if (!inCart || blocked) return;
-    if (refocusStepper.current) {
-      refocusStepper.current = false;
-      if (!focusOrphaned()) return;
-      minusBtnRef.current?.focus();
-    }
-  }, [inCart, blocked]);
+    if (!inCart || !refocusStepper.current) return;
+    if (blocked && !holdMinus) return;
+    refocusStepper.current = false;
+    // Orphan-guarded like the rest. A hold left standing when focus went elsewhere costs nothing (a
+    // focusable `aria-disabled` "−" with its reason in its name, the pill's own residual) and ends
+    // with the stepper or the next blur.
+    if (!focusOrphaned()) return;
+    minusBtnRef.current?.focus();
+  }, [inCart, blocked, holdMinus]);
 
   // Phase 1c — the pill's create lands focus ONCE, when it settles (never a persistent flag). The chain
   // bumps `createSettled` only if, at the settle, focus was orphaned or inside THIS row's stepper; this
@@ -308,12 +317,15 @@ export function AddButton({
     const armRevertRefocus = (res: WriteResult<CartItem[]>) => {
       if (!emptying) return;
       const fresh = threadableView(res);
-      if (fresh === null) {
+      if (
+        fresh === null ||
+        matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)
+      ) {
         refocusStepper.current = true;
-        return;
-      }
-      if (matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)) {
-        refocusStepper.current = true;
+        // F30 — hold the "−" focusable only for the focus this removal itself moved: orphaned, or
+        // on the temporary pill that is about to unmount. Focus the diner took elsewhere holds nothing.
+        const active = document.activeElement;
+        if (!active || active === document.body || active === addBtnRef.current) setHoldMinus(true);
       }
     };
     writeChain.current = writeChain.current
@@ -405,8 +417,9 @@ export function AddButton({
   //    re-appearing after a refresh) must not replay the last add's gems — MicroBurst's own `doneKey`
   //    dies with it, so a stale `burstKey` here would celebrate a failed removal.
   //  • On the stepper, the pill's revert cue and focus-hold are moot — clear them so neither survives to
-  //    the next time the pill appears.
+  //    the next time the pill appears. Back on the pill, the "−"'s hold (F30) is moot the same way.
   if (!inCart && burstKey !== 0) setBurstKey(0);
+  if (!inCart && holdMinus) setHoldMinus(false);
   if (inCart && (revertCue || holdFocus)) {
     setRevertCue(false);
     setHoldFocus(false);
@@ -427,7 +440,13 @@ export function AddButton({
           ref={minusBtnRef}
           type="button"
           className="mms-stepper-btn"
-          disabled={frozen}
+          // F30 — natively disabled under a freeze, except while it holds the focus a reverted
+          // removal moved (`holdMinus`): then `aria-disabled`, focusable, and its click is gated.
+          disabled={frozen && !holdMinus}
+          aria-disabled={(frozen && holdMinus) || undefined}
+          onBlur={() => {
+            if (holdMinus) setHoldMinus(false);
+          }}
           aria-label={
             reason
               ? `${qty === 1 ? `Remove ${name}` : `Remove one ${name}`} — ${reason}`
@@ -435,7 +454,10 @@ export function AddButton({
                 ? `Remove ${name}`
                 : `Remove one ${name}`
           }
-          onClick={decrement}
+          onClick={() => {
+            if (frozen) return; // a held "−" is focusable, never live
+            decrement();
+          }}
         >
           <span aria-hidden>−</span>
         </button>

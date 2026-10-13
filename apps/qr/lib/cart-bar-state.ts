@@ -66,3 +66,17 @@ export function cartBarName(s: {
 export function orderUnitCount(items: ReadonlyArray<Pick<CartItem, "qty" | "lineState">>): number {
   return items.reduce((n, i) => (i.lineState === "voided" ? n : n + i.qty), 0);
 }
+
+/**
+ * Lifecycle audit (diner-live-status 3) — does the order bar show? While a unit is counted, or
+ * while a REMOVED dish is on the order. Leaving the removed unit out of the count (above) took the
+ * bar with it: a table whose only dish staff removed counts 0, and the bar was gone along with the
+ * one door to the line that says why ("Removed — we ran out"). A DRAFT line at count 0 is the diner's
+ * own last dish, taken off optimistically: the bar goes at once, as it always did.
+ */
+export function cartBarShown(s: {
+  count: number;
+  items: ReadonlyArray<Pick<CartItem, "lineState">>;
+}): boolean {
+  return s.count > 0 || s.items.some((i) => i.lineState === "voided");
+}

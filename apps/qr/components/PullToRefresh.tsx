@@ -2,16 +2,18 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon, useAnimationPreference } from "@mms/ui";
-import { ambientRefreshDue, PULL_MAX_PX, pullArmed, pullTravel } from "@/lib/pull-refresh";
+import { PULL_MAX_PX, pullArmed, pullTravel } from "@/lib/pull-refresh";
 import { haptic } from "@/lib/haptics";
 
 /**
  * W22c — pull-to-refresh, on the ONE surface with a real staleness problem.
  *
  * ── Why /menu and nowhere else ───────────────────────────────────────────────────────────────────
- * The catalog is the only diner-facing data with neither a push channel nor a wake re-read: the
- * four realtime channels carry orders, carts, shares and the floor — none carries `menu_items`. So
- * an 86 landing mid-service (W23a) never reaches a phone already sitting on the menu.
+ * The catalog is the only diner-facing data with no push channel: the four realtime channels carry
+ * orders, carts, shares and the floor — none carries `menu_items`. So an 86 landing mid-service
+ * (W23a) reaches a phone already sitting on the menu only when this page re-reads: a pull, the
+ * button, or the wake re-read below. A phone left in the foreground and never switched away from
+ * gets none of them until the diner acts (OPEN-ITEMS J64 — the poll-budget question).
  *
  * ⚠️ THE COST OF STALENESS IS NOT A BAD CHARGE. `priceItem` re-reads `is_sold_out`/`is_active` on
  * EVERY add and refuses server-side, so a stale phone cannot pay for a dish that is gone. What it
@@ -60,7 +62,6 @@ export function PullToRefresh({
   onRefresh,
   onSettled,
   disabled = false,
-  ambientEveryMs,
 }: {
   /** Called SYNCHRONOUSLY, immediately before `router.refresh()`. The caller uses it to snapshot the
    *  render stamp as it stands at fire time — the only value a settle can honestly be compared
@@ -72,10 +73,6 @@ export function PullToRefresh({
   onSettled: (reason: RefreshReason) => void;
   /** Suppress the gesture (an `ItemSheet` is open). ⚠️ NOT for the catalog outage: see `fire`. */
   disabled?: boolean;
-  /** Lifecycle audit (out-of-stock 5) — re-read on this interval while the page is VISIBLE, as an
-   *  `ambient` refresh (silent unless something changed). Omitted = no interval (the wake re-read
-   *  and the pull stay the only paths). Paused with the gesture while `disabled`. */
-  ambientEveryMs?: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -247,19 +244,6 @@ export function PullToRefresh({
       window.removeEventListener("focus", onWake);
     };
   }, [disabled, fire]);
-
-  // ── Freshness for the diner who keeps the menu OPEN (lifecycle audit, out-of-stock 5) ─────────────
-  // The wake re-read above never fires for a phone left face-up on the table, so a restock (or a
-  // fresh 86) never reached it: the card read "Sold out" until a pull nobody knew to make. A slow
-  // interval asks the same ambient question while the page is visible and nothing is in flight
-  // (`ambientRefreshDue`) — a hidden tab is the wake's to catch up, and a pull owns its own answer.
-  useEffect(() => {
-    if (disabled || !ambientEveryMs) return;
-    const id = window.setInterval(() => {
-      if (ambientRefreshDue(document.visibilityState, inFlight.current !== null)) fire("ambient");
-    }, ambientEveryMs);
-    return () => window.clearInterval(id);
-  }, [disabled, ambientEveryMs, fire]);
 
   const armed = pullArmed(travel);
   const shown = pending ? PULL_MAX_PX / 2 : travel;
