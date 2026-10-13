@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sheet } from "@mms/ui";
 import { DietPills, FreeFromDisclaimer } from "./DietPills";
 import { hasFreeFrom, type Diet } from "@/lib/menu/dietary";
@@ -31,6 +31,7 @@ export function DietFilterButton({
   query,
   onToggle,
   onClear,
+  announce,
 }: {
   diets: Diet[];
   /** How many dishes the diner will SEE when this sheet closes — the menu's own visible count, which
@@ -43,9 +44,40 @@ export function DietFilterButton({
   query: string;
   onToggle: (d: Diet) => void;
   onClear: () => void;
+  /** F31 — /menu's ONE live region (the cart provider's Toast, `announce` as a QUIET claim: the
+   *  sentence is already drawn inside this sheet). This component mints no region of its own. */
+  announce: (sentence: string, still: () => boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const n = diets.length;
+  // The consequence of the filters, said in one sentence — drawn in the sheet, and SPOKEN through
+  // the page's one region when a toggle changes it. Null with no filter lit (the count is the menu).
+  const matchSentence =
+    n === 0
+      ? null
+      : query
+        ? matches === 0
+          ? `Nothing matches “${query}” with these filters — ease one, or clear the search.`
+          : `${matches} ${matches === 1 ? "dish matches" : "dishes match"} “${query}” with these filters.`
+        : matches === 0
+          ? "Nothing on the menu fits these filters — ease one."
+          : `${matches} ${matches === 1 ? "dish fits" : "dishes fit"}.`;
+  // F31 — speak a CHANGE, never the arrival: what the sheet holds when it opens is read with the
+  // dialog, so only a sentence that differs from the last one heard goes to the region. Closing
+  // forgets it, so a re-open starts quiet again. `""` stands for "no sentence" (no filter lit).
+  const heard = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      heard.current = null;
+      return;
+    }
+    const now = matchSentence ?? "";
+    const before = heard.current;
+    heard.current = now;
+    // `still`: a count that waits behind a visible toast is said only while it is still the sheet's
+    // sentence — a later toggle, or Clear, or closing the sheet, makes it false (Codex on #355).
+    if (before !== null && now !== "" && now !== before) announce(now, () => heard.current === now);
+  }, [open, matchSentence, announce]);
 
   return (
     <>
@@ -102,23 +134,13 @@ export function DietFilterButton({
             </span>
           </p>
           <DietPills diets={diets} onToggle={onToggle} labelledBy="taste-diet-cap" />
-          {/* The consequence of each toggle, said INSIDE the dialog (adversarial pass on #239): the
-              filtered list is covered by this sheet, and the page's own "Nothing matches" status is
-              aria-hidden by the modal while it is open — a screen-reader user toggling here heard
-              nothing. One live region: the page's is silenced by the dialog for exactly as long as
-              this one exists, so the one-per-view rule holds at every moment. Rendered only while a
-              filter is lit — with none, the count is just the menu. */}
-          {n > 0 && (
-            <p role="status" className="menu-diet-matches">
-              {query
-                ? matches === 0
-                  ? `Nothing matches “${query}” with these filters — ease one, or clear the search.`
-                  : `${matches} ${matches === 1 ? "dish matches" : "dishes match"} “${query}” with these filters.`
-                : matches === 0
-                  ? "Nothing on the menu fits these filters — ease one."
-                  : `${matches} ${matches === 1 ? "dish fits" : "dishes fit"}.`}
-            </p>
-          )}
+          {/* The consequence of each toggle, drawn INSIDE the dialog (adversarial pass on #239): the
+              filtered list is covered by this sheet. F31 — it is plain text now, not a second
+              `role="status"`: the sentence is SPOKEN through /menu's one region (the effect above;
+              the provider's Toast carries `aria-live`, which Radix's modal sweep exempts, so it is
+              heard while this sheet is open). Rendered only while a filter is lit — with none, the
+              count is just the menu. */}
+          {matchSentence && <p className="menu-diet-matches">{matchSentence}</p>}
           {hasFreeFrom(diets) && <FreeFromDisclaimer />}
           {/* ALWAYS rendered, `aria-disabled` when there is nothing to clear — never conditionally
               unmounted and never natively `disabled`. Both would destroy the place of anyone who
