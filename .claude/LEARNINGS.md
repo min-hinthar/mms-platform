@@ -4138,3 +4138,83 @@ things differ when a navigation discards the pending action:
   nothing ever started it. 16.3.8 moves `last` to the navigation.
   Two citations moved as well: the `server-action-reducer.js` line numbers, and the
   `experimental.viewTransition` flag 16.3 removed (TransitionNav, JOURNEY_PLAN).
+
+## #271
+
+**A PR comment states only what this session has read back (#352, 2026-10-13).** A fix-round
+comment on #352 said its blind pass had passed and its CI was green before either had reported. It was
+edited into an explicit correction the same hour. The rule: a verdict, a check's colour or a count goes
+into a comment only after the tool output that shows it, read for that exact head SHA (the check runs of
+`<sha>`, the agent's own verdict line naming the range it reviewed). Anything not yet back is written as
+pending, with what it waits on.
+
+## #272
+
+**Parallel streams that file registry rows collide on IDs unless each takes a range first
+(2026-10-12).** Agents building #352–#356 side by side each took "the next free" M/J/T number from
+their own checkout of `main`, and #353 and #356 filed the same IDs as other streams. Both had to be
+renumbered after the fact, including every cross-reference. The rule: before a fan-out, reserve a
+disjoint ID range per stream (M277–M279 for one, M280–M283 for the next, …) and name it in each
+stream's prompt; a stream that needs more asks the lead. Check a range against every live worktree
+and every open PR's head, not only `main`: `grep -h '| M29[0-9] ' .claude/worktrees/*/docs/OPEN-ITEMS.md`,
+and `git show origin/<branch>:docs/OPEN-ITEMS.md` for an open PR with no worktree here.
+
+## #273
+
+**A registry read split by one table's columns misses the tables with other columns (2026-10-12).**
+The first triage pass parsed `docs/OPEN-ITEMS.md` with the Money table's header and read 557 rows. The
+sections whose tables carry different columns were silently skipped (36 rows), and F11 sat in a shape
+no parser matched. A top-up pass read them. The rule: parse every table with its OWN header row, and
+set-check the result: the IDs read must equal the IDs a plain `^\| <id> ` scan of the file finds,
+nothing lost and nothing invented, before any verdict is counted.
+
+## #274
+
+**Prettier rewrites `_…_` emphasis around an identifier with an underscore in it (2026-10-12).**
+Close notes written as `_was med_ … live_payment_intent_id …` came back from `pnpm format` with the
+emphasis moved and the identifier's underscores escaped or eaten. `check:docs` passed, because the
+table still rendered, but the words had changed. The rule: never italicize a cell that names an
+identifier; put every identifier with `_` in backticks; and after `pnpm format` on generated prose,
+diff the formatted text against the intended text, not only the table shape.
+
+## #275
+
+**When a fix round makes things worse, revert to the bytes a reviewer read and file the original
+(#352, 2026-10-13).** The capped pass over #352's fix commits found two of them worse than what they
+replaced. Naming the card-only list on the tab's off-session close turned Stripe's definite refusal into
+an "unknown" that holds the freeze. A per-request Customer key let two concurrent saves pair one
+Customer with another's method. A third fix attempt would have needed a review the quota rule no
+longer allowed. `git revert` restored the files, and `git diff <reviewed head> <revert> -- <files>`
+came back empty, which proved those files' bytes on the final head were bytes a blind reviewer had
+read. It proves bytes, not how they combine with the fix commits that were kept, so name those
+commits and which pass read them beside the proof. The original gaps were filed (M290, M289) instead. The rule: when the capped budget is spent
+and a fix is wrong, revert to reviewed bytes, prove it with that empty diff, and file the gap; do
+not try a third fix that nobody reviews.
+
+## #276
+
+**A focus assertion read right after `waitFor` on the commit races the passive effect that moves
+focus (#355, 2026-10-13).** F20 moves focus to a refused box in a `useEffect`. The tests waited for
+`aria-invalid` (the commit) and then read `document.activeElement` at once. That passed alone 3 of 3
+and failed in a full local gate, where the effect flushed a tick after the check. Delaying the effect
+by one macrotask turned exactly the three such AccountUpgrade cases red. The rule: an assertion on
+anything an effect does (focus, a scroll, a timer's write) waits for that thing itself
+(`await waitFor(() => expect(document.activeElement).toBe(box))`). Never read it straight after a
+`waitFor` on the render that schedules it. A negative check ("focus did not move") is safe only when
+no effect could move it on that path.
+
+## #277
+
+**Merge the open PRs together, cumulatively, before calling any of them mergeable; and never resolve a
+probe merge with `-X ours` (2026-10-13).** Six PRs were green on their own heads, and each one merged
+cleanly into `main` on its own. Merged together, the tree failed typecheck and one test. #356 changed
+`SplitContext` (it dropped `qrCode` and made `sessionId` required), and fixtures that #352, #354 and #355
+had each written against the old shape no longer compiled. #356's PD2 lift also made the counter door
+live over unsent dishes, so #354's new case lost the held door it relied on. The first probe tested
+each PR alone against `main`, which cannot see a clash between two PRs. The second used `-X ours` for
+the docs conflicts, and that silently took one side of a code conflict too, dropping #355's
+`matchesFocusVisible` import. The rule: probe the whole set cumulatively in a scratch worktree, merging
+in the planned order. Resolve only `.md` conflicts by hand, and stop on any code conflict. Then run
+typecheck and the suite on the result. Fix a clash in the PRs themselves with a change that holds on
+both sides of the other PR's merge (here, the suite's own fixture cast, and an assertion that reads
+whatever answer the screen gives).
