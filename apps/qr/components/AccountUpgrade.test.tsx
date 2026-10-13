@@ -906,7 +906,7 @@ describe("F20 — a refused address or code is tied to ITS box (the @mms/ui Fiel
     // MUTATION uia11y/f20-email-refusal-off-the-box: the box is not described by it; red.
     expect(described(box())).toMatch(NO_ACCOUNT);
     // MUTATION uia11y/f20-focus-stays-on-the-button: red.
-    expect(document.activeElement).toBe(box());
+    await waitFor(() => expect(document.activeElement).toBe(box()));
     // One voice: the description speaks; the region draws nothing and says nothing.
     // MUTATION uia11y/f20-region-repeats-the-box: red.
     expect(screen.getByRole("status").textContent).toBe("");
@@ -959,7 +959,7 @@ describe("F20 — a refused address or code is tied to ITS box (the @mms/ui Fiel
     // MUTATION uia11y/f20-code-refusal-unbound: the code's refusal never bound to its box; red.
     await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
     expect(described(code)).toBe("Token has expired or is invalid");
-    expect(document.activeElement).toBe(code);
+    await waitFor(() => expect(document.activeElement).toBe(code));
     expect(screen.getByRole("status").textContent).toBe("");
   });
 });
@@ -1037,7 +1037,7 @@ describe("F20 · Codex round 1 on #355 — only a refusal that NAMES the value i
     // MUTATION uia11y/f20-save-path-refusal-unbound: GoTrue's refusal of THIS address in the region; red.
     await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
     expect(described(box())).toMatch(/is invalid/);
-    expect(document.activeElement).toBe(box());
+    await waitFor(() => expect(document.activeElement).toBe(box()));
     expect(screen.getByRole("status").textContent).toBe("");
   });
 

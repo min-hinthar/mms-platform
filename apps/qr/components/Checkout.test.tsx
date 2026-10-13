@@ -3893,7 +3893,7 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
     expect(described(box())).toBe("That code isn’t valid.");
     // MUTATION uia11y/f20-promo-focus-stays-on-apply: red.
-    expect(document.activeElement).toBe(box());
+    await waitFor(() => expect(document.activeElement).toBe(box()));
     // MUTATION uia11y/f20-promo-region-repeats-the-box: red.
     expect(regionText()).not.toContain("That code isn’t valid.");
     expect(screen.getAllByText("That code isn’t valid.")).toHaveLength(1);
