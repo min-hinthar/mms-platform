@@ -8,17 +8,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
   at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`. It gives each row's next step:
-  - 335 can be built without the owner (20 high). Building is not always closing: a row that needs a
+  - 343 can be built without the owner (21 high). Building is not always closing: a row that needs a
     migration still waits on the owner's go for the prod apply, and some need the device sitting.
-  - 100 are owner-gated, and 121 stay open.
-  - 34 close here.
+  - 117 are owner-gated, and 97 stay open.
+  - 33 close here.
   - 4 (A1–A4) already read DONE and stay in the Option A table as the record of the owner's picks.
 
   The registry stays the one place open work lives.
 
-- **34 rows move to Closed, each with its evidence.**
-  - 23 were already fixed by later work or were retracted: M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew,
-    P2fl, M56, M13, K26, K28, K29, K35, G13, G18, T19, T36, C4, C10, C21, C22 and F11.
+- **33 rows move to Closed, each with its evidence.**
+  - 22 were already fixed by later work or were retracted: M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew,
+    P2fl, M56, M13, K26, K29, K35, G13, G18, T19, T36, C4, C10, C21, C22 and F11.
     - C10's Apple Pay domain reads `active` in a read-only live Stripe read (2026-10-13).
     - F11's open note was about a pause coin that Phase 0 retired.
   - C15 was already closed in its own row; it only moves.
@@ -36,6 +36,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
   - 5 close on the owner's 2026-10-07 rulings, which left them nothing to build: T47, J33, T37, J38
     and K16. The reconcile PR those rulings named never closed them.
+
+- **Codex's review of the triage (2026-10-13).** K28 reopens: its close cited the day-scoped
+  average, but `mms_kds_stats` filters on `bumped_at` alone, so a days-old ticket bumped today still
+  adds its whole age. Its row is restored with that note. The rows the refute pass kept open but that
+  name a concrete fix move to Buildable (K33, F8, M172, P2df, J49, P2ak, P2ey), and the rows that wait
+  on a parked surface or an owner ruling move to Owner-gated (M215, J14, J6, P2co, S13, S18, M11,
+  M12, M23, M38, M54, M8, S10, S8, S9, P2z, J27). The counts above are the recomputed ones.
 
 - **Two rows stay open after the blind review.**
   - K20 is marked partial: the 24 h queue window shipped, but the owner-set age policy did not.
