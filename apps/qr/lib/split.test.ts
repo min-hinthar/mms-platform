@@ -293,14 +293,30 @@ vi.mock("./lock", () => ({
     return Promise.resolve({ released: releaseResult, error: null });
   },
 }));
+/**
+ * M123 — the promo pin a dead card attempt left on the cart, as the CHARGE basis reads it
+ * (`mms_promo_discount`: the pin wins outright while set, m70). Null = no pin; the fake totals then
+ * carry no discount, exactly as before this row.
+ */
+let pinCents: number | null = null;
+const GRAND = { subtotalCents: 3000, serviceChargeCents: 150, taxCents: 289 };
 vi.mock("./totals", () => ({
-  getCartTotals: () =>
-    Promise.resolve({
-      subtotalCents: 3000,
-      discountCents: 0,
-      serviceChargeCents: 150,
-      taxCents: 289,
-    }),
+  getCartTotals: () => Promise.resolve({ ...GRAND, discountCents: pinCents ?? 0 }),
+}));
+/**
+ * M123 — `releaseStalePinUnderFreeze` (lib/supersede.ts), M268's release under THIS door's freeze.
+ * Its own arms are pinned in settle-stale-pin / settle-takeover; here only its ANSWER matters, and
+ * that an `acquired` answer means the pin is gone before the grand total is read.
+ */
+type PinVerdict = "acquired" | "unavailable" | "paying" | "closed" | "settling_other" | "locked";
+let pinVerdict: PinVerdict = "acquired";
+const pinReleaseOwners: string[] = [];
+vi.mock("./supersede", () => ({
+  releaseStalePinUnderFreeze: (_cartId: string, owner: string) => {
+    pinReleaseOwners.push(owner);
+    if (pinVerdict === "acquired") pinCents = null;
+    return Promise.resolve(pinVerdict);
+  },
 }));
 
 const { abortSettlement, openSettlement } = await import("./split");
@@ -330,6 +346,9 @@ beforeEach(() => {
   staleClearError = null;
   releaseOwners.length = 0;
   cartRow = null;
+  pinCents = null;
+  pinVerdict = "acquired";
+  pinReleaseOwners.length = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -914,6 +933,60 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
       (q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0,
     );
     expect(replace?.is).toContainEqual(["capture_started_at", null]);
+  });
+});
+
+describe("openSettlement — M123: the shares are priced AFTER a dead attempt's promo pin is released", () => {
+  /** The expectation the open pins (`settle_expected_cents`) — Σ of the shares it just inserted. */
+  const pinnedExpectation = () =>
+    queries.find(
+      (q) =>
+        q.table === "qr_carts" &&
+        q.op === "update" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_expected_cents" in q.patch,
+    )?.patch as { settle_expected_cents: number } | undefined;
+
+  it("releases the pin under the HOST's own freeze, then derives — every seat priced without it", async () => {
+    // The split was the one counter-side door M268 left on the plain acquire: a pin an abandoned
+    // card attempt left priced the grand total, every share was cut from it, and the reconcile
+    // pinned that discounted figure — a table paying a discount a different basket earned.
+    pinCents = 500;
+    await openSettlement(CART, "even");
+    // Definitional: the derivation with no discount, from the fake's own figures (never typed in).
+    // MUTATION (m123/split-derives-over-the-pin): the release skipped — the 500 rides into every
+    // share and the expectation; red.
+    expect(pinnedExpectation()?.settle_expected_cents).toBe(
+      GRAND.subtotalCents + GRAND.serviceChargeCents + GRAND.taxCents,
+    );
+    // Under THIS door's freeze: the release's proof is `settle_by = owner`, and the split acquired
+    // under the host's seat. MUTATION (m123/split-releases-under-another-owner): red.
+    expect(pinReleaseOwners).toEqual(["seat-host"]);
+  });
+
+  it("a release that could not clear the pin opens NOTHING — no shares, no expectation", async () => {
+    // `releaseStalePinUnderFreeze` has already given its freeze back on this answer; the split must
+    // not go on to price shares off the pin it failed to clear.
+    // MUTATION (m123/split-opens-over-a-refused-release): red.
+    pinCents = 500;
+    pinVerdict = "unavailable";
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Couldn’t check this order/);
+    expect(queries.some((q) => q.op === "insert" && q.table === "qr_cart_shares")).toBe(false);
+    expect(pinnedExpectation()).toBeUndefined();
+  });
+
+  it("a linked attempt that is CHARGING refuses in the diner's words and leaves the freeze HELD", async () => {
+    // `paying`: the release found a live link and the intent is charging, so it kept the freeze —
+    // on an unlocked cart it is the only thing `paymentInFlightReason` honours until the webhook
+    // fulfils. The door says what create-intent says in the same state, and releases nothing.
+    // MUTATION (m123/split-releases-a-held-freeze): red on the release count.
+    pinVerdict = "paying";
+    await expect(openSettlement(CART, "even")).rejects.toThrow(
+      /That payment is already going through/,
+    );
+    expect(releasedFreeze).toBe(0);
+    expect(queries.some((q) => q.op === "insert")).toBe(false);
   });
 });
 

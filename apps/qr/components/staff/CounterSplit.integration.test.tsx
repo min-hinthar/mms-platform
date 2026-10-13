@@ -183,6 +183,7 @@ const detail = (sessionId: string, tableNumber: number) =>
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    settledLinesTruncated: false,
     paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,

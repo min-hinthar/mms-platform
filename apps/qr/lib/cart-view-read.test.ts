@@ -79,8 +79,13 @@ vi.mock("./rate", () => ({
 vi.mock("./permissions", () => ({ canMutateLine: () => true }));
 // A NON-ZERO total from the second read, so the "empty list beside a live total" pairing is exactly
 // what a passing-but-wrong implementation would produce.
+/** M123 (b) — every argument list the view's totals read was asked with. */
+const totalsCalls: unknown[][] = [];
 vi.mock("./totals", () => ({
-  getCartTotals: () => Promise.resolve({ subtotalCents: 5340, totalCents: 5340 }),
+  getCartTotals: (...args: unknown[]) => {
+    totalsCalls.push(args);
+    return Promise.resolve({ subtotalCents: 5340, totalCents: 5340 });
+  },
 }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
 vi.mock("./order-lines", () => ({ priceItem: () => Promise.resolve({}) }));
@@ -139,6 +144,18 @@ beforeEach(() => {
   cartRes = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
   itemsRes = { data: [], error: null };
   nudgeRes = { data: null, error: null };
+  totalsCalls.length = 0;
+});
+
+describe("getCartView — M123 (b): the review step QUOTES, it never reads the charge basis", () => {
+  it("asks for the quote basis, tip 0 — the floor's settle quote's exact call (PD2)", async () => {
+    // The charge basis honours a pin no intent names, so the review step showed a discount no door
+    // would charge (create-intent releases that pin first; the counter's settle, since M268, too).
+    // `getTableDetail` quotes with these same arguments (floor-detail-promo.test.ts), so the guest's
+    // pass and Dad's pane are one derivation. MUTATION (m123/view-quotes-the-charge-basis): red.
+    await getCartView("c-1");
+    expect(totalsCalls).toEqual([["c-1", 0, "quote"]]);
+  });
 });
 
 /** A dine-in draft row as `qr_cart_items` answers it, added at `createdAt`. */
