@@ -4188,3 +4188,15 @@ came back empty, which proved the money-path code on the final head was code a b
 read. The original gaps were filed (M290, M289) instead. The rule: when the capped budget is spent
 and a fix is wrong, revert to reviewed bytes, prove it with that empty diff, and file the gap; do
 not try a third fix that nobody reviews.
+
+## #276
+
+**A focus assertion read right after `waitFor` on the commit races the passive effect that moves
+focus (#355, 2026-10-13).** F20 moves focus to a refused box in a `useEffect`. The tests waited for
+`aria-invalid` (the commit) and then read `document.activeElement` at once. That passed alone 3 of 3
+and failed in a full local gate, where the effect flushed a tick after the check. Delaying the effect
+by one macrotask turned exactly the three such AccountUpgrade cases red. The rule: an assertion on
+anything an effect does (focus, a scroll, a timer's write) waits for that thing itself
+(`await waitFor(() => expect(document.activeElement).toBe(box))`). Never read it straight after a
+`waitFor` on the render that schedules it. A negative check ("focus did not move") is safe only when
+no effect could move it on that path.

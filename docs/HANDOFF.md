@@ -33,22 +33,23 @@ owner ratified in OWNER_RULINGS §H1) moved verbatim to the archive's 2026-10-11
 
 1. **Every open row was read against the code.** That covered every row that was open, gated, planned
    or parked on `main` at `02bf46c`: 594 rows. The record is
-   `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351). It lists 335 rows buildable without the owner,
-   100 owner-gated, 121 to keep open, 34 closed by the sweep, and 4 done in place. Each row has its
+   `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351). It lists 343 rows buildable without the owner,
+   117 owner-gated, 97 to keep open, 33 closed by the sweep, and 4 done in place (as recomputed after
+   Codex's review of #351, which reopened K28). Each row has its
    next step, and each buildable row has a size and its money and migration flags.
 2. **Six PRs, all open, none merged.** Codex was out of quota for five of them. For each, the capped
    blind pass on the full diff stood in, then ONE more capped pass over exactly the fix commits. The
    lead hand-read anything after that, in one comment per PR naming the final head and the commits no
    blind reviewer read.
 
-   | PR   | What                                                                                                   | Closes                                                                                                     |
-   | ---- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-   | #351 | The registry sweep (`.md` only)                                                                        | 29 rows closed with evidence and 5 folded into the rows that carry them (PD7 into M270); M284 · M285 filed |
-   | #352 | Money guards: the Stripe client's budget, settle and Terminal guards, grocery money guards             | M164 M165 M155 M166 M216 M252 T9 M187 M188 M189 T25; M72c partial; M277–M279 · J55 · M286–M291 filed       |
-   | #353 | One host source, named session refusals, the live promo quote, one day-ledger read                     | M169 J16 M123 M211 M221; M280 K47 J56 filed                                                                |
-   | #354 | /cart write results say what landed; guards that reach further                                         | T41 T42 M230 P2au M220 T28 T44; M226 partial; T57 filed                                                    |
-   | #355 | a11y and fidelity: the promo and account boxes are Fields, /menu's one region                          | K44 M127 F20 F31 M214; PD4 · PD12 partial; K48 F37 filed                                                   |
-   | #356 | PD1's and PD2's open code: the tablemate pass on the kitchen track, the counter ask over unsent dishes | PD1 PD2; J57 T58 M281–M283 filed                                                                           |
+   | PR   | What                                                                                                   | Closes                                                                                                                                     |
+   | ---- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+   | #351 | The registry sweep (`.md` only)                                                                        | 28 rows closed with evidence and 5 folded into the rows that carry them (PD7 into M270); K28 reopened on Codex's review; M284 · M285 filed |
+   | #352 | Money guards: the Stripe client's budget, settle and Terminal guards, grocery money guards             | M164 M165 M155 M166 M216 M252 T9 M187 M188 M189 T25; M72c partial; M277–M279 · J55 · M286–M291 filed                                       |
+   | #353 | One host source, named session refusals, the live promo quote, one day-ledger read                     | M169 J16 M123 M211 M221; M280 K47 J56 filed                                                                                                |
+   | #354 | /cart write results say what landed; guards that reach further                                         | T41 T42 M230 P2au M220 T28 T44; M226 partial; T57 filed                                                                                    |
+   | #355 | a11y and fidelity: the promo and account boxes are Fields, /menu's one region                          | K44 M127 F20 F31 M214; PD4 · PD12 partial; K48 F37 filed                                                                                   |
+   | #356 | PD1's and PD2's open code: the tablemate pass on the kitchen track, the counter ask over unsent dishes | PD1 PD2; J57 T58 M281–M283 filed                                                                                                           |
 
 3. **Filed by this handoff** (from the capped passes' open questions): J58 (may an invitee who reloads
    a still-hostless table become its host; the owner's call), J59 (is a dish inside the send's undo
@@ -117,7 +118,7 @@ quota rule, a hand-read of the merge's conflict resolutions.
   under a visible lock), and K20 (the age policy for the queue).
 - **Still to ratify from the wave:** the decisions made under the 2026-10-09 delegation (the archive's
   2026-10-11 block, "Decided under the delegation"), and the P2hf tension with ruling #6.
-- **The 100 owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
+- **The 117 owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
   The items below ("The owner's items") are the standing ones.
 
 ## The owner's items (not code)
