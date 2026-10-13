@@ -41,12 +41,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - K20 is marked partial: the 24 h queue window shipped, but the owner-set age policy did not.
   - M177 stays in place as M157's duplicate, because a parked row never moves, and M157 takes its
     high severity.
-- **Two residuals are filed.** M284: name the stale-lock cutoff once (M163's shape). M285: watch a lost
-  PKCE verifier (C22's note).
-- **Every "already fixed" and "duplicate" verdict was re-checked by a pass told to refute it.** Eleven
-  were refuted. Ten stay open: P2z, P2ak, P2df, K33, M172, P2ey, J27, J49, C16 and F8. The eleventh, A1,
-  already reads DONE in the Option A table. The snapshot keeps the reason for each. F11 and the three
-  ruling rows (T37, J38 and K16) were checked by hand.
+- **Two residuals are filed.**
+  - M284 (med): name the stale-lock cutoff once. M163's naming ask did not ship: the cutoff is computed
+    at ten TypeScript sites and hardcoded in eleven migrations.
+  - M285 (low): watch a lost PKCE verifier (C22's note).
+- **M123's next step changed (Codex round 2).** It now forbids the superseding acquire on the split
+  door, because that acquire could cancel a tablemate's live payment.
+- **Every "already fixed" and "duplicate" verdict the agent passes gave was re-checked by a pass told to
+  refute it.** Eleven were refuted. Ten stay open: P2z, P2ak, P2df, K33, M172, P2ey, J27, J49, C16 and
+  F8. The eleventh, A1, already reads DONE in the Option A table. The snapshot keeps the reason for
+  each. F11 and the three ruling rows (T37, J38 and K16) were checked by hand.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
