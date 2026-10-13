@@ -8,7 +8,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **Meals are card only (M155, owner ruling #7).** One constant, `MEAL_PAYMENT_METHOD_TYPES`
   (`apps/qr/lib/payment-methods.ts`, `["card"]`), is named by `create-intent`, `create-share-intent`
-  and `setup-intent` in place of automatic payment methods. Apple Pay and Google Pay ride the card
+  and `setup-intent` in place of automatic payment methods, and by the tab's off-session close. Apple Pay and Google Pay ride the card
   method and stay. Link, Cash App Pay, Klarna, ACH and any other method enabled in the Dashboard no
   longer appear in the Payment Element or the Express Checkout Element, so no bank debit can sit in
   `processing` on a cart for days. The parked split share drops `allow_redirects: "never"`, since a
@@ -18,8 +18,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   attempts). Every Stripe call takes it, the parked Terminal reader actions included. The pickup
   capture makes one attempt per webhook delivery (`maxNetworkRetries: 0` beside its key), so a
   transient capture failure waits for Stripe's redelivery, which re-derives the plan. The
-  setup-intent Customer create is keyed `cus_<cartId>`. A parse guard in `stripe.test.ts` refuses a
-  per-call retry override below one that carries no `idempotencyKey`. Left: 20 s is an upper bound
+  setup-intent Customer create is keyed per request. A parse guard in `stripe.test.ts` refuses a
+  per-call retry override below one that carries no `idempotencyKey`, and a Stripe client built
+  outside `lib/stripe.ts`. Left: 20 s is an upper bound
   picked without a measurement. Owner ruling #23 sizes it from the Stripe round trip measured from
   `pdx1`, which an agent sandbox cannot take.
 - **An unreadable Stripe key mode counts as live for the webhook secret (M166).** When the secret
@@ -48,8 +49,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   today. `check:child-freeze` now also derives member-authorized mutations that refuse through the
   settlement acquire (18 mutations from 7 lib modules), so `openSettlement` is audited.
 - **The Scan & Go basket shows the chargeable lines only (M187).** `readGroceryLines` drops comped
-  lines with the charge authority's own predicate, so "Subtotal · before tax" equals
-  `computeTotals`' subtotal. A comped line now leaves the basket list and count. The /cart checkout
+  lines with the charge authority's own predicate, so for a cart of market lines "Subtotal · before
+  tax" equals `computeTotals`' subtotal. A comped line now leaves the basket list and count. The /cart checkout
   still lists it as "On the house". A camera re-sighting of a jar whose line staff comped is now a
   new item at full price.
 - **Market items go only on a scan-and-go cart (M189, owner ruling §C).** `scanAdd` refuses any cart
@@ -63,7 +64,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   instead of inserting a twin: reorder skips the line as unreadable, a scan goes to Retry, and the
   staff pad reads it as unconfirmed. A comp landing between the read and the bump is still a no-op
   (T27).
-- **Proof.** 36 new `verify:slice` mutants (`stripecfg/` 16, `m252/` 6, `m216/` 4, `t9/` 4,
+- **Proof.** 38 new `verify:slice` mutants (`stripecfg/` 18, `m252/` 6, `m216/` 4, `t9/` 4,
   `grocery/` 4, `order-lines/` 2), each caught; `lib/payment-methods.ts`,
   `app/api/stripe/webhook/route.ts` and `components/SplitSection.tsx` are new mutation targets. New
   suites: `stripe.test.ts`, `payment-methods.test.ts`, `settle-comp-only.test.ts`,
@@ -73,6 +74,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   unchanged.
 - **Filed:** M277 (a same-barcode line pair on the Browse card), M278 (no database gate on grocery
   lines), M279 (a with-tax figure on /grocery) and J55 (the split door's error echo).
+- **The blind pass's fix round (2026-10-13).**
+  - The tab's off-session close names `MEAL_PAYMENT_METHOD_TYPES` too, the fourth meal create, so a
+    method saved before the card-only SetupIntent is charged as a card or refused. Mutant
+    `stripecfg/tab-close-automatic-methods`.
+  - The budget's bound counts the SDK's Retry-After sleep, which stripe@22 honours up to 60 s. A
+    default-budget call is bounded under two minutes (about 100 s), not one; the zero-retry pickup
+    capture stays under one minute. Both bounds are read off the SDK's own retry decision and sleep.
+  - The parse guard exempts only `lib/stripe.ts`'s own client config, and refuses a Stripe client
+    built anywhere else, under any binding of the `stripe` import.
+  - The Customer create's key is per request. Stripe's v1 idempotency replays a key's first response
+    even when it was an error, for at least 24 h, so a key on the cart alone would turn one 5xx into
+    a tab that cannot save a card. Mutant `stripecfg/customer-key-cart-stable`.
+  - The basket parity is stated for a cart of market lines, and a test pins the boundary: a to-go
+    dish on the same cart is charged and not listed.
+  - Filed M286 (a dish on a scan-and-go cart), M287 (a Terminal start that throws frees the table
+    when its cancel fails), M288 (no truthful exit for a fully comped counter order whose food was
+    sent) and M289 (setup-intent's cart-stable SetupIntent key).
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
