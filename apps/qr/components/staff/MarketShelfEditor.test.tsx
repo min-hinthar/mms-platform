@@ -104,6 +104,20 @@ describe("MarketShelfEditor — the market's sold-out toggle", () => {
     expect(screen.getByRole("button", { name: `${MARK} — Pickled tea leaf` })).toBeTruthy();
   });
 
+  it("a LOST answer says the write may or may not have landed, keeps the shown state, and refreshes", async () => {
+    setGroceryAvailable.mockRejectedValue(new Error("network"));
+    mount([jar()]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: `${MARK} — Pickled tea leaf` }));
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      STAFF["browse.market.err.flipUnknown"].en.replace("{x}", "Pickled tea leaf"),
+    );
+    // Nothing confirmed: the row keeps the verb it showed until the refresh brings the truth.
+    expect(screen.getByRole("button", { name: `${MARK} — Pickled tea leaf` })).toBeTruthy();
+    expect(refresh).toHaveBeenCalled();
+  });
+
   it("a sold-out item offers Put back, and the chip narrows the list to what is sold out", () => {
     mount([jar(), jar({ barcode: "88800022", nameEn: "Mohinga paste", available: false })]);
     expect(screen.getByRole("button", { name: `${BACK} — Mohinga paste` })).toBeTruthy();
