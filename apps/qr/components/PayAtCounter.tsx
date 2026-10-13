@@ -29,7 +29,9 @@ const TX = (k: DictKey) => t("en", k);
  * way to pay, and it lives in the CartBar's own slot at the foot of the screen: a filled
  * `.checkout-cta` at `--tap-bump` (64px) with the Bill's ONE LINE SLOT directly above it. At rest
  * the slot says the next step once ("The counter takes cash." — or, with a reader, "Ready for the
- * bill?"); held, it carries the hero's one reason instead, never both (the shared vocabulary: a
+ * bill?"; with dishes nobody has sent, "You can still ask — the counter will check them with your
+ * table.": `counterRestLine`, lib/checkout-verb); held, it carries the hero's one reason instead,
+ * never both (the shared vocabulary: a
  * docked hero's one line slot carries either the sentence or the held reason). Held states use
  * `aria-disabled`, never native `disabled` (the control stays reachable and reads why through
  * `aria-describedby`), and every blocked tap re-says the reason through the view's one region
@@ -41,15 +43,16 @@ const TX = (k: DictKey) => t("en", k);
  * dock's own `::before` (`.counter-dock`), so lines dissolve under it and never clip.
  */
 export function PayAtCounterDock({
-  lineKey,
+  line,
   reason,
   busy,
   hidden,
   onClick,
   onRefusedTap,
 }: {
-  /** The one sentence at rest: `counterTakesCash`, or `readyForBill` while the register takes a card. */
-  lineKey: "counterTakesCash" | "readyForBill";
+  /** The one sentence at rest (`counterRestLine`): the register's tender, or — with dishes nobody
+   *  has sent — what the counter does with them. `my` is null where no Burmese exists yet (K15). */
+  line: { en: string; my: string | null };
   /** The hero's ONE held reason, or null when the door is live. `my` is null where no Burmese
    *  exists for the sentence (listed English-only — never invented). */
   reason: { en: string; my: string | null } | null;
@@ -63,8 +66,8 @@ export function PayAtCounterDock({
   const ref = useRef<HTMLDivElement | null>(null);
   useCtaDock(ref, !hidden);
   const disabled = reason !== null;
-  const lineEn = reason ? reason.en : TX(lineKey);
-  const lineMy = reason ? reason.my : t("my", lineKey);
+  const lineEn = reason ? reason.en : line.en;
+  const lineMy = reason ? reason.my : line.my;
   return (
     <div ref={ref} className="counter-dock" hidden={hidden}>
       {/* Static text, never a live region (the view keeps its one); the door reads it through

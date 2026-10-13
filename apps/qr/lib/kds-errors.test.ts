@@ -72,12 +72,17 @@ describe("kitchenErrOutcome — a refused kitchen action speaks the device langu
 
 describe("eightySixOutcome — the menu's refusal, said about the dish (kitchen-3, the 86 arm)", () => {
   it("every menu code resolves, keyed arms name the dish in both tongues, sentence stays verbatim", () => {
-    const codes: readonly SoldOutErrCode[] = ["sentence", "invalid", "gone", "stale"];
+    const codes: readonly SoldOutErrCode[] = ["sentence", "invalid", "gone", "stale", "unlogged"];
     for (const code of codes)
       expect(eightySixOutcome({ error: "s", code }, "မုန့်ဟင်းခါး")).toBeTruthy();
     expect(
       eightySixOutcome({ error: "Can’t reach the menu right now.", code: "sentence" }, "x"),
     ).toBe("Can’t reach the menu right now.");
+    // P2au — the landed-but-unlogged sentence has no dictionary twin, so it is said VERBATIM (the
+    // `sentence` arm's rendering) — it names the dish and the person to tell, in the server's words.
+    const unlogged =
+      "Mohinga is sold out, but the change wasn’t logged — tell the owner it was you.";
+    expect(eightySixOutcome({ error: unlogged, code: "unlogged" }, "Mohinga")).toBe(unlogged);
     expect(eightySixOutcome({ error: "s", code: "gone" }, "Mohinga")).toEqual({
       k: "kds.err.86.gone",
       vars: { x: "Mohinga" },

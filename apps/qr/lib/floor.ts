@@ -105,9 +105,9 @@ const ORDER_LINE_CAP = 500;
  *  ⚠️ THE EXTRA ROW IS NOT DISCARDED — only the reported COUNT is clamped. An earlier draft of this
  *  comment said it was dropped, which a blind pass caught as describing a mechanism the code does not
  *  have. It is harmless as written, because the rows are ordered `created_at desc` and everything
- *  downstream reads `[0]`; it is worth stating plainly because OPEN-ITEMS M211 proposes this same
- *  shape for the 500-row LINE read, where a reader who trusted the old wording would assume a
- *  truncation that never happens and render one row too many. */
+ *  downstream reads `[0]`. M211 put this same shape on the 500-row LINE read, and THERE the extra
+ *  row IS dropped (`ORDER_LINE_CAP`'s read below), because those rows are rendered — the two reads
+ *  differ on purpose, so neither is a template for the other's handling of the probe row. */
 const SETTLED_ORDER_CAP = 20;
 /** Phase 2d · floor — the floor's LINE reads are bounded, below PostgREST's `max_rows` (1000,
  *  `supabase/config.toml`), which truncates SILENTLY. A read that comes back AT the cap cannot tell
@@ -769,6 +769,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   }));
 
   let lines: TableLineView[] = [];
+  // M211 — the settled record's line read hit its bound (set only on the settled branch below).
+  let settledLinesTruncated = false;
   // PD8 — the open cart's pending requests, for the flag at Take payment; [] with no cart.
   let pendingRequests: PendingFlag[] = [];
   let itemCount = 0;
@@ -955,11 +957,19 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       // Bounded, like every other read in this function (the session cap, the roster's 500). A
       // settled grocery scan-and-go has no code-level ceiling on its line count, and this read runs
       // on a 5-second poll for as long as a tablet sits on the screen.
-      .limit(ORDER_LINE_CAP);
+      // M211 — cap+1, the M212 shape one level down: a read that stops AT the cap cannot tell "the
+      // whole order" from "we stopped reading", and the surface rendered the first 500 as the
+      // complete record.
+      .limit(ORDER_LINE_CAP + 1);
     // Same posture as the open-cart read: an unread order is not an EMPTY one, and "nothing here"
     // over a table that just paid is the exact false verdict this branch exists to end.
     if (soldError) return { kind: "outage" };
-    lines = (sold ?? []).map((i) => ({
+    const soldRows = sold ?? [];
+    settledLinesTruncated = soldRows.length > ORDER_LINE_CAP;
+    // ⚠️ THE PROBE ROW IS DROPPED HERE, unlike M212's (whose extra settled ORDER is never rendered —
+    // only `[0]` is read). These rows ARE the list, so keeping it would draw one line past the bound
+    // the flag is about to name.
+    lines = soldRows.slice(0, ORDER_LINE_CAP).map((i) => ({
       id: i.id,
       name: i.name,
       qty: i.qty,
@@ -1028,7 +1038,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // when the total is: nothing priced, nothing claimed.
   let settleBreakdown: TableDetail["settleBreakdown"] = null;
   if (cart && itemCount > 0) {
-    const settleTotals = await getCartTotals(cart.id, 0).catch((e: unknown) => {
+    // M123 (b) — a QUOTE, so the quote basis: the pin only while an intent is live (lib/totals.ts).
+    // Take cash releases a pin no intent names before it derives (M268), so quoting that pin here
+    // named a figure the settle would not charge — and its compare-and-swap refused `moved`. The
+    // review step makes this exact call, so the guest's pass and this pane agree (PD2).
+    const settleTotals = await getCartTotals(cart.id, 0, "quote").catch((e: unknown) => {
       console.error("[floor] getTableDetail settle total unreadable", {
         cartId: cart.id,
         error: e,
@@ -1112,6 +1126,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
      *  surface must say "20+" instead of stating a number it cannot know. */
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,
+    // M211 — the settled record's LINES were cut at `ORDER_LINE_CAP`; the surface says so.
+    settledLinesTruncated,
     // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
     // new read): the session the webhook's best-effort, single-shot close left active (its after() is
     // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on

@@ -10,11 +10,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
+/**
+ * M221 — React's request-scoped `cache()`. Outside a server request React calls straight through,
+ * and so does this mock unless a case turns `requestMemo` on: then ONE store is the request (cleared
+ * by that case's `beforeEach`), which is the scope React gives `cache` in production. Every other
+ * case here calls each reader as its own request, exactly as before.
+ */
+let requestMemo = false;
+const requestStore = new Map<unknown, Map<string, unknown>>();
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
+  cache:
+    <A extends unknown[], R>(fn: (...args: A) => R) =>
+    (...args: A): R => {
+      if (!requestMemo) return fn(...args);
+      let perFn = requestStore.get(fn);
+      if (!perFn) requestStore.set(fn, (perFn = new Map()));
+      const key = JSON.stringify(args);
+      if (!perFn.has(key)) perFn.set(key, fn(...args));
+      return perFn.get(key) as R;
+    },
+}));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
 vi.mock("./stripe", () => ({ getStripe: () => ({ refunds: { create: () => Promise.reject() } }) }));
 vi.mock("./staff-pin", () => ({ verifyStaffPin: () => Promise.resolve({ status: "ok" }) }));
 let gateOk = true;
 vi.mock("./staff", () => ({
+  // M221 — `getDayCashSummary` (lib/register.ts) reads this beside the gate.
+  STAFF_WRITE_OUTAGE: "outage",
   getStaffAuth: () =>
     Promise.resolve({ kind: "staff", uid: "u-1", staffId: "s-1", role: "manager" }),
   roleAtLeast: () => true,
@@ -49,6 +72,8 @@ let ledgerRows: Row[] = [];
 /** The ledger rows SINCE the floor — the today-ledger read (a `gte` on `mms_refunds`) answers these. */
 let ledgerTodayRows: Row[] = [];
 let failTable: string | null = null;
+/** M221 — runs once a today-ledger read has been answered: a refund committing between two asks. */
+let afterTodayLedgerRead: (() => void) | null = null;
 
 function tableApi(name: string) {
   const r: Rec = { table: name, calls: [] };
@@ -82,7 +107,9 @@ function tableApi(name: string) {
             const range = r.calls.find((c) => c[0] === "range");
             const from = range ? ((range[1] as unknown[])[0] as number) : 0;
             // Page 0 carries every fixture row; page 1 is empty and stops the loop.
-            return { data: from === 0 ? ledgerTodayRows : [], error: null, count: null };
+            const page = { data: from === 0 ? ledgerTodayRows : [], error: null, count: null };
+            afterTodayLedgerRead?.();
+            return page;
           }
           return { data: ledgerRows, error: null, count: null };
         }
@@ -101,6 +128,7 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { getSettledToday } = await import("./refunds");
+const { getDayCashSummary } = await import("./register");
 
 const line = (id: string, over: Row = {}): Row => ({
   id,
@@ -153,6 +181,9 @@ beforeEach(() => {
   unionOrderRows = [];
   ledgerRows = [];
   ledgerTodayRows = [];
+  afterTodayLedgerRead = null;
+  requestMemo = false;
+  requestStore.clear();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -370,5 +401,57 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
   it("a non-manager is `forbidden` (the zone hides itself), not an outage", async () => {
     gateOk = false;
     expect(await getSettledToday()).toEqual({ ok: false, reason: "forbidden" });
+  });
+});
+
+describe("M221 — the settled list and the register's drawer answer from ONE ledger read per request", () => {
+  // `/staff` renders both on one page (app/staff/page.tsx), so one render is one request.
+  beforeEach(() => {
+    requestMemo = true;
+  });
+  const OLD = "44444444-4444-4444-8444-444444444444";
+  /** A CASH refund on an earlier day's order, committed AFTER the first screen read the day. */
+  const lateRefund = (): Row => ({
+    id: "r-late",
+    order_id: OLD,
+    order_item_id: null,
+    amount_cents: 500,
+    tender: "cash",
+    created_at: "2026-09-13T18:55:00Z",
+  });
+
+  it("a refund committing between the two asks lands in NEITHER answer — never in one screen alone", async () => {
+    // Settled first, then the drawer — the refund commits in between. The list took its snapshot
+    // without it, so the drawer must not count it either: a manager reading "Settled today" beside
+    // "Cash refunded" would otherwise see $5.00 leave the till for an order the list does not show.
+    // MUTATION (m221/drawer-reads-its-own-ledger, m221/settled-reads-its-own-ledger): either reader
+    // back on its own read — the drawer counts the late refund the list never saw; red.
+    unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z" })];
+    afterTodayLedgerRead = () => {
+      ledgerTodayRows = [lateRefund()];
+      afterTodayLedgerRead = null;
+    };
+    const settled = await getSettledToday();
+    const day = await getDayCashSummary();
+    if (!settled.ok || !day.ok) throw new Error("expected both reads ok");
+    expect(settled.orders.some((o) => o.id === OLD)).toBe(false);
+    expect(day.summary.cashRefundedCents).toBe(0);
+    // And the page's most expensive read ran ONCE.
+    const dayReads = recs.filter(
+      (r) => r.table === "mms_refunds" && r.calls.some((c) => c[0] === "gte"),
+    );
+    expect(dayReads).toHaveLength(1);
+  });
+
+  it("…and a refund already committed reaches BOTH, from that one read", async () => {
+    // The other half of "one answer": sharing must not mean dropping. The same refund, committed
+    // before the page asks, is in the list (its order joins it) AND in the drawer's cash total.
+    unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z" })];
+    ledgerTodayRows = [lateRefund()];
+    const settled = await getSettledToday();
+    const day = await getDayCashSummary();
+    if (!settled.ok || !day.ok) throw new Error("expected both reads ok");
+    expect(settled.orders.some((o) => o.id === OLD)).toBe(true);
+    expect(day.summary.cashRefundedCents).toBe(lateRefund().amount_cents);
   });
 });

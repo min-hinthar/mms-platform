@@ -65,6 +65,10 @@ export function eightySixOutcome(res: { error: string; code: SoldOutErrCode }, x
   switch (res.code) {
     case "sentence":
       return res.error;
+    // P2au — the flag landed and only its record failed. Said VERBATIM, like `sentence`: it names
+    // the dish and who to tell, and has no dictionary twin to say it in Burmese (never guessed at).
+    case "unlogged":
+      return res.error;
     case "invalid":
       return { k: "kds.err.invalid" };
     case "gone":

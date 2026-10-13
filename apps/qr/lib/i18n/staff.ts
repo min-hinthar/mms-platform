@@ -926,10 +926,9 @@ export const STAFF = {
   // reader's write permission.
   "table.detail.line.voided": { en: "Removed", my: "ဖျက်ပြီး" },
   "table.detail.line.comped": { en: "On the house", my: "အခမဲ့ ပေး" }, // the အခမဲ့ root every other comp string uses
-  // The money row. `{m}` is preformatted by `fmt()` and stays Latin; the item count is prose.
-  "table.detail.subtotalSoFar": { en: "subtotal so far", my: "ယခုအထိ စုစုပေါင်း" },
-  "table.detail.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
-  "table.detail.item.many": { en: "{n} items", my: "ပစ္စည်း {n} ခု" },
+  // The paid row. `{m}` is preformatted by `fmt()` and stays Latin. K44 retired the open card's
+  // pre-tax "subtotal so far" line, its item count and its pre-tax note: the order card speaks
+  // receipt (`ReceiptStack`, its Total the door's own figure), so no pre-tax total has a key here.
   "table.detail.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
   // K33 — a refunded order must NEVER read as plainly paid, on any surface (registry M2 closed
   // exactly that on the guest receipt). The full case names the return and nothing else; the
@@ -944,10 +943,6 @@ export const STAFF = {
     my: "{m} ရှင်းပြီး · {r} ပြန်အမ်းပြီး",
   },
   "table.detail.line.refunded": { en: "refunded {m}", my: "{m} ပြန်အမ်းပြီး" },
-  "table.detail.pretaxNote": {
-    en: "Running pre-tax subtotal — tax is added when they pay.",
-    my: "အခွန်မပါသေးတဲ့ စုစုပေါင်း — အခွန်ကို ငွေရှင်းချိန်မှာ ထည့်ပါမယ်။",
-  },
 
   // ── settle, tab close and the counter handoff ─────────────────────────────────────────────
   "table.detail.trust.reader": {
@@ -4473,7 +4468,6 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["floor.card.item.one", "floor.card.item.many"],
   ["table.appr.refunds.one", "table.appr.refunds.many"],
   ["table.detail.guest.one", "table.detail.guest.many"],
-  ["table.detail.item.one", "table.detail.item.many"],
   ["floor.fb.low.one", "floor.fb.low.many"],
   ["floor.tips.orders.one", "floor.tips.orders.many"],
   ["floor.tips.shared.tail.one", "floor.tips.shared.tail.many"],

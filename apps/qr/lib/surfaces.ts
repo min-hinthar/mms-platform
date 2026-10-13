@@ -34,7 +34,11 @@
  * answers `settling_other` until the freeze ages out. Reopening needs BOTH: a per-open uuid as the
  * owner (carried on the share intents as `settleOwner`, which the route already stamps), and the
  * re-open restored as release-own-then-acquire (refusing if any share is already authorized) —
- * never by putting the arm back.
+ * never by putting the arm back. Since M123 the same owner is the proof for the door's stale-pin
+ * release (`releaseStalePinUnderFreeze`, lib/supersede.ts), which can cancel a linked intent at
+ * Stripe: under a shared seat uid, an open that stalled past the TTL proves itself on a later open's
+ * fresh freeze by the same host and acts under it (the blind pass on #353). The per-open uuid
+ * closes that too — pass the same one to the release.
  *
  * A THIRD prerequisite since #280's Codex round 4 (OPEN-ITEMS M215): the capture gate.
  * `onShareAuthorized` proves ownership with a READ and `captureAllIfReady` gates on a bare non-null

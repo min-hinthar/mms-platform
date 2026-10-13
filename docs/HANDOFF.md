@@ -274,9 +274,11 @@ merge head (`GET /repos/min-hinthar/mms-platform/commits/<head>/check-runs?check
    `K15 · <stream>` rows (post-pay · kitchen-ops · diner-cart · grocery · counter-floor ·
    staff-authority).
 7. **What PD1–PD13 still hold** (each row's own words, measured 2026-10-11):
-   - **PD1:** drop `SplitContext.qrCode` and its select (no reader since the fix round); the host's
-     name ask (m1 decision 16); `showServerStatus` delegating to `lib/kitchen-track.ts`.
-   - **PD2:** the ask over unsent dishes, refused until P2do (P2do was built in #334).
+   - **PD1:** ~~drop `SplitContext.qrCode` and its select (no reader since the fix round); the host's
+     name ask (m1 decision 16); `showServerStatus` delegating to `lib/kitchen-track.ts`.~~ Built in
+     #356 (2026-10-12); residuals filed as M281 · M282 · M283.
+   - **PD2:** ~~the ask over unsent dishes, refused until P2do (P2do was built in #334).~~ Lifted in
+     #356 (2026-10-12).
    - **PD4:** the composite-contrast rows for the constant-cream tag and for the CounterPass over a
      live image (m4 amendment A2); the device-sitting checks; a home off the live lens for the Undo of
      an add from a panel-opened sheet (round 4).

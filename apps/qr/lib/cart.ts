@@ -559,6 +559,11 @@ export async function setLineFulfillment(
   );
   await assertMutationRate(uid);
   if (locked || settling) return { ok: false, reason: "busy" };
+  // M230 — a line that has LEFT DRAFT cannot be re-routed, and that is a fact to NAME, in the RPC's
+  // own word: folded into `not_yours` (which `canMutateLine` also answers for ownership and comps) it
+  // was the one reason /cart could not speak, though it is the reachable one — the dine-in kitchen
+  // batch fires the line between this diner's read and the tap.
+  if (lineState !== "draft") return { ok: false, reason: "not_draft" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
   // M17 — no `priceItem` call here, so nothing in TS re-reads the menu item on a flip. It doesn't
@@ -599,6 +604,9 @@ export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResul
   );
   await assertMutationRate(uid);
   if (locked || settling) return { ok: false, reason: "busy" };
+  // M230 — already with the kitchen: the same fact as the toggle's, in the word `mms_fire_line`
+  // itself answers, never folded into the ownership reason.
+  if (lineState !== "draft") return { ok: false, reason: "not_draft" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
   const { data, error } = await serviceClient().rpc("mms_fire_line", { p_line: input.cartItemId });
@@ -825,7 +833,10 @@ export async function getCartView(cartId: string): Promise<{
     // `mms_promo_discount` times out) fell through to `didIPayForCart` → false → the exact copy W10a
     // exists to delete: "This order isn't available on this device. Start from the menu.", printed
     // over an intact order. Same 503 shape every other unknowable answer in the app uses.
-    totals: await getCartTotals(id).catch((e: unknown) => {
+    // M123 (b) — the QUOTE basis: the pin only while an intent is live, the live figure otherwise
+    // (lib/totals.ts says why). The floor's settle quote makes this exact call, so the guest's pass
+    // and Dad's pane stay one derivation (PD2).
+    totals: await getCartTotals(id, 0, "quote").catch((e: unknown) => {
       // Pre-merge review — retyping loses WHICH read died, and `getCartTotals` is careful to say
       // (cart items / promo discount / reward discount). During a partial degradation — the case this
       // 503 exists for — that sentence is the only server-side signal there is. Keep it.
@@ -863,9 +874,8 @@ export async function getCartView(cartId: string): Promise<{
     ),
     // PD1 — whether that read answered at all: an unreadable stamp hides the nudge's offer.
     nudgeReady: !nudgeRes.error,
-    // PD1 — the app server's clock as this view was made, so a phone compares the lines' `fire_at`
-    // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
-    // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.
+    // PD1 — the app server's clock as this view was made. NO READER since PD1's tail (#356): the
+    // "Show a server" pass reads `dbNow` below, like the Bill's live pass. M282 drops the field.
     serverNow: new Date().toISOString(),
     // PD10 — the DB clock read before the lines (above): the one clock the guest's pass and its
     // served door compare `fire_at` / `bumped_at` against (lib/live-pass).
