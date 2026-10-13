@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
 
 /**
  * A4·2 · K30 (B) — `getExpoQueue`'s WIRING of the kitchen state: the cart-lines read is by the
@@ -179,7 +180,7 @@ beforeEach(() => {
     order(ORDER_B, CART_B, "2026-09-13T17:00:00Z"),
   ];
   cartLineRows = [
-    { cart_id: CART_A, state: "served", fulfillment: "togo" },
+    { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:00Z" },
     { cart_id: CART_B, state: "fired", fulfillment: "togo" },
   ];
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -199,6 +200,37 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
       [ORDER_A, "done"],
       [ORDER_B, "cooking"],
     ]);
+  });
+  it("a bump inside Mom's undo window is still COOKING, and the lane is told when it settles", async () => {
+    // The lifecycle audit — a mis-tapped All done read "Kitchen done" within the realtime debounce,
+    // lifted the bag and rang the bell; the Undo three seconds later took none of it back. Two
+    // seconds after the bump (NOW is the fake's DB clock) the bag is cooking, and the lane learns the
+    // window closes in the rest of `KDS_UNDO_MS` — computed from the constant and the offset, never
+    // transcribed (#360).
+    const BUMP_AGO_MS = 2_000;
+    cartLineRows = [
+      {
+        cart_id: CART_A,
+        state: "served",
+        fulfillment: "togo",
+        bumped_at: new Date(Date.parse(NOW) - BUMP_AGO_MS).toISOString(),
+      },
+      { cart_id: CART_B, state: "fired", fulfillment: "togo" },
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets.map((t) => [t.orderId, t.kitchen])).toEqual([
+      [ORDER_B, "cooking"],
+      [ORDER_A, "cooking"],
+    ]);
+    expect(res.queue.settleInMs).toBe(KDS_UNDO_MS - BUMP_AGO_MS);
+    // …and once it has settled there is nothing left to wait for
+    cartLineRows = [
+      { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:00Z" },
+    ];
+    const later = await getExpoQueue();
+    if (!later.ok) throw new Error("expected ok");
+    expect(later.queue.settleInMs).toBeNull();
   });
   it("a failed cart-lines read is ADVISORY: every bag reads unknown, the queue keeps its due order", async () => {
     // MUTATION: refuse the counter (`outage`) on the failed read → the whole lane freezes over a
@@ -783,6 +815,55 @@ describe("getExpoQueue — a bag settled between the two reads is drawn once, as
         [`line-${ORDER_U}`, "charged"],
         ["k", true],
       ],
+    ]);
+  });
+});
+
+describe("getExpoQueue — the lifecycle audit: a refund reaches the bag", () => {
+  it("reads PAID orders only — a fully refunded order is nobody's bag", async () => {
+    // lck/expo/refunded-order-bagged — `charge.refunded` flips the status and nothing else, and the
+    // lane's read had no status filter.
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const ordersRead = recs.find((r) => r.table === "qr_orders");
+    expect(ordersRead?.eqs).toContainEqual(["status", "paid"]);
+  });
+
+  it("a line refunded after payment is drawn 'Refunded — don't bag'; the rest of the bag is not", async () => {
+    // lck/expo/refunded-line-bagged — the item read never selected `refunded_cents`, so the bagger
+    // packed a dish whose money had gone back.
+    orderItemRows = [
+      {
+        id: "li-refunded",
+        order_id: ORDER_A,
+        name: "Mohinga",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: [],
+        fulfillment: "togo",
+        notes: null,
+        menu_item_id: "dish-1",
+        refunded_cents: 1_250,
+      },
+      {
+        id: "li-kept",
+        order_id: ORDER_A,
+        name: "Tea",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: [],
+        fulfillment: "togo",
+        notes: null,
+        menu_item_id: "dish-2",
+        refunded_cents: 0,
+      },
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const bag = res.queue.tickets.find((t) => t.orderId === ORDER_A)!;
+    expect(bag.lines.map((l) => [l.id, l.refunded ?? false])).toEqual([
+      ["li-refunded", true],
+      ["li-kept", false],
     ]);
   });
 });

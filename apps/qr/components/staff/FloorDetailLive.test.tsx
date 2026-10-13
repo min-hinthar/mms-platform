@@ -95,8 +95,9 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+const { PAID_KITCHEN_CAP } = await import("@/lib/paid-round");
 /** K44 — the retired pre-tax line and note, in their own last words (the keys are deleted). */
 const RETIRED_SO_FAR = "subtotal so far";
 const RETIRED_PRETAX_NOTE = "Running pre-tax subtotal — tax is added when they pay.";
@@ -369,6 +370,16 @@ describe("FloorDetailLive — a closed table", () => {
     expect(refresh).toHaveBeenCalled();
     // MUTANT p2g-fix-code/swap-note-always — a poll plants focus on an idle phone's card; red.
     expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
+  });
+
+  it("a TABLE cleared, merged or swept under the page goes to the floor WITH its name, said there", async () => {
+    // The lifecycle audit — a server on Table 6's page while a colleague clears it was dropped on the
+    // floor with no word. lck/floor-detail/closed-bounce-unnamed — the plain floor target; red.
+    answer = () => Promise.resolve({ kind: "closed", label: "T6", tableNumber: 6 });
+    mount();
+    await tick(5000);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=6");
   });
 
   it("a closed counter order with NO card it can read (unreadable) still returns to the counter", async () => {
@@ -2459,5 +2470,80 @@ describe("M211 — a settled record cut at the line read's bound says so", () =>
     mountSettled(SETTLED);
     expect(screen.queryByText(/Showing the first/)).toBeNull();
     expect(lines().hasAttribute("aria-describedby")).toBe(false);
+  });
+});
+
+describe("the lifecycle audit — the table page names a paid round's food and re-routes a draft", () => {
+  it("draws 'From the paid round' with each dish's stage, above the open round", () => {
+    // lck/floor-detail/paid-round-undrawn — the card said "Paid · 2 in kitchen" and the page it opens
+    // named none of that food once a new round opened.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 2,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+        },
+      ],
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
+    expect(text).toContain(`2× Chicken curry · ${STAFF["table.line.state.inProgress"].en}`);
+  });
+
+  it("a refunded round's dish is drawn TAGGED, and a capped read says it shows only the latest", () => {
+    // #360 (CRITICAL 1 · 3). lck/floor-detail/paid-round-refund-untagged · paid-round-cap-unsaid
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 1,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+          refunded: true,
+        },
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidKitchenCapped: true,
+    });
+    const items = [...container.querySelectorAll("li")].filter((li) =>
+      /Chicken curry|Tea/.test(li.textContent ?? ""),
+    );
+    expect(items[0]!.textContent).toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    expect(items[1]!.textContent).not.toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    // #360's blind pass (CRITICAL 2) — the count is the dishes DRAWN (two), never the read's cap.
+    // lck/floor-detail/paid-round-cap-unsaid — red.
+    expect(container.textContent).toContain(
+      tf("en", "table.detail.paidKitchen.capped.many", { n: 2 }),
+    );
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
+  });
+
+  it("a capped ROUND read says older rounds aren't here — with no number", () => {
+    // #360's blind pass (CRITICAL 2). lck/floor-detail/paid-round-rounds-cap-unpassed — red.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidRoundsCapped: true,
+    });
+    expect(container.textContent).toContain(STAFF["table.detail.paidKitchen.olderRounds"].en);
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
+  });
+
+  it("a dine-in table's draft dish offers For here / To go", () => {
+    // lck/floor-detail/reroute-unoffered
+    mountWith({ ...DETAIL, lines: [{ ...line("l1", "Mohinga"), state: "draft" }] });
+    expect(screen.getByRole("button", { name: STAFF["table.line.toGo"].en })).toBeTruthy();
   });
 });

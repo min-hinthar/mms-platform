@@ -19,6 +19,8 @@ import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { readUnpaidCounterCarts } from "./register-queue";
 import { counterUncollected, unpaidBag } from "./counter-order";
+import { settleLeftMs, soonerMs } from "./bump-settle";
+import { lineRefunded } from "./expo-rules";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -115,6 +117,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
         "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
       )
       .in("togo_status", ["preparing", "ready"])
+      // The lifecycle audit — a REFUNDED order is nobody's bag: `charge.refunded` flips the status
+      // and nothing else, so the lane kept bagging a fully refunded order (OPEN-ITEMS: a cancel edge).
+      .eq("status", "paid")
       // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
       // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
       // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
@@ -181,7 +186,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   const { data: items, error: itemsError } = orderIds.length
     ? await db
         .from("qr_order_items")
-        .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
+        .select(
+          "id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id,refunded_cents",
+        )
         .in("order_id", orderIds)
         .in("fulfillment", ["togo", "grocery"])
     : { data: [], error: null };
@@ -249,6 +256,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     /** A cart line's own flag (the comp read, an unpaid bag's lines); absent on a snapshot line,
      *  which is chargeable by construction. */
     comped?: boolean;
+    /** The lifecycle audit — a SNAPSHOT line's refund (`qr_order_items.refunded_cents`); absent on
+     *  a cart line, which a refund never reaches. */
+    refunded_cents?: number;
   }): ExpoLine => {
     const modifiers = Array.isArray(it.modifiers) ? (it.modifiers as string[]) : [];
     return {
@@ -262,11 +272,25 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       notes: it.notes ?? null,
       // M250 — absent unless comped: an absent field reads as chargeable.
       ...(it.comped === true ? { noCharge: true as const } : {}),
+      // The lifecycle audit — a line refunded after payment (a refund is whole-line, `refundLine`)
+      // is drawn "Refunded — don't bag": the money went back, so the dish is not the guest's.
+      ...(lineRefunded(it.refunded_cents) ? { refunded: true as const } : {}),
     };
   };
   const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
+  // The lifecycle audit — a bump turns into "Kitchen done" only once Mom's undo window closes
+  // (`bumpSettled`), and NOTHING changes in the database at that moment, so no realtime event will
+  // say it: the lane re-reads ONCE when the earliest window closes (`settleLeftMs`, a duration on
+  // the DB clock). The unpaid bags' own to-go lines are counted here; the paid bags' below.
+  const unpaidSettle = settleLeftMs(
+    unpaidRead.carts.flatMap((c) => (c.items ?? []).filter((l) => l.fulfillment === "togo")),
+    nowIso,
+  );
   if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso } };
+    return {
+      ok: true,
+      queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso, settleInMs: unpaidSettle },
+    };
 
   const linesByOrder = new Map<string, ExpoLine[]>();
   for (const it of items ?? []) {
@@ -362,7 +386,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     if (lines.length === 0) continue; // no takeaway line at all — not a bag (defensive)
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
     const cartLinesOf = o.cart_id ? linesByCart.get(o.cart_id) : undefined;
-    const kitchen = kitchenStateOf(cartLinesOf);
+    const kitchen = kitchenStateOf(cartLinesOf, nowIso);
     tickets.push({
       orderId: o.id,
       cartId: o.cart_id ?? null,
@@ -377,7 +401,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       status: o.togo_status === "ready" ? "ready" : "preparing",
       kitchen,
       // Phase 2f review PT3 — the finish, off the SAME cart lines an unpaid bag reads its own from.
-      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf) : null,
+      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf, nowIso) : null,
       pickupSlot: o.pickup_slot ?? null,
       arrivedAt: o.arrived_at ?? null,
       lines,
@@ -389,7 +413,14 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // finished, then the effective due time (the pickup slot when one exists, else payment time), then
   // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
   tickets.sort(compareExpoTickets);
-  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso } };
+  const settleInMs = soonerMs(
+    unpaidSettle,
+    settleLeftMs(
+      [...linesByCart.values()].flat().filter((l) => l.fulfillment === "togo"),
+      nowIso,
+    ),
+  );
+  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso, settleInMs } };
 }
 
 export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };

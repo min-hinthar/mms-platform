@@ -199,6 +199,29 @@ export const STAFF = {
     my: "{t} လာယူ — အလိုအလျောက် စချက်ပါမယ်",
   }, // K15-HIGH
   "kds.fire": { en: "Cook now", my: "အခု စချက်" }, // K15-HIGH — no undo, only a second ticket
+  // ── The lifecycle audit (2026-10-13) · kitchen ↔ floor ↔ board — K15 drafts, each grounded below ──
+  // A held card's day: "Tomorrow 5:40 PM" ({t} the Latin clock). Read as today, a card for tomorrow
+  // is cooked a day early (Cook now has no undo).
+  "kds.when.tomorrow": { en: "Tomorrow {t}", my: "မနက်ဖြန် {t}" }, // K15-HIGH draft — grounded: the diner's pickup "Tomorrow" (pickupTime)
+  // Cook now asks first, naming the day and the slot: the write has no reverse edge.
+  "kds.fire.confirm": { en: "Pickup {t} — cook it now?", my: "{t} လာယူ — အခု စချက်မလား?" }, // K15-HIGH draft — grounded: kds.slot "{t} လာယူ", kds.fire "အခု စချက်"
+  "kds.fire.yes": { en: "Yes, cook now", my: "ဟုတ်ကဲ့ — အခု စချက်" }, // K15-HIGH draft — grounded: kds.fire
+  // A per-line Done takes the same 6 s Undo and Bring-back chip as All done ({x} "Mohinga · Table 4").
+  // Decision 15 — a single dish's Done: no pill (that is All done's), a dish chip on the rail.
+  "kds.live.line": {
+    en: "{x} done — you can still bring it back.",
+    my: "{x} ပြီးသွားပြီ — ပြန်ယူလို့ ရသေးတယ်။",
+  }, // K15 draft — grounded: kds.live.bumped without အားလုံး, kds.recall ပြန်ယူ
+  // A dish that LEFT the board without a bump: a server's Remove, or a refund. {x} "1× Mohinga ·
+  // Table 6". Read wrong, a cook keeps cooking a dish nobody will pay for.
+  "kds.removed": { en: "Removed: {x} — stop", my: "ဖျက်ပြီး: {x} — ချက်တာ ရပ်ပါ" }, // K15-HIGH draft — grounded: table.detail.line.voided ဖျက်ပြီး, kds.stop ချက်တာ ရပ်ပါ
+  // A card whose order was refunded IN FULL stays on the board (a goodwill comp at a table still
+  // eating is a full refund too): the cook checks before cooking, never stops on our say-so.
+  "kds.ticket.refunded": {
+    en: "Refunded — check with the counter before cooking",
+    my: "ပြန်အမ်းပြီး — မချက်ခင် ကောင်တာကို မေးပါ",
+  }, // K15-HIGH draft — grounded: floor.status.refunded ပြန်အမ်းပြီး, floor.status.counter ကောင်တာ, table.detail.ceiling.past …မေးပါ; read wrong, a comped table's food stops or a refunded bag is made
+  "kds.a11y.removed": { en: "Dishes taken off the board", my: "ဘုတ်ပေါ်က ဖယ်လိုက်တဲ့ ဟင်းများ" }, // K15 draft — grounded: entry.pin.remove ဖယ်
   // Blind review (2026-09-24): the ticket carried TWO "Done" buttons — this whole-ticket one and each
   // line's `kds.line.done`. The ticket's is "All done". K15 draft; was “ပြီးပြီ”.
   "kds.bump": { en: "All done", my: "အားလုံး ပြီးပြီ" }, // K15-HIGH — the tap made most; a 6s undo is the only way back
@@ -424,6 +447,22 @@ export const STAFF = {
   "floor.status.ordering": { en: "Ordering", my: "မှာနေဆဲ" },
   "floor.status.paying": { en: "Paying", my: "ငွေရှင်းနေဆဲ" },
   "floor.status.settling": { en: "Splitting", my: "ခွဲရှင်းနေဆဲ" },
+  // The lifecycle audit (2026-10-13) — `settling` while the self-serve split is PARKED: only the
+  // register takes the settlement freeze then, so the table is not splitting — the counter is
+  // taking its payment (the diner's own Bill says the same, `registerSettling`).
+  "floor.status.takingPayment": { en: "Taking payment", my: "ကောင်တာမှာ ရှင်းနေဆဲ" }, // K15 draft — grounded: floor.status.counter ကောင်တာမှာ ရှင်း, floor.status.paying …နေဆဲ
+  // The lifecycle audit — a table that closed under this device's page or pad, said on the floor the
+  // bounce landed on (`floor-closed-note.ts`). Every way a table closes, and nobody blamed: this
+  // device's own clear can race its own poll.
+  "floor.tableClosed": {
+    en: "Table {id} closed — cleared, merged or timed out. You’re back on the floor.",
+    my: "စားပွဲ {id} ပိတ်သွားပြီ — ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် အချိန်ကုန်သွားတာ။ ခန်းမကို ပြန်ရောက်ပါပြီ။",
+  }, // K15 draft — grounded: table.detail.closed.title ပိတ်, table.detail.closed.body ရှင်းလိုက် · အချိန်ကုန်သွား · ခန်းမ, settle.merge ပေါင်း
+  // #360 — the same line for an unregistered sticker: the address carries no label (security).
+  "floor.tableClosed.unnamed": {
+    en: "A table you had open closed — cleared, merged or timed out. You’re back on the floor.",
+    my: "ဖွင့်ထားတဲ့ စားပွဲ ပိတ်သွားပြီ — ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် အချိန်ကုန်သွားတာ။ ခန်းမကို ပြန်ရောက်ပါပြီ။",
+  }, // K15 draft — grounded: floor.tableClosed, table.detail.closed.body ဖွင့်ထားတဲ့ စားပွဲ
   "floor.status.paid": { en: "Paid", my: "ငွေရှင်းပြီး" },
   // A1 — the table ASKED for the register. "Pay at counter" (not "Paying"): nobody is paying yet,
   // the table is waiting for a person, and the chip is the register's queue.
@@ -2012,6 +2051,14 @@ export const STAFF = {
     my: "စားပွဲ {id} က ပစ္စည်း {n} ခုကို စားပွဲ {into} ထဲ ရွှေ့မလား?",
   },
   "settle.merge.closes": { en: "This closes Table {id}.", my: "စားပွဲ {id} ကို ပိတ်လိုက်ပါမယ်။" },
+  // The lifecycle audit (2026-10-13) — the merge moves the ORDER, never the phones: a guest still on
+  // the source table is not a member of the target (`mms_merge_table_orders` moves lines only; moving
+  // the phones is a migration — OPEN-ITEMS M293). The staff member is told, so they can send those
+  // guests to the target's code.
+  "settle.merge.phones": {
+    en: "Phones still on Table {id} don’t move with it — ask those guests to scan Table {into}’s code.",
+    my: "စားပွဲ {id} က ဖုန်းတွေ အတူ မပါသွားပါ — အဲဒီ ဧည့်သည်တွေကို စားပွဲ {into} ရဲ့ ကုဒ်ကို ဖတ်ခိုင်းပါ။",
+  }, // K15-HIGH draft — grounded: settle.merge.closes စားပွဲ {id}, floor.tips.phone ဖုန်း; read wrong, a guest keeps ordering onto a closed table
   "settle.merge.merging": { en: "Merging…", my: "ပေါင်းနေပါတယ်…" },
   // {into}, not {id}: every other key here uses {id} for the SOURCE table. Rendered the same today,
   // but the slot name is what the next editor and the printed K15 glossary read.
@@ -3017,6 +3064,44 @@ export const STAFF = {
   "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
   "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
+  // The lifecycle audit (2026-10-13) — a sent dish inside the diner's send grace (the KDS has not
+  // seen it yet): the track's own word, never "Sent".
+  "table.line.state.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" }, // grounded: table.send.sending
+  // K18 — staff move a draft dish between For here and To go.
+  "table.line.forHere": { en: "For here", my: "ဆိုင်မှာ စား" }, // grounded: kds.channel.dinein
+  "table.line.toGo": { en: "To go", my: "ပါဆယ်" }, // grounded: kds.channel.togo
+  "table.line.a11y.where": {
+    en: "For here or to go — {x}",
+    my: "ဆိုင်မှာ စား ဒါမှမဟုတ် ပါဆယ် — {x}",
+  }, // K15 draft — grounded: kds.channel.dinein, kds.channel.togo
+  // The table page's "From the paid round" group: the food of a round the table already paid for,
+  // still in the kitchen (or just out), with each dish's stage.
+  "table.detail.paidKitchen.title": {
+    en: "From the paid round",
+    my: "ငွေရှင်းပြီးသား အလှည့်က",
+  }, // K15 draft — grounded: kds.round အလှည့်, floor.status.paid ငွေရှင်းပြီး
+  // #360 — a paid-round dish on a cart refunded IN FULL: the KDS's own tag (`kds.ticket.refunded`).
+  "table.detail.paidKitchen.refunded": {
+    en: "Refunded — check with the counter before it goes out",
+    my: "ပြန်အမ်းပြီး — မပို့ခင် ကောင်တာကို မေးပါ",
+  }, // K15 draft — grounded: kds.ticket.refunded, table.send ပို့
+  // #360 — the paid-round DISH read hit its cap: the group holds the NEWEST dishes only, and {n} is
+  // the count it DRAWS (`paidRoundCapNote`), never the read's cap (the blind pass, CRITICAL 2).
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.detail.paidKitchen.capped.one": {
+    en: "Showing the latest {n} dish — older ones aren’t listed here.",
+    my: "နောက်ဆုံး ဟင်း {n} ခုကိုပဲ ပြထားတယ် — အရင်ကဟာတွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: floor.kitchen.notSent {n} ခု
+  "table.detail.paidKitchen.capped.many": {
+    en: "Showing the latest {n} dishes — older ones aren’t listed here.",
+    my: "နောက်ဆုံး ဟင်း {n} ခုကိုပဲ ပြထားတယ် — အရင်ကဟာတွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: floor.kitchen.notSent {n} ခု
+  // #360 (the blind pass, CRITICAL 2) — only the paid round's ROUND read hit its cap: older rounds
+  // were not read, so no count is known — and none is said.
+  "table.detail.paidKitchen.olderRounds": {
+    en: "Older rounds aren’t listed here.",
+    my: "အရင် အလှည့်တွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: kds.round အလှည့်, table.detail.paidKitchen.capped.many မပါပါ
   // Phase 2c · pad — the add page's interim bridge to the Send (`browse.reviewUnsent`) is retired:
   // the order pad carries the Send itself (OPEN-ITEMS P2ai).
 
@@ -3428,6 +3513,24 @@ export const STAFF = {
   // P2el — the staff payment doors' fail-closed refusal (owner decision 5a): the unsent check could
   // not be read, so nothing was taken; the same tap retries. K15 draft; grounded: မီးဖိုချောင် (kds.title),
   // စစ် (check), ထပ်နှိပ်ကြည့်ပါ (floor.sound.refused).
+  // The lifecycle audit (2026-10-13) — a DRAFT dish sold out since it was added: the staff doors no
+  // longer charge for it (and then fire it). {x} the dishes' catalog names, joined.
+  // #360 — a sold-out DRAFT at a payment door is a re-warning, never a block (PD8's pattern): the
+  // page's warning above the doors (Remove first), the door's re-warning after an unseen refusal,
+  // and PD8's unreadable rule. An acknowledged settle still fires the dish — "tell the cook".
+  "settle.soldOut.warn": {
+    en: "{x} is sold out — remove it from the order, or take payment anyway. It will still go to the kitchen — tell the cook.",
+    my: "{x} ကုန်သွားပြီ — အော်ဒါထဲက ဖယ်ပါ၊ ဒါမှမဟုတ် ဒီအတိုင်း ငွေရှင်းပါ။ မီးဖိုချောင်ကို ရောက်သွားဦးမှာ — စားဖိုမှူးကို ပြောပါ။",
+  }, // K15-HIGH draft — grounded: table.line.soldOut ကုန်သွားပြီ, entry.pin.remove ဖယ်, floor.status.paying ငွေရှင်း; read wrong, a dish the kitchen lacks is charged unseen
+  "settle.soldOut.warned": {
+    en: "{x} is sold out — remove it from the order, or tap again to take payment anyway. It will still go to the kitchen — tell the cook.",
+    my: "{x} ကုန်သွားပြီ — အော်ဒါထဲက ဖယ်ပါ၊ ဒါမှမဟုတ် ဒီအတိုင်း ငွေရှင်းဖို့ ထပ်နှိပ်ပါ။ မီးဖိုချောင်ကို ရောက်သွားဦးမှာ — စားဖိုမှူးကို ပြောပါ။",
+  }, // K15-HIGH draft — grounded: settle.soldOut.warn, settle.flag.pendingRefused ထပ်နှိပ်
+  "settle.soldOut.unreadable": {
+    en: "Couldn’t check what’s sold out — try again.",
+    my: "ဘာကုန်သွားလဲ မစစ်နိုင်ပါ — ထပ်စမ်းပါ။",
+  }, // K15 draft — grounded: settle.approvalsUnreadable's shape, table.line.soldOut ကုန်
+  "settle.soldOut.remove": { en: "Remove {x}", my: "{x} ကို ဖယ်ပါ" }, // K15 draft — grounded: entry.pin.remove ဖယ်
   "settle.unsentUnreadable": {
     en: "Couldn’t check the kitchen — try again.",
     my: "မီးဖိုချောင်ကို စစ်လို့ မရပါ — ထပ်နှိပ်ကြည့်ပါ။",
@@ -3512,6 +3615,11 @@ export const STAFF = {
   // Phase 2f review — the same segment on a COUNTER order's card: nobody serves a bag, it is bagged
   // and handed over (the lane's own verb, `expo.verb.bagged`). K15 draft.
   "floor.kitchen.up.pickup": { en: "{n} ready to bag", my: "{n} ခု ထုပ်လို့ရပြီ" }, // grounded: kds.line.bagit ထုပ်, board.status ယူလို့ရပြီ
+  // The lifecycle audit (2026-10-13) — a dish 86'd AFTER it was sent: still counted in the kitchen
+  // (the 86 keeps orders on the board), flagged so the floor asks the kitchen. K15 draft.
+  "floor.kitchen.soldOut": { en: "{n} marked sold out", my: "{n} ခု ကုန်သွားပြီ" }, // K15 draft — grounded: table.line.soldOut ကုန်သွားပြီ, floor.kitchen.notSent {n} ခု
+  // #360 (CRITICAL 1) — dishes still cooking on a cart refunded in full: the KDS's own tag, counted.
+  "floor.kitchen.refunded": { en: "{n} on a refunded order", my: "{n} ခု ပြန်အမ်းပြီးသား အော်ဒါ" }, // K15 draft — grounded: floor.status.refunded ပြန်အမ်းပြီး, floor.kitchen.notSent {n} ခု
   "floor.kitchen.wait": { en: "{n} min", my: "{n} မိနစ်" }, // grounded: time.minAgo မိနစ်
   // The floor's ONE region when food comes out: one table, or several joined ", " in {id}.
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
@@ -3760,6 +3868,9 @@ export const STAFF = {
   // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
   // M250 — the SAME words also tag one comped LINE on a bag (a paid bag, or an unpaid one that still
   // owes), beside its destination tag; a bag that owes nothing keeps its one badge instead.
+  // The lifecycle audit (2026-10-13) — a bag line refunded after payment: the money went back, so
+  // the dish is not the guest's. K15 draft.
+  "expo.bag.refunded": { en: "Refunded — don’t bag", my: "ပြန်အမ်းပြီး — မထုပ်ပါနဲ့" }, // K15-HIGH draft — grounded: floor.status.refunded ပြန်အမ်းပြီး, kds.line.bagit ထုပ်
   "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid; on a line, a free dish is charged or left out of the bag
   "expo.a11y.cardNoCharge": {
     en: "Bag for {x}",
@@ -4460,6 +4571,7 @@ export type StaffKey = keyof typeof STAFF;
  * `countItem`/`countItems`.
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
+  ["table.detail.paidKitchen.capped.one", "table.detail.paidKitchen.capped.many"],
   ["floor.tables.count.one", "floor.tables.count.many"],
   ["floor.counter.count.one", "floor.counter.count.many"],
   ["floor.settled.count.one", "floor.settled.count.many"],
@@ -4558,6 +4670,8 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
  */
 export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.unsentUnreadable",
+  "settle.soldOut.warn",
+  "settle.soldOut.warned",
   "browse.price.confirmQ",
   "browse.price.keep",
   "browse.price.live.off",
@@ -4583,12 +4697,17 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.bump",
   "kds.empty.outage",
   "kds.fire",
+  "kds.fire.confirm",
+  "kds.fire.yes",
   "kds.held",
   "kds.recall",
   "kds.slot",
   "kds.stat.late",
   "kds.stop",
   "kds.stops.unknown",
+  "kds.removed",
+  "kds.ticket.refunded",
+  "kds.when.tomorrow",
   "kds.undo",
   "kds.undo.86",
   "out.err.body",
@@ -4706,6 +4825,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.body.comped.many",
   "table.noshow.rearm",
   "expo.bag.noCharge",
+  "expo.bag.refunded",
   // ── Phase 2g · reader ──
   "settle.reader.busyElsewhere",
   // ── Phase 2g · fix-reader ──
@@ -4802,6 +4922,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── PD7 · counter-floor (m7 B15: every new money key, so its English survives) ──
   "settle.clear.checkFailed",
   "settle.clear.window",
+  "settle.merge.phones",
   "settle.clear.holdWarn",
   "settle.clear.freeLoss.one",
   "settle.clear.freeLoss.many",
