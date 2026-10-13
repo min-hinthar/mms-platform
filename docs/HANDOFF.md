@@ -65,27 +65,28 @@ for what it lists. Branch protection was re-measured 2026-10-13 05:41Z with C28 
 `/rulesets` → `[]`, `/rules/branches/main` → `[]`. Every check is still advisory. G3 applies to every line below: an agent never merges a red `codex-review` head, and
 the owner merges with the admin bypass by hand.
 
-Measured 2026-10-13 ~05:50Z. Codex came back into quota by 05:40Z, when it reviewed #354's head
-clean, so `@codex review` was asked on #351, #352 and #353. A head whose `codex-review` turns green
-with "Codex has reviewed" that head needs only the owner's per-SHA yes (G4). A head still red needs
-the owner's bypass (G3). Every PR below changes `CLAUDE.md` or `.claude/**` except #351, so each
-needs the owner's per-SHA line either way.
+Measured 2026-10-13 06:22Z, on each PR's final head. Codex's quota came and went through the morning:
+it reviewed #354's and #356's heads clean and #351's first two heads (three findings, all fixed), and
+answered #352, #353 and #351's last head with its usage-limit message. A head whose `codex-review` is
+green ("Codex has reviewed" that head) needs only the owner's per-SHA yes (G4). A head still red needs
+the owner's bypass (G3). Every PR below except #351 changes `CLAUDE.md` or `.claude/**`, so each needs
+the owner's per-SHA line either way. Each PR's last hand-read comment names the commits no blind
+reviewer read.
 
-- `#351 @ 7d378f1` · `.md` only, no rule file. `docs`, `require-docs` and `verify-slice` are green.
-  `codex-review` is red (Codex asked 05:50Z). Two blind verdicts and the hand-read comment are on the
-  PR.
-- `#352 @ 4dcef3b` · `build`, `verify-slice` (12 shards) and `require-docs` are green. `codex-review`
-  is red (Codex asked 05:50Z). One commit after the capped pass touches MONEY_PATHS: `fa9b86e`, a
-  `git revert` back to bytes the first blind pass read. The hand-read comment proves that with an
-  empty diff.
-- `#353 @ 5653f13` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red
-  (Codex asked 05:50Z). The capped pass over the fix commits reviewed this exact head (APPROVE), so no
-  commit after it is unread.
-- `#354 @ 73ccc1d` · `codex-review` is green: Codex reviewed this head with no findings. `build` and
-  `require-docs` are green, and `verify-slice` was still running when measured. The one commit after
-  the capped pass touches no MONEY_PATHS file. Its hand-read comment is on the PR.
-- `#355` and `#356`: their fix commits for the capped passes' findings were not yet pushed when this
-  was written. Each PR's last hand-read comment will name its final head.
+- `#351 @ 750a705` · `.md` only, no rule file. `docs`, `require-docs` and `verify-slice` are green.
+  `codex-review` is red (usage limit on this head), so it needs **the owner's bypass**.
+- `#352 @ 4dcef3b` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
+  limit), so it needs **the owner's bypass**. One commit after the capped pass touches MONEY_PATHS
+  (`fa9b86e`, a `git revert` to bytes the first blind pass read, proved by an empty diff).
+- `#353 @ 5653f13` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
+  limit), so it needs **the owner's bypass**. The capped pass over the fix commits reviewed this exact
+  head (APPROVE).
+- `#354 @ 73ccc1d` · **every check green, `codex-review` included** (Codex: no findings).
+  `mergeable_state: clean`. It needs only the owner's per-SHA yes.
+- `#355 @ 63f35fe` · `build` and Codex's review of this head were still running when measured. One
+  commit after the capped pass touches a MONEY_PATHS file, and only its comment (`promo-field.ts`).
+- `#356 @ 00a768f` · **every check green, `codex-review` included** (Codex: no findings).
+  `mergeable_state: clean`. It needs only the owner's per-SHA yes.
 - This handoff: `.md` and `.claude/**` only, so it needs the per-SHA line.
 
 **Order and conflicts.** All seven PRs (this one included) touch `docs/OPEN-ITEMS.md` and
