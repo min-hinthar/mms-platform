@@ -60,6 +60,25 @@ import {
 
 const NAME_KEY = "mms.name";
 
+/**
+ * T42 — `add`'s outcome, with a refusal's CLAUSE bound to the write that established it.
+ *
+ * The clause used to live in a provider-global latch (`lastRefusalRef`, read through the context's
+ * `lastRefusalClause()`), and nothing serializes writes: `track` is a ledger, and each `AddButton`
+ * has only its own queue. So between write A resolving and `YourUsual`'s continuation reading the
+ * latch there was a microtask boundary in which an overlapping write B published ITS cause — and
+ * dish A was announced with B's diagnosis (A refused under a split, B under a peer's lock).
+ * Clearing the latch at write entry (T31) bounded how long a cause lived; it never bound a cause to
+ * a write. Carrying it IN the result does, and retires the latch.
+ *
+ * `clause` is the fragment `refusedWriteClause` names (T32 — a lowercase, period-free piece a
+ * caller composes into its own sentence), or null when the refusal established no cause: the
+ * no-cart exit, which reads nothing.
+ */
+export type AddResult =
+  | Exclude<WriteResult<CartItem[]>, { state: "refused" }>
+  | (Extract<WriteResult<CartItem[]>, { state: "refused" }> & { clause: string | null });
+
 type CartCtx = {
   cartId: string | null;
   /** The door this provider was mounted for (dinein | pickup | scango) — the session's own, so the
@@ -91,14 +110,17 @@ type CartCtx = {
    *  means the CALLER already spoke at the tap (`AddButton` says "Mohinga added" quietly before its
    *  queued write even starts). `name` is the dish the corrections name if the write does not land
    *  ("Mohinga didn’t go through — …"), so a correction arriving after a sheet has closed, or with
-   *  several rows in flight, still says WHICH dish. Amounts are never claimed. */
+   *  several rows in flight, still says WHICH dish. Amounts are never claimed.
+   *
+   *  T42 — a `refused` result carries its own `clause` (see `AddResult`): a consumer announcing
+   *  its own outcome afterwards composes from THAT, never from shared provider state. */
   add: (
     menuItemId: string,
     modifierIds?: string[],
     notes?: string,
     qty?: number,
     opts?: { claim?: CartClaim | null; name?: string },
-  ) => Promise<WriteResult<CartItem[]>>;
+  ) => Promise<AddResult>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
@@ -148,24 +170,6 @@ type CartCtx = {
     my?: string,
     opts?: { quiet?: boolean; kind?: NoticeKind },
   ) => void;
-  /** T14 — the CLAUSE the provider last published for a REFUSED write, or null if none.
-   *
-   *  `announce` is ONE slot (arbitrated since Phase 1c, lib/notice-slot.ts — but a later caller's news
-   *  or correction still replaces what is on screen). So a consumer that announces its own outcome
-   *  after `add` resolves would otherwise overwrite the established cause with generic advice — and
-   *  "try from the menu below" is dead advice under a freeze, which is the exact string this slice's
-   *  ancestor removed one layer down. Read it and carry it.
-   *
-   *  ⚠️ A CLAUSE, NOT A SENTENCE (T32). It used to hand over the whole notice, which already opens
-   *  "That didn't go through — ", and `YourUsual` appended that inside a sentence that opened the
-   *  same way: the diner heard the verdict twice. A fragment is the only thing a second caller can
-   *  compose with, and `cart-freeze.ts` names it once for both.
-   *
-   *  ⚠️ CLEARED AT THE TOP OF EVERY WRITE (T31), so a cause can never outlive the write it explains.
-   *
-   *  A FUNCTION, not a value: the caller reads it in the same tick the refusal was published, before
-   *  React has re-rendered, so state would still hold the previous value. */
-  lastRefusalClause: () => string | null;
   /** Pickup mode only: the chosen slot (ISO instant), READ from the server view. Phase 3b · D10 —
    *  this context carries no opener and mounts no picker: the When write has ONE owner,
    *  `PickupWhenChoice` on /cart (token-gated, serialized, drained before create-intent). The menu's
@@ -395,20 +399,9 @@ export function TableCartProvider({
   const viewSeqRef = useRef<ViewSeq>(newViewSeq());
 
   const freezeRef = useRef<FreezeInput>({ locked: false, lockedBy: null, mySeat: null });
-  /** The CLAUSE from the last refusal `publishRefusal` published, or null.
-   *
-   *  A caller that announces its OWN outcome after a refused write (`YourUsual`'s partial-add
-   *  message) must be able to keep the established cause instead of overwriting it — `flash` is a
-   *  single slot, so the later call wins. Read through a ref because the caller reads it in the same
-   *  tick the refusal was published, before React has re-rendered.
-   *
-   *  ⚠️ A CLAUSE, NOT A SENTENCE (T32), and written by `publishRefusal`, NOT by `explainCaught` —
-   *  both of which this docblock got wrong before. The consumer composes it into a sentence of its
-   *  own, so a finished sentence here made the diner hear the verdict twice.
-   *
-   *  ⚠️ CLEARED at the top of every write by `forgetRefusal` (T31), so a cause cannot outlive the
-   *  write it explains. */
-  const lastRefusalRef = useRef<string | null>(null);
+  // T42 — there is no refusal LATCH any more. The clause a consumer composes with rides `add`'s own
+  // result (`AddResult`), so it cannot be read off a different write's publish; the T31 entry clear
+  // (`forgetRefusal`) that bounded the latch's lifetime went with it.
   /** T33 — the freeze axis the last published refusal EXPLAINED, or null.
    *
    *  The single live region is last-writer-wins, and the lock/settle banners defer into it through a
@@ -420,9 +413,13 @@ export function TableCartProvider({
    *  This is what lets the banner know it would be REDUNDANT rather than merely later. The rule
    *  itself lives in `lib/live-region.ts`; this ref is only the fact it reads.
    *
-   *  ⚠️ TWO BOUNDS, closing different holes: `forgetRefusal` clears it per WRITE (T31's discipline,
-   *  so a cause cannot outlive the write it explained), and the release edge below clears it per
-   *  FACT (so "locked" cannot silence a banner about a lock the diner was never told about). */
+   *  ⚠️ ITS BOUND IS THE FACT, NOT THE WRITE — and a draft got that wrong in BOTH directions. It is
+   *  SET only by `publishRefusal`, and only for a freeze the screen actually shows (the currency gate
+   *  there: a recovery read that LOST the screen latched a freeze the rendered state never carried,
+   *  so no release edge could retire it and the next genuine lock was announced to nobody). It is
+   *  ENDED at the release edges below, so "locked" cannot silence a banner about a lock the diner was
+   *  never told about. A per-write clear was tried and its mutant SURVIVED once the gate was in place
+   *  — genuinely subsumed, because the invariant is true at the source. */
   const explainedFreezeRef = useRef<ExplainedFreeze>(null);
   const settlingRef = useRef(false);
 
@@ -1028,17 +1025,18 @@ export function TableCartProvider({
   );
 
   /**
-   * Publish a refusal the caller has decided is real (no landing was detected), and latch its CLAUSE
-   * so a consumer announcing its own outcome afterwards can carry the cause instead of erasing it.
+   * Publish a refusal the caller has decided is real (no landing was detected), and RETURN its
+   * CLAUSE so the write's own result can carry the cause to a consumer announcing its own outcome
+   * afterwards (T42 — it used to go into a provider-global latch, which an overlapping write could
+   * overwrite before the consumer read it).
    *
-   * ⚠️ THE TOAST GETS THE SENTENCE, THE LATCH GETS THE CLAUSE (T32). They are two renderings of one
+   * ⚠️ THE TOAST GETS THE SENTENCE, THE RESULT GETS THE CLAUSE (T32). They are two renderings of one
    * classification, composed in `cart-freeze.ts` from a single fragment. The latch used to hold the
    * whole sentence, and `YourUsual` appended it to a sentence of its own that already opened with
    * the same verdict.
    */
   const publishRefusal = useCallback(
-    (refusal: PublishableRefusal, name?: string) => {
-      lastRefusalRef.current = refusedWriteClause(refusal);
+    (refusal: PublishableRefusal, name?: string): string => {
       // T33 — record WHICH freeze this sentence explained, so the banner for that same freeze stays
       // silent instead of overwriting it a microtask later. Derived from the CAUSE, never from the
       // cart's current flags: the cause is what was spoken, the flags are what is true now, and the
@@ -1071,46 +1069,11 @@ export function TableCartProvider({
         undefined,
         { kind: "correction", family: name ? { text: refusedWriteNotice(refusal) } : undefined },
       );
+      // T42 — the clause leaves WITH the write that established it, via `add`'s result.
+      return refusedWriteClause(refusal);
     },
     [flash],
   );
-
-  /**
-   * Drop a latched cause, so it can never outlive the write it was about (T31).
-   *
-   * ⚠️ CALLED AT THE TOP OF EVERY WRITE, above the `!cartId` guards — entry-clearing is the only
-   * ordering that holds. The latch's sole writer runs inside an awaited catch chain, so a consumer
-   * reading it a microtask later must see THIS write's value or nothing; and the cart-change effect
-   * where a "clear on re-mint" would naturally live opens `if (!cartId) return;`, which is blind
-   * through exactly the null-cart window a re-mint transits.
-   *
-   * The filed row said a stale read was reachable through the no-cart exit. It is not: `add` is a
-   * `useCallback` whose first dependency is `cartId`, so a running loop keeps a closure with the old
-   * non-null id, and a fresh tap is gated by `notReady = loading || !cartId`. The latch defect is
-   * real and this fixes it; the route the row named was wrong.
-   */
-  const forgetRefusal = useCallback(() => {
-    lastRefusalRef.current = null;
-    // ⚠️ `explainedFreezeRef` IS NOT CLEARED HERE, and the full arc of that decision is worth the
-    // lines because a draft got it wrong in BOTH directions.
-    //
-    // Draft 1 had no `viewIsCurrent` gate on the latch and deleted this clear because its mutant
-    // survived — reading a surviving mutant as "unreachable" when the repo's rule says it means the
-    // FIXTURE cannot express the failure. The blind pass found the separating input: a recovery read
-    // that LOSES the screen latched a freeze the rendered state never carried, so no release edge
-    // could ever retire it and the next genuine lock was announced to nobody.
-    //
-    // The fix is the gate at `publishRefusal`, not a second clear here: it makes the invariant TRUE
-    // — `explained` is set only from a view that won the screen — where this line would only have
-    // papered over a latch that should never have existed. With the gate in place the clear is
-    // genuinely subsumed and its mutant survives again, this time because the rule really is
-    // unreachable rather than because the fixture was blind.
-    //
-    // The asymmetry with the line above is therefore principled: `lastRefusalRef` is read by a
-    // CONSUMER after the write (`YourUsual`), so its correctness bound is the write. This ref is
-    // read by the banner effects, and its bound is the FACT — established at the source by the gate,
-    // ended at the release edge.
-  }, []);
 
   /**
    * Retract the optimistic claim when the write cannot be confirmed (Codex round 1 on #251, P2).
@@ -1122,9 +1085,10 @@ export function TableCartProvider({
    * sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing
    * if the claim is already on screen and the code merely declines to retract it.
    *
-   * NOT `publishRefusal`: this deliberately does not touch `lastRefusalRef`, which means "a refusal
-   * the caller decided is real" and is carried into `YourUsual`'s copy. An unconfirmed write has not
-   * been refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
+   * NOT `publishRefusal`, and it carries no clause: a clause means "a refusal the caller decided is
+   * real" and is carried into `YourUsual`'s copy (since T42 on the `refused` result alone — the
+   * `unconfirmed` arm of `AddResult` has no field to carry one). An unconfirmed write has not been
+   * refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
    *
    * Phase 1c — the claim may now have been spoken by the CALLER, at the tap, rather than by `add`
    * (`AddButton` passes `claim: null` and says "Mohinga added" itself), and it may have been QUIET.
@@ -1187,13 +1151,11 @@ export function TableCartProvider({
       notes?: string,
       qty: number = 1,
       opts?: { claim?: CartClaim | null; name?: string },
-    ): Promise<WriteResult<CartItem[]>> => {
-      // T31 — drop any latched cause FIRST, above the guard below. A cause belongs to the write that
-      // established it; nothing else ever cleared it, so a consumer reading it after an unrelated
-      // later write was handed the previous refusal's reason.
-      forgetRefusal();
-      // No cart to write to: nothing left, so a retry is the right offer. No view exists to thread.
-      if (!cartId) return { state: "refused", view: null };
+    ): Promise<AddResult> => {
+      // No cart to write to: nothing left, so a retry is the right offer. No view exists to thread,
+      // and nothing was read, so no cause is carried (T42 — never a previous write's: the clause
+      // lives on each result, so there is no shared value left for this exit to pick up, T31).
+      if (!cartId) return { state: "refused", view: null, clause: null };
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
@@ -1344,20 +1306,25 @@ export function TableCartProvider({
         // Only a state that establishes a refusal may publish one — an `unconfirmed` write has not
         // been refused, and saying so is the fabricated-diagnosis class this slice's ancestors
         // (M116, T14) exist to remove. The caller is told "unconfirmed" and decides for itself.
-        // ⚠️ THE `&& refusal` IS TOTAL, NOT DEFENSIVE. `refused` requires a re-read that SUCCEEDED
+        // ⚠️ THE `refusal ?` IS TOTAL, NOT DEFENSIVE. `refused` requires a re-read that SUCCEEDED
         // (`recoveredWrite` answers `unconfirmed` for a null one), and `refusal` is null only when
         // that read failed — so the two can never disagree. It is written as a narrowing rather than
         // a cast because the mutant `refusal/unreadable-cart-yields-a-list` proves the coupling
         // instead of asserting it.
-        if (result.state === "refused" && refusal) publishRefusal(refusal, opts?.name);
-        // The optimistic claim is still standing — ours, or the one the caller spoke at the tap;
-        // retract it rather than let an outcome that may not claim a landing stand as one.
-        else if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);
+        //
+        // ⚠️ T42 — THE CLAUSE RIDES THIS RESULT. It used to go into a provider-global latch that the
+        // consumer read after `add` resolved, and an overlapping write could publish its own cause in
+        // that gap — dish A announced with write B's diagnosis.
         // ⚠️ Read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close on tap
         // (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant, and it
         // never awaits this. The older comment here claimed the sheet stays open "keeping the diner's
         // modifier choices", which stopped being true then — and it is the only caller that can pass
         // qty > 1, so a reader reasoning from it would mis-model the whole partial-fill path above.
+        if (result.state === "refused")
+          return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };
+        // The optimistic claim is still standing — ours, or the one the caller spoke at the tap;
+        // retract it rather than let an outcome that may not claim a landing stand as one.
+        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);
         return result;
       } finally {
         setPendingDelta((n) => n - qty);
@@ -1369,7 +1336,6 @@ export function TableCartProvider({
       readView,
       explainCaught,
       flash,
-      forgetRefusal,
       publishRefusal,
       publishUnconfirmed,
       announceShortfall,
@@ -1393,8 +1359,6 @@ export function TableCartProvider({
       // rapid decrements from 3 then set 2 twice instead of 2 then 1, because `AddButton` threads
       // this value into its next queued op. A signature that cannot express an outcome guarantees
       // the outcome is misreported; widening it is not a refactor, it is the defect.
-      // T31 — same entry clear as `add`: a latched cause never outlives its own write.
-      forgetRefusal();
       if (!cartId) return { state: "refused", view: null };
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
@@ -1436,63 +1400,52 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
+        // The re-read's freeze classification is not read here (T41, below) — `explainCaught` still
+        // runs for the re-read, the snap-back it applies, and the re-mint on the unreadable arm.
+        const { fresh, viewIsCurrent } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read is the evidence: the line at `qty`, or
         // gone when the tap was a remove.
         //
-        // ⚠️ THE ATTRIBUTION IS ONE-SIDED, AND THE OLD NOTE HERE CLAIMED IT BOTH WAYS (blind
-        // adversarial pass on this PR). `setQty` is absolute, so no peer write can forge a LANDING:
-        // the line reads `qty` only if something set it there. It can absolutely forge a
-        // NON-landing — our set to 3 commits, an authorized host sets the same line to 5 inside the
-        // round trip, and `line?.qty === qty` answers false for a write that landed. There is
-        // therefore no `unknown` arm here not because the evidence is stronger than `add`'s, but
-        // because this path has no third value to return; `add` reaches `unconfirmed` through
-        // `classifyAddLanding`'s own `unknown`, and this one cannot.
+        // ⚠️ T41 — THE EVIDENCE IS ONE-SIDED, SO THE VERDICT IS TOO. `setQty` is absolute, so no
+        // peer write can forge a LANDING: the line reads `qty` only if something set it there. It
+        // can absolutely forge a NON-landing — our set to 3 commits, an authorized host sets the
+        // same line to 5 inside the round trip, and the re-read reads 5. This path used to answer
+        // `refused` there, so `mayRetry` was TRUE for a write that landed; the `unknown` cause's
+        // hedged opener shrank the SENTENCE and left the STATE wrong (Codex round 2 on #255).
         //
-        // ⚠️ AND THE COST IS NOT BOUNDED TO THE SENTENCE — the previous note here said it was, and
-        // Codex round 2 on #255 falsified that twice over. `recoveredWrite` answers `refused`, so
-        // `mayRetry` is TRUE for a write that landed: the STATE is wrong, not just the copy. Nor is
-        // the hedge a containment: it rides the `unknown` CAUSE, and this same ordering reaches
-        // `frozen` whenever the host starts checkout after overwriting (`cart-freeze.ts`), where the
-        // opener is assertive.
+        // So only "the line sits at our target" maps to a landing, and EVERY other reading —
+        // including one under a freeze — maps to `landed: null`, i.e. `unconfirmed`:
         //
-        // Giving this path a real `unknown` arm is OPEN-ITEMS T41. The old note called that a trade
-        // of "a hedged sentence for a lost view" — ALSO WRONG, and worth deleting rather than
-        // softening, because it was the stated reason not to fix this: `AddButton`'s queue reads
-        // `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)`, so the stale
-        // snapshot is reachable ONLY for a FIRST op; a following op with no view sends nothing
-        // (Codex round 6 on #251 closed exactly that). Routing here to `unconfirmed` cannot
-        // re-create the P1 it was said to risk.
+        //   • "the line sits at the PRE-write value → refused" is unsound: a host RESTORING that
+        //     value after our write landed reads exactly the same (the T43 ordering, on this path);
+        //   • "the cart is frozen → refused" is unsound: a freeze describes the cart at RE-READ time,
+        //     so a host who overwrites our line and THEN starts checkout reads as a refusal of a
+        //     write that committed. The freeze is still TOLD — the lock/settle banner speaks it on
+        //     the edge this re-read applied — it just is not offered as the reason this write failed.
         //
-        // ⚠️ The obvious third arm is ALSO unsound: "the line sits at the PRE-write value → refused"
-        // fails when a host RESTORES that value after our write landed — the same restoration
-        // ordering that makes `classifyAddLanding` answer `none` on the add path (T43). Only "the
-        // line sits at our target" establishes anything; everything else is honestly `unknown`.
+        // ⚠️ THIS DOES NOT RE-CREATE #251's STALE-ABSOLUTE-QUANTITY P1, which is what kept the row
+        // filed: `AddButton`'s queue reads `threaded ?? refreshed ?? (prior === null ? itemsRef.current
+        // : null)`, so an `unconfirmed` op (no view) makes the NEXT op re-read, and sends nothing when
+        // that read fails too (Codex round 6 on #251). And no consumer re-sends a `setItemQty` — the
+        // stepper is the only caller — so `refused` bought nothing here that `unconfirmed` loses.
         const line = fresh?.find((i) => i.id === cartItemId);
+        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);
         const result = recoveredWrite({
           reread: fresh,
-          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
+          landed: atTarget ? true : null,
           viewIsCurrent,
         });
-        if (result.state === "refused" && refusal) publishRefusal(refusal);
-        else if (result.state === "unconfirmed") publishUnconfirmed();
+        // `refused` is unreachable on this path by construction (the landing is `true` or `null`),
+        // so a write that is not confirmed is retracted — never explained as a refusal.
+        if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [
-      cartId,
-      applyView,
-      readView,
-      explainCaught,
-      flash,
-      forgetRefusal,
-      publishRefusal,
-      publishUnconfirmed,
-    ],
+    [cartId, applyView, readView, explainCaught, flash, publishUnconfirmed],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every
@@ -1637,11 +1590,10 @@ export function TableCartProvider({
    * ("memo'd with stable parent callbacks so typing in the page-level search box … doesn't
    * re-render the ~400-card grid"); the menu never got the same treatment.
    *
-   * ⚠️ `lastRefusalClause` MUST stay a stable callback. As an inline arrow it minted a new identity
-   * on every render, which would defeat this memo entirely — the value would still change every
-   * time and nothing downstream could skip a render. It reads a ref, so it has no dependencies.
+   * ⚠️ Every function in here must stay a stable callback: an inline arrow mints a new identity on
+   * every render, which defeats this memo entirely (the retired `lastRefusalClause` was the case
+   * that taught it).
    */
-  const lastRefusalClause = useCallback(() => lastRefusalRef.current, []);
   const ctxValue = useMemo(
     () => ({
       cartId,
@@ -1659,7 +1611,6 @@ export function TableCartProvider({
       refresh,
       revalidate,
       announce: flash,
-      lastRefusalClause,
       pickupSlot,
       isGroup,
       members,
@@ -1695,7 +1646,6 @@ export function TableCartProvider({
       refresh,
       revalidate,
       flash,
-      lastRefusalClause,
       pickupSlot,
       isGroup,
       members,
