@@ -24,7 +24,7 @@ import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
-import { refundedCarts } from "./refunded-cart";
+import { refundedCarts, type RefundOrderRow } from "./refunded-cart";
 import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
@@ -113,6 +113,10 @@ const ORDER_LINE_CAP = 500;
  *  row IS dropped (`ORDER_LINE_CAP`'s read below), because those rows are rendered — the two reads
  *  differ on purpose, so neither is a template for the other's handling of the probe row. */
 const SETTLED_ORDER_CAP = 20;
+/** #360 (Codex P2) — the settled orders the paid round's SCOPE read takes when the record's page was
+ *  truncated (a session with more than SETTLED_ORDER_CAP rounds). Past it the group says it shows
+ *  only the latest (`paidKitchenCapped`). */
+const PAID_ROUND_ORDER_CAP = 200;
 /** Phase 2d · floor — the floor's LINE reads are bounded, below PostgREST's `max_rows` (1000,
  *  `supabase/config.toml`), which truncates SILENTLY. A read that comes back AT the cap cannot tell
  *  "exactly this many" from "we stopped counting" (`queueEmptiness`), and a truncated fold would
@@ -1074,17 +1078,47 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // failed read logs and the group is simply not drawn (null), never an outage of the page.
   // #360 (CRITICAL 1) — a cart refunded IN FULL is read too, and its dishes TAGGED (the KDS keeps
   // them: a full refund can be a goodwill comp at a table still eating) — the ONE rule.
+  // #360 (Codex P2) — the SCOPE is every paid cart of the session — the set `getFloorView` folds —
+  // never only the settled record's capped page: past SETTLED_ORDER_CAP an older round still cooking
+  // was counted by the floor card and never read here. When the record's page was truncated, one
+  // more read takes the session's settled set (cart, status and amounts — the refund rule's columns),
+  // bounded; past that bound the group says it shows only the latest, and a failed read draws no
+  // group (never a partial scope passed off as the whole).
+  let scopeOrders: RefundOrderRow[] = settledOrders;
+  let scopeCapped = false;
+  let scopeFailed = false;
+  if (settledOrders.length > SETTLED_ORDER_CAP) {
+    const { data: all, error: allError } = await db
+      .from("qr_orders")
+      .select("cart_id,status,total_cents,refunded_cents")
+      .eq("session_id", sessionId)
+      .in("status", ["paid", "refunded"])
+      .order("created_at", { ascending: false })
+      .limit(PAID_ROUND_ORDER_CAP + 1);
+    if (allError) {
+      console.error(
+        "[floor] getTableDetail paid-round scope read failed — the group is not drawn",
+        {
+          sessionId,
+          message: allError.message,
+        },
+      );
+      scopeFailed = true;
+    } else {
+      scopeCapped = (all ?? []).length > PAID_ROUND_ORDER_CAP;
+      scopeOrders = (all ?? []).slice(0, PAID_ROUND_ORDER_CAP);
+    }
+  }
   const paidCartIds = [
     ...new Set(
-      settledOrders
-        .map((o) => o.cart_id)
-        .filter((c): c is string => !!c && c !== (cart?.id ?? null)),
+      scopeOrders.map((o) => o.cart_id).filter((c): c is string => !!c && c !== (cart?.id ?? null)),
     ),
   ];
-  const refundedRound = refundedCarts(settledOrders);
+  const refundedRound = refundedCarts(scopeOrders);
   let paidKitchen: TableDetail["paidKitchen"] = null;
   let paidKitchenCapped = false;
-  if (paidCartIds.length > 0) {
+  if (scopeFailed) paidKitchen = null;
+  else if (paidCartIds.length > 0) {
     // #360 (CRITICAL 3) — the NEWEST end of a long night: newest first, one past the cap so the page
     // can say it is showing only the latest (oldest first was keeping the first rounds and dropping
     // the one still cooking); reversed below for the page's oldest-first order.
@@ -1106,7 +1140,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       );
     else {
       const got = pk ?? [];
-      paidKitchenCapped = got.length > PAID_KITCHEN_CAP;
+      paidKitchenCapped = scopeCapped || got.length > PAID_KITCHEN_CAP;
       paidKitchen = paidRoundKitchen(
         got
           .slice(0, PAID_KITCHEN_CAP)
