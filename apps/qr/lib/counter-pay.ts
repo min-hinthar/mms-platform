@@ -10,6 +10,7 @@ import {
 } from "./counter-pay-state";
 import { surfaceOpen } from "./surfaces";
 import { getCartOrderId } from "./order";
+import { cartFate, sessionLive, type CartOutcome } from "./session-truth";
 
 /**
  * A1 — the diner's "Pay at the counter" ask, and its withdrawal.
@@ -146,28 +147,36 @@ export async function withdrawCounterPay(raw: unknown): Promise<CounterPayResult
 }
 
 /**
- * What became of this cart, for a Bill that just lost its read (`getCartView` answers `cart_closed`
- * the moment the cart settles). The diner's screen needs to know whether to leave for the receipt,
- * show a close, or stay put — and "the read failed" alone cannot tell a settle from a blip.
+ * What became of this cart, for a screen that just lost its read (`getCartView` answers
+ * `cart_closed` the moment the cart settles or the table closes). The Bill (`Checkout`) and the
+ * menu (`TableCartProvider`) both ask it, once per failed read: whether to leave for the receipt,
+ * show a close that names its cause, or stay put — "the read failed" alone cannot tell a settle, a
+ * staff Clear, a merge or the sweep from a blip. The classification is `cartFate`
+ * (lib/session-truth), pure and mutant-pinned; this action only reads the rows it needs.
  *
  * AUTHORIZED by durable session membership (a `session_members` row for this seat on the cart's
  * session), never by the cart id alone: a cart id is in every URL, and a status by id would be a
  * public probe. `assertCartMember` is the wrong gate here — it refuses a closed cart, which is the
- * one state this exists to report. A non-member, a missing seat and a failed read all answer
- * `unknown` (LEARNINGS: unknowable ≠ verdict).
+ * one state this exists to report. A non-member, a missing seat, a MISSING CART and a failed read
+ * all answer `unknown` (LEARNINGS: unknowable ≠ verdict) — a missing cart used to answer `gone`
+ * before the membership read, which told a stranger whether a uuid named a cart (the lifecycle
+ * oracle `whyCartUnavailable` was built to refuse).
  *
  * `tender` says HOW it settled, because the close the diner sees depends on it (blind audit on
  * this diff, CRITICAL 1): a tablemate's CARD flips the cart to `paid` too, and calling that
  * "settled at the counter" is a false sentence on every other phone at the table. `orderId` is
  * set only when the CALLER may see that order (`getCartOrderId`, member-gated for counter
  * tenders; the payer's own proofs for a card); a paid cart with no visible order carries null and
- * the caller shows the tender's close rather than a tracker it cannot load.
+ * the caller shows the tender's close rather than a tracker it cannot load. `sessionLive` says
+ * whether the table is still seated — the menu's "Start a new order" stays at it only then.
+ * `complete` is false when a read behind `tender` or `orderId` FAILED (Codex round 2 on #361): those
+ * fields then mean "not known yet", and the caller keeps asking (`endComplete`, lib/session-truth).
+ *
+ * `ended.why` separates the closes the rows CAN separate: `cleared` (a `qr_table_clears` row names
+ * the session), `expired` (the session's clock ran out) and `closed` (anything else — a merge,
+ * which leaves no record of itself until OPEN-ITEMS M293's `merged_into`).
  */
-export type CounterPayOutcome =
-  | { kind: "open" }
-  | { kind: "paid"; tender: "counter" | "card" | "unknown"; orderId: string | null }
-  | { kind: "gone" }
-  | { kind: "unknown" };
+export type CounterPayOutcome = CartOutcome;
 
 export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome> {
   const parsed = counterPayInput.safeParse(raw);
@@ -181,8 +190,7 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
     .select("status,session_id")
     .eq("id", cartId)
     .maybeSingle();
-  if (error) return { kind: "unknown" };
-  if (!cart) return { kind: "gone" };
+  if (error || !cart) return { kind: "unknown" };
   const { data: member, error: memberError } = await db
     .from("session_members")
     .select("seat_id")
@@ -191,8 +199,29 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
     .limit(1)
     .maybeSingle();
   if (memberError || !member) return { kind: "unknown" };
-  if (cart.status === "open") return { kind: "open" };
-  if (cart.status !== "paid") return { kind: "gone" };
+  // ── Past the gate: everything below is disclosed to a proven member only. ──
+  const { data: sess, error: sessError } = await db
+    .from("table_sessions")
+    .select("status,expires_at")
+    .eq("id", cart.session_id)
+    .maybeSingle();
+  if (sessError) return { kind: "unknown" };
+  const session = sess ? { status: sess.status, expiresAt: sess.expires_at } : null;
+  const nowMs = Date.now();
+  // The clear record is read only when the cart can no longer take an order — an open cart on a
+  // live session is the common answer (the menu's poll asks it every minute) and needs no fourth
+  // read. A failed read is `unknown`, never a guess between a clear and a merge.
+  let cleared = false;
+  if (cart.status !== "paid" && !(cart.status === "open" && sessionLive(session, nowMs))) {
+    const { count, error: clearError } = await db
+      .from("qr_table_clears")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", cart.session_id);
+    if (clearError) return { kind: "unknown" };
+    cleared = (count ?? 0) > 0;
+  }
+  const fate = cartFate({ cartStatus: cart.status, session, cleared, nowMs });
+  if (fate.kind !== "paid") return fate;
   const { data: order, error: orderError } = await db
     .from("qr_orders")
     .select("tender")
@@ -206,6 +235,24 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
       : (COUNTER_TENDERS as readonly string[]).includes(order.tender)
         ? "counter"
         : "card";
-  const orderId = await getCartOrderId(cartId).catch(() => null);
-  return { kind: "paid", tender, orderId };
+  // Codex round 2 on #361 — a FAILED read is not an answer (M116). `tender: "unknown"` from a read
+  // that errored and `orderId: null` from a visibility read that threw are "not known yet", so the
+  // answer says it is INCOMPLETE and its holder asks again on the poll's cadence. The one throw that
+  // IS an answer is the gate's own 403: `getSplitOrderId`'s `assertSessionMember` refuses a closed
+  // session (or a seat not in it) by design, so this seat cannot see the order through the table —
+  // a fact that no retry changes, and asking it once a minute forever would be the poll's only work.
+  let orderId: string | null = null;
+  let orderKnown = true;
+  try {
+    orderId = await getCartOrderId(cartId);
+  } catch (e) {
+    orderKnown = e instanceof AuthzError && e.status === 403;
+  }
+  return {
+    kind: "paid",
+    tender,
+    orderId,
+    sessionLive: fate.sessionLive,
+    complete: !orderError && orderKnown,
+  };
 }

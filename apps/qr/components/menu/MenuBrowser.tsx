@@ -16,6 +16,9 @@ import { ArrivalBeat } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
+import { MenuTableEnded } from "@/components/MenuTableEnded";
+import { useDurableParty } from "@/lib/durable-party";
+import { leaveWarning } from "@/lib/session-truth";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -147,6 +150,13 @@ export function MenuBrowser({
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
   // Phase 3b (D9) — the door sheet is open on ANY door now, not only at a table.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  // Session truth (Codex round 2 on #361) — how many times the leave flow has OPENED: each open is a
+  // fresh ask of the durable party (`useDurableParty`'s epoch), independent of presence.
+  const [doorOpens, setDoorOpens] = useState(0);
+  const onDoorSheet = useCallback((open: boolean) => {
+    setDoorSheetOpen(open);
+    if (open) setDoorOpens((n) => n + 1);
+  }, []);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -209,7 +219,20 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
   // sheet cannot read it itself and the menu — which has it — passes it down.
-  const { cartId, announce, refresh, tableNumber } = useCart();
+  const { cartId, announce, refresh, tableNumber, role, members, me } = useCart();
+  // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
+  // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
+  // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
+  // before the first sync, and missing every phone that is face down (Codex round 1 on #361). Re-read
+  // when the leave flow OPENS (Codex round 2: a tablemate who joined with their phone already face
+  // down never shows in presence) and, as an extra trigger, when the presence count moves; while the
+  // read the open asked for is out, `leaveWarning` hedges rather than claim the host is alone.
+  const party = useDurableParty(
+    cartId,
+    mode === "dinein" && role === "host",
+    `${members.length}·${doorOpens}`,
+  );
+  const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, party });
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -676,10 +699,11 @@ export function MenuBrowser({
               exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
               the sheet), so the masthead can never contradict the arrival line. */}
           <DoorSheet
+            leaveWarning={leaveNote}
             mode={mode}
             tableNumber={tableNumber}
             tables={tables}
-            onOpenChange={setDoorSheetOpen}
+            onOpenChange={onDoorSheet}
           />
           <PullToRefresh
             onRefresh={onRefreshStart}
@@ -697,6 +721,9 @@ export function MenuBrowser({
             of the arrival beat, not a promotion. Renders nothing below the threshold. */}
         <YourUsual outcome={usual} />
         {mode === "dinein" && <GuestList />}
+        {/* Session truth — a table that ENDED (paid, cleared by staff, merged away, timed out) says
+            so here, in the party row's place, and offers the way forward; nothing until then. */}
+        <MenuTableEnded />
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
             kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
         <MenuTimeline />

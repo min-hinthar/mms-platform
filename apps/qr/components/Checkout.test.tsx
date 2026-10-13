@@ -797,7 +797,13 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     // whose failed arm asks the one question that separates a settled cart from a blip.
     h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
     h.getCartView.mockRejectedValue(new Error("cart_closed"));
-    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: "order-1", tender: "counter" });
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: "order-1",
+      tender: "counter",
+      sessionLive: true,
+      complete: true,
+    });
     mount({ splitContext: DINE_IN });
     await addOne();
     await settle();
@@ -813,7 +819,13 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     // (and is an explicit `role="list"` — WebKit drops the implicit role under `list-style: none`).
     h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
     h.getCartView.mockRejectedValue(new Error("cart_closed"));
-    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: null, tender: "counter" });
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: null,
+      tender: "counter",
+      sessionLive: true,
+      complete: true,
+    });
     mount({ splitContext: DINE_IN });
     const rail = screen.getByRole("list", { name: "Checkout steps" });
     expect(rail.getAttribute("role")).toBe("list");
@@ -822,6 +834,222 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
     await waitFor(() => expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull());
     expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("session truth (finding 3) — a table CLEARED under the Bill becomes the close card: the cause named, the bill and its steppers gone, the title said once", async () => {
+    // MUTATION (lcs/bill-ignores-an-ended-table): act on `paid` alone again — the diner keeps an
+    // editable bill whose every edit snaps back silently, and Send says "try again" forever.
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+    );
+    expect(regionText()).toContain("Our staff closed this table");
+    expect(screen.getByText(/Anything not yet served was cancelled/)).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
+    // The way on is the card's "Start a new order" (this suite draws journey links as spans).
+    expect(screen.getByText("Start a new order")).toBeTruthy();
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("session truth (finding 9) — a table MERGED away reads the neutral close, never a claim about where the order went", async () => {
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /Our staff closed this table’s order/ }),
+      ).toBeTruthy(),
+    );
+    // Honest after a merge (the blind pass on #361): the dishes may be cooking — and charged — on
+    // the table it moved to, so the card sends the diner to staff before a second order.
+    expect(
+      screen.getByText(
+        /Nothing more can be added from this phone — if your table was moved, ask our staff before you order again\./,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("Codex round 1 on #361 (b) — a close never sits beside the freeze bar: no 'Check again' for a table that ended", async () => {
+    // MUTATION (lcs/bill-close-keeps-the-freeze-bar): the bar drawn under a close — "Check again"
+    // and the lock's sentence beside a card that says the table closed, a door that does not exist.
+    mount({ splitContext: DINE_IN, initialLocked: true, initialLockedBy: PEER_SEAT });
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+    await syncFromServer();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/is checking out/);
+  });
+
+  it("Codex round 1 on #361 (a) — a Bill left OPEN learns of a clear: the shared one-minute probe, visible-only, no tap needed", async () => {
+    // MUTATION (lcs/bill-never-probes): no probe on /cart — a clear or a merge leaves a stale,
+    // editable bill on screen for as long as it is open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({ kind: "open" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+      expect(screen.queryByRole("heading", { name: /Our staff closed this table/ })).toBeNull();
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("heading", { name: /Our staff closed this table’s order/ }),
+        ).toBeTruthy(),
+      );
+      // Once a close is drawn the probe stops.
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (1) — a probe answer that lands after the Bill UNMOUNTED goes nowhere: no /track push from a page the diner left", async () => {
+    // `useEndPoll` clears its interval on unmount, but an ask already out still resolves, and its
+    // `paid` + `orderId` arm pushed /track over whatever page the diner had moved to.
+    // MUTATION (lcs/bill-probe-acts-after-unmount): the continuation acts whether or not the Bill
+    // that asked is still on screen.
+    const late = deferred<unknown>();
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockReturnValueOnce(late.promise);
+    const { unmount } = mount({ splitContext: DINE_IN });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    unmount();
+    await act(async () => {
+      late.resolve({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: true,
+        complete: true,
+      });
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("Codex round 2 on #361 (3) — an INCOMPLETE paid answer draws its close but keeps asking: the receipt comes with the read that failed", async () => {
+    // `counterPayOutcome` turned a failed read into `orderId: null`, and the Bill drew the close
+    // and stopped probing: no way to the receipt for as long as the page stayed open.
+    // MUTATION (lcs/bill-stops-at-an-incomplete-close): the probe stops on any drawn close.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: null,
+        sessionLive: false,
+        complete: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      expect(h.push).not.toHaveBeenCalled();
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: false,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(h.push).toHaveBeenCalledWith(`/track?cart=${encodeURIComponent(CART)}&paid=1`),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (3) — a COMPLETE close with nothing more to learn stops the probe", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "card",
+        orderId: null,
+        sessionLive: false,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (4) — a DEGRADED render (no split context) at a dine-in table still probes, on the cart view's own mode", async () => {
+    // `cart/page.tsx` nulls the split context on ANY read failure, and the probe and its poll were
+    // gated on that best-effort mode — so a degraded Bill at a table never learned of a clear.
+    // MUTATION (lcs/bill-probe-reads-the-split-mode): gate on the split context's mode again.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: null, initialViewMode: "dinein" });
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (4) — a degraded render's FAILED read asks too, and a solo cart's never does", async () => {
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+    mount({ splitContext: null, initialViewMode: "dinein" });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    cleanup();
+    h.counterPayOutcome.mockClear();
+    mount({ splitContext: null, initialViewMode: "pickup" });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).not.toHaveBeenCalled();
   });
 
   it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {
@@ -3189,9 +3417,13 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(nudge.getAttribute("aria-disabled")).toBe("true");
     expect(nudge.getAttribute("aria-describedby")).toBe("nudge-seen");
     expect(document.getElementById("nudge-seen")!.textContent).toContain(
-      "Aye can see you’re waiting.",
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
     );
-    expect(regionText()).toContain("Aye can see you’re waiting.");
+    expect(regionText()).toContain(
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
+    );
+    // The way out the confirmation names is on the same block whenever the confirmation is.
+    expect(screen.getByRole("button", { name: /Show a server/ })).toBeTruthy();
     // The settled control writes nothing more.
     await press(/^Let Aye know/);
     expect(h.nudgeHost).toHaveBeenCalledTimes(1);
@@ -3415,7 +3647,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(document.getElementById("nudge-line")).toBeNull();
     // …but the nudger's own confirmation follows the stamp.
     expect(document.getElementById("nudge-seen")!.textContent).toContain(
-      "Aye can see you’re waiting.",
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
     );
   });
   it("a TABLEMATE's standing nudge is named as theirs — this phone never claims it ('taken')", async () => {
@@ -3426,7 +3658,8 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       ok: false,
       reason: "taken",
       nudge: { seat: MYA_SEAT, at: STAMP_AT },
-      error: "Someone at your table already let them know — they can see the table’s waiting.",
+      error:
+        "Someone at your table already let them know — if they’re away, Show a server sends it too.",
     });
     mountPD1({
       splitContext: {
@@ -3439,11 +3672,15 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     await settle();
     // MUTATION (checkout/taken-said-as-a-refusal): the `taken` branch dropped — the generic
     // sentence instead of the tablemate's name; red.
-    expect(regionText()).toContain("Mya already let Aye know — they can see the table’s waiting.");
+    expect(regionText()).toContain(
+      "Mya already let Aye know — if they’re away, Show a server sends it too.",
+    );
     // MUTATION (checkout/taken-recorded-as-this-phones-seat): the stamp recorded in this phone's
     // seat — the control settles over Mya's nudge with Thiri's confirmation; red.
     expect(document.getElementById("nudge-seen")).toBeNull();
-    expect(regionText()).not.toContain("Aye can see you’re waiting.");
+    expect(regionText()).not.toContain(
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
+    );
     expect(
       screen.getByRole("button", { name: /^Let Aye know/ }).getAttribute("aria-disabled"),
     ).toBeNull();

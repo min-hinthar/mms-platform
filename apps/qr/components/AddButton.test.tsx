@@ -45,6 +45,7 @@ type Ctx = {
   settling: boolean;
   isGroup: boolean;
   me: { seat: string; name: string } | null;
+  ended?: unknown;
 };
 
 const ctx = vi.hoisted(() => ({ current: {} as Ctx }));
@@ -356,5 +357,21 @@ describe("the '−' revert-refocus cannot steal focus either", () => {
     rerender(<Row />);
     await settle();
     expect(document.activeElement).toBe(elsewhere());
+  });
+});
+
+describe("AddButton — session truth: a table that ENDED", () => {
+  it("is inert with the reason in its name, and sends nothing (the card above is the way on)", async () => {
+    // MUTATION (lcs/add-pill-ignores-the-end): drop `ended` from `frozen` — the pill stays live on
+    // a closed table and the tap's optimistic "Mohinga added" is then retracted every time.
+    ctx.current = { ...ctx.current, ended: { kind: "ended", why: "cleared" } };
+    renderRow();
+    const p = pill();
+    expect(p.getAttribute("aria-label") ?? p.textContent).toContain(
+      `${NAME} — this order has closed`,
+    );
+    fireEvent.click(p);
+    await settle();
+    expect(ctx.current.add).not.toHaveBeenCalled();
   });
 });
