@@ -3752,6 +3752,29 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     );
   });
 
+  it("ALL DONE here, recalled elsewhere before this tablet saw the card leave, then voided — said (#360's blind pass)", async () => {
+    // The card bump's own landing (`onBumped`) — the per-line case above has a twin here, which had
+    // no test and no live mutant. lck/kds/card-bump-never-lands — the bump's landing is never
+    // stamped, so the restored dish stays "this tablet's own" and its void is swallowed; red.
+    vi.useFakeTimers();
+    currentQueue = queue(); // a one-dish card: line-1
+    const q = mount("en", currentQueue);
+    // the read this tablet's own All done triggers already shows the card BACK (recalled elsewhere)
+    await act(async () => {
+      fireEvent.click(q.getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    });
+    await flush(0);
+    expect(bumpTicket).toHaveBeenCalledTimes(1);
+    // …then a server voids the restored dish, and the card leaves
+    currentQueue = { ...queue(), tickets: [] };
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
+    );
+  });
+
   it("a one-dish card whose dish was voided is said too — the whole card left", async () => {
     // The CHANGELOG's claim, made true: the confirmation is by id, so a card that vanished is asked
     // about like any other.
