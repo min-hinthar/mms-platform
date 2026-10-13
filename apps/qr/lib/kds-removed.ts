@@ -140,9 +140,16 @@ export type OwnBumps = ReadonlyMap<string, number | null>;
  *   · its line is OFF this snapshot — the departure is this diff's, consumed;
  *   · its line is ON this snapshot and the snapshot was fetched AFTER the bump landed — the line came
  *     BACK (another tablet recalled it before this one ever saw it leave): the suppression ends, so a
- *     later void of the restored line is said, never swallowed as this tablet's old bump;
+ *     void of the restored line that a LATER snapshot shows is said, never swallowed as this
+ *     tablet's old bump;
  *   · its line is ON a snapshot fetched before the bump landed (the read raced the write), or the
  *     bump is still out — pending.
+ *
+ * ⚠️ The window this does NOT close (#360's blind pass, open question a): a recall AND a void that
+ * both land before the first snapshot fetched after the bump — this tablet never sees the line back,
+ * only gone, so its departure is consumed as the bump's own and the void goes unsaid here. Seen
+ * only by a board that was watching anyway, like every void (OPEN-ITEMS M306: a durable per-line
+ * stop record is what closes both).
  */
 export function ownBumpsAfter(
   ownBumps: OwnBumps,
