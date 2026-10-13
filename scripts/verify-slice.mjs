@@ -949,6 +949,14 @@ const MUTANTS = [
     replace: '    line.lineState !== "draft"',
   },
   {
+    id: "m230/freeze/sent-clears-the-pay-error",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Blind pass on #354 — /cart's region renders `payError ?? status`, and only a freeze may take the slot from a pay error (the payment cannot be retried while frozen). The shipped `cause !== \"unknown\"` silently admitted M230's `sent`, so a kitchen fact about one line erased “Couldn’t start checkout — please try again.” on a cart whose Pay still works",
+    find: '    case "sent":\n    case "unknown":\n      return false;',
+    replace: '    case "sent":\n      return true;\n    case "unknown":\n      return false;',
+  },
+  {
     id: "m230/toggle-named-refusal-dropped",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
@@ -979,6 +987,31 @@ const MUTANTS = [
     why: "M230 at PUBLISH, the other direction — the fact is re-asked of the view that WON. A send undone inside its grace puts the line back in draft before the sentence's frame; skip the question and “it's already gone to the kitchen” is printed beside a draft line the diner can re-route",
     find: "      const fresh = pendingRefusal.holds?.(f.items)",
     replace: "      const fresh = pendingRefusal.holds",
+  },
+  {
+    id: "m230/named-refusal-asked-at-park",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 (blind pass on #354) — the fact is asked of the view that WON at publish, not of the diagnosis read at park. The diagnosis read sees the line fired; the host's Undo inside the send's grace then wins the screen before the sentence's frame. Freeze the answer at park and “it's already gone to the kitchen” prints beside a line that reads “Not sent yet”",
+    find: "      if (named) announceRefusal(named.refusal, landed, named.holds);\n",
+    replace:
+      "      if (named) {\n        const atPark = named.holds(freezeFactsRef.current.items);\n        announceRefusal(named.refusal, landed, () => atPark);\n      }\n",
+  },
+  {
+    id: "m230/named-refusal-outlives-an-undo",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 (blind pass on #354, CRITICAL) — a send stays undoable for its grace, and the host's Undo reaches this phone as an ordinary view AFTER the sentence was said. No edit of the diner's follows and no freeze edge exists for that cause, so only the per-view re-ask retires it. Never arm it at publish and “it's already gone to the kitchen” stands beside a draft line with its ⋯ live again",
+    find: "      shownHoldsRef.current = pendingRefusal.holds ?? null;\n",
+    replace: "",
+  },
+  {
+    id: "m230/named-refusal-retired-by-any-view",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 — the retire's other direction. It asks whether the fact still holds; retire on every later view instead and the kitchen sentence vanishes the moment the cook starts the dish, while it is still exactly true",
+    find: "      if (holds === null || holds(freezeFactsRef.current.items)) return;",
+    replace: "      if (holds === null) return;",
   },
   {
     id: "m224/refusal-loses-the-settle-recovery",
@@ -1091,7 +1124,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The region renders `payError ?? status`, so clearing it unconditionally traded \u201cCouldn\u2019t start checkout\u201d \u2014 actionable, about money \u2014 for \u201cWe couldn\u2019t confirm that \u2014 the order below is up to date\u201d, on a screen whose checkout is broken. A FREEZE supersedes a pay error (the diner cannot retry the payment while frozen, which is the lock edge\u2019s own stated reasoning); an `unknown` hedge has no such claim",
-    find: '      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);',
+    find: "      if (refusalClearsPayError(pendingRefusal.refusal)) setPayError(null);",
     replace: "      setPayError(null);",
   },
   {

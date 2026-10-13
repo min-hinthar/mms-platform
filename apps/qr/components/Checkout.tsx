@@ -45,6 +45,7 @@ import {
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  refusalClearsPayError,
   refusedWriteNotice,
   reopenFailureNotice,
   sentRefusalHolds,
@@ -1284,6 +1285,16 @@ export function Checkout({
    */
   const shownRefusalRef = useRef<string | null>(null);
   /**
+   * M230 — the `holds` test of the server-named refusal now ON SCREEN, or null (none shown, or a
+   * diagnosed one, which a freeze edge retires instead).
+   *
+   * ⚠️ ASKED AGAIN ON EVERY APPLIED VIEW, not only at publish (blind pass on #354, CRITICAL). A send
+   * stays undoable for its grace, and the host's Undo — a clean fired→draft — reaches this phone as
+   * an ordinary view AFTER "it's already gone to the kitchen" was said. No edit of this diner's
+   * follows to retire it and no freeze edge exists for that cause, so the effect below re-asks it.
+   */
+  const shownHoldsRef = useRef<((items: CartItem[]) => boolean) | null>(null);
+  /**
    * Which of this diner's gestures each side of the supersession is talking about.
    *
    * ⚠️ THE ORDER THAT MATTERS IS THE ORDER THE DINER TAPPED IN, NOT THE ORDER THE SERVER ANSWERED
@@ -1302,14 +1313,19 @@ export function Checkout({
   const gestureSeq = useRef(0);
   const lastAcceptedGesture = useRef(0);
   const refusalGesture = useRef<number | null>(null);
-  const clearShownRefusal = useCallback(() => {
-    refusalGesture.current = null;
-    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
+  /** Take the SHOWN refusal down — only if the slot still holds it — and nothing parked. */
+  const retireShownRefusal = useCallback(() => {
+    shownHoldsRef.current = null;
     const shown = shownRefusalRef.current;
     if (shown === null) return;
     shownRefusalRef.current = null;
     setStatus((cur) => (cur === shown ? null : cur));
   }, []);
+  const clearShownRefusal = useCallback(() => {
+    refusalGesture.current = null;
+    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
+    retireShownRefusal();
+  }, [retireShownRefusal]);
 
   /**
    * An edit of this diner's was ACCEPTED — retire a refusal only if this gesture is newer than it.
@@ -1341,7 +1357,10 @@ export function Checkout({
    * that — the order below is up to date") is neither. Clearing unconditionally swapped a broken
    * checkout for a reassurance, reachable on a rate-limited tap after a failed create-intent. A
    * FROZEN or SETTLING refusal does supersede it: the diner cannot retry the payment while the cart
-   * is frozen, which is the same reasoning the lock-edge effect already states.
+   * is frozen, which is the same reasoning the lock-edge effect already states. M230's `sent` does
+   * not (a fact about one line; Pay still works). The rule is `refusalClearsPayError` — a switch, so
+   * a new cause cannot slip through the way `sent` slipped through `!== "unknown"` (blind pass on
+   * #354).
    */
   useEffect(() => {
     if (pendingRefusal === null) return;
@@ -1426,13 +1445,33 @@ export function Checkout({
         setPendingRefusal(null);
         return;
       }
-      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);
+      if (refusalClearsPayError(pendingRefusal.refusal)) setPayError(null);
       shownRefusalRef.current = notice;
+      shownHoldsRef.current = pendingRefusal.holds ?? null;
       setStatus(notice);
       setPendingRefusal(null);
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingRefusal]);
+
+  /**
+   * M230 — retire a SHOWN server-named refusal once a later view falsifies it (`shownHoldsRef`).
+   *
+   * Keyed on `viewNo`, which `applyCartView` bumps for every view it applies — a realtime echo, a
+   * foreground re-read, a mutation's own re-sync — and asked of `freezeFactsRef`, the view that WON,
+   * the same source the publish above asks. Through a frame for the reason every announcement here
+   * is. It takes down only the shown sentence, never a newer parked one (that is re-asked at its
+   * own publish), and says nothing in its place: silence, never a claim nobody made.
+   */
+  useEffect(() => {
+    if (shownHoldsRef.current === null) return;
+    const frame = requestAnimationFrame(() => {
+      const holds = shownHoldsRef.current;
+      if (holds === null || holds(freezeFactsRef.current.items)) return;
+      retireShownRefusal();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewNo, retireShownRefusal]);
 
   /**
    * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit

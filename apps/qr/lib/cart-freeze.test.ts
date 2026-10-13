@@ -9,6 +9,7 @@ import {
   freezeNotice,
   namedRefusedWriteNotice,
   refusalNeedsRemint,
+  refusalClearsPayError,
   refusedWriteClause,
   refusedWriteNotice,
   reopenFailureNotice,
@@ -682,5 +683,27 @@ describe("M230 — a refusal the server NAMED has its own arm", () => {
     expect(sentRefusalHolds({ lineState: "draft" })).toBe(false);
     expect(sentRefusalHolds({ lineState: "voided" })).toBe(false);
     expect(sentRefusalHolds(undefined)).toBe(false);
+  });
+});
+
+/**
+ * Blind pass on #354 — which refusal may take the slot from a standing pay error.
+ *
+ * /cart's region renders `payError ?? status`, and the shipped rule was `cause !== "unknown"`. That
+ * read as "a freeze" until M230's `sent` joined the union and was silently admitted: a kitchen fact
+ * about one line then erased "Couldn't start checkout — please try again." on a cart whose Pay still
+ * works.
+ */
+describe("refusalClearsPayError — only a freeze supersedes a pay error", () => {
+  it("a freeze does: the payment cannot be retried while the cart is frozen or settling", () => {
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "peer" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "self" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "held" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "settling" })).toBe(true);
+  });
+
+  it("a cause that freezes nothing does not — the kitchen fact and the hedge alike", () => {
+    expect(refusalClearsPayError({ cause: "sent" })).toBe(false);
+    expect(refusalClearsPayError({ cause: "unknown" })).toBe(false);
   });
 });

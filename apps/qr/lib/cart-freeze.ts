@@ -553,6 +553,30 @@ export function refusedWriteNotice(refusal: PublishableRefusal): string {
 }
 
 /**
+ * Does saying this refusal take the slot from a standing PAY error? /cart's review region renders
+ * `payError ?? status`, so only a cause that answers yes can be heard over one.
+ *
+ * ONLY A FREEZE DOES: while the cart is frozen or settling the diner cannot retry the payment, which
+ * is the lock edge's own reasoning for clearing it. "Couldn't start checkout — please try again." is
+ * actionable and about money, and `unknown`'s hedge is neither. Nor is `sent` (M230): the kitchen
+ * fact names one line, freezes nothing, and the payment can still be retried.
+ *
+ * ⚠️ WRITTEN AS A SWITCH WITH NO DEFAULT, never as `cause !== "unknown"`. That negation was the
+ * shipped rule, and it read as "frozen or settling" only until M230 added `sent`, which it silently
+ * admitted (blind pass on #354). A cause added after this one is a compile error here instead.
+ */
+export function refusalClearsPayError(refusal: PublishableRefusal): boolean {
+  switch (refusal.cause) {
+    case "frozen":
+    case "settling":
+      return true;
+    case "sent":
+    case "unknown":
+      return false;
+  }
+}
+
+/**
  * Phase 1c — the same sentence, naming the dish the diner added.
  *
  * With several rows in flight, or a sheet that has already closed, "That didn’t go through" does not
