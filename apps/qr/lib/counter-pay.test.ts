@@ -467,8 +467,8 @@ describe("counterPayOutcome", () => {
     expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
   });
   it("session truth — a stranger is told nothing about a CLEARED table either (the gate sits before every disclosure)", async () => {
-    // MUTATION (lcs/outcome-discloses-the-end-to-a-stranger): read the session and the clear record
-    // before the membership gate — any uuid then answers whether that table was cleared.
+    // MUTATION (counter/outcome-answers-a-stranger, the gate's own mutant): without the membership
+    // read, any uuid answers whether that table was cleared.
     members = [{ session_id: "s-1", seat_id: "u-2" }];
     cart!.status = "cancelled";
     sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
