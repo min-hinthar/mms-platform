@@ -240,7 +240,9 @@
  * from it · an aliased re-export through a deep relative path · a local re-export of the imported
  * hook · an exported `let` alias of it · `export default` of a namespace-member alias · the
  * namespace object itself exported · the hook's own module exporting it under a second name · the
- * hook's module dropped from the re-export scan.
+ * hook's module dropped from the re-export scan · the post-order kitchen read passed raw · its
+ * coalescer wrapping a no-op · it scheduled AND read directly · its `READERS` entry dropped · a
+ * local look-alike `getOrderKitchen` shadowing the import.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
@@ -251,7 +253,7 @@
  * an unrelated destructured local · an immutable alias of the hook, correctly coalesced · an
  * immutable alias of the COALESCER, used correctly · the shadow-crossing reader chain with its inner
  * alias never called · a barrel re-exporting a DIFFERENT export of the hook's module · type-only
- * re-exports of the hook's module.
+ * re-exports of the hook's module · the post-order kitchen read, coalesced through its own reader.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
