@@ -38,6 +38,7 @@ import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
 import { stationForCategory } from "./kitchen-station";
 import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
 import { refundedCarts } from "./refunded-cart";
+import { readLineRefunds } from "./refunded-cart-read";
 import { FATE_CAP } from "./kds-removed";
 
 /**
@@ -252,9 +253,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // refund can be a goodwill comp at a table still eating (the blind pass on #360, CRITICAL 1).
     db
       .from("qr_orders")
-      // #360 (Codex P1) — the amounts too: a full refund is decided by `summarizeRefund`, which
-      // reads them (a cash refund leaves the order `paid`).
-      .select("id,cart_id,status,total_cents,refunded_cents")
+      // #360 — the amounts and the parts the refund pool leaves out (`total − service − tip`): a
+      // cash refund leaves the order `paid`, and a tipped one never reaches its total
+      // (`foodRefundedInFull`).
+      .select("id,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents")
       .in("cart_id", cartIds)
       .in("status", ["paid", "refunded"]),
     menuIds.length
@@ -293,8 +295,11 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     const into = o.status === "refunded" ? refundedOrderByCart : orderByCart;
     if (!into.has(o.cart_id)) into.set(o.cart_id, o.id);
   }
-  // The lifecycle audit — the ONE rule the floor and the table page tag by (`lib/refunded-cart.ts`).
-  const refunded = refundedCarts(orderRes.data ?? []);
+  // The lifecycle audit — the ONE rule the floor and the table page tag by (`lib/refunded-cart.ts`),
+  // with the line ledger for a paid order that had money back (#360: every dish refunded, the tip
+  // kept). ADVISORY: unreadable, it logs and the order row alone decides (`readLineRefunds`).
+  const lineRefunds = await readLineRefunds(db, orderRes.data ?? [], "kitchen");
+  const refunded = refundedCarts(orderRes.data ?? [], lineRefunds);
   const stationByItem = new Map<string, KitchenStation>();
   // W23a — which dishes are ALREADY off the menu, so the ticket's 86 control shows the current answer
   // instead of an affordance the server would refuse. Same read, one more column.

@@ -25,6 +25,7 @@ import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
 import { refundedCarts, type RefundOrderRow } from "./refunded-cart";
+import { readLineRefunds } from "./refunded-cart-read";
 import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
@@ -300,7 +301,11 @@ export async function getFloorView(): Promise<FloorPoll> {
       .eq("status", "open"),
     db
       .from("qr_orders")
-      .select("session_id,cart_id,total_cents,created_at,status,refunded_cents")
+      // #360 — `id` and the parts the refund pool leaves out, for the ONE refund tag
+      // (`foodRefundedInFull`: a tipped cash refund never reaches its total).
+      .select(
+        "id,session_id,cart_id,total_cents,created_at,status,refunded_cents,service_charge_cents,tip_cents",
+      )
       .in("session_id", sessionIds)
       // K33 — the SAME settled-status policy as `getTableDetail`, and it has to be the same one.
       // The two reads pick a settled order by the same rule (latest by `created_at`), so a
@@ -488,8 +493,12 @@ export async function getFloorView(): Promise<FloorPoll> {
     for (const m of sold ?? []) soldOutIds.add(m.id);
   }
   // The lifecycle audit (#360, CRITICAL 1) — a paid cart refunded IN FULL keeps its dishes counted,
-  // TAGGED like the KDS tags its card (the ONE rule, `lib/refunded-cart.ts`): never hidden.
-  const refundedPaidCarts = refundedCarts(orders ?? []);
+  // TAGGED like the KDS tags its card (the ONE rule, `lib/refunded-cart.ts`): never hidden. The line
+  // ledger is ADVISORY: unreadable, it logs and the order row alone decides (`readLineRefunds`).
+  const refundedPaidCarts = refundedCarts(
+    orders ?? [],
+    await readLineRefunds(db, orders ?? [], "floor"),
+  );
   // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
   const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
   const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
@@ -782,7 +791,10 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       .from("qr_orders")
       // Phase 2g · P2em (D2) — `tip_cents` and `cart_id` too: a settled counter order's #CODE card is
       // built from THIS row (`serverHandoff` below), with no second read.
-      .select("id,total_cents,created_at,status,refunded_cents,tip_cents,cart_id")
+      // #360 — `service_charge_cents` too: the refund pool's other order-level part.
+      .select(
+        "id,total_cents,created_at,status,refunded_cents,tip_cents,cart_id,service_charge_cents",
+      )
       .eq("session_id", sessionId)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
@@ -1090,7 +1102,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   if (settledOrders.length > SETTLED_ORDER_CAP) {
     const { data: all, error: allError } = await db
       .from("qr_orders")
-      .select("cart_id,status,total_cents,refunded_cents")
+      .select("id,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents")
       .eq("session_id", sessionId)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
@@ -1114,7 +1126,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       scopeOrders.map((o) => o.cart_id).filter((c): c is string => !!c && c !== (cart?.id ?? null)),
     ),
   ];
-  const refundedRound = refundedCarts(scopeOrders);
+  // #360 (CRITICAL 1) — the line ledger for a paid round that had money back (every dish refunded,
+  // the tip kept); ADVISORY: unreadable, it logs and the order row alone decides.
+  const refundedRound = refundedCarts(
+    scopeOrders,
+    scopeFailed || paidCartIds.length === 0
+      ? null
+      : await readLineRefunds(db, scopeOrders, "floor/detail"),
+  );
   let paidKitchen: TableDetail["paidKitchen"] = null;
   let paidKitchenCapped = false;
   if (scopeFailed) paidKitchen = null;
