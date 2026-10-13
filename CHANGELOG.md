@@ -26,7 +26,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the round before Save, the row keeps the typed text read-only ("Not saved — tell the kitchen"), the
   page says "Mohinga went to the kitchen before this note saved — tell the kitchen.", focus lands on the
   kept text, and "Got it" lets it go.
-- Registry: M315–M318 and J65 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
+- Registry: M315–M318 and J66 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
   P2ar to the server-side signal; 18 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
 
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
