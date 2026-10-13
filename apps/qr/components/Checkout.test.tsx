@@ -3949,4 +3949,91 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     await waitFor(() => expect(regionText()).toContain("Promo applied."));
     expect(box().getAttribute("aria-invalid")).toBeNull();
   });
+
+  it("retyping after the region said it leaves the region empty — the words are never drawn there", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    fireEvent.change(box(), { target: { value: "NOPE2" } });
+    // MUTATION uia11y/f20-promo-retype-leaves-the-region: the region's copy outlives the box's and
+    // is drawn, visible, under the totals; red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
+  it("a refusal the region said is never said again by the next handler that empties it — Pay's answer is never 'That code isn't valid'", async () => {
+    // Blind pass on #355: the region's copy lived BESIDE `status`, hidden while anything else
+    // spoke, so the handler that emptied the region (Pay here; a stage flip, the counter ask and
+    // its withdrawal, a lock re-check and a reopen do the same) drew it back while create-intent
+    // was in flight, and the refusal was heard as the answer to Pay. A pickup cart reaches it: the
+    // missing-name refusal is the writer in between.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    // The Apply re-reads the cart: the view says pickup too, or it would stage a table (#346 C2).
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    await press(/^Pay/);
+    await waitFor(() => expect(regionText()).toContain("Add a first name for pickup"));
+    fireEvent.change(screen.getByLabelText(/First name for pickup/), { target: { value: "Min" } });
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "5105550123" } });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    try {
+      await press(/^Pay/);
+      expect(regionText()).not.toContain("Add a first name for pickup");
+      // MUTATION uia11y/f20-promo-region-copy-beside-status: red.
+      expect(regionText()).not.toContain("That code isn’t valid.");
+      // The box still says it: the refusal is the CODE's, and the code has not changed.
+      expect(described(box())).toBe("That code isn’t valid.");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a minimum the order has not met is the ORDER's: drawn in the region, the box left valid", async () => {
+    // Blind pass on #355: classed as the code's, "doesn't meet this code's minimum" sat under a box
+    // marked invalid — through a stage flip and through the edits that met the minimum — telling
+    // the diner a code that now applies was wrong (lib/promo-field.ts).
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    bill();
+    await apply("SAVE10", "tap");
+    await waitFor(() =>
+      expect(regionText()).toContain("Your order doesn’t meet this code’s minimum yet."),
+    );
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("focus moved INTO the box during the round trip: the region says it, since moving focus there says nothing", async () => {
+    // Blind pass on #355: the voice was fixed at the press. A keyboard Apply chose "focus", the
+    // diner tabbed back into the box while the server answered, and `.focus()` on the focused box
+    // fires nothing — the refusal was said zero times. The voice is settled at the ANSWER.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    const real = Element.prototype.matches;
+    vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+      return sel === ":focus-visible" ? true : real.call(this, sel);
+    });
+    await act(async () => {
+      btn.focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    act(() => box().focus());
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-voice-fixed-at-the-press: red.
+    expect(regionText()).toContain("That code isn’t valid.");
+  });
 });

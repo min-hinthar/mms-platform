@@ -573,8 +573,16 @@ export function Checkout({
    * visually hidden, since the words are already under the box. That covers Enter in the box (focus
    * is already there) and a TAP on Apply: focus in this box hides the docked door (PD2's
    * `promoFocused`), and a tap's programmatic focus raises no keyboard to make room for, so the
-   * door would vanish for nothing. The voice is decided at the submit, in the handler. Cleared by
-   * retyping the code or by the next Apply.
+   * door would vanish for nothing. The voice is decided at the submit, in the handler, and settled
+   * at the ANSWER: focus that moved into the box during the round trip makes `.focus()` a no-op
+   * that says nothing, so the region speaks instead. The box's refusal is cleared by retyping the
+   * code or by the next Apply.
+   *
+   * ⚠️ THE REGION'S VOICE IS `status` ITSELF (blind pass on #355), drawn visually hidden while it
+   * still IS this refusal's sentence — the `outcomeMy` pattern below. A hidden copy kept BESIDE
+   * `status` came back whenever a handler emptied the region (Pay, a stage flip, the counter ask
+   * and its withdrawal, a lock re-check, a reopen, a retired edit refusal), and the refusal was
+   * heard again as the answer to that tap. In `status`, any later writer retires it by construction.
    */
   const [promoRefusal, setPromoRefusal] = useState<{
     text: string;
@@ -2293,9 +2301,14 @@ export function Checkout({
       try {
         const result = await applyPromoAction(cartId, promo.trim());
         // F20 — a refusal of the CODE goes under the box; anything else is the region's, as before.
-        if (!result.ok && promoRefusalOnField(result.reason))
-          setPromoRefusal({ text: PROMO_MESSAGES[result.reason], voice });
-        else setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
+        if (!result.ok && promoRefusalOnField(result.reason)) {
+          const text = PROMO_MESSAGES[result.reason];
+          // Settled at the answer: focus already in the box means moving it there says nothing.
+          const said = document.activeElement === promoEl.current ? "region" : voice;
+          setPromoRefusal({ text, voice: said });
+          // The region's voice is `status` itself — hidden by the region while it is this sentence.
+          if (said === "region") setStatus(text);
+        } else setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
       } catch {
         // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
         // it — ONE line in the single status region (a second setStatus would announce the same
@@ -4074,8 +4087,13 @@ export function Checkout({
                         value={promo}
                         onChange={(e) => {
                           setPromo(e.target.value);
-                          // A refused code is cleared by retyping it.
-                          if (promoRefusal) setPromoRefusal(null);
+                          // A refused code is cleared by retyping it — and the region's voice of
+                          // it with it, or that sentence would be DRAWN there once unhidden.
+                          if (promoRefusal) {
+                            const said = promoRefusal.text;
+                            setPromoRefusal(null);
+                            setStatus((cur) => (cur === said ? null : cur));
+                          }
                         }}
                         // A placeholder can't carry two lang attributes — the one-line bilingual
                         // string is the W16b convention for plain-text slots.
@@ -5078,12 +5096,16 @@ export function Checkout({
               {/* Keyed on `statusSeq` (Phase 2c · review): a refused tap renumbers it, so a repeated
                   sentence remounts and is said again. */}
               <span key={statusSeq}>
-                {payError ?? status}
-                {/* F20 — a refusal of the promo CODE is drawn under its box; this region says it
-                    only when focus was already in the box at the Apply — hidden, never drawn twice. */}
-                {!payError && status === null && promoRefusal?.voice === "region" && (
-                  <span className="sr-only">{promoRefusal.text}</span>
-                )}
+                {/* F20 — a refusal of the promo CODE is drawn under its box; when the region is its
+                    voice (`promoRefusal`'s docblock) `status` holds the sentence and is said HIDDEN
+                    while it still is that sentence — never drawn twice, never said again once any
+                    later writer has had the region. */}
+                {payError ??
+                  (promoRefusal?.voice === "region" && status === promoRefusal.text ? (
+                    <span className="sr-only">{status}</span>
+                  ) : (
+                    status
+                  ))}
                 {/* Phase 3c-i (D15) — the owner's Burmese half of a send/undo outcome, only while the
                     region still says the EN sentence it belongs to. */}
                 {!payError && outcomeMy && status === outcomeMy.text && (

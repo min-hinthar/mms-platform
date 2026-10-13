@@ -6173,6 +6173,14 @@ const MUTANTS = [
     replace: "  locked: true,",
   },
   {
+    id: "uia11y/f20-promo-minimum-on-the-box",
+    file: "apps/qr/lib/promo-field.ts",
+    suite: "lib/promo-field.test.ts",
+    why: "F20 · blind pass on #355 — an unmet MINIMUM is the order's: the code is good, the edits that meet it never touch the box, and a box refusal outlives a stage flip, so bound to the box it stood under a code that now applies, marked invalid",
+    find: "  min_not_met: false,",
+    replace: "  min_not_met: true,",
+  },
+  {
     id: "uia11y/f20-promo-refusal-off-the-box",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
@@ -6193,16 +6201,18 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "F20 — one voice per refusal: when focus moved to the box its description says it, so the region repeating it reads the same sentence twice",
-    find: '                {!payError && status === null && promoRefusal?.voice === "region" && (',
-    replace: "                {!payError && status === null && promoRefusal !== null && (",
+    // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
+    find: '          if (said === "region") setStatus(text);',
+    replace: "          setStatus(text);",
   },
   {
     id: "uia11y/f20-promo-enter-refusal-unsaid",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "F20 — Enter in the box leaves focus where it is, so the region is the only voice left; silenced, the refusal reaches no screen reader at all",
-    find: '                {!payError && status === null && promoRefusal?.voice === "region" && (',
-    replace: "                {false && promoRefusal !== null && (",
+    // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
+    find: '          if (said === "region") setStatus(text);\n',
+    replace: "",
   },
   {
     id: "uia11y/f20-promo-tap-steals-focus",
@@ -6211,6 +6221,31 @@ const MUTANTS = [
     why: "F20 — only a KEYBOARD Apply moves focus into the promo box; a tap's programmatic focus raises no keyboard, yet focus in this box hides the Bill's one docked door (PD2), so the door vanished for nothing",
     find: "      at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)",
     replace: "      at instanceof HTMLElement && at !== promoEl.current",
+  },
+  {
+    id: "uia11y/f20-promo-region-copy-beside-status",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — the region's voice kept as a hidden copy BESIDE `status` came back whenever a handler emptied the region: Pay (create-intent in flight), a stage flip, the counter ask, a lock re-check — and the stale 'That code isn't valid' was heard as the answer to that tap",
+    find: '                  (promoRefusal?.voice === "region" && status === promoRefusal.text ? (\n                    <span className="sr-only">{status}</span>',
+    replace:
+      '                  (promoRefusal?.voice === "region" && (status === null || status === promoRefusal.text) ? (\n                    <span className="sr-only">{promoRefusal.text}</span>',
+  },
+  {
+    id: "uia11y/f20-promo-voice-fixed-at-the-press",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — a keyboard Apply chose 'focus' at the press; a diner who tabbed back into the box during the round trip got `.focus()` on the focused box, which fires nothing, and the region stayed quiet: the refusal said zero times",
+    find: '          const said = document.activeElement === promoEl.current ? "region" : voice;',
+    replace: "          const said = voice;",
+  },
+  {
+    id: "uia11y/f20-promo-retype-leaves-the-region",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — retyping clears the box's refusal; left in `status`, the region's hidden voice of it is no longer hidden and is DRAWN under the totals as a refusal of a code nobody has applied",
+    find: "                            setStatus((cur) => (cur === said ? null : cur));\n",
+    replace: "",
   },
   {
     id: "oauth-store/attempt-marker-reports-success-it-did-not-have",
