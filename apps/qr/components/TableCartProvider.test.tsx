@@ -852,7 +852,8 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     for (const r of watch.takeRecords())
       for (const n of Array.from(r.addedNodes)) if (n.textContent) said.push(n.textContent);
     watch.disconnect();
-    const hedge = said.indexOf(unconfirmedWriteNotice());
+    // F30 (lifecycle audit) — the stepper's retraction names the dish, like `add`'s.
+    const hedge = said.indexOf(namedUnconfirmedWriteNotice("Mohinga"));
     expect(hedge).toBeGreaterThanOrEqual(0);
     const banner = said.map((t) => t.includes("is checking out")).lastIndexOf(true);
     expect(banner).toBeGreaterThan(hedge);
@@ -871,7 +872,9 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
     expect(result.state).toBe("unconfirmed");
     expect(mayRetry(result)).toBe(false);
-    await waitFor(() => expect(spoken()).toBe(unconfirmedWriteNotice()));
+    // F30 (lifecycle audit) — named: "We couldn’t confirm Mohinga — check your order below."
+    // MUTATION (lcb/provider/qty-hedge-unnamed): drop the name; red.
+    await waitFor(() => expect(spoken()).toBe(namedUnconfirmedWriteNotice("Mohinga")));
   });
 
   it("T41 — a REMOVE whose line is still there is UNCONFIRMED, not refused", async () => {

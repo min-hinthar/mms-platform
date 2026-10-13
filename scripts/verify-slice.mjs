@@ -1416,6 +1416,14 @@ const MUTANTS = [
     replace: "  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);",
   },
   {
+    id: "lcb/provider/qty-hedge-unnamed",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "F30 (lifecycle audit) — the menu stepper's retraction names the dish, as `add`'s does; with rows in flight a bare 'We couldn’t confirm that' does not say which '−' it is about",
+    find: '        if (result.state === "unconfirmed") publishUnconfirmed(line?.name);\n',
+    replace: '        if (result.state === "unconfirmed") publishUnconfirmed();\n',
+  },
+  {
     id: "m224/refusal-loses-the-settle-recovery",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
@@ -1980,9 +1988,9 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T41 (blind pass on #354) — under a freeze the hedge is still owed: the stepper flashed its optimistic step on tap, and the lock banner says the freeze, never that this write may not have landed. Let the freeze swallow the retraction and the final region reads exactly the same — only the sequence the region mounted shows the hedge was never said",
-    find: '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    find: '        if (result.state === "unconfirmed") publishUnconfirmed(line?.name);\n        return result;',
     replace:
-      '        if (result.state === "unconfirmed" && !freezeRef.current.locked) publishUnconfirmed();\n        return result;',
+      '        if (result.state === "unconfirmed" && !freezeRef.current.locked) publishUnconfirmed(line?.name);\n        return result;',
   },
   {
     id: "refusal/add-refusal-goes-unpublished",

@@ -1567,7 +1567,9 @@ export function TableCartProvider({
         });
         // `refused` is unreachable on this path by construction (the landing is `true` or `null`),
         // so a write that is not confirmed is retracted — never explained as a refusal.
-        if (result.state === "unconfirmed") publishUnconfirmed();
+        // F30 (lifecycle audit) — the retraction NAMES the dish, as `add`'s does: with rows in flight a
+        // bare "We couldn’t confirm that" does not say which "−" it is about.
+        if (result.state === "unconfirmed") publishUnconfirmed(line?.name);
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
