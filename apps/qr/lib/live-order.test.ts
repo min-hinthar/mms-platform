@@ -1,9 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
+  ACTIVE_ORDER_TTL_MS,
+  activeOrderExpiresAt,
+  cartTrackHref,
   liveOrderStatusWord,
   kindFromTrackedOrder,
   liveOrderModeLabel,
+  liveOrdersMoving,
   liveOrderTrackHref,
+  liveWithoutSession,
+  sameActiveOrder,
+  staleOrderFate,
+  uncollectedPickupHref,
   type LiveOrderKind,
 } from "./live-order";
 
@@ -190,10 +198,134 @@ describe("the derivations that ride the kind", () => {
     expect(liveOrderTrackHref({ paymentIntent: "pi_abc", cartId: null })).toContain("resume=1");
   });
 
-  it("falls back to the split-tender shape when there is no PaymentIntent", () => {
+  it("falls back to the split-tender shape when there is no PaymentIntent — still a RESUME", () => {
     // A split order has no PI anywhere in any URL — cart+paid is its ONLY route back to /track.
+    // Lifecycle audit (2026-10-13), I — and /track treats a bare `?cart=…&paid=1` as the counter's or
+    // the split's own ARRIVAL, so this branch needs the marker too. RED when it is dropped: every
+    // resume of a counter-paid table replays "Paid — thank you!" and re-captures the order.
     expect(liveOrderTrackHref({ paymentIntent: null, cartId: "cart-2" })).toBe(
-      "/track?cart=cart-2&paid=1",
+      "/track?cart=cart-2&paid=1&resume=1",
     );
+  });
+});
+
+describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
+  const H = 60 * 60 * 1000;
+  const T0 = Date.parse("2026-10-13T18:00:00.000Z"); // 11 AM in Covina
+
+  it("E — a pickup is remembered until its SLOT plus the linger, never less than four hours", () => {
+    expect(activeOrderExpiresAt({ createdAt: T0 })).toBe(T0 + ACTIVE_ORDER_TTL_MS);
+    // Paid at 11 AM for 6:20 PM: the pointer outlives the 3 PM capture-TTL. RED when the slot is ignored.
+    const slot = "2026-10-14T01:20:00.000Z";
+    expect(activeOrderExpiresAt({ createdAt: T0, pickupSlot: slot })).toBe(
+      Date.parse(slot) + ACTIVE_ORDER_TTL_MS,
+    );
+    // A slot already past at the capture never SHORTENS the TTL; an unreadable slot is no slot.
+    expect(
+      activeOrderExpiresAt({ createdAt: T0, pickupSlot: new Date(T0 - H).toISOString() }),
+    ).toBe(T0 + ACTIVE_ORDER_TTL_MS);
+    expect(activeOrderExpiresAt({ createdAt: T0, pickupSlot: "not a date" })).toBe(
+      T0 + ACTIVE_ORDER_TTL_MS,
+    );
+  });
+
+  it("I — the cart branch's link is built ONCE, as an arrival or a resume", () => {
+    expect(cartTrackHref("c 1", true)).toBe("/track?cart=c%201&paid=1&resume=1");
+    // RED when the builder drops the marker on a resume.
+    expect(cartTrackHref("c1", false)).toBe("/track?cart=c1&paid=1");
+  });
+
+  it("I — a resume is the SAME order only on its own key", () => {
+    const pi = { paymentIntent: "pi_1", cartId: "c1" };
+    expect(sameActiveOrder(pi, { paymentIntent: "pi_1", cartId: null })).toBe(true);
+    expect(sameActiveOrder(pi, { paymentIntent: "pi_2", cartId: "c1" })).toBe(false);
+    const split = { paymentIntent: null, cartId: "c2" };
+    expect(sameActiveOrder(split, { paymentIntent: null, cartId: "c2" })).toBe(true);
+    expect(sameActiveOrder(split, { paymentIntent: null, cartId: "c3" })).toBe(false);
+    expect(sameActiveOrder(split, { paymentIntent: "pi_9", cartId: "c2" })).toBe(false);
+    expect(sameActiveOrder(null, { paymentIntent: "pi_1", cartId: null })).toBe(false);
+    expect(
+      sameActiveOrder({ paymentIntent: null, cartId: null }, { paymentIntent: null, cartId: null }),
+    ).toBe(false);
+  });
+
+  it("F — only a PURE dine-in row is finished by a stale read; everything else is unknown", () => {
+    // RED when every kind reads "unknown": the pill says "At your table" for the rest of the TTL.
+    expect(staleOrderFate({ kind: "dinein", hasTogoFood: false })).toBe("finished");
+    // RED when a to-go box rides along unnoticed: the bag still cooks after the table is cleared.
+    expect(staleOrderFate({ kind: "dinein", hasTogoFood: true })).toBe("unknown");
+    for (const kind of ["pickup", "togo", "grocery"] as const)
+      expect(staleOrderFate({ kind, hasTogoFood: kind !== "grocery" })).toBe("unknown");
+    // No recorded row, no verdict.
+    expect(staleOrderFate(null)).toBe("unknown");
+  });
+
+  it("E — only a PICKUP still to collect (slot today or later) stands without a live session", () => {
+    const todayStart = "2026-10-13T07:00:00.000Z"; // midnight in Covina (PDT)
+    const later = "2026-10-14T01:20:00.000Z";
+    expect(liveWithoutSession({ kind: "pickup", pickupSlot: later }, todayStart)).toBe(true);
+    // Earlier TODAY (a late pickup) still counts; yesterday's does not.
+    expect(
+      liveWithoutSession({ kind: "pickup", pickupSlot: "2026-10-13T08:00:00.000Z" }, todayStart),
+    ).toBe(true);
+    expect(
+      liveWithoutSession({ kind: "pickup", pickupSlot: "2026-10-13T06:59:00.000Z" }, todayStart),
+    ).toBe(false);
+    // RED when the kind check goes: a dine-in's session closing IS its end.
+    for (const kind of ["dinein", "togo", "grocery"] as const)
+      expect(liveWithoutSession({ kind, pickupSlot: later }, todayStart)).toBe(false);
+    expect(liveWithoutSession({ kind: "pickup", pickupSlot: null }, todayStart)).toBe(false);
+  });
+
+  it("E — a history row links to /track only for a pickup still to collect", () => {
+    const todayStart = "2026-10-13T07:00:00.000Z";
+    const base = {
+      pickupSlot: "2026-10-14T01:20:00.000Z",
+      togoStatus: "preparing" as string | null,
+      refundedInFull: false,
+      paymentIntent: "pi_1" as string | null,
+      cartId: "c1" as string | null,
+    };
+    expect(uncollectedPickupHref(base, todayStart)).toBe(
+      "/track?payment_intent=pi_1&redirect_status=succeeded&resume=1&cart=c1",
+    );
+    expect(uncollectedPickupHref({ ...base, togoStatus: "picked_up" }, todayStart)).toBeNull();
+    expect(uncollectedPickupHref({ ...base, refundedInFull: true }, todayStart)).toBeNull();
+    expect(
+      uncollectedPickupHref({ ...base, pickupSlot: "2026-10-12T01:20:00.000Z" }, todayStart),
+    ).toBeNull();
+    expect(uncollectedPickupHref({ ...base, pickupSlot: null }, todayStart)).toBeNull();
+    expect(
+      uncollectedPickupHref({ ...base, paymentIntent: null, cartId: null }, todayStart),
+    ).toBeNull();
+  });
+
+  it("J — /account re-polls only while a FIRED to-go bag is still moving", () => {
+    const now = Date.parse("2026-10-13T21:00:00.000Z");
+    const bag = (o: {
+      togoStatus: string | null;
+      fireAt?: string | null;
+      hasTogoFood?: boolean;
+    }) => ({
+      hasTogoFood: o.hasTogoFood ?? true,
+      togoStatus: o.togoStatus,
+      fireAt: o.fireAt ?? null,
+    });
+    expect(liveOrdersMoving([bag({ togoStatus: "preparing" })], now)).toBe(true);
+    expect(liveOrdersMoving([bag({ togoStatus: null })], now)).toBe(true);
+    expect(
+      liveOrdersMoving([bag({ togoStatus: "preparing", fireAt: "2026-10-13T20:59:00.000Z" })], now),
+    ).toBe(true);
+    // RED when a Ready bag, a dine-in "At your table" or a grocery basket keep the poll alive.
+    expect(liveOrdersMoving([bag({ togoStatus: "ready" })], now)).toBe(false);
+    expect(liveOrdersMoving([bag({ togoStatus: "preparing", hasTogoFood: false })], now)).toBe(
+      false,
+    );
+    expect(liveOrdersMoving([], now)).toBe(false);
+    // RED when a HELD pickup counts (the blind pass on #359): 'preparing' is stamped at payment, and a
+    // next-day pickup in the live set polled for a day over a word its fire_at alone can change.
+    expect(
+      liveOrdersMoving([bag({ togoStatus: "preparing", fireAt: "2026-10-14T00:40:00.000Z" })], now),
+    ).toBe(false);
   });
 });

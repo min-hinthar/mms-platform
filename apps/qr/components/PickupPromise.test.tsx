@@ -490,3 +490,42 @@ describe("Ready and late", () => {
     expect(button(container, "I’m here")).toBeNull();
   });
 });
+
+describe("B — the kitchen's own taps under the Now sentence (lifecycle audit, 2026-10-13)", () => {
+  const mountWith = (kitchen: "sent" | "cooking" | "done" | null, o: Partial<TrackedOrder> = {}) =>
+    render(
+      <PickupPromise
+        order={{ ...ORDER, ...o }}
+        justPaid={false}
+        live
+        onWake={() => {}}
+        kitchen={kitchen}
+      />,
+    );
+  const sub = (c: HTMLElement) => c.querySelector(".pickup-sub")?.textContent ?? null;
+
+  it("says the kitchen is cooking it once Mom has tapped Start, and done once she has tapped Done", () => {
+    const cooking = mountWith("cooking");
+    expect(sub(cooking.container)).toContain("It’s cooking now.");
+    cleanup();
+    // RED when the prop is ignored: the guest at the counter reads "with the kitchen" while the bag
+    // sits finished on the pass.
+    const done = mountWith("done");
+    expect(sub(done.container)).toContain("The kitchen’s done — we’re bagging it now.");
+    expect(done.container.querySelector(".pickup-sub [lang='my']")?.textContent).toBe(
+      "မီးဖိုချောင်က ပြီးပါပြီ — အခု ထုပ်နေပါတယ်",
+    );
+  });
+
+  it("says nothing more before Start, and never on a Ready bag (the expo's tap owns Ready)", () => {
+    expect(sub(mountWith("sent").container)).toBeNull();
+    cleanup();
+    expect(sub(mountWith("done", { togoStatus: "ready" }).container)).toBeNull();
+  });
+
+  it("is ambient — the one live region still speaks only the Now sentence", () => {
+    const { container } = mountWith("done");
+    expect(region(container)).toContain("Your order’s with the kitchen.");
+    expect(region(container)).not.toContain("bagging");
+  });
+});

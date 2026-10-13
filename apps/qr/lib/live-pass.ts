@@ -76,7 +76,9 @@ export function passHead(
  * nothing: there is no duration to measure, and the next view brings one.
  */
 export function settleRereadDelayMs(
-  items: ReadonlyArray<CartItem>,
+  // The four columns the clock acts on — a Pick, so /track's post-order kitchen read
+  // (lib/order-kitchen.ts) schedules its re-read through this ONE rule rather than a copy of it.
+  items: ReadonlyArray<Pick<CartItem, "fulfillment" | "lineState" | "fireAt" | "bumpedAt">>,
   nowMs: number | null,
 ): number | null {
   if (nowMs === null || !Number.isFinite(nowMs)) return null;
