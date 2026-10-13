@@ -817,6 +817,16 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     await waitFor(() => expect(ctl.items).toEqual([line(3)]));
     h.setQty.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(view({ items: [line(3)], locked: true, lockedBy: PEER_SEAT }));
+    // ⚠️ EVERY SENTENCE THE REGION MOUNTS, in order — not only its final text (blind pass on #354).
+    // The banner takes the one slot last either way, so a final-text read cannot tell "the hedge was
+    // said, then the banner" (CHANGELOG's claim) from "the hedge was never said". Each notice mounts
+    // a new keyed node, so the observer's added nodes are the sequence a screen reader is handed.
+    const said: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of Array.from(r.addedNodes)) if (n.textContent) said.push(n.textContent);
+    });
+    watch.observe(screen.getByRole("status"), { childList: true, subtree: true });
 
     const result = await ctl.setItemQty("line-1", 2);
 
@@ -829,6 +839,15 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     await drainDeferredAnnounces();
     expect(spoken()).not.toContain(NOTICE.peerLock);
     expect(spoken()).toContain("is checking out");
+    // …AFTER the hedge was said: the hedge, then the banner, and never the refusal between them.
+    for (const r of watch.takeRecords())
+      for (const n of Array.from(r.addedNodes)) if (n.textContent) said.push(n.textContent);
+    watch.disconnect();
+    const hedge = said.indexOf(unconfirmedWriteNotice());
+    expect(hedge).toBeGreaterThanOrEqual(0);
+    const banner = said.map((t) => t.includes("is checking out")).lastIndexOf(true);
+    expect(banner).toBeGreaterThan(hedge);
+    expect(said.some((t) => t.includes(NOTICE.peerLock))).toBe(false);
   });
 
   it("T41 — a host overwrite inside the round trip is UNCONFIRMED, not a refusal", async () => {

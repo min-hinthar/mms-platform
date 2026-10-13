@@ -1574,6 +1574,15 @@ const MUTANTS = [
     replace: "          landed: atTarget,",
   },
   {
+    id: "t41/freeze-swallows-the-unconfirmed-hedge",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T41 (blind pass on #354) — under a freeze the hedge is still owed: the stepper flashed its optimistic step on tap, and the lock banner says the freeze, never that this write may not have landed. Let the freeze swallow the retraction and the final region reads exactly the same — only the sequence the region mounted shows the hedge was never said",
+    find: '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    replace:
+      '        if (result.state === "unconfirmed" && !freezeRef.current.locked) publishUnconfirmed();\n        return result;',
+  },
+  {
     id: "refusal/add-refusal-goes-unpublished",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
