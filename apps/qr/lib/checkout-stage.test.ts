@@ -228,8 +228,7 @@ describe("PD10 · D5 — servedGateVerdict: the door opens only once everything 
 
   it("a dine-in draft at a table whose host the Bill cannot READ is `unknownHost` — never guessed hostless or hosted (Codex round 2 on #346)", () => {
     // MUTATION (checkout-stage/served-gate-unknown-host-reads-hostless): an unknown host read as
-    // "no host" — a hosted table's Bill promises the counter, whose own read of the real host_seat
-    // refuses the drafts; red.
+    // "no host" — a hosted table's Bill says a server will send the dishes its host sends; red.
     const draft = served({ state: "draft", fire_at: null, bumped_at: null });
     expect(verdict([served(), draft], null)).toBe("unknownHost");
     // The host only matters to a dine-in draft: the kitchen and a to-go draft read the same.

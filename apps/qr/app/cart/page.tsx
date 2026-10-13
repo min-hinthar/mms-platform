@@ -196,13 +196,13 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialCounterRequestedAt={view.counterRequestedAt}
       // Codex round 2 on #331 — the authoritative mode for the parked phone-pay door.
       initialViewMode={view.mode}
-      // PD1 — the nudge stamp, whether it was readable at all (an unreadable stamp hides the
-      // offer), and the server's clock the "Show a server" pass reads the grace against.
+      // PD1 — the nudge stamp, and whether it was readable at all (an unreadable stamp hides the
+      // offer).
       initialSendNudge={view.sendNudge}
       initialNudgeReady={view.nudgeReady}
-      initialServerNow={view.serverNow}
       // PD10 — the DATABASE clock the view's lines were read against (`mms_now()`, before them): the
-      // live pass and the served door read every stage on it. Without it the Bill opens on an UNKNOWN
+      // live pass, the served door and (PD1's tail) the "Show a server" pass read every stage on it.
+      // Without it the Bill opens on an UNKNOWN
       // clock, every settled bump reads "Cooking", no settle re-read is scheduled, and the first
       // self-heal replays FILL and TURN for every dish (the capped blind pass on #346, C1). Required
       // on `Checkout`, so a call site that forgets it does not compile.

@@ -117,3 +117,74 @@ export function chosenName(name: string | null | undefined): string | null {
   const n = name?.trim() ?? "";
   return n !== "" && n !== DEFAULT_SEAT_NAME ? n : null;
 }
+
+/**
+ * PD1 (m1 decision 16, graft 3) — is the HOST asked for a name? Once, at the moment it starts to
+ * matter: on their own /cart at a dine-in table, once the party has reached two — a tablemate then
+ * reads who sends ("Aye sends the table's order…", `hostSendsCopy`) — and only while the host's
+ * seat still carries the default "Guest" (`chosenName` → null), which every tablemate reads as the
+ * role sentence instead. Never once a name is chosen (the row's own save included: the caller
+ * passes the saved name), never for a guest (only the host is named as the one who sends), never
+ * at a solo table (nobody else reads it), and never again this visit after "Not now"
+ * (`nameAskDismissKey`). The caller draws it where the host's Send is — the moment the name is read.
+ */
+export function hostNameAsked(s: {
+  /** The session mode (`SplitContext.mode`): only a dine-in table has a Send to be named for. */
+  mode: string | null;
+  role: "host" | "guest" | null;
+  /** The table's name for this seat (`session_members.display_name`), or the one this row saved. */
+  myName: string | null;
+  /** The table's party, the host included: `partySize` over the page's members and the view's lines. */
+  memberCount: number;
+  /** "Not now" stands for this visit — or its sessionStorage read has not landed yet. */
+  dismissed: boolean;
+}): boolean {
+  return (
+    s.mode === "dinein" &&
+    s.role === "host" &&
+    s.memberCount >= 2 &&
+    chosenName(s.myName) === null &&
+    !s.dismissed
+  );
+}
+
+/**
+ * PD1 (Codex round 1 on #356) — the party as /cart can see it LIVE, for `hostNameAsked`'s
+ * `memberCount`: the seats of the members the page read, plus every seat that owns a line on the
+ * applied view. /cart's watch is the cart and its lines (`useCartRealtime`), never the members, and
+ * the page reads the members once — so a tablemate who joined after the host opened /cart was
+ * invisible to the gate until a reload. Their first dish is a line with their seat, and it reaches
+ * this view through the watch it already has: that is when the host's Send becomes the thing they
+ * wait on, and when the ask now appears. A tablemate who joined and added nothing is still counted
+ * only from the next page read. A seat is one person however many lines it owns, and a line with no
+ * seat (a staff-added dish) is nobody.
+ */
+export function partySize(
+  memberSeats: ReadonlyArray<string>,
+  lineSeats: ReadonlyArray<string | null | undefined>,
+): number {
+  const seats = new Set(memberSeats);
+  for (const seat of lineSeats) if (seat) seats.add(seat);
+  return seats.size;
+}
+
+/** The visit-scoped key "Not now" is kept under (sessionStorage): per table session, so the next
+ *  table asks again. Not `mms.qr.`-prefixed: it is not a device-session pointer (lib/device-session). */
+export function nameAskDismissKey(sessionId: string): string {
+  return `mms.nameAsk.notNow.${sessionId}`;
+}
+
+/**
+ * The ask's words — m1 screen 3's COPY (English), verbatim. English-only until the K15 native
+ * check: the spec's Burmese drafts (m1 COPY (Burmese), "Name ask") are listed for that sitting and
+ * never invented or shipped here before it.
+ */
+export const HOST_NAME_ASK = {
+  question: "What should your table call you?",
+  reason: "Your table sees you as the one who sends.",
+  placeholder: "Your name",
+  save: "Save",
+  notNow: "Not now",
+  saved: "Name saved",
+  failed: "Couldn’t save your name — please try again.",
+} as const;

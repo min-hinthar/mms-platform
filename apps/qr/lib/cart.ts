@@ -871,9 +871,8 @@ export async function getCartView(cartId: string): Promise<{
     ),
     // PD1 — whether that read answered at all: an unreadable stamp hides the nudge's offer.
     nudgeReady: !nudgeRes.error,
-    // PD1 — the app server's clock as this view was made, so a phone compares the lines' `fire_at`
-    // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
-    // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.
+    // PD1 — the app server's clock as this view was made. NO READER since PD1's tail (#356): the
+    // "Show a server" pass reads `dbNow` below, like the Bill's live pass. M282 drops the field.
     serverNow: new Date().toISOString(),
     // PD10 — the DB clock read before the lines (above): the one clock the guest's pass and its
     // served door compare `fire_at` / `bumped_at` against (lib/live-pass).

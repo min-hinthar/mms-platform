@@ -2972,6 +2972,29 @@ html[data-fx="off"] .pa-mid {
   line-height: var(--lh-my);
   color: var(--t2);
 }
+/* PD1 (m1 decision 16) — the HOST's one-time name ask, above the waiting line and Send: an inline
+   row on the page ground (no card, no motion). The field is the spec's recessed well (--sunken,
+   52px; the primitive's --r-sm is its 12px radius and --fs-field its 16px). Save is a PAPER
+   secondary at the same 52px beside the quiet 44px "Not now", so Send stays the one filled control
+   in the state (m1 B11). */
+.checkout-name-ask {
+  display: grid;
+  gap: var(--s2);
+  margin: var(--s3) 0 0;
+}
+.checkout-name-ask .ui-field-control {
+  min-height: 52px;
+  background: var(--sunken);
+}
+.checkout-name-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.checkout-name-ask-save {
+  min-height: 52px;
+}
 /* The Send's caption: feedforward before the tap, the SAME node (same id) once Send is Undo — the
    control keeps its box, so the tap shifts nothing. */
 .checkout-send-caption {

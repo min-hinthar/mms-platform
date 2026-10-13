@@ -4,6 +4,65 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD1's and PD2's remainders: the host's name ask, the pass on the kitchen track, and the counter ask over unsent dishes (2026-10-12)
+
+- **The join code no longer rides /cart's split context (PD1).** `getSplitContext` (`lib/split.ts`)
+  neither reads nor returns `table_sessions.qr_code`; it carries the session id instead. No pass has
+  printed the code since #335's fix round, so nothing read the field.
+- **"Show a server" reads the kitchen track on the view's database clock (PD1).** `showServerStatus`
+  is now the roll-up of `lib/kitchen-track.ts` (through the live pass's `passHead`), read against
+  `dbNow`, the clock that stamped the dishes. The `initialServerNow` prop is gone. Two readings change:
+  a dish the kitchen has started reads "Sent to kitchen" whatever its fire time says, and an unreadable
+  clock reads "Sending…", never "Sent".
+- **The host is asked their name once, when the party reaches two (PD1, m1 decision 16).** On the
+  host's Order stage, above the waiting line and Send, while their seat still carries the default
+  "Guest". Save renames the host's own seat, keeps the name on the device, says "Name saved" once and
+  moves focus to Send. A failed save keeps the row, marks the field, says why once and keeps focus
+  there. "Not now" hides the ask for the rest of the visit at that table.
+  - Codex round 1 on this PR: /cart watches the cart and its lines, never the members, so a host who
+    opened /cart alone was never asked once a tablemate joined. The party now counts the page's
+    members plus every seat with a line on the screen's latest view (`partySize`), so the ask appears
+    with the tablemate's first dish.
+  - Left open: a tablemate who joined and added nothing still counts only from the host's next page
+    load, and a guest sees the host's new name on their own next load (OPEN-ITEMS M283). The save's
+    action does not check that its write touched a row (M281).
+- **"Pay at the counter" now carries unsent dishes (PD2, m2 decision 12).** The server no longer
+  refuses the ask while dine-in dishes wait for the Send. The old "Everything has to go to the kitchen
+  first" refusal and the Bill's "Send everything to the kitchen first" hold are retired. On both docks
+  the counter is held only by a tablemate's pay lock or this phone's undo window.
+  - While dishes are unsent, the parked dock's line reads "You can still ask — the counter will check
+    them with your table." On a table with no host that line used to read "The counter takes cash."
+    The host keeps "Back to send them".
+  - No money moves on the lift: the register's settle doors still refuse while dishes are unsent, so
+    staff send them with the table before taking payment. After the card flip, Pay keeps its served
+    gate and its unsent reason; the `dineInPhonePay` flip itself stays parked.
+- **New copy is English-only.** The seven name-ask strings and PD2's lifted line ship in English.
+  Their Burmese drafts are in the m1 and m2 specs and are listed on OPEN-ITEMS `K15 · diner-cart` for
+  the native check. No Burmese was added.
+- **Tests and mutants.** A new `lib/split-context.test.ts`, plus cases in show-server, send-nudge-state,
+  counter-pay, counter-pay-state, checkout-verb and the three Checkout suites, each watched red against
+  the old code. `verify:slice` goes from 4171 to 4195 mutants: 32 new `pdrem/*` (three for the Codex
+  fix, three for the blind pass) and 8 retired with the lifted unsent rule.
+- **Docs.** The m1 and m2 specs record what was built, and their stale "not built yet" notes point at
+  it. DESIGN-LANGUAGE's settle-gate bullets match the lift. OPEN-ITEMS closes PD1 and PD2 and files
+  M281 (the name save's unchecked row count), M282 (`getCartView.serverNow` has no reader now) and
+  M283 (/cart reads the members once per page load).
+- **The blind pass's fix round.** The parked Bill's undo-window hold on its one door is pinned now (a
+  grace-suite case and `pdrem/checkout-parked-grace-not-held`). At the window's elapse the parked Bill
+  reads the counter's own hold, not Pay's: a tablemate's dish landing inside the window no longer
+  lets the door light up with nothing said, and over unsent dishes the edge says the dock's line,
+  never "Ready to pay." (two more mutants). Comments that still had the counter ask refusing unsent
+  dishes, or `getCartView.serverNow` with a reader, now match the code; the "Let {host} know"
+  docblock sits on `nudge` again; a regex that could not fail beside an exact match is gone. Filed
+  J57 (whether the undo window should still hold the counter: the owner's call) and T58
+  (`getCartView`'s clock-before-the-lines order has no test).
+  - The capped pass over those fix commits found three more places with the retired counter
+    refusal (the unknown-host mutant's `why`, its test comment and the m10 spec), a docblock that
+    left the register's settle doors off `payBlockedByUnsent`'s readers, and a grace mutant whose
+    `why` argued the rationale J57 sets aside: all now match the code. The parked edge's "never
+    'Ready to pay.'" check reads every text the region takes through the elapse, so it fails on its
+    own.
+
 ### Refusals on their own box, one voice on /menu, and the guide foot (2026-10-12)
 
 - **F20: the account card's email and code boxes and the checkout's promo box are `@mms/ui`

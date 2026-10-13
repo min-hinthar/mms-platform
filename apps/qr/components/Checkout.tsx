@@ -18,8 +18,8 @@ import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
 import {
+  COUNTER_ASK_CARRIES_UNSENT,
   counterTakesCard,
-  counterUnsentTapCopy,
   sameAsk,
   splitBoardShown,
 } from "@/lib/counter-pay-state";
@@ -28,6 +28,7 @@ import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
 import {
   Avatar,
+  Button,
   EmptyState,
   Field,
   Icon,
@@ -143,7 +144,9 @@ import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-h
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
 import {
   billDoorLabel,
+  counterDoorBlock,
   counterHoldCopy,
+  counterRestLine,
   orderStageHero,
   payBlock,
   payBlockCopy,
@@ -153,21 +156,20 @@ import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
-import {
-  alreadyNudgedCopy,
-  hostSendsCopy,
-  nudgeCopy,
-  staffCanSendCopy,
-  TABLE_STARTER,
-} from "@/lib/confirm-copy";
+import { alreadyNudgedCopy, hostSendsCopy, nudgeCopy, staffCanSendCopy } from "@/lib/confirm-copy";
 import {
   chosenName,
+  HOST_NAME_ASK,
+  hostNameAsked,
+  nameAskDismissKey,
   nudgeOffered,
   nudgeStands,
+  partySize,
   waitingLine,
   type SendNudge,
 } from "@/lib/send-nudge-state";
 import { nudgeHost } from "@/lib/send-nudge";
+import { setDisplayName } from "@/lib/members";
 import {
   graceRereadDelayMs,
   passDishes,
@@ -314,7 +316,6 @@ export function Checkout({
   initialCounterRequestedAt = null,
   initialSendNudge = null,
   initialNudgeReady = false,
-  initialServerNow = null,
   initialDbNow,
   initialViewMode = null,
   initialTableNumber = null,
@@ -348,12 +349,10 @@ export function Checkout({
   initialSendNudge?: SendNudge | null;
   /** PD1 — the stamp read itself succeeded (`getCartView.nudgeReady`); false hides the offer. */
   initialNudgeReady?: boolean;
-  /** PD1 — the server's clock (ISO) as the first view was made (`getCartView.serverNow`); null =
-   *  unknown, which the pass reads conservatively (a line in its grace stays "Sending…"). */
-  initialServerNow?: string | null;
   /** PD10 — the DATABASE clock (ISO) as the first view was made (`getCartView.dbNow`, read before
-   *  its lines): the live pass reads every stage against it; null = unknown, which reads
-   *  conservatively (a line in its grace stays "Sending…", a bump stays unsettled, the door held).
+   *  its lines): the live pass — and, since PD1's tail, the "Show a server" pass — reads every stage
+   *  against it; null = unknown, which reads conservatively (a line in its grace stays "Sending…",
+   *  a bump stays unsettled, the door held).
    *  REQUIRED, not defaulted (the capped blind pass on #346, C1): `app/cart/page.tsx` once omitted
    *  it, so production opened every Bill on the unknown clock and the first self-heal replayed the
    *  whole kitchen's FILL and TURN as news. A call site that forgets it now fails `tsc`. */
@@ -466,7 +465,8 @@ export function Checkout({
   const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
   // PD10 (Codex round 2 on #346) — the SERVED GATE's host: UNKNOWN when the split context missed (or
   // its member read came back empty), never the guessed `false` above. That guess would call a
-  // hosted table hostless and promise a counter its own server read refuses (`servedGateHost`).
+  // hosted table hostless and tell it a server will send its dishes, when its host does
+  // (`servedGateHost`).
   const gateHost = servedGateHost(splitContext);
   // PD1 (m1 graft 3) — the name the table CHOSE, never the default "Guest" read as a person
   // (`chosenName`): an unnamed host gets the role sentence everywhere this name is spoken.
@@ -665,12 +665,9 @@ export function Checkout({
   // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
   // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
   const [ownAsk, setOwnAsk] = useState(false);
-  // PD1 — the nudge stamp and the server's clock, both from every applied view.
+  // PD1 — the nudge stamp, from every applied view.
   const [sendNudge, setSendNudge] = useState<SendNudge | null>(initialSendNudge);
   const [nudgeReady, setNudgeReady] = useState(initialNudgeReady);
-  const [serverNowMs, setServerNowMs] = useState<number | null>(() =>
-    initialServerNow ? Date.parse(initialServerNow) : null,
-  );
   // PD10 — the applied view's DB clock (never this phone's): the live pass and the served door read
   // every stage against it (lib/live-pass), and it is replaced only by the next applied view.
   const [dbNowMs, setDbNowMs] = useState<number | null>(() =>
@@ -728,6 +725,34 @@ export function Checkout({
     return () => clearTimeout(id);
   }, [passStep, passMotion.nonce]);
   const [nudgeBusy, setNudgeBusy] = useState(false);
+  // PD1 (m1 decision 16) — the HOST's one-time name ask. "Not now" for this visit is null until its
+  // sessionStorage read lands, and null HIDES the row (it never flashes in, then out). `savedName` is
+  // the name this row saved: the context's members are the page's read, so the saved name stands in
+  // for this seat's until the next one. Then the draft, the save's flight and its failure.
+  const [nameAskDismissed, setNameAskDismissed] = useState<boolean | null>(null);
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const askSessionId = splitContext?.sessionId ?? null;
+  useEffect(() => {
+    if (!askSessionId) return;
+    let active = true;
+    // Read AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): the server render
+    // and the first client render agree, and the setState runs in a callback, never the effect
+    // body. Storage that throws (a private window, blocked site data) reads as not dismissed: the
+    // ask shows, and it is one tap to skip.
+    void Promise.resolve()
+      .then(() => sessionStorage.getItem(nameAskDismissKey(askSessionId)) === "1")
+      .catch(() => false)
+      .then((dismissed) => {
+        if (active) setNameAskDismissed(dismissed);
+      });
+    return () => {
+      active = false;
+    };
+  }, [askSessionId]);
   // PD1 — "Show a server": open, and the dish ids it printed when it opened (they stay on the
   // ticket after they go; `passDishes`).
   const [passOpen, setPassOpen] = useState(false);
@@ -855,13 +880,13 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-    // PD1 — the nudge stamp (cleared by the fire, in the same transaction), whether it was
-    // readable, and the server's clock.
+    // PD1 — the nudge stamp (cleared by the fire, in the same transaction) and whether it was
+    // readable.
     setSendNudge(v.sendNudge);
     setNudgeReady(v.nudgeReady);
-    setServerNowMs(Date.parse(v.serverNow));
-    // PD10 — the DB clock the pass reads its stages against, and the view's number for the motion
-    // plan (a quiet foreground re-read marks itself AFTER this, in the same batch).
+    // PD10 — the DB clock both passes read their stages against (the live pass; since PD1's tail
+    // the "Show a server" pass too), and the view's number for the motion plan (a quiet foreground
+    // re-read marks itself AFTER this, in the same batch).
     setDbNowMs(Date.parse(v.dbNow));
     setViewNo((n) => n + 1);
     setViewQuiet(false);
@@ -2557,6 +2582,60 @@ export function Checkout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counterAt]);
   /**
+   * PD1 (m1 decision 16) — the name ask's Save: the host renames THEIR OWN seat (`setDisplayName`,
+   * lib/members — member-authorized, scoped to the caller's seat in the SQL), and the device keeps
+   * it as its one identity (`DEVICE_NAME_KEY`: the menu's guest list and the pickup name read it).
+   * Saved: the row leaves, the region says "Name saved" once, and focus goes to Send — the control
+   * that held it unmounts. Refused or offline: the row stays, the field carries the error (and its
+   * description), the region says it once, and focus returns to the field. Nothing typed (or only
+   * the default "Guest") writes nothing: the field is where the answer goes.
+   */
+  async function saveHostName(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (nameBusy || !splitContext) return;
+    const next = chosenName(nameDraft.trim().slice(0, 40));
+    if (!next) {
+      nameInputRef.current?.focus();
+      return;
+    }
+    setNameBusy(true);
+    setNameError(null);
+    try {
+      await setDisplayName(splitContext.sessionId, next);
+    } catch {
+      // The action throws on a refusal and on transport alike (Next redacts the message in
+      // production): the honest answer is "try again", and the row stays for it.
+      setNameBusy(false);
+      setNameError(HOST_NAME_ASK.failed);
+      sayRefusal(HOST_NAME_ASK.failed);
+      nameInputRef.current?.focus();
+      return;
+    }
+    try {
+      localStorage.setItem(DEVICE_NAME_KEY, next);
+    } catch {
+      /* private mode — the seat is named on the server either way */
+    }
+    setNameBusy(false);
+    setSavedName(next);
+    sayOutcome(HOST_NAME_ASK.saved);
+    sendHandle.current?.focus();
+  }
+  /** "Not now": hidden for this visit (sessionStorage, per table session); focus lands on the Send
+   *  the row sat above, since the control under it unmounts. */
+  function dismissNameAsk() {
+    setNameAskDismissed(true);
+    if (splitContext) {
+      try {
+        sessionStorage.setItem(nameAskDismissKey(splitContext.sessionId), "1");
+      } catch {
+        /* private mode — hidden for this mount, asked again on the next */
+      }
+    }
+    sendHandle.current?.focus();
+  }
+
+  /**
    * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
    * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
    * value the server returned — ITS seat, never this phone's (the blind pass on #335) — after the
@@ -3137,10 +3216,11 @@ export function Checkout({
   // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
   // kitchenDraftQty (see lib/checkout-stage).
   const unsentQty = unsentFoodQty(viewItems);
-  // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
-  // (`payBlockedByUnsent`, the SAME binding the counter ask refuses on — this is the courtesy, that
-  // is the gate). Only dine-in has a send step. PD10 — create-intent's gate is D5's served gate now,
-  // which every unsent dine-in line also holds; this rule stays the COUNTER's (`counterBlock`).
+  // Phase 1b — "Everything sent": Pay is held until every sendable dish has gone
+  // (`payBlockedByUnsent` — this is the courtesy; the charge boundary is create-intent's own gate,
+  // D5's served gate since PD10, which every unsent dine-in line also holds). Only dine-in has a send
+  // step. It is PAY's rule alone: PD2's lift (m2 decision 12) took it off the counter, so neither the
+  // ask (`requestCounterPay`) nor the counter door's hold (`counterDoorBlock`) reads it.
   // Phase 3c-i — ONE binding of the rule's inputs: the render reads it on `viewItems`; the drain in
   // `continueToPayment` re-asks it on the view that WON after an undo's re-sync (`freezeFactsRef`).
   const unsentBlocksFor = (items: CartItem[]) =>
@@ -3172,6 +3252,24 @@ export function Checkout({
   });
   // The guest's confirmation follows the STAMP, and only this seat's.
   const nudgeMine = nudgeStands(sendNudge, mySeat);
+  // PD1 (m1 decision 16) — the host's name, asked ONCE when the party has reached two and the seat
+  // still carries the default (lib's rule, `hostNameAsked`); drawn where their Send is, below.
+  const mySeatMember = splitContext?.members.find((m) => m.seat === splitContext.mySeat) ?? null;
+  // Codex round 1 on #356 — the party as this view sees it LIVE (`partySize`): the page's member
+  // read, plus every seat with a line on the confirmed view. The watch here is the cart and its
+  // lines, never the members, so a tablemate who joined after this page loaded counts from their
+  // first dish instead of from the host's next reload.
+  const party = partySize(
+    splitContext?.members.map((m) => m.seat) ?? [],
+    items.map((i) => i.bySeat),
+  );
+  const nameAsked = hostNameAsked({
+    mode: splitContext?.mode ?? null,
+    role: myRole,
+    myName: savedName ?? mySeatMember?.name ?? null,
+    memberCount: party,
+    dismissed: nameAskDismissed !== false,
+  });
   // The host's quiet line, named from the table's own names (never the payload).
   const hostLine = waitingLine(sendNudge, splitContext?.members ?? [], myRole);
   const waitingMember = sendNudge
@@ -3179,8 +3277,9 @@ export function Checkout({
     : null;
   const waitingAvatar = waitingMember && chosenName(waitingMember.name) ? waitingMember : null;
   const staffNote = staffCanSendCopy(hostName);
-  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and the SERVER's clock
-  // (lib/show-server). Unknown clock = never "sent" (a line in its grace reads "Sending…").
+  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and its DB clock: the ONE
+  // kitchen track's roll-up (lib/show-server → lib/kitchen-track), the same rule and clock as the
+  // Bill's live pass. Unknown clock = never "sent" (a line in its grace reads "Sending…").
   // A dish that JOINS the open pass (a tablemate's draft) is kept from the view it joins in, so it
   // stays on the ticket once sent instead of leaving it — and, the dishes the pass opened on
   // removed, closing it (Codex's post-merge review of #335). Adjusted during render, like the close
@@ -3188,7 +3287,7 @@ export function Checkout({
   const passPrinted = passOpen ? passListedNow(viewItems, passListed) : passListed;
   if (passPrinted !== passListed) setPassListed(passPrinted);
   const passRows = passDishes(viewItems, passPrinted);
-  const passStatus = showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY);
+  const passStatus = showServerStatus(passRows, dbNowMs);
   const passShown = passOpen && passStatus !== "none";
   // Every listed dish REMOVED (never sent): the pass closes itself — a removal never reads as a
   // send. Adjusted during render (React's derived-state pattern), so a dish added later never
@@ -3196,8 +3295,7 @@ export function Checkout({
   if (passOpen && passStatus === "none") setPassOpen(false);
   // ONE re-read at the grace's end while the pass is up (a server-measured duration from this
   // view's receipt), so the flip lands on an OBSERVED view — never on this phone's clock.
-  const passRereadMs =
-    passShown && serverNowMs !== null ? graceRereadDelayMs(passRows, serverNowMs) : null;
+  const passRereadMs = passShown && dbNowMs !== null ? graceRereadDelayMs(passRows, dbNowMs) : null;
   useEffect(() => {
     if (passRereadMs === null) return;
     const id = window.setTimeout(() => void refresh(), passRereadMs);
@@ -3215,12 +3313,11 @@ export function Checkout({
     graceOpen,
     undoInFlight: grace.pending,
   });
-  // PD10 · D5 — THE COUNTER IS NEVER GATED BY SERVED: the docked counter door's own hold is the same
-  // precedence with the kitchen taken out (a tablemate's lock, the Send still owed, the undo window).
-  const counterBlock = payBlock({
+  // PD10 · D5 — THE COUNTER IS NEVER GATED BY SERVED, and since PD2's lift (m2 decision 12, after
+  // P2do) never by the Send still owed either — the ask CARRIES unsent dishes to the counter. Its own
+  // hold is a tablemate's lock or this device's undo window (`counterDoorBlock`, lib's).
+  const counterBlock = counterDoorBlock({
     frozenByPeer: payFrozen,
-    unsentBlocks: sendBlocksPay,
-    servedHold: null,
     graceOpen,
     undoInFlight: grace.pending,
   });
@@ -3244,6 +3341,12 @@ export function Checkout({
    * drafts, a tablemate's lock, a standing counter ask): the sentence is a claim the next tap must
    * keep. The same edge is where the Undo unmounts, so it also puts lost focus back on the <h1>.
    *
+   * On the PARKED Bill the door that lights is the counter, and its hold is its own (`counterBlock`):
+   * since PD2's lift unsent dishes hold Pay but never the counter, so a tablemate's draft landing
+   * inside the window must not silence the door coming alive. Over those dishes it says the slot's
+   * own words for that state (m2's line), never "Ready to pay." — the counter still checks them with
+   * the table (the blind pass on #356).
+   *
    * It may retire a standing pay error (`sayRefusal` clears it), and that is honest (J34): with the
    * window open, Pay and the counter ask are refused (`block === "grace"`) and a Send's own outcome
    * clears the error, so one stands here only when a write that STARTED BEFORE the Send (a
@@ -3260,17 +3363,19 @@ export function Checkout({
     // one focus home (B4), and only when focus was in fact lost: never stolen from a control the
     // diner moved to (blind pass · a11y).
     if (focusWasLost()) headingRef.current?.focus();
-    if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || block !== null) return;
+    const doorHeld = phonePayOff ? counterBlock !== null : block !== null;
+    if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || doorHeld) return;
     // A standing counter ask is the Bill's hero already (`counterAsk` hides Pay): "Ready to pay." over
     // it says the opposite of what the screen shows (blind pass · product truth).
     if (counterAt != null) return;
     // Through a frame, like every other announcement on this screen: a synchronous `setState` in an
     // effect body is a cascading render the React Compiler lint rejects, and the region must be on
     // screen before its text changes.
-    const frame = requestAnimationFrame(() => sayRefusal("Ready to pay."));
+    const ready = phonePayOff && kitchenDraftQty > 0 ? COUNTER_ASK_CARRIES_UNSENT : "Ready to pay.";
+    const frame = requestAnimationFrame(() => sayRefusal(ready));
     return () => cancelAnimationFrame(frame);
-    // `sayRefusal`, `block`, `stage`, `onPay` and `counterAt` are this render's; the edge is keyed on
-    // the window.
+    // `sayRefusal`, `block`, `counterBlock`, `stage`, `onPay`, `counterAt` and `kitchenDraftQty` are
+    // this render's; the edge is keyed on the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graceOpen]);
 
@@ -3452,8 +3557,8 @@ export function Checkout({
       ? { en: blockCopy, my: block === "grace" ? t("my", "payOpensAfterUndo") : null }
       : { en: "Ready to pay.", my: null };
   // The counter's OWN held reason (never the kitchen's — D5), drawn and described on the dock (the
-  // capped blind pass on #346, C3): the register mid-settle, the Send still owed (the host is told to
-  // send, a guest who does), a tablemate's lock, the undo window — `counterHoldCopy`, lib's.
+  // capped blind pass on #346, C3): the register mid-settle, a tablemate's lock, the undo window —
+  // `counterHoldCopy`, lib's. Never the Send still owed: the ask carries those dishes (PD2's lift).
   const counterReason: { en: string; my: string | null } | null = settling
     ? { en: T("registerSettling"), my: t("my", "registerSettling") }
     : counterBlock
@@ -4098,9 +4203,9 @@ export function Checkout({
                 မပို့ရသေး") while each waiting dish wears its own ring: the state is said once per
                 fact, never twice on one screen. The NEXT STEP is said once, in the dock's one line
                 slot (the door's held reason). What stays here is the HOST's quiet way back to the
-                Send (m10 STATES, "Unsent dishes": "← Back to send them"); a guest cannot send, and
-                the slot tells them who does. The ask over unsent dishes stays refused until
-                counter-floor's P2do lands (PD2 decision 12). */}
+                Send (m10 STATES, "Unsent dishes": "← Back to send them"). A guest cannot send; the
+                dock's line tells everyone the counter will check the dishes with the table — the ask
+                over unsent dishes is LIVE since counter-floor's P2do shipped (PD2 decision 12). */}
             {billMounted && canSendToKitchen && kitchenDraftQty > 0 && (
               <p className="checkout-unsent-mark">
                 <button type="button" className="nav-link" onClick={backToOrder}>
@@ -4813,6 +4918,45 @@ export function Checkout({
                 stamp waits on the cart until this Send clears it (in the same statement as the fire).
                 No sound, no toast, no sheet: the waiting guest's avatar and one sentence, above the
                 Send it is about, carried in Send's description. Plain text, never live. */}
+            {/* PD1 (m1 decision 16) — the host's name, asked ONCE, where it starts to matter: above
+                the Send a tablemate's line names them by ("Aye sends the table's order…"). One inline
+                row, never a card, a sheet or a menu card: the question and its reason (the field's
+                label and hint), the field, a PAPER "Save" (Send stays the one filled control — m1
+                B11) and the quiet "Not now". No motion. English-only until the K15 sitting. */}
+            {showLineCards && canSendToKitchen && hero === "send" && nameAsked && (
+              <form className="checkout-name-ask" onSubmit={(e) => void saveHostName(e)} noValidate>
+                <Field label={HOST_NAME_ASK.question} hint={HOST_NAME_ASK.reason} error={nameError}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      ref={nameInputRef}
+                      value={nameDraft}
+                      onChange={(e) => {
+                        setNameDraft(e.target.value);
+                        if (nameError) setNameError(null);
+                      }}
+                      maxLength={40}
+                      placeholder={HOST_NAME_ASK.placeholder}
+                      autoComplete="given-name"
+                      enterKeyHint="done"
+                    />
+                  )}
+                </Field>
+                <div className="checkout-name-ask-actions">
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    className="checkout-name-ask-save"
+                    busy={nameBusy}
+                  >
+                    {HOST_NAME_ASK.save}
+                  </Button>
+                  <Button variant="quiet" size="sm" onClick={dismissNameAsk}>
+                    {HOST_NAME_ASK.notNow}
+                  </Button>
+                </div>
+              </form>
+            )}
             {showLineCards && canSendToKitchen && hero === "send" && hostLine && (
               <p id="nudge-line" className="checkout-nudge-line">
                 {waitingAvatar && (
@@ -5087,38 +5231,39 @@ export function Checkout({
 
             {/* PD2 (m2 screen 1, appendix A1 · B1) — THE ONE DOOR, docked in the CartBar's own
                 slot, with the Bill's one line slot directly above it: at rest "The counter takes
-                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason —
-                dishes still to send, the send's undo window, or the register mid-settle — never
-                both. Held states are `aria-disabled` with the reason as the description, and every
-                blocked tap re-says it through the view's one region. No amount on the door: it
-                charges nothing, and the total sits on the slip above. */}
+                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason — the
+                send's undo window, a tablemate's lock, or the register mid-settle — never both.
+                Dishes nobody has sent no longer hold it (m2 STATES "Unsent dishes", decision 12 —
+                lifted once counter-floor's P2do shipped): the door stays LIVE for host, guest and
+                hostless table alike, the ask carries them, and the line says what the counter does
+                with them. Held states are `aria-disabled` with the reason as the description, and
+                every blocked tap re-says it through the view's one region. No amount on the door:
+                it charges nothing, and the total sits on the slip above. */}
             {dockShown && (
               <PayAtCounterDock
-                lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
-                // The COUNTER door's own hold (`counterBlock`): parked, the served gate is null, so
-                // this is the same precedence it always was — and never the kitchen (D5).
+                line={counterRestLine({
+                  unsentDishes: kitchenDraftQty > 0,
+                  takesCard: counterCard,
+                })}
+                // The COUNTER door's own hold (`counterDoorBlock`): never the kitchen (D5), never the
+                // Send still owed (PD2's lift). The undo window speaks the parked Bill's own
+                // bilingual line (there is no Pay here for "Pay opens…" to be confused with); any
+                // other hold is said in the counter's words (`counterHoldCopy`), never silently live.
                 reason={
                   settling
                     ? { en: T("registerSettling"), my: t("my", "registerSettling") }
-                    : counterBlock === "unsent"
-                      ? {
-                          en: counterUnsentTapCopy(
-                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
-                          ),
-                          my: null,
-                        }
-                      : counterBlock === "grace"
-                        ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
-                        : counterBlock === "peer"
-                          ? {
-                              en: payBlockCopy("peer", {
-                                lockedByName,
-                                canSend: canSendToKitchen,
-                                hostName,
-                              }),
-                              my: null,
-                            }
-                          : null
+                    : counterBlock === "grace"
+                      ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
+                      : counterBlock
+                        ? {
+                            en: counterHoldCopy(counterBlock, {
+                              lockedByName,
+                              canSend: canSendToKitchen,
+                              hostName,
+                            }),
+                            my: null,
+                          }
+                        : null
                 }
                 busy={counterBusy}
                 hidden={promoFocused}

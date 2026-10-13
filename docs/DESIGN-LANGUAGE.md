@@ -1045,11 +1045,13 @@ built.
   region; an emptied field over a saved value clears it (the pad's walk-up name, `padNameSave`:
   `save` · `saved` · `empty`).
 - **The settle gate — the counter half of "Everything sent" (§22's binding; owner, 2026-09-24).**
-  Every payment door — the cash sheet, the reader, the running-bill close, the order pad's Take
-  payment and the diner's "Pay at the counter" — refuses while dine-in dishes are unsent. Staff
-  doors read `staffSettleBlockedByUnsent(mode, units)`, which DELEGATES to
+  Every payment door — the cash sheet, the reader, the running-bill close and the order pad's Take
+  payment — refuses while dine-in dishes are unsent. (The diner's "Pay at the counter" is an ASK,
+  not a payment door: it refused too until PD2's lift — m2 decision 12, once counter-floor's P2do
+  shipped — and now CARRIES the unsent dishes to the counter; the doors above are why that moves
+  no money.) Staff doors read `staffSettleBlockedByUnsent(mode, units)`, which DELEGATES to
   `payBlockedByUnsent(mode, units, true)`: the console can always send, so the register has no
-  hostless exemption; the diner's counter ask keeps the Bill's own binding with its host flag. `units` is one count everywhere
+  hostless exemption. `units` is one count everywhere
   (`kitchenDraftUnitsFromRows`; `detail.send.sendable` on the page). Counter orders and to-go drafts
   are never gated — they cook when they are paid.
 - **The server refuses UNDER the freeze, BEFORE the totals, as a typed code** —
@@ -1066,9 +1068,9 @@ built.
   where the gate could ever refuse — the verdict delegates "would any unsent dish block this mode?"
   to `staffSettleBlockedByUnsent(mode, 1)`, so a pickup order's unreadable count changes nothing.
   The diner doors keep the fail-open `kitchenDraftUnits` (a guest refused at Pay on a blip has
-  nobody to ask; the webhook fires the dishes at payment): the counter ask fails open on both its
-  reads (host, drafts) and that is safe — the ask moves no money, and every charge behind it still
-  refuses on its own (`counter-pay/unsent-host-read-fails-closed` pins it). **And the freeze now
+  nobody to ask; the webhook fires the dishes at payment). The counter ask no longer reads the host
+  or the drafts at all (PD2's lift): it moves no money, and every charge behind it still refuses on
+  its own. **And the freeze now
   binds the adds in the DATABASE** (P2cy): the three line RPCs take the cart row `FOR SHARE`, which
   conflicts with every settlement claim's `UPDATE … settle_at`, and refuse under a fresh freeze — so
   an add either committed before the claim returned (and the gate's read sees it) or waits and
@@ -1097,11 +1099,15 @@ built.
   line is DROPPED, not hidden, the moment the page catches up — it reads the table blocked, or its
   own gate line retires (`gateLive`). Hidden, it came back under a live trigger after the dishes were
   sent.
-- **The diner's counter button keeps the Pay button's rule** (§22): dimmed while the table has
-  dishes to send, the unsent note on the same Bill stage, and a tap on the dimmed button repeats the
-  reason in the Bill's status line — to the host as the fix, to a guest as WHO sends
-  (`counterUnsentTapCopy`, the note's own split). The server's refusal goes to whoever asked, so it
-  orders nobody: "Everything has to go to the kitchen first — then pay at the counter."
+- **The diner's counter button CARRIES unsent dishes** (PD2's lift, m2 STATES "Unsent dishes",
+  decision 12 — it kept the Pay button's rule (§22) until counter-floor's P2do shipped, #334). The
+  door stays live for host, guest and hostless table alike; the parked Bill's dock line says what
+  happens to the dishes — "You can still ask — the counter will check them with your table."
+  (`counterRestLine`, English-only until K15) — the pass's head keeps the count-free "Not sent yet"
+  mark, and the host keeps the quiet "← Back to send them". Dad's floor reads the asked table's
+  every unsent dish (P2do), and his settle doors refuse until they are sent. The counter's own hold
+  is a tablemate's lock or this device's undo window (`counterDoorBlock`), never the Send still
+  owed and never the kitchen (D5); a held tap re-says its reason. Pay keeps its rule.
 
 **Phase 2d — the floor, the counter bell and the tablet split (2026-09-29, owner decision 5c: "as
 recommended").** The counter's room map and its one-tap start, a bell on the counter home, and a
