@@ -13,9 +13,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   order (cash included, which leaves `status` 'paid') never reads "Paid in full". The home card speaks
   the shared status word. A pickup booked hours ahead stays in the pill, the tray, /account Today and
   history until its slot. The live read catches up after a lock or a reconnect. A cleared table
-  retires the pill. A counter-paid diner gets the receipt link and email. A resume no longer replays
-  the arrival, and /account Today re-polls while a bag is cooking. Filed: M308 (a cash refund's status
-  flip) and T60 (the pill's stale pickup word); K30(A), M64 and M206 updated.
+  retires the pill, through the pill's own first empty read of an order known to exist. A diner who
+  sat at a counter-paid table before it settled gets the receipt link; the email capture stays the
+  earner's or a payer's. A resume no longer replays the arrival (its Refresh included), and /account
+  Today alone re-polls while a fired bag is cooking. Filed: M308 (a cash refund's status
+  flip), M309 (the order reads' seat arms admit a later party) and T60 (the pill's stale pickup word);
+  K30(A), M64 and M206 updated.
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
