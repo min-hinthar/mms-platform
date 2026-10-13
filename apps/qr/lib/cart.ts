@@ -833,7 +833,10 @@ export async function getCartView(cartId: string): Promise<{
     // `mms_promo_discount` times out) fell through to `didIPayForCart` → false → the exact copy W10a
     // exists to delete: "This order isn't available on this device. Start from the menu.", printed
     // over an intact order. Same 503 shape every other unknowable answer in the app uses.
-    totals: await getCartTotals(id).catch((e: unknown) => {
+    // M123 (b) — the QUOTE basis: the pin only while an intent is live, the live figure otherwise
+    // (lib/totals.ts says why). The floor's settle quote makes this exact call, so the guest's pass
+    // and Dad's pane stay one derivation (PD2).
+    totals: await getCartTotals(id, 0, "quote").catch((e: unknown) => {
       // Pre-merge review — retyping loses WHICH read died, and `getCartTotals` is careful to say
       // (cart items / promo discount / reward discount). During a partial degradation — the case this
       // 503 exists for — that sentence is the only server-side signal there is. Keep it.

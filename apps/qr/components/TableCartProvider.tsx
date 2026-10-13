@@ -49,6 +49,7 @@ import {
 import { useCoalescedRefresh } from "@/lib/echo-refresh";
 import { setDisplayName } from "@/lib/members";
 import type { SendNudge } from "@/lib/send-nudge-state";
+import type { SessionRefusal } from "@/lib/session-refusal";
 import { useTableSession } from "@/lib/useTableSession";
 import {
   useCartRealtime,
@@ -85,6 +86,9 @@ type CartCtx = {
   mode: string;
   loading: boolean;
   error: string | null;
+  /** J16 — the failed mint's machine word (`SESSION_REFUSALS`), or null. GuestList's recovery
+   *  switches on THIS (`joinFailureArm`); `error` is the sentence it shows, never what it parses. */
+  errorReason: SessionRefusal | null;
   items: CartItem[];
   totals: CartTotals | null;
   count: number;
@@ -265,7 +269,7 @@ export function TableCartProvider({
     mode === "dinein" && Number.isInteger(parsedTable) && parsedTable >= 1 && parsedTable <= 99
       ? parsedTable
       : undefined;
-  const { session, loading, error, revalidate } = useTableSession(mode, {
+  const { session, loading, error, errorReason, revalidate } = useTableSession(mode, {
     code,
     joinOnly,
     door: doorTag,
@@ -1607,6 +1611,7 @@ export function TableCartProvider({
       mode,
       loading,
       error,
+      errorReason,
       items,
       totals,
       count,
@@ -1641,6 +1646,7 @@ export function TableCartProvider({
       mode,
       loading,
       error,
+      errorReason,
       items,
       totals,
       count,
