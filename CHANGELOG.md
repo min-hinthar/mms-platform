@@ -21,6 +21,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   closed); the diner can edit their own unsent dish's kitchen note (`setLineNote`). 53 `lcb/`
   mutants, no migration — M298–M301, F39–F41, J63–J64 and K15 · diner-changes filed; P2ad keeps
   only its staff-console half.
+- **#362 fix round (the blind pass and Codex round 1).** A diner's note save is a compare-and-swap on
+  the note the ⋯ sheet was seeded from, so a staff allergy note written while the sheet was open is
+  never overwritten or erased: the save answers `changed`, the field re-seeds, and the view says so
+  in both tongues; the field follows the order while untouched and is read-only while its save is
+  out. `setLineNote` re-reads the cart's freezes as well as its status (`effectiveFreeze`, the rule
+  `assertCartMember` now shares). An 86 and a delisting are two facts through one predicate
+  (`dishUnavailable`): "Sold out" or "No longer on the menu" on /cart, in the Send's refusal and in
+  every named refusal, and /cart says "remove it" only to a phone that can; a comp no diner can
+  remove never holds the Send. A line staff removed is named as removed, never "gone to the kitchen",
+  and a settlement's own void reads "we ran out". A diner's own edit is never read back to them as
+  news however late the view that shows it lands (the hold ends on a view read after the write, not a
+  2 s timer); order news never overwrites a newer answer; a staff addition of a dish the diner is
+  adding is said; the "−" retraction keeps its dish's name when the re-read fails; and every
+  sold-out reading is stamped on the database clock. /grocery reads a refusal `setQty` names as a
+  failed write. 103 `lcb/` mutants; J65 and M302 filed; K15 · diner-changes lists the new Burmese.
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
