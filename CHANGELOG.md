@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
+
+- **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only
+  what they back.** A table that settled at the counter sees each dish on the kitchen track, as the TV
+  wall does. The pickup page says "It’s cooking now." and "The kitchen’s done — we’re bagging it now."
+  from Mom's taps, and the to-go rail no longer reads Cooking from the moment of payment. A refunded
+  order (cash included, which leaves `status` 'paid') never reads "Paid in full". The home card speaks
+  the shared status word. A pickup booked hours ahead stays in the pill, the tray, /account Today and
+  history until its slot. The live read catches up after a lock or a reconnect. A cleared table
+  retires the pill. A counter-paid diner gets the receipt link and email. A resume no longer replays
+  the arrival, and /account Today re-polls while a bag is cooking. Filed: M308 (a cash refund's status
+  flip) and T60 (the pill's stale pickup word); K30(A), M64 and M206 updated.
+
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
