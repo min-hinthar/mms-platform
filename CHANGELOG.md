@@ -24,8 +24,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     members plus every seat with a line on the screen's latest view (`partySize`), so the ask appears
     with the tablemate's first dish.
   - Left open: a tablemate who joined and added nothing still counts only from the host's next page
-    load, and a guest sees the host's new name on their own next load (OPEN-ITEMS M279). The save's
-    action does not check that its write touched a row (M277).
+    load, and a guest sees the host's new name on their own next load (OPEN-ITEMS M283). The save's
+    action does not check that its write touched a row (M281).
 - **"Pay at the counter" now carries unsent dishes (PD2, m2 decision 12).** The server no longer
   refuses the ask while dine-in dishes wait for the Send. The old "Everything has to go to the kitchen
   first" refusal and the Bill's "Send everything to the kitchen first" hold are retired. On both docks
@@ -45,8 +45,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   fix) and 8 retired with the lifted unsent rule.
 - **Docs.** The m1 and m2 specs record what was built, and their stale "not built yet" notes point at
   it. DESIGN-LANGUAGE's settle-gate bullets match the lift. OPEN-ITEMS closes PD1 and PD2 and files
-  M277 (the name save's unchecked row count), M278 (`getCartView.serverNow` has no reader now) and
-  M279 (/cart reads the members once per page load).
+  M281 (the name save's unchecked row count), M282 (`getCartView.serverNow` has no reader now) and
+  M283 (/cart reads the members once per page load).
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
