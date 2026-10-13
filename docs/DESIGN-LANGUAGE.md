@@ -1496,7 +1496,8 @@ _As built — where the spec moved, in the places a reader relies on._
   reads Burmese over English on an English device too, like the ticket; the chrome render had
   shown English alone there since P7·3.
 - **`check-staff-lang` holds where the controls mount and what `keepEcho` may name** (the header
-  counts THIRTEEN rules). Rule **4e**: each control export is mounted only by its own hosts — the
+  counts FOURTEEN rules since M220 added 4f, which checks that a redirect-only page lands on a real
+  page, on an id that page renders). Rule **4e**: each control export is mounted only by its own hosts — the
   pill by the four front doors (from the export that renders each), the rows by `HelpButton`, the
   card by the sign-in page — by module + export identity. Rule **6** checks the KEY as well as the
   file. Neither is in the spec; both close holes a blind critic reproduced on disk (4c alone let a

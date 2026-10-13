@@ -66,6 +66,71 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     `still`), so "Nothing matches" is never spoken over a list that has filled up.
   - Guards: the guide-foot test now reads the logical insets too, and M214 has a staff-session case.
 
+### Cart refusals that say their own cause, an Undo for an unlogged 86, and four guard gaps (2026-10-12)
+
+- **T41: the /menu stepper no longer calls a quantity change refused when it may have landed.**
+  `setItemQty`'s recovery path counts only "the line sits at our target" (or is gone, for a remove)
+  as a landing. Every other reading answers unconfirmed, including one under a freeze, so a set that
+  may have landed is never offered as retryable.
+  - What a diner notices: a "−" refused under a lock that arrived mid-flight used to say "That didn’t
+    go through — the order’s locked while someone checks out". It now says "We couldn’t confirm that
+    — check your order below.", and the lock banner then speaks on its own.
+- **T42: each refused add carries its own cause.** `add()` returns its refusal clause with the result,
+  and the "your usual" card builds its sentence from that result. The provider-wide
+  `lastRefusalClause` latch is retired, so two overlapping writes can no longer swap their reasons.
+  `CartCtx.lastRefusalClause` is gone from the cart context; any other branch that reads it fails to
+  typecheck.
+- **M230: /cart's for-here / to-go toggle says why it was refused when the kitchen already has the
+  dish.** `setLineFulfillment` and `makeItNow` answer `not_draft` for a line that has left draft, ahead
+  of the ownership check. The toggle then says "That didn’t go through — it’s already gone to the
+  kitchen." The sentence is dropped if the line is back in draft by the time it would be said (a send
+  undone in its grace), and taken down if a later view puts it back in draft after it was said.
+  - "Send to kitchen now" stays silent on `not_draft`, because the dish is almost always already
+    where the diner asked. When staff voided it instead, the sheet closes and the line's chip says
+    "Removed". `not_yours`, `error` and the other RPC codes stay silent too.
+- **P2au: an 86 whose ledger record failed now gets its Undo.** The flag landed, so `setItemSoldOut`
+  answers with a new `unlogged` code that carries it, and the new `lib/sold-out-landing.ts` is how a
+  caller asks whether the dish changed. The KDS offers its 6-second Undo for an unlogged 86 and takes
+  the bar down for an unlogged put-back. `/staff/menu` flips the row's verb. The "wasn’t logged — tell
+  the owner it was you" sentence is still said on both.
+- **Four guards close their gaps.**
+  - `check-staff-lang` rule 4f (M220) checks each of the seven redirect-only staff pages. Its
+    destination must be a real page that is not itself a redirect, and a `#fragment` must be an id
+    that page renders.
+  - `check-child-freeze` (T28) holds its four audited components as an expected set and fails when one
+    goes missing or an extra one appears.
+  - `check-freeze-parity` (T44) now follows writes to `qr_carts` / `qr_cart_items` through any number
+    of helper hops, by import identity. `releasePayLock` is back in reach, through its exemption.
+  - `check-echo-coalesce` (M226 f and h) resolves aliases by declaration, not by name, and refuses any
+    re-export of `useCartRealtime`.
+- **The mutant battery grows from 4171 to 4196.** Two mutants retired with the code they guarded
+  (`refusal/qty-refusal-goes-unpublished` and `refusal/latch-outlives-its-write`), six were
+  re-anchored or re-pointed, and one target module was added (`sold-out-landing.ts`).
+- **The blind review's fix round.**
+  - The kitchen sentence is now re-checked on every view /cart applies, not only when it is said. When
+    the host's Undo puts the line back in draft inside the send's grace, the sentence comes down.
+    Before, it stayed beside a line that read "Not sent yet".
+  - Only a freeze clears a standing pay error. The rule is now `refusalClearsPayError`, a switch with
+    no default; the old `cause !== "unknown"` had let the kitchen sentence erase "Couldn’t start
+    checkout".
+  - The T41 freeze case now checks that the region says the hedge before the lock banner, instead of
+    reading only the final text. The M230 draft-line case now gives the diagnosis read and the
+    winning view different lines, so it can tell when the check runs.
+  - Two comments that described old behaviour are corrected: `AddButton`'s note on `unconfirmed`, and
+    the "Send to kitchen now" note, which now names the voided case. Five mutants were added and one
+    re-pointed.
+  - The capped pass over those fix commits: a test now pins that the per-view retire takes down only
+    the kitchen sentence (the Bill's held-door reason, said after it, stays through the host's Undo),
+    with its mutant; `AddButton`'s `unconfirmed` note now says what the code does (nothing is sent
+    when the re-read fails), and the draft-line case asserts the diagnosis took the fired read.
+- **Copy:** the one new sentence ("…it’s already gone to the kitchen", on /cart) is English only,
+  like every /cart refusal. The unlogged-86 sentence is unchanged and still said verbatim in English
+  on the KDS. No Burmese string was added, so nothing joins the K15 ledger.
+- **Left open:** T43, a landed add that a host restored to its pre-add quantity, is not built. It needs
+  evidence the server names and the owner's call on what "your usual" says under a visible lock. M226
+  keeps (a), (b), (d), (e) and (g) as accepted-risk shapes. T57 is new: /cart's `changeQty` still
+  decides its sentence from the comparison T41 removed on /menu.
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.
