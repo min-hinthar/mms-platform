@@ -35,6 +35,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
   question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (9 Burmese
   drafts and 3 re-worded lines for the native sitting, 3 of them HIGH).
+- **Codex round 2 on #361 (five findings, all fixed).**
+  - A paid answer whose order read, or whose order-visibility read, FAILED is now INCOMPLETE
+    (`complete: false`), never "no order". The menu and the Bill keep the one-minute probe going, and
+    the held card gains its tender or "Track your order" when the read comes back (`endComplete`,
+    `heldEndUpgrade`). The gate's own 403 on a closed session is still an answer.
+  - A read in flight when the end was held no longer lands on the held cart. It used to put
+    `locked`/`settling` back and announce the register over the paid card.
+  - The Bill's probe answer no longer acts after the Bill unmounts: a late `paid` used to push /track
+    over the page the diner had moved to. The probe now reads the cart view's own mode, so a degraded
+    render at a table (no split context) still learns of a clear.
+  - Opening the leave flow re-reads the durable party. Until that read lands, the host gets a hedged
+    note ("…once you leave, anyone else at your table will need a server to send theirs.") instead
+    of the silence that read as "alone".
+  - Filed: M294. `getCartOrderRef` still reads a failed read as "no order" inside the resolver that
+    /track shares.
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
