@@ -5,7 +5,7 @@ import { CounterPass, KitchenTrack, NumberFlow } from "@mms/ui";
 import { BILL_GROUPS } from "@/lib/bill-groups";
 import { t } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
-import { DINER_STAGE_WORD } from "@/lib/line-state-copy";
+import { DINER_STAGE_WORD, removedWord } from "@/lib/line-state-copy";
 import { passClock, passHead, passRowStage } from "@/lib/live-pass";
 import { passIdentity } from "@/lib/pass-identity";
 
@@ -251,7 +251,8 @@ function DishRow({
       {lead || comped || owner ? (
         <span className="live-pass-dish-state">
           {voided ? (
-            <span className="live-pass-dish-note">Removed</span>
+            // Lifecycle audit (out-of-stock 2) — "Removed — we ran out" when that was staff's reason.
+            <span className="live-pass-dish-note">{removedWord(item.removedReason)}</span>
           ) : item.fulfillment === "grocery" ? (
             <span className="live-pass-dish-note">In your basket</span>
           ) : togoDraft ? (

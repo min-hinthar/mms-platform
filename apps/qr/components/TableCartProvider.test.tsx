@@ -55,6 +55,7 @@ const NO_MEMBERS: never[] = [];
 
 const h = vi.hoisted(() => ({
   addItem: vi.fn(),
+  addItemOutcome: vi.fn(),
   setQty: vi.fn(),
   getCartView: vi.fn(),
   revalidate: vi.fn(),
@@ -75,6 +76,13 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/lib/cart", () => ({
   addItem: h.addItem,
+  // Lifecycle audit — the provider adds through `addItemOutcome`: `addItem`'s own answer wrapped as
+  // `{ ok: true, view }`, its throws untouched (the real wrapper turns ONLY a sold-out refusal into a
+  // value). `h.addItemOutcome` lets a case answer that value directly.
+  addItemOutcome: (...a: unknown[]) =>
+    h.addItemOutcome.getMockImplementation()
+      ? h.addItemOutcome(...a)
+      : Promise.resolve(h.addItem(...a)).then((view: unknown) => ({ ok: true, view })),
   setQty: h.setQty,
   getCartView: h.getCartView,
 }));
@@ -336,6 +344,7 @@ const drainContextPublishes = async () => {
 beforeEach(() => {
   ctxIdentities = 0;
   h.addItem.mockReset();
+  h.addItemOutcome.mockReset();
   h.setQty.mockReset();
   h.getCartView.mockReset();
   h.revalidate.mockReset();
@@ -843,7 +852,8 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     for (const r of watch.takeRecords())
       for (const n of Array.from(r.addedNodes)) if (n.textContent) said.push(n.textContent);
     watch.disconnect();
-    const hedge = said.indexOf(unconfirmedWriteNotice());
+    // F30 (lifecycle audit) — the stepper's retraction names the dish, like `add`'s.
+    const hedge = said.indexOf(namedUnconfirmedWriteNotice("Mohinga"));
     expect(hedge).toBeGreaterThanOrEqual(0);
     const banner = said.map((t) => t.includes("is checking out")).lastIndexOf(true);
     expect(banner).toBeGreaterThan(hedge);
@@ -862,7 +872,9 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
     expect(result.state).toBe("unconfirmed");
     expect(mayRetry(result)).toBe(false);
-    await waitFor(() => expect(spoken()).toBe(unconfirmedWriteNotice()));
+    // F30 (lifecycle audit) — named: "We couldn’t confirm Mohinga — check your order below."
+    // MUTATION (lcb/provider/qty-hedge-unnamed): drop the name; red.
+    await waitFor(() => expect(spoken()).toBe(namedUnconfirmedWriteNotice("Mohinga")));
   });
 
   it("T41 — a REMOVE whose line is still there is UNCONFIRMED, not refused", async () => {
@@ -1584,5 +1596,220 @@ describe("TableCartProvider — the cart ref moves in the commit, not after it (
     // MUTANT provider/cart-ref-advances-late: the ref moves in a passive effect — the old cart's rows
     // land on the new cart's state in the window between the commit and its effects; red.
     expect(ctl.items).toEqual([]);
+  });
+});
+
+/**
+ * Lifecycle audit — the diner side of sold out, removals and edits on /menu.
+ *
+ *   • a sold-out add is refused BY NAME (a value from `addItemOutcome`, since a thrown message is
+ *     redacted), and the dish is MARKED so the card flips at once (out-of-stock 0);
+ *   • a "−" on a dish a tablemate just sent says it went to the kitchen — while that is still true
+ *     of the re-read — instead of "Removed", then a hedge (edit-notes 6);
+ *   • a change someone ELSE made is said once, from the re-read; this phone's own never is (out-of-
+ *     stock 2 · diner-live-status 3 · edit-notes 7); a removed dish leaves the count (the bar's).
+ */
+describe("Lifecycle audit — named refusals and what changed", () => {
+  const mine = (over: Partial<CartItem> = {}): CartItem => ({
+    ...line(1),
+    bySeat: MY_SEAT,
+    ...over,
+  });
+
+  it("an add refused as SOLD OUT is named, `refused`, and marks the dish with the server's clock", async () => {
+    // MUTATION (lcb/provider/sold-out-refusal-hedged): name nothing — "We couldn’t confirm Mohinga"
+    // over a card that stays live; red. MUTATION (lcb/provider/sold-out-mark-dropped): drop the mark —
+    // the card stays live under every retry; red.
+    mount();
+    await drainDeferredAnnounces();
+    const AT = "2026-10-08T10:00:05.000Z";
+    h.addItemOutcome.mockResolvedValue({ ok: false, refused: "sold_out", at: AT });
+    const r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    expect(r.state).toBe("refused");
+    expect(mayRetry(r)).toBe(true);
+    expect(clauseOf(r)).toBe(refusedWriteClause({ cause: "sold_out" }));
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "sold_out" }, "Mohinga"));
+    await waitFor(() => expect(ctl.soldOutMarks.get(ITEM)).toBe(Date.parse(AT)));
+    // Nothing was written, so nothing was re-read for it.
+    expect(h.addItem).not.toHaveBeenCalled();
+  });
+
+  it("an add refused as GONE says 'no longer on the menu' — never 'sold out' — and still flips the card", async () => {
+    // MUTATION (lcb/provider/gone-add-unmarked): mark only a sold-out refusal — the card for a dish
+    // no longer on the menu stays live under every retry; red.
+    mount();
+    await drainDeferredAnnounces();
+    const AT = "2026-10-08T10:00:05.000Z";
+    h.addItemOutcome.mockResolvedValue({ ok: false, refused: "gone", at: AT });
+    const r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "gone" }, "Mohinga"));
+    await waitFor(() => expect(ctl.soldOutMarks.get(ITEM)).toBe(Date.parse(AT)));
+  });
+
+  it("a '−' on a dish staff REMOVED says so, even when the re-read fails — never 'gone to the kitchen'", async () => {
+    // #362 blind pass 8 — `setQty` answered `not_draft` for a voided line too, and with the re-read
+    // unreadable the provider spoke the server's word: "already gone to the kitchen", about a dish
+    // that had been taken off.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockResolvedValue({ refused: "voided", at: "2026-10-08T10:00:05.000Z" });
+    h.getCartView.mockRejectedValue(new Error("offline"));
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "removed" }, "Mohinga"));
+  });
+
+  it("a '−' on a dish already SENT names it — 'it’s already gone to the kitchen'", async () => {
+    // MUTATION (lcb/provider/sent-minus-hedged): speak the re-read's own reading instead of the
+    // server's word — "We couldn’t confirm Mohinga" while the dish is cooking; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockResolvedValue({ refused: "not_draft", at: "2026-10-08T10:00:05.000Z" });
+    h.getCartView.mockResolvedValue(view({ items: [mine({ lineState: "fired" })] }));
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "sent" }, "Mohinga"));
+  });
+
+  it("…and NOT once an Undo inside the Send's grace has put the dish back in draft", async () => {
+    // MUTATION (lcb/provider/sent-said-over-a-draft): skip the holds test — "already gone to the
+    // kitchen" beside a dish that reads "Not sent yet"; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockResolvedValue({ refused: "not_draft", at: "2026-10-08T10:00:05.000Z" });
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("gone to the kitchen");
+  });
+
+  it("staff removing a dish — 'we ran out' — is said once from the re-read, and leaves the count", async () => {
+    // MUTATION (lcb/provider/view-diff-silent): never diff the applied view — the dish just vanishes;
+    // red. MUTATION (lcb/provider/removed-units-counted): count voided units — "1 · View order" over
+    // a $0.00 subtotal; red.
+    const sent = mine({ bySeat: PEER_SEAT, lineState: "fired" });
+    h.getCartView.mockResolvedValue(view({ items: [sent] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([sent]));
+    expect(ctl.count).toBe(1);
+    h.getCartView.mockResolvedValue(
+      view({ items: [{ ...sent, lineState: "voided", removedReason: "sold_out" }] }),
+    );
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("We ran out of Mohinga — it’s off your order.");
+    expect(ctl.count).toBe(0);
+  });
+
+  it("someone else changing MY unsent dish's note is said; MY own change never is", async () => {
+    // MUTATION (lcb/provider/own-write-announced): never hold this phone's own line — "Mohinga on
+    // your order is now 2" right after the diner's own step; red.
+    const noted = mine({ notes: "No peanuts — allergy" });
+    h.getCartView.mockResolvedValue(view({ items: [noted] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([noted]));
+    // A server clears the note: someone ELSE's change to the diner's own dish.
+    h.getCartView.mockResolvedValue(view({ items: [{ ...noted, notes: null }] }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("The note on Mohinga was removed.");
+    // OUR step: its own view shows qty 2 — never read back to us as someone else's change.
+    h.setQty.mockResolvedValue(view({ items: [{ ...noted, notes: null, qty: 2 }] }));
+    await act(async () => {
+      await ctl.setItemQty("line-1", 2);
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+  });
+
+  it("Codex A — the '−' retraction keeps the dish's NAME when the recovery re-read fails", async () => {
+    // F30 exists for exactly the unreadable cart: with no re-read, the line can only come from the
+    // rows this phone held when the tap was made.
+    // MUTATION (lcb/provider/qty-hedge-loses-the-pre-write-name): name from the re-read alone — the
+    // bare "We couldn’t confirm that" in the one case F30 is for; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockRejectedValue(new Error("offline"));
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("unconfirmed");
+    await waitFor(() => expect(spoken()).toContain(namedUnconfirmedWriteNotice("Mohinga")));
+  });
+
+  it("an ADD of a dish already on MY order is never read back to me (the dish hold)", async () => {
+    // MUTATION (lcb/provider/add-dish-hold-dropped): drop `holdPending("dish", …)` — the add's own
+    // merged view reads "Mohinga on your order is now 2" right after the diner's "+"; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.addItem.mockResolvedValue(view({ items: [mine({ qty: 2 })] }));
+    await act(async () => {
+      await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+  });
+
+  it("#362 — a write whose re-read FAILED is not read back when the echo lands long after", async () => {
+    // The hold used to end on a 2 s timer after the write settled; the view that finally showed the
+    // edit — a realtime echo, a foreground read — arrived later and was diffed with the line free.
+    // MUTATION (lcb/provider/hold-released-on-a-clock): release the hold on any applied view —
+    // the echo's diff reads "Mohinga on your order is now 2." to the diner who tapped it; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 1 })] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine({ qty: 1 })]));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      h.setQty.mockResolvedValue(null); // written, view unreadable…
+      h.getCartView.mockRejectedValueOnce(new Error("offline")); // …and the recovery read fails too
+      await act(async () => {
+        await ctl.setItemQty("line-1", 2);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      // The echo, long after: a read issued now sees the diner's own write.
+      h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 2 })] }));
+      await act(async () => {
+        await ctl.refresh();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+    // …and the hold ENDED with that view: a later change by someone else is news again.
+    h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 3 })] }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("Mohinga on your order is now 3.");
+  });
+
+  it("the FIRST view of a cart is a situation, never news", async () => {
+    h.getCartView.mockResolvedValue(
+      view({ items: [mine({ lineState: "voided", removedReason: "sold_out" })] }),
+    );
+    mount();
+    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("ran out");
   });
 });

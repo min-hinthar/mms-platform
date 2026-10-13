@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Lifecycle audit — the diner side of sold out, removals and edits (2026-10-13, `claude/fix/lifecycle-diner-sold-out-edits`)
+
+- **Every change to a diner's order is shown and said, live.** A sold-out add is refused by name
+  ("Mohinga didn’t go through — it’s sold out now.", `addItemOutcome`) and flips the card at once;
+  /menu's sold-out fact is the freshest of the render, the cart view and that refusal. The Send and
+  "Send to kitchen now" refuse sold-out dishes by name, an unsent sold-out dish wears a bilingual
+  "Sold out — remove it" mark, and /cart re-reads after create-intent's 409. A "−" or a /cart step
+  on a dish already sent says "it’s already gone to the kitchen" (`setQty` answers `not_draft` as a
+  value — M230's server-named arm from #354, extended with `sold_out`; T41's rule holds: only a
+  server-named refusal reads as `refused`). Staff removing a dish ("We ran out of Mohinga — it’s off
+  your order."), someone else changing the diner's own unsent dish or its note, and a server's
+  addition are said once through the view's one region; removed units leave the order bar's count
+  but not the bar; the card chip reads the one kitchen track (a comp keeps its stage); the /menu
+  stepper never counts a noted (allergy) line, and a reverted "−" under a freeze keeps focus (F30
+  closed); the diner can edit their own unsent dish's kitchen note (`setLineNote`). 53 `lcb/`
+  mutants, no migration — M298–M301, F39–F41, J63–J64 and K15 · diner-changes filed; P2ad keeps
+  only its staff-console half.
+- **#362 fix round (the blind pass and Codex round 1).** A diner's note save is a compare-and-swap on
+  the note the ⋯ sheet was seeded from, so a staff allergy note written while the sheet was open is
+  never overwritten or erased: the save answers `changed`, the field re-seeds, and the view says so
+  in both tongues; the field follows the order while untouched and is read-only while its save is
+  out. `setLineNote` re-reads the cart's freezes as well as its status (`effectiveFreeze`, the rule
+  `assertCartMember` now shares). An 86 and a delisting are two facts through one predicate
+  (`dishUnavailable`): "Sold out" or "No longer on the menu" on /cart, in the Send's refusal and in
+  every named refusal, and /cart says "remove it" only to a phone that can; a comp no diner can
+  remove never holds the Send. A line staff removed is named as removed, never "gone to the kitchen",
+  and a settlement's own void reads "we ran out". A diner's own edit is never read back to them as
+  news however late the view that shows it lands (the hold ends on a view read after the write, not a
+  2 s timer); order news never overwrites a newer answer; a staff addition of a dish the diner is
+  adding is said; the "−" retraction keeps its dish's name when the re-read fails; and every
+  sold-out reading is stamped on the database clock. /grocery reads a refusal `setQty` names as a
+  failed write. 103 `lcb/` mutants; J65 and M302 filed; K15 · diner-changes lists the new Burmese.
+
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code

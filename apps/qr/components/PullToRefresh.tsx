@@ -9,9 +9,11 @@ import { haptic } from "@/lib/haptics";
  * W22c — pull-to-refresh, on the ONE surface with a real staleness problem.
  *
  * ── Why /menu and nowhere else ───────────────────────────────────────────────────────────────────
- * The catalog is the only diner-facing data with neither a push channel nor a wake re-read: the
- * four realtime channels carry orders, carts, shares and the floor — none carries `menu_items`. So
- * an 86 landing mid-service (W23a) never reaches a phone already sitting on the menu.
+ * The catalog is the only diner-facing data with no push channel: the four realtime channels carry
+ * orders, carts, shares and the floor — none carries `menu_items`. So an 86 landing mid-service
+ * (W23a) reaches a phone already sitting on the menu only when this page re-reads: a pull, the
+ * button, or the wake re-read below. A phone left in the foreground and never switched away from
+ * gets none of them until the diner acts (OPEN-ITEMS J64 — the poll-budget question).
  *
  * ⚠️ THE COST OF STALENESS IS NOT A BAD CHARGE. `priceItem` re-reads `is_sold_out`/`is_active` on
  * EVERY add and refuses server-side, so a stale phone cannot pay for a dish that is gone. What it

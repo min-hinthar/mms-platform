@@ -13,21 +13,28 @@ import {
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Icon, Toast } from "@mms/ui";
-import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
+import { addItemOutcome, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { settleRereadDelayMs } from "@/lib/live-pass";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { bounded, DRAIN_TIMED_OUT_NOTICE, type DrainOutcome } from "@/lib/write-ledger";
 import {
   cartFreeze,
   classifyRefusedWrite,
+  isServerRefusal,
+  namedRefusalHolds,
   namedRefusedWriteNotice,
   refusalNeedsRemint,
   refusedWriteClause,
   refusedWriteNotice,
+  serverNamedRefusal,
   type FreezeInput,
   type PublishableRefusal,
   type RefusedWrite,
 } from "@/lib/cart-freeze";
+import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
+import { heldKeys, newOwnHolds, openHold, releaseHolds, settleHold } from "@/lib/own-write-hold";
+import { orderUnitCount } from "@/lib/cart-bar-state";
+import { freshnessDurationMs } from "@/lib/catalog-freshness";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
@@ -215,6 +222,11 @@ type CartCtx = {
    *  first view: the menu's kitchen strip reads every stage against it (`lib/kitchen-track.ts` via
    *  `lib/live-pass`), never this phone's clock. */
   dbNow: string | null;
+  /** Lifecycle audit (out-of-stock 0) — dishes an add on THIS phone was refused as sold out, keyed
+   *  by menu item id, valued with the SERVER's clock at the refusal (ms). The menu weighs each mark
+   *  against its catalog render and the cart view (`lib/dish-sold-out.ts`), so the card flips to
+   *  "Sold out" at once and a fresher catalog saying it is back puts it back. */
+  soldOutMarks: ReadonlyMap<string, number>;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -285,6 +297,8 @@ export function TableCartProvider({
   const [sendNudge, setSendNudge] = useState<SendNudge | null>(null);
   // PD10 — the applied view's DB clock: what the kitchen strip's stages are read against.
   const [dbNow, setDbNow] = useState<string | null>(null);
+  // Lifecycle audit (out-of-stock 0) — the dishes an add on this phone was refused as sold out.
+  const [soldOutMarks, setSoldOutMarks] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   // T14 — the VIEWER's own seat, from the same `assertCartMember` call that produced `lockedBy`, so
@@ -367,6 +381,33 @@ export function TableCartProvider({
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  /**
+   * Lifecycle audit (out-of-stock 2 · diner-live-status 3 · edit-notes 7) — the lines and dishes
+   * THIS phone has a write on, so the view diff below never reads a diner's own tap back to them
+   * ("Mohinga is now 2" right after their "+"). #362 (blind pass 3): a hold ends only once a view
+   * whose READ STARTED after the write settled has been diffed with it held (`lib/own-write-hold.ts`)
+   * — never on a timer, which a slow re-read, or a failed one followed by the realtime echo, outran.
+   * `holdPending` returns the SETTLE: call it the moment the write answers, before any recovery read
+   * is issued, so that read can be the one that ends it. Idempotent.
+   */
+  const ownLinesRef = useRef(newOwnHolds());
+  const ownDishesRef = useRef(newOwnHolds());
+  const holdPending = useCallback((which: "line" | "dish", key: string): (() => void) => {
+    const hold = openHold(
+      which === "line" ? ownLinesRef.current : ownDishesRef.current,
+      key,
+      Date.now(),
+    );
+    return () => settleHold(hold, viewSeqRef.current.issued);
+  }, []);
+  /** The view diff — assigned below, once `flash` exists; `applyView` calls it for every view it
+   *  accepts, with the previous confirmed lines. `diffCartRef` is the cart the baseline belongs to:
+   *  the first view of a cart (arrival, a re-mint) is a situation, never news. */
+  const viewDiffRef = useRef<((prev: CartItem[], next: CartItem[], mySeat: string) => void) | null>(
+    null,
+  );
+  const diffCartRef = useRef<string | null>(null);
 
   // W9b — the settle announcement's baseline. `null` until the FIRST server view lands, then seeded
   // from it: arriving at an already-settling table is a situation, not an event, so it must not be
@@ -482,6 +523,16 @@ export function TableCartProvider({
       // baseline against a re-read, so the FIRST add's units then looked like evidence that the
       // SECOND one landed: a genuinely refused second tap reported as success with its refusal
       // suppressed. Writing here, from the view being applied, closes the window the effect leaves.
+      // Lifecycle audit — what someone ELSE changed, said once (lib/order-changes.ts). Asked BEFORE
+      // the ref moves on: `itemsRef` is the last view the screen accepted, i.e. the baseline.
+      const diffCart = cartIdRef.current;
+      if (diffCartRef.current === diffCart)
+        viewDiffRef.current?.(itemsRef.current, v.items, v.mySeat);
+      else diffCartRef.current = diffCart;
+      // #362 — and only THEN may a hold end: this view was diffed with every held key excluded, so if
+      // its read started after a write settled, the baseline now includes that write.
+      releaseHolds(ownLinesRef.current, seq, viewSeqRef.current.issued, Date.now());
+      releaseHolds(ownDishesRef.current, seq, viewSeqRef.current.issued, Date.now());
       itemsRef.current = v.items;
       if (prevSettling.current === null) prevSettling.current = v.settling;
       return true;
@@ -728,6 +779,27 @@ export function TableCartProvider({
       flash(DRAIN_TIMED_OUT_NOTICE, 3000, undefined, { kind: "correction" });
     return outcome;
   }, [settled, flash]);
+  // Lifecycle audit (out-of-stock 2 · diner-live-status 3 · edit-notes 7) — the view diff's voice: a
+  // change someone ELSE made to this order (staff removing a dish — "we ran out" when that is the
+  // reason —, the host or a server changing the diner's own unsent dish or its note, a server adding
+  // one), said as ONE sentence per re-read through this view's ONE region, never a toast per change.
+  // NEWS: it shows over a claim and never waits behind one. Held for the time it takes to read
+  // (`freshnessDurationMs`, the same reading-time rule the menu-freshness sentence uses).
+  const announceOrderChanges = useCallback(
+    (prev: CartItem[], next: CartItem[], seat: string) => {
+      const notice = orderChangeNotice(
+        orderChanges(prev, next, seat, {
+          lineIds: heldKeys(ownLinesRef.current),
+          dishes: heldKeys(ownDishesRef.current),
+        }),
+      );
+      if (notice) flash(notice, freshnessDurationMs(notice));
+    },
+    [flash],
+  );
+  useLayoutEffect(() => {
+    viewDiffRef.current = announceOrderChanges;
+  }, [announceOrderChanges]);
   // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
   // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
   // Say so once, through the SAME single live region every notice uses (microtask-deferred, the
@@ -1190,11 +1262,40 @@ export function TableCartProvider({
       // recovery path below compare against this one snapshot through `classifyAddLanding`, so they
       // cannot disagree about how many units landed — the "name it ONCE" rule applied to a count.
       const itemsBefore = itemsRef.current;
+      // Lifecycle audit — this dish's change is OURS until a view read after the write has shown it
+      // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
+      const settleOwn = holdPending("dish", menuItemId);
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
-        const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
+        // Settled the moment the write answers, BEFORE any recovery read below is issued, so that
+        // read is one that can end the hold.
+        const out = await addItemOutcome(cartId, menuItemId, modifierIds, notes, qty).finally(
+          settleOwn,
+        );
+        if (!out.ok) {
+          // Lifecycle audit (out-of-stock 0) — a refusal the SERVER NAMED (`priceItem`: the dish is
+          // sold out or off the menu), answered as a value because a thrown message is redacted in
+          // production. DEFINITE — the refusal precedes the insert — so it is `refused`, named, and
+          // carries the view on screen (nothing changed). It used to reach this phone as a throw,
+          // re-read, find no lock and hedge "We couldn’t confirm Mohinga" over a card that stayed
+          // live. The MARK flips the menu's card to "Sold out" now; a fresher catalog clears it.
+          // #362 — either kind flips the card (the kitchen cannot make it); the SENTENCE says which.
+          if (out.refused === "sold_out" || out.refused === "gone") {
+            const at = Date.parse(out.at);
+            setSoldOutMarks((prev) =>
+              new Map(prev).set(menuItemId, Number.isFinite(at) ? at : Date.now()),
+            );
+          }
+          const named = serverNamedRefusal(out.refused) ?? { cause: "unknown" as const };
+          return {
+            state: "refused",
+            view: itemsRef.current,
+            clause: publishRefusal(named, opts?.name),
+          };
+        }
+        const view = out.view;
         // ⚠️ `null` MEANS THE WRITE LANDED AND THE VIEW COULD NOT BE READ — never that the tap
         // failed (see `viewAfterWrite` in cart.ts). No refusal is published and the optimistic
         // announce stands, because the add succeeded.
@@ -1339,6 +1440,7 @@ export function TableCartProvider({
         return result;
       } finally {
         setPendingDelta((n) => n - qty);
+        settleOwn(); // idempotent — every path above already settled it
       }
     },
     [
@@ -1350,6 +1452,7 @@ export function TableCartProvider({
       publishRefusal,
       publishUnconfirmed,
       announceShortfall,
+      holdPending,
     ],
   );
 
@@ -1379,10 +1482,32 @@ export function TableCartProvider({
       const line = itemsRef.current.find((i) => i.id === cartItemId);
       const delta = line ? Math.max(0, qty) - line.qty : 0;
       setPendingDelta((d) => d + delta);
+      // Lifecycle audit — this line's change is OURS until a view read after the write has shown it
+      // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
+      const settleOwn = holdPending("line", cartItemId);
       try {
         // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
         // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
-        const view = await setQtyAction(cartItemId, qty);
+        // Settled the moment the write answers, before the recovery reads below are issued.
+        const view = await setQtyAction(cartItemId, qty).finally(settleOwn);
+        if (isServerRefusal(view)) {
+          // Lifecycle audit (edit-notes 6) — a refusal the SERVER NAMED, as a value: the line had
+          // already gone to the kitchen (a tablemate's Send landed inside the echo window), or the
+          // write would grow a dish that sold out. DEFINITE — nothing was written — so unlike the
+          // catch below (T41: a thrown write is never proof) this one is `refused`. The menu "−"
+          // used to say "Removed Mohinga" at the tap and then hedge "We couldn’t confirm that"
+          // while the dish was cooking and stayed on the bill; the correction now names the fact.
+          // The re-read still runs: it snaps the stepper back to server truth and re-asks whether
+          // the fact still HOLDS (an Undo inside the Send's grace puts the line back in draft —
+          // M230's rule). Held, the server's word is said; otherwise the re-read's own reading is.
+          const named = serverNamedRefusal(view.refused);
+          const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
+          const now = fresh?.find((i) => i.id === cartItemId);
+          const spoken =
+            named !== null && (fresh === null || namedRefusalHolds(named, now)) ? named : refusal;
+          if (spoken) publishRefusal(spoken, line?.name);
+          return { state: "refused", view: viewIsCurrent ? fresh : null };
+        }
         // Same contract as `add`: null is "written, unreadable". The stepper keeps its optimistic
         // position rather than snapping back over a change the server accepted.
         if (!view) {
@@ -1441,8 +1566,8 @@ export function TableCartProvider({
         // : null)`, so an `unconfirmed` op (no view) makes the NEXT op re-read, and sends nothing when
         // that read fails too (Codex round 6 on #251). And no consumer re-sends a `setItemQty` — the
         // stepper is the only caller — so `refused` bought nothing here that `unconfirmed` loses.
-        const line = fresh?.find((i) => i.id === cartItemId);
-        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);
+        const now = fresh?.find((i) => i.id === cartItemId);
+        const atTarget = fresh !== null && (qty <= 0 ? now === undefined : now?.qty === qty);
         const result = recoveredWrite({
           reread: fresh,
           landed: atTarget ? true : null,
@@ -1450,13 +1575,27 @@ export function TableCartProvider({
         });
         // `refused` is unreachable on this path by construction (the landing is `true` or `null`),
         // so a write that is not confirmed is retracted — never explained as a refusal.
-        if (result.state === "unconfirmed") publishUnconfirmed();
+        // F30 (lifecycle audit) — the retraction NAMES the dish, as `add`'s does: with rows in flight a
+        // bare "We couldn’t confirm that" does not say which "−" it is about. Codex A (#362): from
+        // the re-read when it has the line, else from the rows held when the tap was made (`line`,
+        // captured before the write) — a FAILED re-read is exactly the case F30 exists for.
+        if (result.state === "unconfirmed") publishUnconfirmed(now?.name ?? line?.name);
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
+        settleOwn(); // idempotent — every path above already settled it
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishUnconfirmed],
+    [
+      cartId,
+      applyView,
+      readView,
+      explainCaught,
+      flash,
+      publishRefusal,
+      publishUnconfirmed,
+      holdPending,
+    ],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every
@@ -1470,7 +1609,10 @@ export function TableCartProvider({
     [setItemQty, track],
   );
 
-  const count = Math.max(0, items.reduce((a, i) => a + i.qty, 0) + pendingDelta);
+  // Lifecycle audit (diner-live-status 3) — a REMOVED line is not counted: the bar's subtotal
+  // already excludes it, and "1 · View order · $0.00" after staff took the only dish off was the
+  // count and the money disagreeing on one bar. `orderUnitCount` is the bar's own confirmed count.
+  const count = Math.max(0, orderUnitCount(items) + pendingDelta);
   /**
    * MEMOISED on primitives, because a fresh object here defeats the whole context memo below.
    *
@@ -1640,6 +1782,7 @@ export function TableCartProvider({
       settling,
       sendNudge,
       dbNow,
+      soldOutMarks,
     }),
     [
       cartId,
@@ -1672,6 +1815,7 @@ export function TableCartProvider({
       settling,
       sendNudge,
       dbNow,
+      soldOutMarks,
     ],
   );
 

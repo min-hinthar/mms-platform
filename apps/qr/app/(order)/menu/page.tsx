@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { dbClockIso } from "@/lib/db-clock";
 import { bareMenuRedirect } from "@/lib/menu-entry";
 import { publicClient } from "@mms/db/server";
 import { TableCartProvider } from "@/components/TableCartProvider";
@@ -66,6 +67,11 @@ export default async function Menu({
   // sticker tokens stay server-side (lib/tables.ts strips `qr_code`); a failed read is [] and the
   // section degrades to "scan your sticker". Started beside the recognition reads, awaited with them.
   const tablesP = tableGridOffered(mode) ? getDineInTables() : Promise.resolve(undefined);
+  // #362 (blind pass 9) — the render stamp on the DATABASE clock, started beside the catalog read so
+  // it is taken no later than the read: /menu weighs this render against the cart view (`dbNow`) and
+  // a refusal (`dbClockIso` too), and three clocks ordered those by skew. Advisory: a failed read
+  // falls back, logged, to this server's clock.
+  const stampP = dbClockIso("menu render");
   const { data, error: catalogErr } = await db
     .from("menu_items")
     .select(
@@ -199,14 +205,11 @@ export default async function Menu({
         // a claim. It is deliberately outside the last-good cache: a served-from-cache render still
         // advances it, and `catalogStale` (which suppresses the gesture) is what carries that fact.
         //
-        // `react-hooks/purity` flags `Date.now()` here, and the rule is right about CLIENT
-        // components and wrong about this one. This is a Server Component: there is no re-render to
-        // destabilise, each render IS a fresh request, and a value that changes per request is the
-        // entire definition of a render stamp. A content hash cannot substitute — it could not tell
-        // "the refresh landed and nothing changed" apart from "the refresh never landed", which is
-        // the one distinction this exists to make.
-        // eslint-disable-next-line react-hooks/purity -- impure by design; RSC render stamp (above)
-        catalogStamp={Date.now()}
+        // A value that changes per request is the entire definition of a render stamp; a content hash
+        // cannot substitute — it could not tell "the refresh landed and nothing changed" apart from
+        // "the refresh never landed", which is the one distinction this exists to make. #362 — on
+        // the DATABASE clock (`stampP`, above), the one clock every sold-out reading is stamped on.
+        catalogStamp={Date.parse(await stampP)}
       />
     </TableCartProvider>
   );

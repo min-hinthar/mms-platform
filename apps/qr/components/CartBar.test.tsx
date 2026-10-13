@@ -207,3 +207,56 @@ describe("PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a shared table's bar name
     expect(document.querySelector(".cartbar-line2")!.textContent).toContain("Someone’s waiting");
   });
 });
+
+/**
+ * Lifecycle audit (diner-live-status 3) — a dish staff REMOVED is out of the bar's count and its
+ * money alike. The provider's `count` and the bar's confirmed count are one binding
+ * (`orderUnitCount`), so a removed line can never leave the amount stuck on "updating".
+ */
+describe("CartBar — a removed dish is not counted", () => {
+  it("a confirmed view with a removed line shows its amount, never a stuck 'updating'", async () => {
+    // MUTATION (lcb/cartbar/confirmed-count-forks): count the removed unit here while the provider
+    // does not — `pending` never clears and the amount reads "updating" for good; red.
+    const CartBar = await freshCartBar();
+    ctx.current = {
+      count: 1,
+      totals: TOTALS,
+      cartId: "cart-1",
+      drain,
+      items: [LINE, { ...LINE, id: "line-gone", lineState: "voided" }],
+    };
+    const { container } = render(<CartBar />);
+    const bar = container.querySelector("button");
+    expect(bar?.getAttribute("aria-label")).not.toContain("updating");
+  });
+});
+
+/**
+ * Lifecycle audit (the synthesizer's (b)) — a table whose ONLY dish was removed counts 0, and the bar
+ * used to unmount on `count === 0`, taking the diner's one door to "Removed — we ran out" with it.
+ */
+describe("CartBar — the bar stays while a removed dish is on the order", () => {
+  it("renders, at $0.00, when the cart's only line was removed", async () => {
+    // MUTATION (lcb/cartbar/zero-count-unmounts): return null on `count === 0` again; red.
+    const CartBar = await freshCartBar();
+    ctx.current = {
+      count: 0,
+      totals: { ...TOTALS, subtotalCents: 0, totalCents: 0 },
+      cartId: "cart-1",
+      drain,
+      mode: "dinein",
+      items: [{ ...LINE, fulfillment: "dinein", lineState: "voided", removedReason: "sold_out" }],
+    };
+    const { container } = render(<CartBar />);
+    const bar = container.querySelector("button");
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute("aria-label")).toBe("View order — subtotal $0.00");
+  });
+
+  it("still goes away when nothing at all is on the order", async () => {
+    const CartBar = await freshCartBar();
+    ctx.current = EMPTY;
+    const { container } = render(<CartBar />);
+    expect(container.querySelector("button")).toBeNull();
+  });
+});

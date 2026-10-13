@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  dishUnavailable,
+  itemSellable,
   pickUnavailable,
   pickUnavailableNames,
   foodMenuIds,
+  sendBlockingDishes,
   type CartLineish,
   type CatalogItemish,
 } from "./availability";
@@ -152,7 +155,7 @@ describe("pickUnavailable — the ids the manual-capture path acts on (W23c)", (
         [line({ menu_item_id: "a" }), line({ menu_item_id: "b" })],
         [item({ id: "a", name_en: "Mohinga", is_sold_out: true }), item({ id: "b" })],
       ),
-    ).toEqual([{ id: "a", name: "Mohinga" }]);
+    ).toEqual([{ id: "a", name: "Mohinga", why: "sold_out" }]);
   });
 
   it("is the SAME verdict pickUnavailableNames projects — one rule, not two", () => {
@@ -187,5 +190,111 @@ describe("foodMenuIds", () => {
 
   it("asks nothing of the catalog for a grocery-only basket", () => {
     expect(foodMenuIds([line({ menu_item_id: "a", fulfillment: "grocery" })])).toEqual([]);
+  });
+});
+
+/**
+ * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — the dishes that hold a dine-in SEND:
+ * exactly the `dinein` drafts the Send would fire whose dish can no longer be made. A to-go draft
+ * waits for the payment (and its own gate), so it must never hold the table's Send.
+ */
+describe("sendBlockingDishes — what a Send would put on the board that the kitchen said no to", () => {
+  const catalog: CatalogItemish[] = [
+    { id: "m1", name_en: "Mohinga", is_sold_out: true, is_active: true },
+    { id: "m2", name_en: "Tea Leaf Salad", is_sold_out: false, is_active: true },
+    { id: "m3", name_en: "Shan Noodles", is_sold_out: false, is_active: false },
+  ];
+  it("names sold-out and delisted dine-in drafts, and nothing sendable", () => {
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "draft", fulfillment: "dinein" },
+      { menu_item_id: "m2", name: "Tea Leaf Salad", state: "draft", fulfillment: "dinein" },
+      { menu_item_id: "m3", name: "Shan Noodles", state: "draft", fulfillment: "dinein" },
+    ];
+    expect(sendBlockingDishes(lines, catalog).map((u) => u.name)).toEqual([
+      "Mohinga",
+      "Shan Noodles",
+    ]);
+  });
+  it("a TO-GO draft of a sold-out dish never holds the table's Send", () => {
+    // MUTATION (lcb/availability/to-go-draft-holds-the-send): drop the dine-in filter; red.
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "draft", fulfillment: "togo" },
+    ];
+    expect(sendBlockingDishes(lines, catalog)).toEqual([]);
+  });
+  it("a line already with the kitchen is not the Send's (it is not fired again)", () => {
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "fired", fulfillment: "dinein" },
+    ];
+    expect(sendBlockingDishes(lines, catalog)).toEqual([]);
+  });
+});
+
+/**
+ * #362 (Codex round 1, cart.ts:190) — ONE predicate that returns the KIND. A delisted dish is not a
+ * temporary 86, and every surface that names the reason ("Sold out" vs "No longer on the menu") reads
+ * it from here, so /cart, the Send's names and the refusals agree.
+ */
+describe("dishUnavailable — sold out, or no longer on the menu", () => {
+  it("names the kind: an 86 is `sold_out`; a delisted dish, or no catalog row at all, is `gone`", () => {
+    // MUTATION (lcb/availability/delisted-reads-sold-out): answer `sold_out` for an inactive dish —
+    // a delisting reads as a temporary 86 ("Sold out" on a dish that is not coming back); red.
+    expect(dishUnavailable(item({ id: "a", is_sold_out: true }))).toBe("sold_out");
+    expect(dishUnavailable(item({ id: "a", is_active: false }))).toBe("gone");
+    expect(dishUnavailable(null)).toBe("gone");
+    expect(dishUnavailable(undefined)).toBe("gone");
+    expect(dishUnavailable(item({ id: "a" }))).toBeNull();
+    // A delisted dish that was also 86'd is GONE: the delisting is the fact that outlives the 86.
+    expect(dishUnavailable(item({ id: "a", is_sold_out: true, is_active: false }))).toBe("gone");
+  });
+
+  it("`itemSellable` is that predicate's projection — never a second spelling", () => {
+    for (const flags of [
+      { is_sold_out: false, is_active: true },
+      { is_sold_out: true, is_active: true },
+      { is_sold_out: false, is_active: false },
+      { is_sold_out: true, is_active: false },
+    ])
+      expect(itemSellable(flags)).toBe(dishUnavailable(flags) === null);
+  });
+
+  it("pickUnavailable carries the kind of each dish it names", () => {
+    expect(
+      pickUnavailable(
+        [line({ menu_item_id: "a" }), line({ menu_item_id: "b" }), line({ menu_item_id: "ghost" })],
+        [
+          item({ id: "a", name_en: "Mohinga", is_sold_out: true }),
+          item({ id: "b", name_en: "Shan Noodles", is_active: false }),
+        ],
+      ).map((u) => [u.name, u.why]),
+    ).toEqual([
+      ["Mohinga", "sold_out"],
+      ["Shan Noodles", "gone"],
+      ["Line", "gone"],
+    ]);
+  });
+});
+
+/**
+ * #362 (blind pass 2b) — a COMPED draft never holds the table's Send. No diner can remove a comped
+ * line (`canMutateLine`), so a sold-out comp blocked the whole table's Send with no way through; staff
+ * comped it, staff own it. It fires as it did before this gate existed (the KDS shows the 86).
+ */
+describe("sendBlockingDishes — a comp the diner cannot remove never blocks the Send", () => {
+  it("skips a comped sold-out dine-in draft, and still blocks an uncomped one", () => {
+    // MUTATION (lcb/availability/comp-blocks-the-send): drop the comped filter; red.
+    const catalog = [item({ id: "m1", name_en: "Mohinga", is_sold_out: true })];
+    expect(
+      sendBlockingDishes(
+        [line({ menu_item_id: "m1", fulfillment: "dinein", comped: true })],
+        catalog,
+      ),
+    ).toEqual([]);
+    expect(
+      sendBlockingDishes(
+        [line({ menu_item_id: "m1", fulfillment: "dinein", comped: false })],
+        catalog,
+      ).map((u) => u.name),
+    ).toEqual(["Mohinga"]);
   });
 });

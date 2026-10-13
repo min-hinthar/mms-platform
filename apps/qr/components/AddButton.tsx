@@ -15,31 +15,13 @@ import {
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 import { createRevertCue, pillAddClaim, stepClaim, stepOvertakenNotice } from "@/lib/add-feedback";
+import { matchOwnLines } from "@/lib/own-lines";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
 
-// The viewer's OWN draft quick-add lines for this item, from a given cart snapshot: item + no modifiers +
-// the session-default fulfillment + draft + not comped + own verified seat. Shared by the render (current
-// items) and the write-queue (the freshest threaded snapshot) so both agree on which lines the stepper
-// owns. Require a known seat — a staff line has `bySeat` undefined and session recovery blanks `mySeat`, so
-// an unguarded `=== mySeat` would false-match a staff line (a real diner line always carries its by_seat).
-function matchOwnLines(
-  items: CartItem[],
-  menuItemId: string,
-  fulfillment: string,
-  mySeat: string | undefined,
-): CartItem[] {
-  if (!mySeat) return [];
-  return items.filter(
-    (i) =>
-      i.menuItemId === menuItemId &&
-      i.modifiers.length === 0 &&
-      i.fulfillment === fulfillment &&
-      i.lineState === "draft" &&
-      !i.comped &&
-      i.bySeat === mySeat,
-  );
-}
+// The viewer's OWN draft quick-add lines for this item — `lib/own-lines.ts` (moved there with its
+// allergy rule, lifecycle audit edit-notes 0: a NOTED line is never one of them, mirroring the
+// server's merge key). Shared by the render and the write-queue so both agree on what the stepper owns.
 
 /** Is keyboard focus orphaned — nowhere, or dropped to <body> because the focused node left the DOM? */
 function focusOrphaned(): boolean {
@@ -71,6 +53,10 @@ export function AddButton({
 }: {
   menuItemId: string;
   name: string;
+  /** Lifecycle audit (out-of-stock 0 · 5) — the dish's sold-out fact from the FRESHEST reading this
+   *  phone holds (the catalog render, the cart view, a refusal just met — `lib/dish-sold-out.ts`),
+   *  decided by `MenuBrowser`. It gates the pill AND the in-cart "+", in both directions: a dish put
+   *  back on the menu is addable again the moment a fresher reading says so. */
   soldOut?: boolean;
 }) {
   const {
@@ -112,9 +98,10 @@ export function AddButton({
   // Displayed qty = server truth + the optimistic in-flight delta (the instant-morph). All UI (the digit,
   // aria labels, the MAX gate, the morph) keys off this; the WRITE still targets real server lines only.
   const qty = serverQty + optimistic;
-  // Fresher 86'd signal: any matching own line flagged sold-out (server-derived live in getCartView) OR the
-  // page-render menu prop. Gates the in-cart "+" so a line 86'd after load can't keep incrementing.
-  const liveSoldOut = soldOut || myLines.some((l) => l.soldOut);
+  // Lifecycle audit (out-of-stock 5) — ONE sold-out fact for the pill and the "+": `soldOut` is
+  // already the freshest reading (the cart's live line flag included), so it is not ORed with a stale
+  // render here — that OR kept a restocked dish's "+" dead while /cart's was live.
+  const liveSoldOut = soldOut;
   // Morph once the viewer has the item in their own line(s) — all modes (per-seat merge shows each diner their
   // own contribution). Qty-driven: the stepper stays the control even if 86'd ("+" disables, "−" still removes).
   const inCart = qty > 0;
@@ -183,14 +170,23 @@ export function AddButton({
   const plusBtnRef = useRef<HTMLButtonElement>(null);
   const minusBtnRef = useRef<HTMLButtonElement>(null);
   const refocusStepper = useRef(false);
+  // F30 (the focus half) — the pill's focus-hold, applied to the "−". A revert that brings the stepper
+  // back FROZEN (the refusal applied a lock or settle view before `setItemQty` returned) used to wait
+  // here: the "−" is natively disabled under a freeze, so it could not take the focus its own removal
+  // had moved to the (now unmounted) pill, and focus sat on <body> for as long as the freeze lasted.
+  // `holdMinus` keeps THAT "−" focusable as `aria-disabled`, its reason in its name, until it blurs —
+  // armed only when focus was orphaned or on this row's own pill, so it never lands anywhere else.
+  const [holdMinus, setHoldMinus] = useState(false);
   useEffect(() => {
-    if (!inCart || blocked) return;
-    if (refocusStepper.current) {
-      refocusStepper.current = false;
-      if (!focusOrphaned()) return;
-      minusBtnRef.current?.focus();
-    }
-  }, [inCart, blocked]);
+    if (!inCart || !refocusStepper.current) return;
+    if (blocked && !holdMinus) return;
+    refocusStepper.current = false;
+    // Orphan-guarded like the rest. A hold left standing when focus went elsewhere costs nothing (a
+    // focusable `aria-disabled` "−" with its reason in its name, the pill's own residual) and ends
+    // with the stepper or the next blur.
+    if (!focusOrphaned()) return;
+    minusBtnRef.current?.focus();
+  }, [inCart, blocked, holdMinus]);
 
   // Phase 1c — the pill's create lands focus ONCE, when it settles (never a persistent flag). The chain
   // bumps `createSettled` only if, at the settle, focus was orphaned or inside THIS row's stepper; this
@@ -321,12 +317,15 @@ export function AddButton({
     const armRevertRefocus = (res: WriteResult<CartItem[]>) => {
       if (!emptying) return;
       const fresh = threadableView(res);
-      if (fresh === null) {
+      if (
+        fresh === null ||
+        matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)
+      ) {
         refocusStepper.current = true;
-        return;
-      }
-      if (matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)) {
-        refocusStepper.current = true;
+        // F30 — hold the "−" focusable only for the focus this removal itself moved: orphaned, or
+        // on the temporary pill that is about to unmount. Focus the diner took elsewhere holds nothing.
+        const active = document.activeElement;
+        if (!active || active === document.body || active === addBtnRef.current) setHoldMinus(true);
       }
     };
     writeChain.current = writeChain.current
@@ -418,8 +417,9 @@ export function AddButton({
   //    re-appearing after a refresh) must not replay the last add's gems — MicroBurst's own `doneKey`
   //    dies with it, so a stale `burstKey` here would celebrate a failed removal.
   //  • On the stepper, the pill's revert cue and focus-hold are moot — clear them so neither survives to
-  //    the next time the pill appears.
+  //    the next time the pill appears. Back on the pill, the "−"'s hold (F30) is moot the same way.
   if (!inCart && burstKey !== 0) setBurstKey(0);
+  if (!inCart && holdMinus) setHoldMinus(false);
   if (inCart && (revertCue || holdFocus)) {
     setRevertCue(false);
     setHoldFocus(false);
@@ -440,7 +440,13 @@ export function AddButton({
           ref={minusBtnRef}
           type="button"
           className="mms-stepper-btn"
-          disabled={frozen}
+          // F30 — natively disabled under a freeze, except while it holds the focus a reverted
+          // removal moved (`holdMinus`): then `aria-disabled`, focusable, and its click is gated.
+          disabled={frozen && !holdMinus}
+          aria-disabled={(frozen && holdMinus) || undefined}
+          onBlur={() => {
+            if (holdMinus) setHoldMinus(false);
+          }}
           aria-label={
             reason
               ? `${qty === 1 ? `Remove ${name}` : `Remove one ${name}`} — ${reason}`
@@ -448,7 +454,10 @@ export function AddButton({
                 ? `Remove ${name}`
                 : `Remove one ${name}`
           }
-          onClick={decrement}
+          onClick={() => {
+            if (frozen) return; // a held "−" is focusable, never live
+            decrement();
+          }}
         >
           <span aria-hidden>−</span>
         </button>

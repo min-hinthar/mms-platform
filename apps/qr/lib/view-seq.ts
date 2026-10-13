@@ -198,7 +198,7 @@ export function readReachedServer(o: ReadOutcome): boolean {
 export async function readTicketed<T>(
   s: ViewSeq,
   read: () => Promise<T>,
-  apply: (view: T) => void,
+  apply: (view: T, seq: number) => void,
 ): Promise<ReadOutcome> {
   const seq = issueRead(s);
   let view: T;
@@ -208,7 +208,9 @@ export async function readTicketed<T>(
     return "failed";
   }
   if (!acceptView(s, seq)) return "overtaken";
-  apply(view);
+  // #362 — the ticket rides along: a view knows when its READ STARTED, which is what ends a diner's
+  // own-write hold (`lib/own-write-hold.ts`).
+  apply(view, seq);
   return "applied";
 }
 

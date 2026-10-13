@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, freezeRecheckDelayMs } from "./lock-ttl";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, effectiveFreeze, freezeRecheckDelayMs } from "./lock-ttl";
 
 /**
  * T20 — the delay is the LONGEST held axis, and nothing here is transcribed.
@@ -45,5 +45,43 @@ describe("freezeRecheckDelayMs", () => {
     // rule would still be correct but this suite would stop separating max from min — so the
     // ordering is pinned here rather than assumed by the case above.
     expect(SETTLE_TTL_MS).toBeGreaterThan(CART_LOCK_TTL_MS);
+  });
+});
+
+/**
+ * #362 fix round (blind pass 5) — the freshness rule `assertCartMember` applies, named ONCE so
+ * `setLineNote`'s re-read of the cart's freezes cannot drift from it.
+ */
+describe("effectiveFreeze — held AND fresh, on the caller's clock", () => {
+  const now = Date.parse("2026-10-13T12:00:00.000Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+
+  it("a lock counts while it is inside its TTL, and not once it has lapsed or been released", () => {
+    // MUTATION (lcb/freeze/lock-never-lapses): drop the TTL comparison; red.
+    expect(
+      effectiveFreeze({ locked: true, locked_at: ago(CART_LOCK_TTL_MS - 1), settle_at: null }, now),
+    ).toEqual({ locked: true, settling: false });
+    expect(
+      effectiveFreeze({ locked: true, locked_at: ago(CART_LOCK_TTL_MS + 1), settle_at: null }, now),
+    ).toEqual({ locked: false, settling: false });
+    // MUTATION (lcb/freeze/released-lock-holds): read `locked_at` without `locked`; red.
+    expect(
+      effectiveFreeze({ locked: false, locked_at: ago(1_000), settle_at: null }, now).locked,
+    ).toBe(false);
+    expect(effectiveFreeze({ locked: true, locked_at: null, settle_at: null }, now).locked).toBe(
+      false,
+    );
+  });
+
+  it("a settlement counts while inside ITS TTL — the longer one", () => {
+    // MUTATION (lcb/freeze/settle-on-the-lock-ttl): judge a settlement by the LOCK's TTL; red.
+    const between = CART_LOCK_TTL_MS + (SETTLE_TTL_MS - CART_LOCK_TTL_MS) / 2;
+    expect(
+      effectiveFreeze({ locked: false, locked_at: null, settle_at: ago(between) }, now),
+    ).toEqual({ locked: false, settling: true });
+    expect(
+      effectiveFreeze({ locked: false, locked_at: null, settle_at: ago(SETTLE_TTL_MS + 1) }, now)
+        .settling,
+    ).toBe(false);
   });
 });

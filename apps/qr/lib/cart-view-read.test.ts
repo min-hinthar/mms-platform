@@ -319,6 +319,6 @@ describe("a mutation's trailing view read never fails the write", () => {
     // caller re-read on every tap and lose the one-round-trip fix this return value exists for.
     const v = await setQty("line-1", 3);
     expect(v).not.toBeNull();
-    expect(v?.items).toEqual([]);
+    expect(v && "items" in v ? v.items : "a refusal, not a view").toEqual([]);
   });
 });

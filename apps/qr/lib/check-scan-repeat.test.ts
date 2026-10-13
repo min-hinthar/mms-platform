@@ -114,9 +114,9 @@ const UNDO: Fixture[] = [
   },
   {
     name: "a fixed qty written alongside a parked rule-following write",
-    find: "      await ledger.track(setQty(u.lineId, target));",
+    find: "      const outcome = groceryWriteOutcome(await ledger.track(setQty(u.lineId, target)));",
     replace:
-      "      if (false) await ledger.track(setQty(u.lineId, target));\n      await ledger.track(setQty(u.lineId, 0));",
+      "      if (false) await ledger.track(setQty(u.lineId, target));\n      const outcome = groceryWriteOutcome(await ledger.track(setQty(u.lineId, 0)));",
     expect: /proposition 6: `undoAdd` must make exactly ONE live `setQty/,
   },
   {

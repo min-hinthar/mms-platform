@@ -391,3 +391,38 @@ describe("PD1 (m1 A5 · B6; DESIGN-LANGUAGE §21) — the Send names no count on
     );
   });
 });
+
+/**
+ * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — a Send that would put a sold-out dish on
+ * the board is refused, and the refusal NAMES the dishes and the way through.
+ */
+describe("a Send refused for sold-out dishes", () => {
+  it("names them, fires nothing, opens no window, and re-reads so each dish shows its mark", async () => {
+    // MUTATION (lcb/send-button/sold-out-unnamed): say the generic failure — "Couldn’t send that just
+    // now — please try again." over a cart a retry can never send; red.
+    h.sendToKitchen.mockResolvedValue({
+      ok: false,
+      reason: "unavailable",
+      dishes: [{ name: "Mohinga", why: "sold_out" }],
+    });
+    const onChanged = vi.fn();
+    const onMessage = vi.fn();
+    const g = grace();
+    render(
+      <SendToKitchenButton
+        cartId="cart-1"
+        verb="send"
+        grace={g}
+        frozen={false}
+        onMessage={onMessage}
+        onChanged={onChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/ }));
+    });
+    expect(onMessage).toHaveBeenCalledWith("Mohinga is sold out now — remove it to send the rest.");
+    expect(g.open).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalled();
+  });
+});

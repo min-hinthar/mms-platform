@@ -77,3 +77,24 @@ export function freezeRecheckDelayMs({ locked, settling }: FreezeAxes): number |
   if (!locked && !settling) return null;
   return Math.max(locked ? CART_LOCK_TTL_MS : 0, settling ? SETTLE_TTL_MS : 0);
 }
+
+/**
+ * The EFFECTIVE freeze of one `qr_carts` row at `nowMs` — a lock that is held AND inside its TTL, a
+ * settlement inside its own. `assertCartMember` decides every diner write's freeze with it, and
+ * `setLineNote` re-asks it of the row it re-reads right before its write (#362 fix round, blind pass
+ * 5): one rule, named once, so the two reads of the same freeze cannot disagree about what "fresh"
+ * means. It lives here, beside the two TTLs, rather than in `authz.ts`, because `authz.ts` is
+ * server-only and a pure rule there could only be tested through mocks of everything it imports.
+ */
+export function effectiveFreeze(
+  row: { locked: boolean | null; locked_at: string | null; settle_at: string | null },
+  nowMs: number,
+): FreezeAxes {
+  return {
+    locked:
+      !!row.locked &&
+      row.locked_at !== null &&
+      new Date(row.locked_at).getTime() > nowMs - CART_LOCK_TTL_MS,
+    settling: row.settle_at !== null && new Date(row.settle_at).getTime() > nowMs - SETTLE_TTL_MS,
+  };
+}
