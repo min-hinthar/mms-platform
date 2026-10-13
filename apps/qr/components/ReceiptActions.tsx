@@ -86,7 +86,9 @@ export function ReceiptActions({
           setLink(r);
           setSentTo(r.emailedTo);
         }
-        report(r.ok ? r.emailEnabled : false);
+        // The capture is on screen only for a caller who may email (`canEmail`): a counter order's
+        // seated diner gets "View & print" alone (lifecycle audit, the blind pass on #359).
+        report(r.ok ? r.emailEnabled && r.canEmail : false);
         onLinkedRef.current?.(r.ok);
       })
       .catch(() => {
@@ -149,6 +151,7 @@ export function ReceiptActions({
         </span>
       </a>
       {link.emailEnabled &&
+        link.canEmail &&
         (editing ? (
           <form onSubmit={send} style={{ marginTop: 6 }}>
             <label htmlFor="receipt-email-input" style={label}>

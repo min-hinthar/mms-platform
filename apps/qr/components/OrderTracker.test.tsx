@@ -36,8 +36,12 @@ vi.mock("@/lib/rewards", () => ({ getRewardsProgress: () => Promise.resolve(null
 vi.mock("@/lib/useConnectionTruth", () => ({
   useConnectionTruth: () => ({ truth: "unknown", diagnose: () => Promise.resolve() }),
 }));
+const noted: { pickupSlot: string | null }[] = [];
+const noteTrackedOrder = (info: { pickupSlot: string | null }) => {
+  noted.push(info);
+};
 vi.mock("./ActiveOrderProvider", () => ({
-  useActiveOrder: () => ({ clearOrder: () => {}, noteOrderSlot: () => {} }),
+  useActiveOrder: () => ({ clearOrder: () => {}, noteTrackedOrder }),
 }));
 vi.mock("@mms/ui", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@mms/ui")>()),
@@ -117,6 +121,7 @@ beforeEach(() => {
   kitchen = { status: "off" };
   kitchenAsked.length = 0;
   pickupProps.length = 0;
+  noted.length = 0;
   linkMinted = false;
 });
 afterEach(cleanup);
@@ -304,5 +309,21 @@ describe("H — the settled foot names where the receipt lives", () => {
     live = dineIn({ tender: "card" });
     const { findByText } = mount();
     await findByText("Your table’s all settled — this receipt lives in your order history.");
+  });
+});
+
+describe("F — the landed order is noted on the device's pointer (the blind pass on #359)", () => {
+  it("notes a DINE-IN order (no slot) as landed once its row is on screen", () => {
+    live = dineIn();
+    mount();
+    // RED when only a pickup slot is noted: the pill's later empty read after a clear then reads as
+    // the webhook race, and the pointer lives out its TTL saying "Placed".
+    expect(noted).toContainEqual({ pickupSlot: null });
+  });
+
+  it("notes nothing before the order lands", () => {
+    live = null;
+    mount();
+    expect(noted).toEqual([]);
   });
 });

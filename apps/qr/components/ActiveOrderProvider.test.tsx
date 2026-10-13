@@ -328,7 +328,7 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     expect(orderEye()).toMatch(/^pi_1@/);
   });
 
-  it("E — noteOrderSlot stamps the slot on the order the /track URL names, and on no other", async () => {
+  it("E/F — noteTrackedOrder stamps the slot (and that it landed) on the order the /track URL names, and on no other", async () => {
     localStorage.setItem(
       "mms.qr.activeOrder",
       JSON.stringify({
@@ -342,9 +342,9 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     search = "payment_intent=pi_1&redirect_status=succeeded&resume=1";
     window.history.replaceState(null, "", `/track?${search}`);
     function Noter({ slot }: { slot: string }) {
-      const { noteOrderSlot } = useActiveOrder();
+      const { noteTrackedOrder } = useActiveOrder();
       return (
-        <button type="button" onClick={() => noteOrderSlot(slot)}>
+        <button type="button" onClick={() => noteTrackedOrder({ pickupSlot: slot })}>
           note
         </button>
       );
@@ -357,6 +357,8 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     await frames();
     act(() => screen.getByRole("button").click());
     expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
+    // F — and the pointer now knows the order exists. RED when `landed` is not stamped.
+    expect(stored().landed).toBe(true);
     // A tray link to ANOTHER order never stretches this one.
     window.history.replaceState(null, "", "/track?payment_intent=pi_2&redirect_status=succeeded");
     cleanup();

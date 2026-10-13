@@ -43,7 +43,14 @@ export type OrderStatus = {
 export function useOrderStatus(
   paymentIntent: string | null,
   orderId: string | null = null,
+  /** F (the blind pass on #359) — the order is KNOWN to exist (its id came from a server resolve, or
+   *  /track has already seen its row): there is no webhook race to wait out, so a read that SUCCEEDS
+   *  with no row means "no longer this device's to read" (the session closed or lapsed) — `stale` at
+   *  once, on the FIRST read of a fresh subscription. Without it a header mounted after the table was
+   *  cleared polled ten times, timed out to "Placed", and kept the pointer for its whole TTL. */
+  opts?: { known?: boolean },
 ): OrderStatus {
+  const known = opts?.known === true;
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [exhausted, setExhausted] = useState(false);
@@ -142,6 +149,11 @@ export function useOrderStatus(
         // (the 4-hour session swept, the table cleared). No poll — the host falls back to its
         // uid-scoped snapshot; a later authorized read (a rejoin) clears this again.
         setStale(true);
+      } else if (known && !error) {
+        // F — an order KNOWN to exist that a successful read cannot see is not "not fulfilled yet":
+        // there is no webhook to wait for. Same verdict as a row that went dark; a failed read
+        // falls through to the retry below instead (unknowable ≠ gone).
+        setStale(true);
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.
@@ -228,7 +240,7 @@ export function useOrderStatus(
       window.removeEventListener("focus", onWake);
       supa.removeChannel(channel);
     };
-  }, [key, valid, byOrderId, anon]);
+  }, [key, valid, byOrderId, anon, known]);
 
   // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the key is
   // malformed", but only while no order has arrived.

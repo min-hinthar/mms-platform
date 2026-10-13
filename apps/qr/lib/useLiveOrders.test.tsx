@@ -104,37 +104,56 @@ describe("useLiveOrders with a seed — /account's live row (blind review)", () 
   });
 });
 
-describe("useLiveOrders — J, a modest re-poll while an order is still moving (lifecycle audit)", () => {
+describe("useLiveOrders — J, an OPT-IN re-poll while a fired bag is still moving (lifecycle audit)", () => {
   // /account "Today" has no Realtime and the header pill is off there on purpose, so a guest who paid
-  // and stayed on the page watched "Preparing" through the expo's Ready until they switched apps.
-  const cooking = { id: "c", hasTogoFood: true, togoStatus: "preparing" } as LiveOrder;
-  const ready = { id: "r", hasTogoFood: true, togoStatus: "ready" } as LiveOrder;
-  function Seeded({ initial }: { initial: LiveOrder[] }) {
-    const { orders } = useLiveOrders(true, null, initial);
+  // and stayed on the page watched "Preparing" through the expo's Ready until they switched apps. The
+  // blind pass on #359: the header shares this hook on every diner page, so the timer is opt-in.
+  const cooking = {
+    id: "c",
+    hasTogoFood: true,
+    togoStatus: "preparing",
+    fireAt: null,
+  } as LiveOrder;
+  const ready = { id: "r", hasTogoFood: true, togoStatus: "ready", fireAt: null } as LiveOrder;
+  const held = {
+    id: "h",
+    hasTogoFood: true,
+    togoStatus: "preparing",
+    fireAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  } as LiveOrder;
+  function Seeded({ initial, poll = true }: { initial: LiveOrder[]; poll?: boolean }) {
+    const { orders } = useLiveOrders(true, null, initial, { poll });
     return <p data-testid="polled">{orders.map((o) => o.id).join(",") || "none"}</p>;
   }
+  const tick = (n = 1) =>
+    act(async () => {
+      vi.advanceTimersByTime(LIVE_ORDERS_POLL_MS * n);
+      await Promise.resolve();
+    });
   afterEach(() => vi.useRealTimers());
 
-  it("re-reads every LIVE_ORDERS_POLL_MS while a bag is still cooking and the page is visible", async () => {
+  it("re-reads every LIVE_ORDERS_POLL_MS while a fired bag is cooking and the page is visible", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [cooking] });
     render(<Seeded initial={[cooking]} />);
     expect(h.readMyLiveOrders).not.toHaveBeenCalled(); // the seed is fresh — no mount read
-    await act(async () => {
-      vi.advanceTimersByTime(LIVE_ORDERS_POLL_MS);
-      await Promise.resolve();
-    });
+    await tick();
     // RED when nothing polls: the Ready edge waited for a tab switch.
     expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
   });
 
-  it("polls NOTHING once every order is at rest (a Ready bag waits on the guest, not the kitchen)", async () => {
+  it("reads NOTHING while every order is at rest — a Ready bag, or a HELD pickup", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    render(<Seeded initial={[ready]} />);
-    await act(async () => {
-      vi.advanceTimersByTime(LIVE_ORDERS_POLL_MS * 3);
-      await Promise.resolve();
-    });
+    render(<Seeded initial={[ready, held]} />);
+    await tick(3);
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+  });
+
+  it("is OPT-IN — the header's call (no `poll`) never reads on a timer, cooking bag or not", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    render(<Seeded initial={[cooking]} poll={false} />);
+    await tick(3);
+    // RED when the interval lives in the shared hook for every caller.
     expect(h.readMyLiveOrders).not.toHaveBeenCalled();
   });
 });

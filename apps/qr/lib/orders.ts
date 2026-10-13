@@ -13,6 +13,8 @@ import {
 import { isFired, pickupDayBounds } from "./pickup-promise";
 import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
 import { settlementVerdict, type SettlementRead } from "./dropped-read";
+import { summarizeRefund } from "./refund-view";
+import { trackRefunded } from "./track-settled";
 import type { SettleCanceled } from "./dropped-view";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
@@ -20,7 +22,7 @@ const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history
 /** The live read's columns, ONE literal (PostgREST's static type parser needs a literal), shared by its
  *  recent-orders read and its slot-keyed pickup read (E). */
 const LIVE_SELECT =
-  "id,togo_status,table_number,pickup_slot,fire_at,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,qr_order_items(fulfillment)";
+  "id,togo_status,table_number,pickup_slot,fire_at,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,total_cents,refunded_cents,qr_order_items(fulfillment)";
 
 /**
  * The diner's LIVE (in-flight) orders (K4) — powering the orders tray + /account "Today". Server-
@@ -153,6 +155,10 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   const out: LiveOrder[] = [];
   for (const r of rows) {
     if (r.togo_status === "picked_up") continue; // terminal (to-go / pickup collected)
+    // Terminal too: every cent back (the blind pass on #359). A cash refund leaves `status` at 'paid'
+    // (M308), so the status filter above admits a pickup refunded in full — and E keeps a pickup
+    // without its session until the slot's day ends. The refund STATE decides, as on /track.
+    if (trackRefunded(summarizeRefund(r.total_cents, r.refunded_cents ?? 0, "paid"))) continue;
     const items = (r.qr_order_items ?? []) as { fulfillment: string }[];
     const hasTogoFood = items.some((i) => i.fulfillment === "togo");
     const hasGrocery = items.some((i) => i.fulfillment === "grocery");
@@ -181,6 +187,7 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
       togoStatus: r.togo_status ?? null,
       tableNumber: r.table_number ?? null,
       pickupSlot: r.pickup_slot ?? null,
+      fireAt: r.fire_at ?? null,
       createdAt: r.created_at,
       hasTogoFood,
       hasGrocery,

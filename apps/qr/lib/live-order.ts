@@ -1,4 +1,5 @@
 import type { TrackedOrder } from "./track-order";
+import { isFired } from "./pickup-promise";
 
 // K4 — the shared vocabulary + link builders for the diner's LIVE (in-flight) orders (the orders tray +
 // /account "Today"). Pure + isomorphic (no "use server"/"use client" directive): the server read
@@ -15,6 +16,9 @@ export type LiveOrder = {
   togoStatus: string | null; // null | 'preparing' | 'ready' ('picked_up' is terminal → filtered out)
   tableNumber: number | null;
   pickupSlot: string | null; // ISO — pickup mode's scheduled slot
+  /** M65 — when the kitchen gets a held pickup (`slot − prep`), or null (fired at payment). J's
+   *  re-poll counts a bag as moving only once it is fired (`liveOrdersMoving`). */
+  fireAt: string | null;
   createdAt: string; // ISO
   hasTogoFood: boolean;
   hasGrocery: boolean;
@@ -145,7 +149,19 @@ export function liveOrderTrackHref(o: Pick<LiveOrder, "paymentIntent" | "cartId"
     const cart = o.cartId ? `&cart=${encodeURIComponent(o.cartId)}` : "";
     return `/track?payment_intent=${encodeURIComponent(o.paymentIntent)}&redirect_status=succeeded&resume=1${cart}`;
   }
-  return `/track?cart=${encodeURIComponent(o.cartId ?? "")}&paid=1&resume=1`;
+  return cartTrackHref(o.cartId ?? "", true);
+}
+
+/**
+ * I — the cart branch's /track link (`?cart=…&paid=1`: the counter's and the split's landing), as an
+ * arrival or as a RESUME. ONE builder, because the page links to itself too: its "Payment received"
+ * interstitial offers a Refresh, and a Refresh that dropped `resume=1` turned one tap into an arrival
+ * — the store re-captured the pointer, reset its TTL and cleared the open cart, and `justPaid`
+ * replayed the confetti and the chime (the blind pass on #359).
+ */
+export function cartTrackHref(cartId: string, resume: boolean): string {
+  const base = `/track?cart=${encodeURIComponent(cartId)}&paid=1`;
+  return resume ? `${base}&resume=1` : base;
 }
 
 // ── the device's own order pointer (ActiveOrderProvider) — its rules, decided here ──────────────
@@ -194,6 +210,16 @@ export function staleOrderFate(kind: LiveOrderKind | null): "finished" | "unknow
 }
 
 /**
+ * F (the blind pass on #359) — the KIND the device's order pointer implies when no row has been read
+ * in this mount (the pill's fresh subscription after a cleared table finds none): the door it was
+ * placed through. Only `dinein` is a kind on its own — the to-go door navigates with `mode=pickup`
+ * (W22b), so "pickup" names no kind, and a stale order of no known kind stays "unknown".
+ */
+export function pointerKind(mode: string | null): LiveOrderKind | null {
+  return mode === "dinein" ? "dinein" : null;
+}
+
+/**
  * E — may a listed order stand WITHOUT a live session? `getMyLiveOrders` drops an order whose session
  * has closed or lapsed, because /track could not read it; PD3 made that premise false for the uid's own
  * orders (`getMyOrderFallback`, earned_by / payer). A PICKUP whose slot is on the restaurant's today or
@@ -233,13 +259,18 @@ export function uncollectedPickupHref(
 }
 
 /**
- * J — is any listed order still MOVING on its own? A to-go bag that is not yet Ready (the expo's tap
- * is coming, or a held pickup is about to fire) — /account "Today" has no Realtime and the header pill
- * is off there, so it re-polls while one is. A dine-in "At your table" and a grocery "Ready to go" do
- * not move; a Ready bag waits on the guest, not the kitchen.
+ * J — is any listed order still MOVING on its own, at `nowMs`? A to-go bag the kitchen HAS (fired:
+ * `fire_at` null or reached — the `isFired` rule) that is not yet Ready: the expo's tap is coming.
+ * /account "Today" has no Realtime and the header pill is off there, so it re-polls while one is.
+ *
+ * A HELD pickup is not moving (the blind pass on #359): `togo_status` reads 'preparing' from PAYMENT,
+ * and since E a next-day pickup stays in the live set, so counting it re-polled a page for a day or
+ * more over a word that cannot change until its `fire_at`. A dine-in "At your table" and a grocery
+ * "Ready to go" do not move; a Ready bag waits on the guest, not the kitchen.
  */
 export function liveOrdersMoving(
-  orders: ReadonlyArray<Pick<LiveOrder, "hasTogoFood" | "togoStatus">>,
+  orders: ReadonlyArray<Pick<LiveOrder, "hasTogoFood" | "togoStatus" | "fireAt">>,
+  nowMs: number,
 ): boolean {
-  return orders.some((o) => o.hasTogoFood && o.togoStatus !== "ready");
+  return orders.some((o) => o.hasTogoFood && o.togoStatus !== "ready" && isFired(o.fireAt, nowMs));
 }

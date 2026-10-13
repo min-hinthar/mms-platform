@@ -6,6 +6,7 @@ import { resolveSplitOrderId } from "@/lib/order-actions";
 import {
   kindFromTrackedOrder,
   liveOrderStatusWord,
+  pointerKind,
   staleOrderFate,
   type LiveOrderKind,
 } from "@/lib/live-order";
@@ -74,8 +75,12 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   const oid =
     track && order && !order.paymentIntent && resolved?.cartId === cartId ? resolved.id : null;
   // F — `stale` is read too: a row the live read once had and has since lost (the session closed or
-  // lapsed) is NOT a live status any more, whatever `tracked` still holds.
-  const { order: tracked, timedOut, stale } = useOrderStatus(pi, oid);
+  // lapsed) is NOT a live status any more, whatever `tracked` still holds. And the order is `known` to
+  // exist — a cart-branch id came from a server resolve, and a single-pay pointer is `landed` once
+  // /track saw its row — so an empty first read of THIS mount (the header after a cleared table) is
+  // stale at once, not the webhook race polled to a timeout (the blind pass on #359).
+  const known = !!order && (order.paymentIntent ? order.landed === true : oid !== null);
+  const { order: tracked, timedOut, stale } = useOrderStatus(pi, oid, { known });
   // M65 — a HELD pickup turns "Scheduled" → "Preparing" at its fire_at with no row change to wake
   // the subscription, so while a stamp lies ahead the pill re-reads the clock once a minute.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -100,19 +105,19 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // dine-in order's session closing is the end of the meal, so the pill and the home card retire it
   // instead of saying "At your table" for the rest of the TTL; any other kind is merely unknown from
   // here, and drops to the honest floor below.
-  const fate = stale ? staleOrderFate(kind) : null;
+  const fate = stale ? staleOrderFate(kind ?? pointerKind(order?.mode ?? null)) : null;
   const live = !!tracked && !stale;
   // "Ready" as a STATE (the lit chip) — not merely the raw column. A grocery basket is never "ready"
   // in the sense the chip lights for: there was no wait to end.
   const ready = live && kind !== "grocery" && tracked.togoStatus === "ready";
   const isDone =
-    !!tracked &&
-    (tracked.togoStatus === "picked_up" ||
-      // C — the refund STATE, not `status`: a cash refund to the last cent leaves `status` 'paid'.
-      trackRefunded(tracked.refund) ||
-      tracked.status === "refunded" ||
-      tracked.status === "failed" ||
-      fate === "finished");
+    fate === "finished" ||
+    (!!tracked &&
+      (tracked.togoStatus === "picked_up" ||
+        // C — the refund STATE, not `status`: a cash refund to the last cent leaves `status` 'paid'.
+        trackRefunded(tracked.refund) ||
+        tracked.status === "refunded" ||
+        tracked.status === "failed"));
 
   // Retire the resumable order on a terminal state. clearOrder defers its setState (rAF) → lint-safe.
   useEffect(() => {

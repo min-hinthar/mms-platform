@@ -8,6 +8,7 @@ import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { cartTrackHref } from "@/lib/live-order";
 import { EmptyState, Icon, buttonClass } from "@mms/ui";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { awaitingManualCapture } from "@/lib/manual-capture-mode";
@@ -167,12 +168,10 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           <p>Your share is in — we’re finishing the table’s order. Check back in a moment.</p>
           {/* `replace`, not push (J1): a self-refresh to the SAME URL would stack a duplicate history entry —
               the view-transition library's popstate handler then freezes ~4s on the next browser-back
-              (same-pathname pop → its route effect never re-fires → the transition promise hangs). */}
-          <Link
-            href={`/track?cart=${encodeURIComponent(cart)}&paid=1`}
-            replace
-            className="nav-link-strong"
-          >
+              (same-pathname pop → its route effect never re-fires → the transition promise hangs).
+              The SAME URL means the same kind of visit, too: a resume's Refresh stays a resume
+              (`cartTrackHref`), or one tap replays the arrival (the blind pass on #359). */}
+          <Link href={cartTrackHref(cart, resume === "1")} replace className="nav-link-strong">
             Refresh
           </Link>
         </div>

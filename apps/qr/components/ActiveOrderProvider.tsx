@@ -42,9 +42,15 @@ export type ActiveOrder = {
   mode: string; // dinein | scango | pickup
   createdAt: number; // ms epoch — TTL guard (a dine-in order has no server done-signal)
   /** Lifecycle audit (2026-10-13), E — a pickup's booked slot (ISO), noted once /track has read the
-   *  order (`noteOrderSlot`): the pointer then lives until the slot plus the linger
+   *  order (`noteTrackedOrder`): the pointer then lives until the slot plus the linger
    *  (`activeOrderExpiresAt`, lib/live-order.ts), not four hours from the tap. Absent otherwise. */
   pickupSlot?: string | null;
+  /** F (the blind pass on #359) — /track has SEEN this order's row (`noteTrackedOrder`). A pointer
+   *  captured from Stripe's return races the webhook, so an empty first read means "not yet"; once
+   *  the order is known to exist there is no race, and an empty read means "no longer this device's
+   *  to read" (the table was cleared) — the pill's live read takes it as such (`useOrderStatus`'s
+   *  `known`). Absent until then. */
+  landed?: boolean;
 };
 
 type ActiveOrderCtx = {
@@ -53,10 +59,11 @@ type ActiveOrderCtx = {
   order: ActiveOrder | null;
   /** Drop the resumable order (the pill/card call this once its live status reads terminal). */
   clearOrder: () => void;
-  /** E — /track tells the store the order's pickup slot once the row lands, so a pickup booked hours
-   *  ahead stays resumable until its slot. Applies only to the stored order the current /track URL
-   *  names (a tray link to another order never stretches this one). */
-  noteOrderSlot: (slotIso: string) => void;
+  /** /track tells the store what it learned once the order's row lands: that it EXISTS (`landed`, F)
+   *  and its pickup slot (E — a pickup booked hours ahead stays resumable until its slot). Applies
+   *  only to the stored order the current /track URL names (a tray link to another order never
+   *  stretches or marks this one). */
+  noteTrackedOrder: (info: { pickupSlot: string | null }) => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
    *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
    *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
@@ -279,17 +286,19 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  const noteOrderSlot = useCallback((slotIso: string) => {
+  const noteTrackedOrder = useCallback((info: { pickupSlot: string | null }) => {
     try {
       const raw = localStorage.getItem(KEY_ORDER);
       if (!raw) return;
       const o = JSON.parse(raw) as ActiveOrder;
-      if (!o || typeof o.createdAt !== "number" || o.pickupSlot === slotIso) return;
+      if (!o || typeof o.createdAt !== "number") return;
+      const pickupSlot = info.pickupSlot ?? o.pickupSlot ?? null;
+      if (o.landed === true && (o.pickupSlot ?? null) === pickupSlot) return;
       // Only the order the page is ABOUT: the /track URL in the address bar right now.
       const url = new URLSearchParams(window.location.search);
       const key = { paymentIntent: url.get("payment_intent"), cartId: url.get("cart") };
       if (!sameActiveOrder(o, key)) return;
-      const next: ActiveOrder = { ...o, pickupSlot: slotIso };
+      const next: ActiveOrder = { ...o, landed: true, pickupSlot };
       localStorage.setItem(KEY_ORDER, JSON.stringify(next));
       requestAnimationFrame(() => setOrder(next)); // deferred (lint-safe), like clearOrder
     } catch {
@@ -346,7 +355,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       cartCount,
       order,
       clearOrder,
-      noteOrderSlot,
+      noteTrackedOrder,
       publishCart,
       forgetCart,
       drain,
@@ -358,7 +367,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       cartCount,
       order,
       clearOrder,
-      noteOrderSlot,
+      noteTrackedOrder,
       publishCart,
       forgetCart,
       drain,

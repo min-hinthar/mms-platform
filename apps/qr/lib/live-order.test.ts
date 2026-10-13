@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   ACTIVE_ORDER_TTL_MS,
   activeOrderExpiresAt,
+  cartTrackHref,
   liveOrderStatusWord,
   kindFromTrackedOrder,
   liveOrderModeLabel,
   liveOrdersMoving,
   liveOrderTrackHref,
   liveWithoutSession,
+  pointerKind,
   sameActiveOrder,
   staleOrderFate,
   uncollectedPickupHref,
@@ -228,6 +230,12 @@ describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
     );
   });
 
+  it("I — the cart branch's link is built ONCE, as an arrival or a resume", () => {
+    expect(cartTrackHref("c 1", true)).toBe("/track?cart=c%201&paid=1&resume=1");
+    // RED when the builder drops the marker on a resume.
+    expect(cartTrackHref("c1", false)).toBe("/track?cart=c1&paid=1");
+  });
+
   it("I — a resume is the SAME order only on its own key", () => {
     const pi = { paymentIntent: "pi_1", cartId: "c1" };
     expect(sameActiveOrder(pi, { paymentIntent: "pi_1", cartId: null })).toBe(true);
@@ -240,6 +248,11 @@ describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
     expect(
       sameActiveOrder({ paymentIntent: null, cartId: null }, { paymentIntent: null, cartId: null }),
     ).toBe(false);
+  });
+
+  it("F — a pointer's door names a kind only for dine-in (the to-go door navigates as `pickup`)", () => {
+    expect(pointerKind("dinein")).toBe("dinein");
+    for (const m of ["pickup", "scango", "", null]) expect(pointerKind(m)).toBeNull();
   });
 
   it("F — a stale DINE-IN order is finished (its session closing is the meal's end); others unknown", () => {
@@ -289,12 +302,32 @@ describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
     ).toBeNull();
   });
 
-  it("J — /account re-polls only while a to-go bag is still moving", () => {
-    expect(liveOrdersMoving([{ hasTogoFood: true, togoStatus: "preparing" }])).toBe(true);
-    expect(liveOrdersMoving([{ hasTogoFood: true, togoStatus: null }])).toBe(true);
+  it("J — /account re-polls only while a FIRED to-go bag is still moving", () => {
+    const now = Date.parse("2026-10-13T21:00:00.000Z");
+    const bag = (o: {
+      togoStatus: string | null;
+      fireAt?: string | null;
+      hasTogoFood?: boolean;
+    }) => ({
+      hasTogoFood: o.hasTogoFood ?? true,
+      togoStatus: o.togoStatus,
+      fireAt: o.fireAt ?? null,
+    });
+    expect(liveOrdersMoving([bag({ togoStatus: "preparing" })], now)).toBe(true);
+    expect(liveOrdersMoving([bag({ togoStatus: null })], now)).toBe(true);
+    expect(
+      liveOrdersMoving([bag({ togoStatus: "preparing", fireAt: "2026-10-13T20:59:00.000Z" })], now),
+    ).toBe(true);
     // RED when a Ready bag, a dine-in "At your table" or a grocery basket keep the poll alive.
-    expect(liveOrdersMoving([{ hasTogoFood: true, togoStatus: "ready" }])).toBe(false);
-    expect(liveOrdersMoving([{ hasTogoFood: false, togoStatus: "preparing" }])).toBe(false);
-    expect(liveOrdersMoving([])).toBe(false);
+    expect(liveOrdersMoving([bag({ togoStatus: "ready" })], now)).toBe(false);
+    expect(liveOrdersMoving([bag({ togoStatus: "preparing", hasTogoFood: false })], now)).toBe(
+      false,
+    );
+    expect(liveOrdersMoving([], now)).toBe(false);
+    // RED when a HELD pickup counts (the blind pass on #359): 'preparing' is stamped at payment, and a
+    // next-day pickup in the live set polled for a day over a word its fire_at alone can change.
+    expect(
+      liveOrdersMoving([bag({ togoStatus: "preparing", fireAt: "2026-10-14T00:40:00.000Z" })], now),
+    ).toBe(false);
   });
 });

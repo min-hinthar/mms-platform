@@ -41,6 +41,7 @@ describe("onSettled — once per mount, whatever the mint answers", () => {
         accountEmail: null,
         emailedTo: null,
         emailEnabled: true,
+        canEmail: true,
       }),
     );
     expect(onSettled).toHaveBeenCalledTimes(1);
@@ -55,6 +56,7 @@ describe("onSettled — once per mount, whatever the mint answers", () => {
         accountEmail: null,
         emailedTo: null,
         emailEnabled: false,
+        canEmail: true,
       }),
     );
     expect(onSettled).toHaveBeenCalledTimes(1);
@@ -101,7 +103,14 @@ describe("onSettled — BOUNDED, so a stalled mint never hides every rewards doo
     expect(onSettled).toHaveBeenCalledWith({ emailEnabled: false });
     // The mint lands late: the row may render, but the report stays exactly once.
     await act(async () => {
-      answer({ ok: true, path: "/r/abc", accountEmail: null, emailEnabled: true, emailedTo: null });
+      answer({
+        ok: true,
+        path: "/r/abc",
+        accountEmail: null,
+        emailEnabled: true,
+        emailedTo: null,
+        canEmail: true,
+      });
       await Promise.resolve();
     });
     expect(onSettled).toHaveBeenCalledTimes(1);
@@ -126,6 +135,7 @@ describe("onLinked — did the durable link RENDER? (lifecycle audit, 2026-10-13
         accountEmail: null,
         emailedTo: null,
         emailEnabled: false,
+        canEmail: true,
       }),
     );
     expect(onLinked).toHaveBeenCalledWith(true);
@@ -136,5 +146,27 @@ describe("onLinked — did the durable link RENDER? (lifecycle audit, 2026-10-13
     ).toHaveBeenCalledWith(false);
     cleanup();
     expect(await linked(() => Promise.reject(new Error("network")))).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("canEmail — a counter order's seated diner gets the link and no email (the blind pass on #359)", () => {
+  it("renders View & print but no email capture, and reports the capture OFF", async () => {
+    h.getReceiptLink.mockResolvedValue({
+      ok: true,
+      path: "/track?r=abc",
+      accountEmail: null,
+      emailedTo: null,
+      emailEnabled: true,
+      canEmail: false,
+    });
+    const onSettled = vi.fn();
+    const { findByText, container } = render(
+      <ReceiptActions orderId="11111111-1111-4111-8111-111111111111" onSettled={onSettled} />,
+    );
+    await findByText(/View & print your full receipt/);
+    // RED when the form ignores `canEmail`: a later party at the same sticker could replace the
+    // payer's address and redirect their receipt.
+    expect(container.textContent).not.toMatch(/Email me this receipt/);
+    expect(onSettled).toHaveBeenCalledWith({ emailEnabled: false });
   });
 });

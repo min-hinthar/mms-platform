@@ -66,6 +66,8 @@ function order(over: Row): Row {
     session_id: "s-lapsed",
     stripe_payment_intent_id: "pi_1",
     cart_id: "c1",
+    total_cents: 2400,
+    refunded_cents: 0,
     qr_order_items: [{ fulfillment: "togo" }],
     ...over,
   };
@@ -117,6 +119,16 @@ describe("readMyLiveOrders — a pickup still to collect outlives its session", 
     ];
     const r = await readMyLiveOrders();
     expect(r.orders).toEqual([]);
+  });
+
+  it("drops a pickup whose money is ALL back though status still reads 'paid' (a cash refund)", async () => {
+    // RED without the refund-state check: E keeps it without its session until the slot's day ends.
+    recent = [
+      order({ id: "gone", pickup_slot: TONIGHT, refunded_cents: 2400 }),
+      order({ id: "part", pickup_slot: TONIGHT, refunded_cents: 400 }),
+    ];
+    const r = await readMyLiveOrders();
+    expect(r.orders.map((o) => o.id)).toEqual(["part"]);
   });
 
   it("keeps the gate for a pickup whose slot was YESTERDAY", async () => {

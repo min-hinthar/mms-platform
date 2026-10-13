@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 
 /**
@@ -15,10 +15,11 @@ vi.mock("@/components/nav/TransitionNav", () => ({ TransitionLink: () => null })
 vi.mock("@/components/ReceiptCard", () => ({ ReceiptCard: () => null }));
 vi.mock("@/components/PrintReceiptButton", () => ({ PrintReceiptButton: () => null }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: () => null }));
-vi.mock("@/lib/order", () => ({
-  getCartOrderRef: () =>
-    Promise.resolve({ id: "11111111-1111-4111-8111-111111111111", counter: true }),
-}));
+let ref: { id: string; counter: boolean } | null = {
+  id: "11111111-1111-4111-8111-111111111111",
+  counter: true,
+};
+vi.mock("@/lib/order", () => ({ getCartOrderRef: () => Promise.resolve(ref) }));
 vi.mock("@/lib/receipt-entry", () => ({ getReceiptEntry: () => Promise.resolve(null) }));
 vi.mock("@/lib/receipt-token", () => ({ resolveReceiptOrder: () => Promise.resolve(null) }));
 vi.mock("@/lib/manual-capture-mode", () => ({
@@ -32,6 +33,10 @@ const tracker = async (params: Record<string, string>) =>
   (await Track({ searchParams: Promise.resolve(params) })) as ReactElement<TrackerProps>;
 
 describe("/track — a resume is not an arrival, on the cart branch too", () => {
+  beforeEach(() => {
+    ref = { id: "11111111-1111-4111-8111-111111111111", counter: true };
+  });
+
   it("the counter's own landing is an arrival", async () => {
     const el = await tracker({ cart: "c1", paid: "1" });
     expect(el.props.justPaid).toBe(true);
@@ -56,5 +61,32 @@ describe("/track — a resume is not an arrival, on the cart branch too", () => 
     });
     expect(resumed.props.justPaid).toBe(false);
     expect(resumed.props.resume).toBe(true);
+  });
+});
+
+/** Every `href` in a server-rendered element tree (the links are stubs; their props are the record). */
+function hrefs(node: unknown): string[] {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node)) return node.flatMap(hrefs);
+  const props = (node as { props?: { href?: unknown; children?: unknown } }).props;
+  if (!props) return [];
+  return [...(typeof props.href === "string" ? [props.href] : []), ...hrefs(props.children)];
+}
+
+describe("/track — the interstitial's Refresh keeps the visit's kind (the blind pass on #359)", () => {
+  it("a RESUME's Refresh stays a resume — one tap must not replay the arrival", async () => {
+    ref = null; // the split's order is not stamped yet: the "Payment received" interstitial
+    const el = await Track({
+      searchParams: Promise.resolve({ cart: "c1", paid: "1", resume: "1" }),
+    });
+    // RED with the hand-built `/track?cart=…&paid=1`: the store re-captures and the confetti replays.
+    expect(hrefs(el)).toContain("/track?cart=c1&paid=1&resume=1");
+  });
+
+  it("an ARRIVAL's Refresh stays an arrival", async () => {
+    ref = null;
+    const el = await Track({ searchParams: Promise.resolve({ cart: "c1", paid: "1" }) });
+    expect(hrefs(el)).toContain("/track?cart=c1&paid=1");
+    expect(hrefs(el)).not.toContain("/track?cart=c1&paid=1&resume=1");
   });
 });

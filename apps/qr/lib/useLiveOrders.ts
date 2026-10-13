@@ -3,15 +3,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { readMyLiveOrders } from "./orders";
 import { liveOrdersMoving, type LiveOrder } from "./live-order";
 
-/** J — the re-poll's pace while an order is still moving and the page is visible. Modest: a status
- *  word, not a ticker (the pickup page's own tick is 30 s too). */
+/** J — the opt-in re-poll's tick (`opts.poll`, /account "Today" alone). Each tick reads the server
+ *  only while the page is visible and a fired bag is not yet Ready (`liveOrdersMoving`). Modest: a
+ *  status word, not a ticker (the pickup page's own tick is 30 s too). */
 export const LIVE_ORDERS_POLL_MS = 30_000;
 
 /**
  * K4 — the client freshness layer over `getMyLiveOrders`. The plan's "one realtime-ish freshness rule":
  * refetch on mount, on `visibilitychange`→visible, and on window focus (the J3 pattern) — NO new realtime
- * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus; the tray is
- * a poll). `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
+ * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus; the tray
+ * refreshes on those events, never on a timer). The ONE timer is the opt-in `opts.poll` (J, below) that
+ * only /account "Today" passes. `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
  * count/tray catch up shortly after the webhook stamps earned_by; the visibility/focus refetch is the
  * backstop for the redirect→stamp race.
  *
@@ -34,6 +36,10 @@ export function useLiveOrders(
   enabled: boolean,
   pokeKey?: string | null,
   initial?: LiveOrder[],
+  /** J — re-poll while an order is still moving (`liveOrdersMoving`). OPT-IN: only /account "Today"
+   *  (`AccountLiveOrders`) passes it — the one surface with no Realtime status of its own. The header
+   *  (on /menu, /cart and the rest) relies on its realtime pill and its wake refetch, and never polls. */
+  opts?: { poll?: boolean },
 ): { orders: LiveOrder[]; loading: boolean; refetch: () => void } {
   const [orders, setOrders] = useState<LiveOrder[]>(() => initial ?? []);
   const [loading, setLoading] = useState(enabled && initial === undefined);
@@ -104,16 +110,23 @@ export function useLiveOrders(
   // J (lifecycle audit, 2026-10-13) — /account "Today" has no Realtime, and the header pill is off on
   // /account on purpose (one claim per order per screen), so a guest who paid and stayed on the page
   // to save their Stars watched "Preparing" through the expo's Ready tap until they switched apps and
-  // back. While an order is still MOVING (`liveOrdersMoving`: a to-go bag not yet Ready) and the page
-  // is visible, re-read on a modest interval; nothing polls once every order is at rest.
-  const moving = enabled && liveOrdersMoving(orders);
+  // back. For a caller that OPTS IN (`poll` — /account alone, the blind pass on #359), a local tick
+  // every LIVE_ORDERS_POLL_MS asks `liveOrdersMoving` on its own clock, and reads the server only while
+  // the page is visible and a FIRED bag is not yet Ready: a held pickup, a dine-in row or a grocery row
+  // costs no round trip, and a held pickup starts the reads by itself once its `fire_at` passes.
+  const poll = enabled && !!opts?.poll && orders.length > 0;
+  const ordersRef = useRef(orders);
   useEffect(() => {
-    if (!moving) return;
+    ordersRef.current = orders;
+  }, [orders]);
+  useEffect(() => {
+    if (!poll) return;
     const t = window.setInterval(() => {
-      if (document.visibilityState === "visible") load();
+      if (document.visibilityState === "visible" && liveOrdersMoving(ordersRef.current, Date.now()))
+        load();
     }, LIVE_ORDERS_POLL_MS);
     return () => window.clearInterval(t);
-  }, [moving, load]);
+  }, [poll, load]);
 
   return {
     orders: enabled ? orders : [],

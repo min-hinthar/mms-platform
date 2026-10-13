@@ -53,6 +53,7 @@ vi.mock("./track-order", () => ({
 }));
 
 const { useOrderStatus } = await import("./useOrderStatus");
+const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -169,5 +170,51 @@ describe("useOrderStatus — F, it catches up after a gap on its own (lifecycle 
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(reads).toBe(2);
+  });
+});
+
+describe("useOrderStatus — F, an order KNOWN to exist that a read cannot see is stale at once (the blind pass on #359)", () => {
+  it("known: the FIRST successful empty read of a fresh subscription is stale — no ten polls to 'Placed'", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    answers.push(null);
+    const { result } = renderHook(() => useOrderStatus(null, ORDER_ID, { known: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // RED without the arm: the header after a cleared table polled to `timedOut` and never set stale.
+    expect(result.current.stale).toBe(true);
+    expect(result.current.timedOut).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(reads).toBe(1); // no poll behind it
+  });
+
+  it("known: a FAILED read is not 'gone' — it retries, never stale", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    answers.push("error", { id: ORDER_ID });
+    const { result } = renderHook(() => useOrderStatus(null, ORDER_ID, { known: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.stale).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(result.current.order?.id).toBe(ORDER_ID);
+  });
+
+  it("NOT known (a fresh Stripe return racing the webhook): an empty read polls, as before", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    answers.push(null, { id: "o1" });
+    const { result } = renderHook(() => useOrderStatus("pi_1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.stale).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(result.current.order?.id).toBe("o1");
   });
 });

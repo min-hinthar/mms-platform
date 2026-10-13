@@ -461,13 +461,16 @@ export function OrderTracker({
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
   // completed order would briefly re-show as a "Confirming" pill on the next navigation before self-healing.
   // clearOrder defers its setState (rAF) → lint-safe.
-  const { clearOrder, noteOrderSlot } = useActiveOrder();
-  // E — a pickup's resumable pointer lives until its SLOT (plus the linger), not 4 h after the tap:
-  // the guest who paid at noon for 6:20 PM and closed the tab must still find the pill at 5:50.
+  const { clearOrder, noteTrackedOrder } = useActiveOrder();
+  // Once the row has landed, tell the device's order pointer what this page now knows: the order
+  // EXISTS (F — the pill's later empty read is then a cleared table, never the webhook race), and E —
+  // a pickup's pointer lives until its SLOT (plus the linger), not 4 h after the tap: the guest who
+  // paid at noon for 6:20 PM and closed the tab must still find the pill at 5:50.
+  const landedId = order?.id ?? null;
   const slotToNote = order?.pickupSlot ?? null;
   useEffect(() => {
-    if (slotToNote) noteOrderSlot(slotToNote);
-  }, [slotToNote, noteOrderSlot]);
+    if (landedId) noteTrackedOrder({ pickupSlot: slotToNote });
+  }, [landedId, slotToNote, noteTrackedOrder]);
   const orderDone =
     togo === "picked_up" ||
     refunded ||
