@@ -23,8 +23,12 @@ const DEFAULT_API_VERSION = "2026-05-27.dahlia" satisfies StripeApiVersion;
  * retries, retrying any connection error, 409 and 5xx. A flapping call could therefore hold a
  * request open for MINUTES — and on the pickup capture that is M72's window C, the gap in which an
  * 86 can land after the void and still be charged. One call now makes at most two attempts of
- * `STRIPE_TIMEOUT_MS` each, a worst case under a minute (`stripe.test.ts` derives the bound from the
- * SDK's own constants rather than restating them).
+ * `STRIPE_TIMEOUT_MS` each. Between them the SDK sleeps its backoff — or, when Stripe answers a
+ * retryable status with `Retry-After`, as long as that asks, up to 60 s (stripe@22) — so a call on
+ * this default budget is bounded under TWO minutes (about 100 s), where the defaults allowed six. The
+ * pickup capture runs at zero retries: its only resend follows a first-attempt connection reset,
+ * which carries no `Retry-After`, so window C stays under ONE minute. `stripe.test.ts` derives both
+ * bounds from the SDK's own retry decision and sleep, read off the client, rather than restating them.
  *
  * ⚠️ `STRIPE_TIMEOUT_MS` is an UPPER BOUND chosen without a measurement, not a sized value. Owner
  * ruling #23 sizes it from the Stripe round trip measured from `pdx1`, and that measurement cannot
