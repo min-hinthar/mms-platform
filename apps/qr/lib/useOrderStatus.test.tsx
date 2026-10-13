@@ -10,6 +10,9 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
  */
 /** Each read's answer: a row, no row, or a failed read. */
 const answers: ({ id: string } | null | "error")[] = [];
+/** How many reads the hook has made, and the channel's status callback (the socket's (re)joins). */
+let reads = 0;
+let onStatus: ((status: string) => void) | null = null;
 /** The session the hook reads. Replacing the object is what a Supabase token refresh does. */
 let anon = { accessToken: "t1", seat: "s" };
 vi.mock("./useAnonSession", () => ({ useAnonSession: () => anon }));
@@ -20,6 +23,7 @@ vi.mock("@mms/db", () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: () => {
+            reads += 1;
             const a = answers.shift() ?? null;
             return Promise.resolve(
               a === "error"
@@ -31,7 +35,13 @@ vi.mock("@mms/db", () => ({
       }),
     }),
     channel: () => {
-      const ch = { on: () => ch, subscribe: () => ch };
+      const ch = {
+        on: () => ch,
+        subscribe: (cb?: (status: string) => void) => {
+          onStatus = cb ?? null;
+          return ch;
+        },
+      };
       return ch;
     },
     removeChannel: () => {},
@@ -45,7 +55,10 @@ vi.mock("./track-order", () => ({
 const { useOrderStatus } = await import("./useOrderStatus");
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   answers.length = 0;
+  reads = 0;
+  onStatus = null;
   anon = { accessToken: "t1", seat: "s" };
 });
 
@@ -91,5 +104,70 @@ describe("useOrderStatus — a row that goes dark is stale, not still live", () 
     rerender();
     await waitFor(() => expect(result.current.stale).toBe(true));
     expect(result.current.order?.id).toBe("o1");
+  });
+});
+
+describe("useOrderStatus — F, it catches up after a gap on its own (lifecycle audit, 2026-10-13)", () => {
+  // Postgres Changes are not replayed: an expo Ready that lands while iOS has the socket suspended,
+  // or during a Wi-Fi → LTE rejoin, is gone. Every consumer (the rail, the pill, the home card)
+  // depended on a read that only the pickup page ever made.
+  async function mounted() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    answers.push({ id: "o1" });
+    const hook = renderHook(() => useOrderStatus("pi_1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.order?.id).toBe("o1");
+    expect(reads).toBe(1);
+    // Past the one-second coalescing window of the mount's own read.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    return hook;
+  }
+
+  it("ONE read on a return to the page (visibilitychange + focus coalesced)", async () => {
+    await mounted();
+    answers.push({ id: "o1" });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    // RED when the hook has no wake of its own.
+    expect(reads).toBe(2);
+  });
+
+  it("a read on the channel's RE-join — never on its first join (the mount's read covers that)", async () => {
+    await mounted();
+    act(() => onStatus?.("SUBSCRIBED"));
+    expect(reads).toBe(1);
+    answers.push({ id: "o1" });
+    await act(async () => {
+      onStatus?.("SUBSCRIBED");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // RED when a re-join reads nothing: the Ready edge lost in the gap stays lost.
+    expect(reads).toBe(2);
+  });
+
+  it("skips a catch-up that would duplicate a read begun within the last second", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    answers.push({ id: "o1" });
+    const { result } = renderHook(() => useOrderStatus("pi_1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => onStatus?.("SUBSCRIBED"));
+    answers.push({ id: "o1" });
+    act(() => result.current.refresh()); // the host's own wake read
+    act(() => onStatus?.("SUBSCRIBED")); // a re-join right behind it
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reads).toBe(2);
   });
 });

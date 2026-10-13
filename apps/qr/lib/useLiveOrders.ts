@@ -1,7 +1,11 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { readMyLiveOrders } from "./orders";
-import type { LiveOrder } from "./live-order";
+import { liveOrdersMoving, type LiveOrder } from "./live-order";
+
+/** J — the re-poll's pace while an order is still moving and the page is visible. Modest: a status
+ *  word, not a ticker (the pickup page's own tick is 30 s too). */
+export const LIVE_ORDERS_POLL_MS = 30_000;
 
 /**
  * K4 — the client freshness layer over `getMyLiveOrders`. The plan's "one realtime-ish freshness rule":
@@ -96,6 +100,20 @@ export function useLiveOrders(
       window.removeEventListener("focus", onWake);
     };
   }, [enabled, load, pokeKey]); // pokeKey change = a new order / navigation → refetch
+
+  // J (lifecycle audit, 2026-10-13) — /account "Today" has no Realtime, and the header pill is off on
+  // /account on purpose (one claim per order per screen), so a guest who paid and stayed on the page
+  // to save their Stars watched "Preparing" through the expo's Ready tap until they switched apps and
+  // back. While an order is still MOVING (`liveOrdersMoving`: a to-go bag not yet Ready) and the page
+  // is visible, re-read on a modest interval; nothing polls once every order is at rest.
+  const moving = enabled && liveOrdersMoving(orders);
+  useEffect(() => {
+    if (!moving) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, LIVE_ORDERS_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [moving, load]);
 
   return {
     orders: enabled ? orders : [],

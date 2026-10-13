@@ -24,6 +24,7 @@ import { RECEIPT_SETTLE_BOUND_MS } from "@/lib/save-stars";
 export function ReceiptActions({
   orderId,
   onSettled,
+  onLinked,
 }: {
   orderId: string;
   /**
@@ -34,6 +35,13 @@ export function ReceiptActions({
    * A refused or failed mint reports `false` — it must never strand the card waiting.
    */
   onSettled?: (r: { emailEnabled: boolean }) => void;
+  /**
+   * Lifecycle audit (2026-10-13), H — did the durable link RENDER? Called once, when the mint
+   * answers (`true` only for a minted link). /track's settled foot points at "the link above" only
+   * when there is one (lib/track-settled.ts `settledFoot`); a stalled mint never calls it, so the
+   * foot keeps its plainer sentence.
+   */
+  onLinked?: (linked: boolean) => void;
 }) {
   const [link, setLink] = useState<Extract<ReceiptLinkResult, { ok: true }> | null>(null);
   const [editing, setEditing] = useState(false);
@@ -53,8 +61,10 @@ export function ReceiptActions({
   // The report is EXACTLY ONCE per mount, whichever comes first: the mint's answer or the bound
   // (Codex round 1 — a stalled Server Action must not leave the success screen with no rewards door).
   const onSettledRef = useRef(onSettled);
+  const onLinkedRef = useRef(onLinked);
   useEffect(() => {
     onSettledRef.current = onSettled;
+    onLinkedRef.current = onLinked;
   });
   const reported = useRef(false);
   const report = useCallback((emailEnabled: boolean) => {
@@ -77,10 +87,12 @@ export function ReceiptActions({
           setSentTo(r.emailedTo);
         }
         report(r.ok ? r.emailEnabled : false);
+        onLinkedRef.current?.(r.ok);
       })
       .catch(() => {
         /* deliberate: the artifact door is decorative here — the tracker itself is unaffected */
         report(false);
+        onLinkedRef.current?.(false);
       });
   }, [orderId, report]);
 

@@ -108,3 +108,33 @@ describe("onSettled — BOUNDED, so a stalled mint never hides every rewards doo
     vi.useRealTimers();
   });
 });
+
+describe("onLinked — did the durable link RENDER? (lifecycle audit, 2026-10-13, H)", () => {
+  // /track's settled foot points a counter-paid diner at "the link above" only when there is one.
+  const linked = async (answer: () => Promise<unknown>) => {
+    h.getReceiptLink.mockImplementation(answer);
+    const onLinked = vi.fn();
+    render(<ReceiptActions orderId="11111111-1111-4111-8111-111111111111" onLinked={onLinked} />);
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
+    return onLinked;
+  };
+  it("true for a minted link", async () => {
+    const onLinked = await linked(() =>
+      Promise.resolve({
+        ok: true,
+        path: "/r/abc",
+        accountEmail: null,
+        emailedTo: null,
+        emailEnabled: false,
+      }),
+    );
+    expect(onLinked).toHaveBeenCalledWith(true);
+  });
+  it("false for a refusal and for a failed mint — the foot never points at nothing", async () => {
+    expect(
+      await linked(() => Promise.resolve({ ok: false, reason: "refused" })),
+    ).toHaveBeenCalledWith(false);
+    cleanup();
+    expect(await linked(() => Promise.reject(new Error("network")))).toHaveBeenCalledWith(false);
+  });
+});

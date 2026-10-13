@@ -133,13 +133,113 @@ export function liveOrderGlyph(kind: LiveOrderKind): string {
  * resolves the tracker, so `resume=1` is the only thing separating it from Stripe's own return. Without
  * it /track cannot tell them apart and replays the arrival celebration — confetti, the celebrate
  * haptic, "Payment confirmed" and (W22f) the pay chime — on a tap that moved no money, hours later.
- * The split-tender branch needs no marker: `paid=1` is already a distinct shape, and `HomeResumeCard`
- * builds the same two links by hand.
+ * Lifecycle audit (2026-10-13), I — and the cart branch carries it too. "`paid=1` is already a distinct
+ * shape" was true of the URL and false of the page: /track treats `?cart=…&paid=1` as the counter's
+ * or the split's own ARRIVAL (`justPaid`), so every resume of a counter-paid table replayed "Paid —
+ * thank you!", the receipt's print-on, the goodbye beat — and in a fresh tab the confetti, the haptic
+ * and the chime — and the store re-captured the order, sliding its TTL. `HomeResumeCard` builds its
+ * link here now rather than by hand.
  */
 export function liveOrderTrackHref(o: Pick<LiveOrder, "paymentIntent" | "cartId">): string {
   if (o.paymentIntent) {
     const cart = o.cartId ? `&cart=${encodeURIComponent(o.cartId)}` : "";
     return `/track?payment_intent=${encodeURIComponent(o.paymentIntent)}&redirect_status=succeeded&resume=1${cart}`;
   }
-  return `/track?cart=${encodeURIComponent(o.cartId ?? "")}&paid=1`;
+  return `/track?cart=${encodeURIComponent(o.cartId ?? "")}&paid=1&resume=1`;
+}
+
+// ── the device's own order pointer (ActiveOrderProvider) — its rules, decided here ──────────────
+
+/** How long the device remembers a placed order for the pill and the home card, from its capture —
+ *  and, for a pickup, from its SLOT (`activeOrderExpiresAt`). */
+export const ACTIVE_ORDER_TTL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Lifecycle audit (2026-10-13), E — when the device forgets its order. Four hours from the capture
+ * was right for a meal and wrong for a pickup booked hours (or a day) ahead: the guest who paid at
+ * noon for 6:20 PM and closed the tab came back at 5:50 to no pill, no home card and no way to "I’m
+ * here". A pickup is remembered until its slot plus the same four hours — never less than the capture
+ * rule. An unreadable slot is no slot.
+ */
+export function activeOrderExpiresAt(o: { createdAt: number; pickupSlot?: string | null }): number {
+  const base = o.createdAt + ACTIVE_ORDER_TTL_MS;
+  const slot = o.pickupSlot ? Date.parse(o.pickupSlot) : Number.NaN;
+  return Number.isFinite(slot) ? Math.max(base, slot + ACTIVE_ORDER_TTL_MS) : base;
+}
+
+/**
+ * I — is this /track URL the order the device already holds? Single-pay is keyed by its
+ * PaymentIntent; the cart branch (split / counter) by its cart, with no PI. A resume of the SAME
+ * order keeps the stored pointer as it is (its capture time, its slot) instead of re-capturing it.
+ */
+export function sameActiveOrder(
+  stored: { paymentIntent: string | null; cartId: string | null } | null,
+  url: { paymentIntent: string | null; cartId: string | null },
+): boolean {
+  if (!stored) return false;
+  if (stored.paymentIntent) return url.paymentIntent === stored.paymentIntent;
+  return url.paymentIntent === null && stored.cartId !== null && url.cartId === stored.cartId;
+}
+
+/**
+ * F — what a STALE live read means for the device's order (the row was there, and a later read that
+ * SUCCEEDED found none: the session closed or lapsed, `useOrderStatus`). A dine-in order has no
+ * pick-up signal — its session closing IS the end of the meal, the same rule `getMyLiveOrders`'
+ * session gate applies — so it is finished, and the pill and the home card stop saying "At your
+ * table" about a meal eaten hours ago. Any other kind may still have a bag waiting: what changed is
+ * only that this device can no longer SEE it, so the status is unknown (the honest floor, "Placed").
+ */
+export function staleOrderFate(kind: LiveOrderKind | null): "finished" | "unknown" {
+  return kind === "dinein" ? "finished" : "unknown";
+}
+
+/**
+ * E — may a listed order stand WITHOUT a live session? `getMyLiveOrders` drops an order whose session
+ * has closed or lapsed, because /track could not read it; PD3 made that premise false for the uid's own
+ * orders (`getMyOrderFallback`, earned_by / payer). A PICKUP whose slot is on the restaurant's today or
+ * later is still the guest's to collect, and its session lapses 2–4 h after payment — long before a
+ * slot booked that evening or the next day. Every other kind keeps the session gate (a dine-in's
+ * session closing is its end; a to-go bag fires at payment and is collected inside the session).
+ */
+export function liveWithoutSession(
+  o: { kind: LiveOrderKind; pickupSlot: string | null },
+  todayStartIso: string,
+): boolean {
+  if (o.kind !== "pickup" || !o.pickupSlot) return false;
+  const slot = Date.parse(o.pickupSlot);
+  return Number.isFinite(slot) && slot >= Date.parse(todayStartIso);
+}
+
+/**
+ * E — a past order's way back to /track from /account's history: a PICKUP not yet collected whose slot
+ * is on the restaurant's today or later (the window `liveWithoutSession` stands on), and not wholly
+ * refunded — its claim ticket and "I’m here" still have a job to do. Every other row is a receipt, and
+ * gets no tracker link (a pickup nobody marked collected last week is not "in progress").
+ */
+export function uncollectedPickupHref(
+  o: {
+    pickupSlot: string | null;
+    togoStatus: string | null;
+    refundedInFull: boolean;
+    paymentIntent: string | null;
+    cartId: string | null;
+  },
+  todayStartIso: string,
+): string | null {
+  if (o.togoStatus === "picked_up" || o.refundedInFull) return null;
+  if (!liveWithoutSession({ kind: "pickup", pickupSlot: o.pickupSlot }, todayStartIso)) return null;
+  if (!o.paymentIntent && !o.cartId) return null;
+  return liveOrderTrackHref(o);
+}
+
+/**
+ * J — is any listed order still MOVING on its own? A to-go bag that is not yet Ready (the expo's tap
+ * is coming, or a held pickup is about to fire) — /account "Today" has no Realtime and the header pill
+ * is off there, so it re-polls while one is. A dine-in "At your table" and a grocery "Ready to go" do
+ * not move; a Ready bag waits on the guest, not the kitchen.
+ */
+export function liveOrdersMoving(
+  orders: ReadonlyArray<Pick<LiveOrder, "hasTogoFood" | "togoStatus">>,
+): boolean {
+  return orders.some((o) => o.hasTogoFood && o.togoStatus !== "ready");
 }

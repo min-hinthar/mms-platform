@@ -142,7 +142,12 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           paymentIntent={null}
           orderId={ref.id}
           processing={false}
-          justPaid
+          // Lifecycle audit (2026-10-13), I — a resume is not an arrival on THIS branch either: the
+          // pill, the tray, /account Today and the home card all link here with `resume=1`, and
+          // passing `justPaid` unconditionally replayed "Paid — thank you!", the receipt's print-on
+          // and the goodbye beat (and, in a new tab, the confetti and the chime) on every check.
+          justPaid={resume !== "1"}
+          resume={resume === "1"}
           // A1 — a counter order is unreadable to the live subscription once the table is cleared
           // (`is_member` needs an open session), so the tracker reads it server-side at once.
           counterPaid={ref.counter}
@@ -191,6 +196,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           processing={status === "processing"}
           // A resume is not an arrival — see `resume` in SearchParams.
           justPaid={status === "succeeded" && resume !== "1"}
+          resume={resume === "1"}
           awaitingCapture={awaitingCapture}
         />
       );

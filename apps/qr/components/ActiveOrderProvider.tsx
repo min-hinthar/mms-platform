@@ -19,6 +19,7 @@ import {
   encodeCartMode,
 } from "@/lib/order-noun";
 import { tabsMode } from "@/lib/diner-tabs";
+import { activeOrderExpiresAt, sameActiveOrder } from "@/lib/live-order";
 import type { DrainOutcome } from "@/lib/write-ledger";
 
 /**
@@ -40,6 +41,10 @@ export type ActiveOrder = {
   cartId: string | null;
   mode: string; // dinein | scango | pickup
   createdAt: number; // ms epoch — TTL guard (a dine-in order has no server done-signal)
+  /** Lifecycle audit (2026-10-13), E — a pickup's booked slot (ISO), noted once /track has read the
+   *  order (`noteOrderSlot`): the pointer then lives until the slot plus the linger
+   *  (`activeOrderExpiresAt`, lib/live-order.ts), not four hours from the tap. Absent otherwise. */
+  pickupSlot?: string | null;
 };
 
 type ActiveOrderCtx = {
@@ -48,6 +53,10 @@ type ActiveOrderCtx = {
   order: ActiveOrder | null;
   /** Drop the resumable order (the pill/card call this once its live status reads terminal). */
   clearOrder: () => void;
+  /** E — /track tells the store the order's pickup slot once the row lands, so a pickup booked hours
+   *  ahead stays resumable until its slot. Applies only to the stored order the current /track URL
+   *  names (a tray link to another order never stretches this one). */
+  noteOrderSlot: (slotIso: string) => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
    *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
    *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
@@ -80,7 +89,7 @@ const KEY_CART_COUNT = "mms.qr.activeCartCount";
  *  door switch stops offering the previous door's cart before the new door has minted its own. */
 const KEY_CART_MODE = "mms.qr.activeCartMode";
 const KEY_ORDER = "mms.qr.activeOrder";
-const ORDER_TTL_MS = 4 * 60 * 60 * 1000; // 4h — a resumable order self-expires
+// The TTL is `activeOrderExpiresAt` (lib/live-order.ts): 4 h from capture, or a pickup's slot + 4 h.
 
 const Ctx = createContext<ActiveOrderCtx | null>(null);
 
@@ -114,7 +123,7 @@ function readStoredOrder(): ActiveOrder | null {
     if (!raw) return null;
     const o = JSON.parse(raw) as ActiveOrder;
     if (!o || typeof o.createdAt !== "number") return null;
-    if (Date.now() - o.createdAt > ORDER_TTL_MS) {
+    if (Date.now() > activeOrderExpiresAt(o)) {
       localStorage.removeItem(KEY_ORDER);
       return null;
     }
@@ -150,7 +159,12 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   // success landing, and hydrate the stored order once. Reads are sync; state writes ride a single rAF.
   useEffect(() => {
     const urlMode = searchParams?.get("mode") ?? null;
-    const urlCart = searchParams?.get("cart") ?? null;
+    // I — a /track RESUME (`resume=1`: the pill, the tray, /account Today, the home card) names a
+    // PLACED order's cart, never an open one: it must neither become the "back to your cart" pointer
+    // nor clear the diner's real open cart (a second round started since). Only an arrival does that.
+    const resumeTrack = pathname === "/track" && searchParams?.get("resume") === "1";
+    const orderCart = pathname === "/track" ? (searchParams?.get("cart") ?? null) : null;
+    const urlCart = resumeTrack ? null : (searchParams?.get("cart") ?? null);
 
     let nextMode: string | null = null;
     let nextCart: string | null = null;
@@ -211,25 +225,36 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       const pi = searchParams?.get("payment_intent") ?? null;
       const paid = searchParams?.get("paid") ?? null;
       const succeeded = status === "succeeded" && pi !== null;
-      const splitPaid = paid !== null && urlCart !== null && pi === null; // split-tender: no PI, resume via cart+paid
+      const splitPaid = paid !== null && orderCart !== null && pi === null; // split-tender: no PI, resume via cart+paid
       if (succeeded || splitPaid) {
-        const captured: ActiveOrder = {
-          paymentIntent: succeeded ? pi : null,
-          cartId: urlCart,
-          mode: nextMode ?? "scango",
-          createdAt: Date.now(),
-        };
-        try {
-          localStorage.setItem(KEY_ORDER, JSON.stringify(captured));
-          localStorage.removeItem(KEY_CART); // the open cart is now a placed order
-          localStorage.removeItem(KEY_CART_COUNT);
-          localStorage.removeItem(KEY_CART_MODE);
-        } catch {
-          /* private mode — the pill just won't persist across a reload */
+        const key = { paymentIntent: succeeded ? pi : null, cartId: orderCart };
+        const stored = resumeTrack ? readStoredOrder() : null;
+        if (stored && sameActiveOrder(stored, key)) {
+          // I — a resume of the order this device already holds is not an arrival: keep the pointer
+          // exactly as stored. Re-capturing reset `createdAt` on every check, so the TTL slid forever.
+          nextOrder = stored;
+        } else {
+          const captured: ActiveOrder = {
+            ...key,
+            mode: nextMode ?? "scango",
+            createdAt: Date.now(),
+          };
+          try {
+            localStorage.setItem(KEY_ORDER, JSON.stringify(captured));
+            if (!resumeTrack) {
+              localStorage.removeItem(KEY_CART); // the open cart is now a placed order
+              localStorage.removeItem(KEY_CART_COUNT);
+              localStorage.removeItem(KEY_CART_MODE);
+            }
+          } catch {
+            /* private mode — the pill just won't persist across a reload */
+          }
+          nextOrder = captured;
+          if (!resumeTrack) {
+            nextCart = null; // drop the "back to cart" affordance — the cart became this order
+            nextCount = null;
+          }
         }
-        nextOrder = captured;
-        nextCart = null; // drop the "back to cart" affordance — the cart became this order
-        nextCount = null;
       }
     }
     if (nextOrder === undefined && !hydrated.current) nextOrder = readStoredOrder();
@@ -252,6 +277,24 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     }
     // Deferred (async) setState so a caller inside a status-effect stays lint-safe.
     requestAnimationFrame(() => setOrder(null));
+  }, []);
+
+  const noteOrderSlot = useCallback((slotIso: string) => {
+    try {
+      const raw = localStorage.getItem(KEY_ORDER);
+      if (!raw) return;
+      const o = JSON.parse(raw) as ActiveOrder;
+      if (!o || typeof o.createdAt !== "number" || o.pickupSlot === slotIso) return;
+      // Only the order the page is ABOUT: the /track URL in the address bar right now.
+      const url = new URLSearchParams(window.location.search);
+      const key = { paymentIntent: url.get("payment_intent"), cartId: url.get("cart") };
+      if (!sameActiveOrder(o, key)) return;
+      const next: ActiveOrder = { ...o, pickupSlot: slotIso };
+      localStorage.setItem(KEY_ORDER, JSON.stringify(next));
+      requestAnimationFrame(() => setOrder(next)); // deferred (lint-safe), like clearOrder
+    } catch {
+      /* private mode / malformed — the pointer keeps its capture-time TTL */
+    }
   }, []);
 
   const publishCart = useCallback((id: string, count: number | null, mode?: string) => {
@@ -303,12 +346,24 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       cartCount,
       order,
       clearOrder,
+      noteOrderSlot,
       publishCart,
       forgetCart,
       drain,
       registerDrain,
     }),
-    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart, drain, registerDrain],
+    [
+      mode,
+      cartId,
+      cartCount,
+      order,
+      clearOrder,
+      noteOrderSlot,
+      publishCart,
+      forgetCart,
+      drain,
+      registerDrain,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

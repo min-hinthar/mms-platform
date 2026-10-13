@@ -12,7 +12,7 @@ import type { LiveOrder } from "./live-order";
 const h = vi.hoisted(() => ({ readMyLiveOrders: vi.fn() }));
 vi.mock("./orders", () => ({ readMyLiveOrders: h.readMyLiveOrders }));
 
-const { useLiveOrders } = await import("./useLiveOrders");
+const { LIVE_ORDERS_POLL_MS, useLiveOrders } = await import("./useLiveOrders");
 
 const ORDER = { id: "o1" } as LiveOrder;
 
@@ -101,5 +101,40 @@ describe("useLiveOrders with a seed — /account's live row (blind review)", () 
       await Promise.resolve();
     });
     expect(seeded()).toBe("b");
+  });
+});
+
+describe("useLiveOrders — J, a modest re-poll while an order is still moving (lifecycle audit)", () => {
+  // /account "Today" has no Realtime and the header pill is off there on purpose, so a guest who paid
+  // and stayed on the page watched "Preparing" through the expo's Ready until they switched apps.
+  const cooking = { id: "c", hasTogoFood: true, togoStatus: "preparing" } as LiveOrder;
+  const ready = { id: "r", hasTogoFood: true, togoStatus: "ready" } as LiveOrder;
+  function Seeded({ initial }: { initial: LiveOrder[] }) {
+    const { orders } = useLiveOrders(true, null, initial);
+    return <p data-testid="polled">{orders.map((o) => o.id).join(",") || "none"}</p>;
+  }
+  afterEach(() => vi.useRealTimers());
+
+  it("re-reads every LIVE_ORDERS_POLL_MS while a bag is still cooking and the page is visible", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [cooking] });
+    render(<Seeded initial={[cooking]} />);
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled(); // the seed is fresh — no mount read
+    await act(async () => {
+      vi.advanceTimersByTime(LIVE_ORDERS_POLL_MS);
+      await Promise.resolve();
+    });
+    // RED when nothing polls: the Ready edge waited for a tab switch.
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls NOTHING once every order is at rest (a Ready bag waits on the guest, not the kitchen)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    render(<Seeded initial={[ready]} />);
+    await act(async () => {
+      vi.advanceTimersByTime(LIVE_ORDERS_POLL_MS * 3);
+      await Promise.resolve();
+    });
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
   });
 });
