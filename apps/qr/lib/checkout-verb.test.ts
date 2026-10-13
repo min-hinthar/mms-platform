@@ -242,7 +242,8 @@ describe("servedHoldCopy — D5's sentences, one function for the dock and creat
 
   it("unknownHost: says only what is known — never the counter, never 'send' (Codex round 2 on #346)", () => {
     // MUTATION (checkout-verb/unknown-host-promises-the-counter): the hostless sentence for an
-    // unknown host — a counter promise the server may refuse; red.
+    // unknown host — "A server will send these", false of a hosted table whose host only went
+    // unread (the host sends them); red.
     const copy = servedHoldCopy("unknownHost", { canSend: false, hostName: null });
     expect(copy).toBe(
       "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.",

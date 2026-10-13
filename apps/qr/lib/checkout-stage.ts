@@ -69,8 +69,9 @@ export function unsentFoodQty(
  * The same binding on both sides: the split doors (`openSettlement`, `create-share-intent`) still
  * refuse on it server-side while the self-serve split is parked (wiring D5's verdict into them is on
  * `selfServeSplit`'s reopen list, lib/surfaces), and the Bill reads it to say why before the diner
- * taps — Pay's unsent reason (never the counter's: PD2's lift, m2 decision 12, took it off the ask
- * and the counter door, which carry unsent dishes to the register). `create-intent` NO LONGER
+ * taps — Pay's unsent reason (never the diner's counter ask: PD2's lift, m2 decision 12, took it off
+ * the ask and the counter door, which carry unsent dishes to the register; the register's own settle
+ * doors still read it, through `staffSettleBlockedByUnsent` below). `create-intent` NO LONGER
  * refuses on it: PD10 replaced that refusal with D5's served gate (`servedGateDecision` below),
  * which every unsent dine-in line also holds, and `check:phone-pay-door` (rule 7) refuses a live
  * `payBlockedByUnsent(` there.

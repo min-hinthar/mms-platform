@@ -56,6 +56,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   docblock sits on `nudge` again; a regex that could not fail beside an exact match is gone. Filed
   J57 (whether the undo window should still hold the counter: the owner's call) and T58
   (`getCartView`'s clock-before-the-lines order has no test).
+  - The capped pass over those fix commits found three more places with the retired counter
+    refusal (the unknown-host mutant's `why`, its test comment and the m10 spec), a docblock that
+    left the register's settle doors off `payBlockedByUnsent`'s readers, and a grace mutant whose
+    `why` argued the rationale J57 sets aside: all now match the code. The parked edge's "never
+    'Ready to pay.'" check reads every text the region takes through the elapse, so it fails on its
+    own.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 

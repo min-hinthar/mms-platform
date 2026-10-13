@@ -505,15 +505,30 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await press("Total · $12.00 — View bill");
     const door = () => screen.getByRole("button", { name: /^Pay at the counter/ });
     expect(door().getAttribute("aria-disabled")).toBe("true");
-    // MUTATION (pdrem/checkout-parked-edge-reads-pays-block): the edge keyed on Pay's block, which
-    // the tablemate's draft holds — the door lights with nothing said; red.
-    await waitFor(() => expect(regionText()).toContain(COUNTER_ASK_CARRIES_UNSENT), {
-      timeout: 3000,
-    });
-    expect(door().getAttribute("aria-disabled")).toBeNull();
+    // Every text the region takes from here on, so the "never 'Ready to pay.'" check below reads the
+    // whole window, not the one moment after the sentence check (the blind pass over #356's fix
+    // commits: read after that wait, it could not fail on its own).
+    const said: string[] = [];
+    const status = () =>
+      Array.from(document.querySelectorAll('[role="status"]'), (n) => n.textContent ?? "").join(
+        " | ",
+      );
+    const mo = new MutationObserver(() => said.push(status()));
+    mo.observe(document.body, { subtree: true, childList: true, characterData: true });
+    try {
+      // The elapse, read off the door itself.
+      await waitFor(() => expect(door().getAttribute("aria-disabled")).toBeNull(), {
+        timeout: 3000,
+      });
+      // MUTATION (pdrem/checkout-parked-edge-reads-pays-block): the edge keyed on Pay's block,
+      // which the tablemate's draft holds — the door lights with nothing said; red.
+      await waitFor(() => expect(regionText()).toContain(COUNTER_ASK_CARRIES_UNSENT));
+    } finally {
+      mo.disconnect();
+    }
     // MUTATION (pdrem/checkout-parked-edge-says-ready-over-unsent): "Ready to pay." over dishes the
     // counter must still check with the table; red.
-    expect(regionText()).not.toContain("Ready to pay.");
+    expect(said.filter((t) => t.includes("Ready to pay."))).toEqual([]);
   });
 
   it("PD10 · D5 — after the flip the elapse opens NOTHING: the sent dish still holds Pay, and 'Ready to pay.' waits for the food", async () => {
