@@ -1761,9 +1761,10 @@ describe("session truth — a table that ended is held, named and never silently
       utils.unmount();
       vi.clearAllTimers();
       late.resolve({ kind: "ended", why: "cleared" });
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      // The answer travels `.catch` → `.finally` → `.then(settleFate)` before anything could speak:
+      // drain every hop (three bare ticks never reached `settleFate`, so the first draft of this
+      // case passed with the guard deleted — `lcs/unmounted-provider-still-answers` SURVIVED).
+      for (let i = 0; i < 25; i += 1) await Promise.resolve();
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
