@@ -10,24 +10,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`. It gives each row's next step:
   - 343 can be built without the owner (21 high). Building is not always closing: a row that needs a
     migration still waits on the owner's go for the prod apply, and some need the device sitting.
-  - 121 are owner-gated, and 93 stay open.
-  - 33 close here.
+  - 126 are owner-gated, and 89 stay open.
+  - 32 close here.
   - 4 (A1–A4) already read DONE and stay in the Option A table as the record of the owner's picks.
 
   The registry stays the one place open work lives.
 
-- **33 rows move to Closed, each with its evidence.**
+- **32 rows move to Closed, each with its evidence.**
   - 22 were already fixed by later work or were retracted: M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew,
     P2fl, M56, M13, K26, K29, K35, G13, G18, T19, T36, C4, C10, C21, C22 and F11.
     - C10's Apple Pay domain reads `active` in a read-only live Stripe read (2026-10-13).
     - F11's open note was about a pause coin that Phase 0 retired.
   - C15 was already closed in its own row; it only moves.
-  - 5 were duplicates. Each one's note now lives on the row it folds into:
+  - 4 were duplicates. Each one's note now lives on the row it folds into:
 
     | Row  | Folded into  |
     | ---- | ------------ |
     | M195 | M196         |
-    | M115 | M230         |
     | P2ce | P2i          |
     | P2iw | P2is         |
     | PD7  | M270 (2)–(9) |
@@ -43,7 +42,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   name a concrete fix move to Buildable (K33, F8, M172, P2df, J49, P2ak, P2ey), and the rows that wait
   on a parked surface, an owner ruling, live keys or the card reader move to Owner-gated (M215, J14,
   J6, P2co, S13, S18, M11, M12, M23, M38, M54, M8, S10, S8, S9, P2z, J27, and on its second review
-  M207, M111, P2gc, P2ht). The counts above are the recomputed ones.
+  M207, M111, P2gc, P2ht). On #351's merge head, M115 reopens, narrowed: M230 (#354) named only
+  `not_draft`, so `not_yours`, `error` and the RPC's other codes still move the pill back with no
+  sentence. K20 moves to Owner-gated (its age threshold and its fold-or-close choice are the owner's),
+  and so do M72, M79, P6b and S6 from Keep open (each waits on an owner decision). The counts above
+  are the recomputed ones.
 
 - **Two rows stay open after the blind review.**
   - K20 is marked partial: the 24 h queue window shipped, but the owner-set age policy did not.
