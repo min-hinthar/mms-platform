@@ -824,6 +824,41 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     expect(h.push).not.toHaveBeenCalled();
   });
 
+  it("session truth (finding 3) — a table CLEARED under the Bill becomes the close card: the cause named, the bill and its steppers gone, the title said once", async () => {
+    // MUTATION (lcs/bill-ignores-an-ended-table): act on `paid` alone again — the diner keeps an
+    // editable bill whose every edit snaps back silently, and Send says "try again" forever.
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+    );
+    expect(regionText()).toContain("Our staff closed this table");
+    expect(screen.getByText(/Anything not yet served was cancelled/)).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
+    // The way on is the card's "Start a new order" (this suite draws journey links as spans).
+    expect(screen.getByText("Start a new order")).toBeTruthy();
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("session truth (finding 9) — a table MERGED away reads the neutral close, never a claim about where the order went", async () => {
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /Our staff closed this table’s order/ }),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/Nothing more can be added to it from this phone/)).toBeTruthy();
+  });
+
   it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {
     mount({ initialItems: [], splitContext: { ...PICKUP, mode: "scango" } as typeof PICKUP });
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Your basket");

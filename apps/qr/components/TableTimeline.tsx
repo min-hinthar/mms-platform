@@ -8,6 +8,7 @@ import { rollUp } from "@/lib/kitchen-track";
 import { useCart } from "./TableCartProvider";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
+import { surfaceOpen } from "@/lib/surfaces";
 
 /**
  * J3 — the wait, designed (docs/JOURNEY_PLAN.md). A slim strip that narrates the meal's REAL kitchen
@@ -64,6 +65,9 @@ export function TimelineStrip({
    *  DIFFERENT note, and unlike the settle nudge it isn't gated on the 20-minute timer, because the
    *  bill is in motion now. Dessert stays suppressed: a frozen cart can't take an add. */
   settling = false,
+  /** Session truth — the strip is the LAST view of a cart no read can reach any more (the table
+   *  paid): said under it, so a frozen "being made" is never read as live. */
+  stale = null,
 }: {
   items: CartItem[];
   onMenu?: boolean;
@@ -72,6 +76,7 @@ export function TimelineStrip({
   nowIso?: string;
   quiet?: boolean;
   settling?: boolean;
+  stale?: string | null;
 }) {
   // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone),
   // each at its STAGE on the ONE KITCHEN TRACK (PD10): a draft has no stage here (the Send has not
@@ -271,6 +276,7 @@ export function TimelineStrip({
           )}
         </p>
       )}
+      {stale && <p className="table-timeline-note">{stale}</p>}
       {settleNudge && !quiet && !settling && (
         <p className="table-timeline-note">
           {onMenu ? (
@@ -299,7 +305,13 @@ export function TimelineStrip({
  *  invitations — the menu can't accept an add and the moment passes on its own. Settling is passed
  *  through separately (W9b): it isn't a quiet moment, it's a call to go pay. */
 export function MenuTimeline() {
-  const { items, cartId, locked, settling, dbNow } = useCart();
+  const { items, cartId, locked, settling, dbNow, ended } = useCart();
+  // Session truth — a table that CLOSED (a staff Clear voided its sent dishes; a merge moved them;
+  // the sweep ended it) has nothing cooking here: the strip would say "being made" over food the
+  // kitchen was told to stop. A PAID table's food is still cooking, but no read reaches its cart
+  // any more — so its last view stays, quiet and labelled as such, under the card that links the
+  // live tracker when this seat may see it.
+  if (ended && ended.kind !== "paid") return null;
   return (
     <TimelineStrip
       items={items}
@@ -314,8 +326,12 @@ export function MenuTimeline() {
       // code: the provider defines `isGroup = mode === "dinein"` and only a dine-in cart can settle, so
       // `settling && !isGroup` is ALWAYS false. Overlapping slightly with GuestList's banner is a far
       // cheaper cost than either bug.
-      quiet={locked || settling}
-      settling={settling}
+      quiet={locked || settling || !!ended}
+      // Session truth (finding 2) — the split's "pay your share" note only while the split's door
+      // is OPEN: parked, every freeze is the register's, and GuestList's banner already says the
+      // register's own sentence (`registerSettling`) on this screen.
+      settling={settling && surfaceOpen("selfServeSplit")}
+      stale={ended ? "As it stood when your bill was paid — this list won’t update here." : null}
     />
   );
 }

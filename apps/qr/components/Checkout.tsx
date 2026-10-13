@@ -12,6 +12,8 @@ import {
 } from "react";
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterDock, PayAtCounterPass } from "./PayAtCounter";
+import { TableEndedCard } from "./TableEnded";
+import { endedNewsKey, type TableEndReason } from "@/lib/session-truth";
 import { LivePass } from "./LivePass";
 import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
@@ -761,8 +763,13 @@ export function Checkout({
   // without the stamp inside it is a stale read, not a withdrawal — `ownAsk` survives it.
   const askInFlight = useRef(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
-  // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
-  const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
+  // (`cart_closed`), and this is the close the diner sees instead of a stale bill. Session truth —
+  // or the table ENDED under it (a staff Clear, a merge into another table, the sweep): the same
+  // finished surface, with the cause named (`TableEndedCard`) instead of a stale, editable bill whose
+  // every edit snapped back silently and whose Send said "try again" forever.
+  const [settledClose, setSettledClose] = useState<"counter" | "card" | TableEndReason | null>(
+    null,
+  );
   const settleCheckRef = useRef(false);
   // Refs, not deps: `useJourneyRouter` returns a fresh object per render and `step` changes on
   // every view flip — either in `refresh`'s deps would recreate it each render and re-register the
@@ -990,6 +997,13 @@ export function Checkout({
       settleCheckRef.current = true;
       void counterPayOutcome({ cartId })
         .then((o) => {
+          // Session truth (finding 3) — `ended` is member-proven (no oracle): the close card names
+          // the cause and takes the editing surface's place; the one region says its title.
+          if (o.kind === "ended") {
+            setSettledClose(o.why);
+            setStatus(T(endedNewsKey(o)));
+            return;
+          }
           if (o.kind !== "paid") return;
           if (o.orderId) {
             journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
@@ -3778,11 +3792,22 @@ export function Checkout({
             {/* A1 — the register settled this bill while it was open here: the cart read is gone
                 for good, so this is what the diner sees instead of a frozen bill or "isn't
                 available on this device". */}
-            {settledClose && (
+            {(settledClose === "counter" || settledClose === "card") && (
               <CounterSettledCard
                 by={settledClose}
                 menuHref={menuHref(sessionMode)}
                 menuText={menuLinkText(sessionMode, "browse")}
+              />
+            )}
+            {/* Session truth — the table ENDED under the Bill: the cause, and a new order on the
+                menu (a fresh mint by this phone's last code under J15 — never the sticker). */}
+            {(settledClose === "cleared" ||
+              settledClose === "closed" ||
+              settledClose === "expired") && (
+              <TableEndedCard
+                end={{ kind: "ended", why: settledClose }}
+                trackHref={null}
+                start={{ kind: "link", href: menuHref(sessionMode) }}
               />
             )}
             {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the

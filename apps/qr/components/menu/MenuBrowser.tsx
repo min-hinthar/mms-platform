@@ -16,6 +16,7 @@ import { ArrivalBeat } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
+import { MenuTableEnded } from "@/components/MenuTableEnded";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -209,7 +210,11 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
   // sheet cannot read it itself and the menu — which has it — passes it down.
-  const { cartId, announce, refresh, tableNumber } = useCart();
+  const { cartId, announce, refresh, tableNumber, role, members, me } = useCart();
+  // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
+  // and someone else is at the table: leaving takes the Send with it, and the DoorSheet says so before
+  // the tap (`hostOfParty`). Presence is what the menu has; a party not yet synced reads as alone.
+  const sendsForOthers = role === "host" && members.some((m) => m.seat !== me?.seat);
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -676,6 +681,7 @@ export function MenuBrowser({
               exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
               the sheet), so the masthead can never contradict the arrival line. */}
           <DoorSheet
+            sendsForOthers={sendsForOthers}
             mode={mode}
             tableNumber={tableNumber}
             tables={tables}
@@ -697,6 +703,9 @@ export function MenuBrowser({
             of the arrival beat, not a promotion. Renders nothing below the threshold. */}
         <YourUsual outcome={usual} />
         {mode === "dinein" && <GuestList />}
+        {/* Session truth — a table that ENDED (paid, cleared by staff, merged away, timed out) says
+            so here, in the party row's place, and offers the way forward; nothing until then. */}
+        <MenuTableEnded />
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
             kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
         <MenuTimeline />

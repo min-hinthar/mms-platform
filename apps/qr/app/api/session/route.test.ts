@@ -481,6 +481,8 @@ describe("/api/session — reserved codes (Codex r3 on #308)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { cartId: string; role: string; created: boolean };
     expect(body).toMatchObject({ cartId: "cart-1", role: "guest", created: false });
+    // Session truth — a join of a live party is no fresh start: no "your visit had ended".
+    expect((body as unknown as { fresh: boolean }).fresh).toBe(false);
     expect(writes).toContain("session_members:insert");
   });
 });
@@ -1426,6 +1428,10 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
       tableNumber: 7,
       cartId: "cart-shell",
       created: false,
+      // Session truth (finding 4's narrow case) — the row existed, but nothing on it was this
+      // diner's: `fresh` lets a home-card resume say their earlier visit had ended.
+      // MUTATION (lcs/route-shell-take-is-not-fresh): drop `tookShell` from the answer.
+      fresh: true,
     });
     expect(sessionInserts()).toHaveLength(0);
     expect(bindUpdates()).toHaveLength(0);

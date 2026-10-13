@@ -1,0 +1,410 @@
+import { describe, expect, it } from "vitest";
+import {
+  afterFailedRead,
+  cartFate,
+  CLOSED_ORDER_CLAUSE,
+  dineinMintEntry,
+  endCardWords,
+  endedNewsKey,
+  endedWriteNotice,
+  endPollDelayMs,
+  END_POLL_MS,
+  endTrackHref,
+  mintNotice,
+  sessionLive,
+  settleEdgeNotice,
+  tableEnded,
+  type CartOutcome,
+  type TableEnd,
+} from "./session-truth";
+import { REGISTER_SETTLING_COPY } from "./counter-pay-state";
+import { t } from "./i18n";
+
+/**
+ * Session truth — every decision the menu, the Bill and the mint make about a table that stopped
+ * answering, pinned as values (the `lcs/` mutants in scripts/verify-slice.mjs falsify each one).
+ */
+
+const NOW = Date.parse("2026-10-13T18:00:00.000Z");
+const LIVE = { status: "active", expiresAt: "2026-10-13T20:00:00.000Z" };
+const PAST = "2026-10-13T17:00:00.000Z";
+
+describe("cartFate — what became of a cart (the one classification /menu and /cart share)", () => {
+  it("an open cart on a live session is open", () => {
+    expect(cartFate({ cartStatus: "open", session: LIVE, cleared: false, nowMs: NOW })).toEqual({
+      kind: "open",
+    });
+  });
+
+  it("an open cart on a session past its clock is EXPIRED — the sweep leaves the cart open", () => {
+    // MUTATION (lcs/fate-trusts-an-open-cart): `open` regardless of the session — the menu stays
+    // frozen on a dead table and the next tap re-mints.
+    for (const status of ["active", "closed"])
+      expect(
+        cartFate({
+          cartStatus: "open",
+          session: { status, expiresAt: PAST },
+          cleared: false,
+          nowMs: NOW,
+        }),
+      ).toEqual({ kind: "ended", why: "expired" });
+  });
+
+  it("a paid cart is PAID, and says whether its table is still seated", () => {
+    expect(cartFate({ cartStatus: "paid", session: LIVE, cleared: false, nowMs: NOW })).toEqual({
+      kind: "paid",
+      sessionLive: true,
+    });
+    // A paid table staff then cleared for the next party: still paid — the bill is the fact.
+    expect(
+      cartFate({
+        cartStatus: "paid",
+        session: { status: "closed", expiresAt: LIVE.expiresAt },
+        cleared: true,
+        nowMs: NOW,
+      }),
+    ).toEqual({ kind: "paid", sessionLive: false });
+  });
+
+  it("a CLEAR is named from its record, ahead of the clock", () => {
+    // MUTATION (lcs/fate-clear-reads-as-a-merge): ignore the record — a staff Clear says the
+    // neutral "closed", and the diner is never told the unserved food was cancelled.
+    expect(
+      cartFate({
+        cartStatus: "cancelled",
+        session: { status: "closed", expiresAt: PAST },
+        cleared: true,
+        nowMs: NOW,
+      }),
+    ).toEqual({ kind: "ended", why: "cleared" });
+  });
+
+  it("a MERGE (no record, the clock still running) is the neutral CLOSED", () => {
+    expect(
+      cartFate({
+        cartStatus: "cancelled",
+        session: { status: "closed", expiresAt: LIVE.expiresAt },
+        cleared: false,
+        nowMs: NOW,
+      }),
+    ).toEqual({ kind: "ended", why: "closed" });
+    // A missing session row establishes no clock: closed, never "timed out".
+    expect(
+      cartFate({ cartStatus: "cancelled", session: null, cleared: false, nowMs: NOW }),
+    ).toEqual({ kind: "ended", why: "closed" });
+  });
+
+  it("the session gate is is_member's: `status <> 'closed' and expires_at > now()` — the instant itself is dead", () => {
+    // MUTATION (lcs/session-live-at-the-instant): `>=` — a session at its own expiry instant reads
+    // live here and dead to every read `assertCartMember` makes.
+    expect(sessionLive({ status: "active", expiresAt: new Date(NOW).toISOString() }, NOW)).toBe(
+      false,
+    );
+    expect(sessionLive({ status: "active", expiresAt: LIVE.expiresAt }, NOW)).toBe(true);
+    expect(sessionLive({ status: "closed", expiresAt: LIVE.expiresAt }, NOW)).toBe(false);
+    expect(sessionLive(null, NOW)).toBe(false);
+    expect(sessionLive({ status: "active", expiresAt: "not a date" }, NOW)).toBe(false);
+  });
+});
+
+const PAID: TableEnd = {
+  kind: "paid",
+  tender: "counter",
+  orderId: "o-1",
+  sessionLive: true,
+};
+const CLEARED: TableEnd = { kind: "ended", why: "cleared" };
+const EXPIRED: TableEnd = { kind: "ended", why: "expired" };
+const CLOSED: TableEnd = { kind: "ended", why: "closed" };
+
+describe("afterFailedRead — hold, re-mint, or stay", () => {
+  it("a dine-in table that ENDED is held — never re-minted on its own", () => {
+    // MUTATION (lcs/held-table-re-mints): re-mint a dine-in end — the sticker re-hosts a cleared
+    // table and the diner hears a sentence about a fresh order they did not ask for.
+    for (const end of [PAID, CLEARED, EXPIRED, CLOSED]) {
+      expect(afterFailedRead(end, { isGroup: true, write: true })).toBe("hold");
+      expect(afterFailedRead(end, { isGroup: true, write: false })).toBe("hold");
+    }
+  });
+
+  it("a SOLO order that ended re-mints (with its cause said) — there is no table to hold", () => {
+    expect(afterFailedRead(EXPIRED, { isGroup: false, write: false })).toBe("remint");
+    expect(afterFailedRead(PAID, { isGroup: false, write: true })).toBe("remint");
+  });
+
+  it("an unknowable answer keeps the shipped recovery for a WRITE and the last view for a passive read", () => {
+    // MUTATION (lcs/passive-read-re-mints): re-mint on a failed focus read — a blip re-mints the
+    // table every time the phone wakes.
+    for (const o of [{ kind: "open" }, { kind: "unknown" }] as CartOutcome[]) {
+      expect(afterFailedRead(o, { isGroup: true, write: true })).toBe("remint");
+      expect(afterFailedRead(o, { isGroup: true, write: false })).toBe("stay");
+      expect(afterFailedRead(o, { isGroup: false, write: false })).toBe("stay");
+    }
+  });
+
+  it("tableEnded is exactly paid + ended", () => {
+    expect(tableEnded(PAID)).toBe(true);
+    expect(tableEnded(CLOSED)).toBe(true);
+    expect(tableEnded({ kind: "open" })).toBe(false);
+    expect(tableEnded({ kind: "unknown" })).toBe(false);
+  });
+});
+
+describe("endPollDelayMs — the close no event carries", () => {
+  it("polls a dine-in cart that has not ended, and nothing else", () => {
+    // MUTATION (lcs/poll-runs-on-an-ended-table): keep polling after the hold — a server action a
+    // minute, for as long as the card is open, about a table that will never reopen.
+    expect(endPollDelayMs({ isGroup: true, hasCart: true, ended: false })).toBe(END_POLL_MS);
+    expect(endPollDelayMs({ isGroup: true, hasCart: true, ended: true })).toBeNull();
+    expect(endPollDelayMs({ isGroup: false, hasCart: true, ended: false })).toBeNull();
+    expect(endPollDelayMs({ isGroup: true, hasCart: false, ended: false })).toBeNull();
+    expect(END_POLL_MS).toBe(60_000);
+  });
+});
+
+describe("dineinMintEntry — the URL credential is single-use (M172)", () => {
+  const url = { code: "STICKER5", joinOnly: false, tableNumber: undefined, stored: "OLDKEY" };
+
+  it("the FIRST mint follows the URL: the sticker wins, never marked persisted", () => {
+    expect(dineinMintEntry({ ...url, accepted: null })).toEqual({ qrCode: "STICKER5" });
+  });
+
+  it("every later mint re-joins by the ACCEPTED code, marked persisted — the sticker cannot re-host a cleared table", () => {
+    // MUTATION (lcs/remint-reuses-the-sticker): ignore `accepted` — a recovery re-mint sends the
+    // sticker again and the route provisions a NEW session at the table with this diner as host.
+    expect(
+      dineinMintEntry({
+        ...url,
+        accepted: { code: "STICKER5", forCode: "STICKER5", forTable: null },
+      }),
+    ).toEqual({ qrCode: "STICKER5", persisted: true });
+    // An invite's re-mint is no longer join-only (no "No table found for that code" after a close),
+    // and a claim's number is not re-claimed.
+    expect(
+      dineinMintEntry({
+        code: "INVITE1",
+        joinOnly: true,
+        tableNumber: 5,
+        stored: undefined,
+        accepted: { code: "TABLECODE", forCode: "INVITE1", forTable: 5 },
+      }),
+    ).toEqual({ qrCode: "TABLECODE", persisted: true });
+  });
+
+  it("a NEW credential on the same page (a code typed into the join form) is a new entry, and is honoured", () => {
+    // MUTATION (lcs/spent-entry-swallows-a-new-code): spend on `accepted` alone — a diner who types
+    // another table's code is silently re-joined to the table they were leaving.
+    expect(
+      dineinMintEntry({
+        code: "OTHER222",
+        joinOnly: true,
+        tableNumber: undefined,
+        stored: "STICKER5",
+        accepted: { code: "STICKER5", forCode: "STICKER5", forTable: null },
+      }),
+    ).toEqual({ qrCode: "OTHER222", joinOnly: true });
+  });
+
+  it("before a success, the shipped rules hold: a stored key is persisted, a claim carries its number, an invite is join-only", () => {
+    expect(
+      dineinMintEntry({
+        code: undefined,
+        joinOnly: false,
+        tableNumber: undefined,
+        stored: "OLDKEY",
+        accepted: null,
+      }),
+    ).toEqual({ qrCode: "OLDKEY", persisted: true });
+    expect(
+      dineinMintEntry({
+        code: undefined,
+        joinOnly: false,
+        tableNumber: 5,
+        stored: "OLDKEY",
+        accepted: null,
+      }),
+    ).toEqual({ qrCode: "OLDKEY", tableNumber: 5 });
+    expect(
+      dineinMintEntry({
+        code: "INVITE1",
+        joinOnly: true,
+        tableNumber: undefined,
+        stored: undefined,
+        accepted: null,
+      }),
+    ).toEqual({ qrCode: "INVITE1", joinOnly: true });
+    expect(
+      dineinMintEntry({
+        code: undefined,
+        joinOnly: false,
+        tableNumber: undefined,
+        stored: undefined,
+        accepted: null,
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("the words — never 'idle', always the cause we know", () => {
+  const base = {
+    firstMint: false,
+    recovering: false,
+    restarted: false,
+    newCart: false,
+    unconfirmed: false,
+    cause: null,
+    created: false,
+    resume: false,
+    replacedStored: false,
+  };
+
+  it("no sentence anywhere says 'idle'", () => {
+    const all: (string | null)[] = [];
+    for (const recovering of [true, false])
+      for (const newCart of [true, false])
+        for (const unconfirmed of [true, false])
+          for (const cause of [null, PAID, CLEARED, EXPIRED, CLOSED])
+            for (const resume of [true, false])
+              for (const replacedStored of [true, false])
+                all.push(
+                  mintNotice({
+                    ...base,
+                    firstMint: !recovering,
+                    recovering,
+                    newCart,
+                    unconfirmed,
+                    cause,
+                    created: true,
+                    resume,
+                    replacedStored,
+                  })?.text ?? null,
+                );
+    expect(all.filter((s) => s && /idle/i.test(s))).toEqual([]);
+  });
+
+  it("a re-mint onto a NEW cart names the cause it knows, and says so when it knows none", () => {
+    const say = (cause: TableEnd | null) =>
+      mintNotice({ ...base, recovering: true, newCart: true, cause })?.text;
+    expect(say(null)).toBe("We couldn’t reach your last order — this is a new one.");
+    expect(say(PAID)).toBe("That order’s already paid — this is a new one.");
+    expect(say(EXPIRED)).toBe("Your last order timed out — this is a new one.");
+    expect(say(CLOSED)).toBe("Your last order was closed — this is a new one.");
+  });
+
+  it("a re-mint onto the SAME cart never invites the retry of a write it could not confirm", () => {
+    expect(mintNotice({ ...base, recovering: true, unconfirmed: true })?.text).toBe(
+      "Reconnected to your table — check your order below.",
+    );
+    expect(mintNotice({ ...base, recovering: true })?.text).toBe(
+      "Reconnected to your table — please try that again.",
+    );
+  });
+
+  it("the diner's own new order is confirmed, ahead of every other reading", () => {
+    expect(
+      mintNotice({
+        ...base,
+        restarted: true,
+        recovering: true,
+        newCart: true,
+        created: true,
+        replacedStored: true,
+      })?.text,
+    ).toBe("Your new order is ready — add whatever you like.");
+  });
+
+  it("finding 4 — a cold mount whose stored table had ended SAYS so (it used to land silently in 'Just you')", () => {
+    // MUTATION (lcs/stored-table-ended-silently): drop the replacedStored arm — the reload after a
+    // clear lands in a new, unnumbered session with no word.
+    expect(
+      mintNotice({ ...base, firstMint: true, created: true, replacedStored: true })?.text,
+    ).toBe("Your last table’s order had ended — this is a new one.");
+    // Only a mint that CREATED: a re-join of the same table says nothing.
+    expect(mintNotice({ ...base, firstMint: true, replacedStored: true })).toBeNull();
+    // The home card's resume keeps its own sentence.
+    expect(mintNotice({ ...base, firstMint: true, created: true, resume: true })?.text).toBe(
+      "Your earlier visit at this table had ended — we’ve started a fresh one for you.",
+    );
+    // A later, ordinary mint says nothing.
+    expect(mintNotice({ ...base, created: true, replacedStored: true })).toBeNull();
+  });
+
+  it("a write the ENDED table swallowed is retracted with the cause; a paid table only says what we know", () => {
+    expect(endedWriteNotice(CLEARED, "Mohinga")).toBe(
+      `Mohinga didn’t go through — ${CLOSED_ORDER_CLAUSE}.`,
+    );
+    expect(endedWriteNotice(CLOSED)).toBe(`That didn’t go through — ${CLOSED_ORDER_CLAUSE}.`);
+    // MUTATION (lcs/paid-write-claims-a-refusal): say "didn't go through" for a paid table — the
+    // dish may have committed a beat before the register took the bill, and a re-add charges twice.
+    expect(endedWriteNotice(PAID, "Mohinga")).toBe(
+      "We couldn’t confirm Mohinga — your table’s bill was paid just then.",
+    );
+  });
+
+  it("the card names each end by its own words, and the paid arms reuse the Bill's close", () => {
+    expect(endCardWords(CLEARED)).toMatchObject({
+      title: "tableClearedTitle",
+      body: "tableClearedBody",
+      staffLine: true,
+    });
+    expect(endCardWords(CLOSED)).toMatchObject({ title: "tableClosedTitle", staffLine: true });
+    expect(endCardWords(EXPIRED)).toMatchObject({ title: "tableExpiredTitle", staffLine: true });
+    expect(endCardWords(PAID)).toMatchObject({
+      title: "counterSettledTitle",
+      body: "counterSettledBody",
+      staffLine: false,
+    });
+    // A tablemate's CARD is never "paid at the counter" (the Bill's CRITICAL 1, on the menu too).
+    // MUTATION (lcs/card-paid-reads-as-the-counter)
+    expect(endCardWords({ ...PAID, tender: "card" })).toMatchObject({
+      eyebrow: "Paid",
+      title: "billPaidTitle",
+      body: "billPaidBody",
+    });
+    // An unreadable tender claims nothing about where.
+    expect(endCardWords({ ...PAID, tender: "unknown" }).body).toBeNull();
+    // A paid table whose session closed may no longer be the diner's: the staff line shows.
+    expect(endCardWords({ ...PAID, sessionLive: false }).staffLine).toBe(true);
+    expect(endedNewsKey(CLEARED)).toBe("tableClearedTitle");
+  });
+
+  it("every card key resolves in both tongues (the dictionary holds them)", () => {
+    for (const end of [PAID, CLEARED, EXPIRED, CLOSED, { ...PAID, tender: "card" as const }]) {
+      const w = endCardWords(end);
+      for (const k of [w.title, w.body].filter((x): x is NonNullable<typeof x> => x !== null)) {
+        expect(t("en", k).length).toBeGreaterThan(0);
+        expect(t("my", k)).toMatch(/[က-႟]/);
+      }
+    }
+    expect(t("en", "tableClearedBody")).toBe(
+      "Anything not yet served was cancelled — you won’t be charged for it.",
+    );
+  });
+
+  it("the tracker is offered only for an order this seat may see", () => {
+    expect(endTrackHref(PAID, "cart-1")).toBe("/track?cart=cart-1&paid=1");
+    expect(endTrackHref({ ...PAID, orderId: null }, "cart-1")).toBeNull();
+    expect(endTrackHref(CLEARED, "cart-1")).toBeNull();
+    expect(endTrackHref(PAID, null)).toBeNull();
+  });
+});
+
+describe("settleEdgeNotice — the register's own words while the split is parked (finding 2)", () => {
+  it("parked: the register's sentence on the freeze, its own on a release — never the split's", () => {
+    // MUTATION (lcs/menu-settle-speaks-the-split): ignore the flag — a family whose bill Dad is
+    // taking in cash hears "Your table is splitting the bill", a door no phone can open.
+    expect(settleEdgeNotice(true, false)).toBe(REGISTER_SETTLING_COPY);
+    expect(settleEdgeNotice(false, false)).toBe(
+      "The counter stopped taking payment — you can edit the order again",
+    );
+  });
+
+  it("open: the split's own sentences, unchanged", () => {
+    expect(settleEdgeNotice(true, true)).toBe(
+      "Your table is splitting the bill — the order’s locked while everyone pays",
+    );
+    expect(settleEdgeNotice(false, true)).toBe(
+      "The split was called off — you can edit the order again",
+    );
+  });
+});

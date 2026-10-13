@@ -196,6 +196,25 @@ describe("DoorSheet — the sheet", () => {
     expect(forgetCart).not.toHaveBeenCalled();
   });
 
+  it("session truth (finding 5) — the phone that SENDS for a party is told, before the tap, that leaving takes the Send with it", () => {
+    // MUTATION (lcs/door-sheet-leave-hides-the-send): drop the note — the sender leaves early, no
+    // phone at the table can send again, and nobody was told.
+    render(<DoorSheet mode="dinein" tableNumber={7} sendsForOthers />);
+    const dialog = open();
+    const leave = within(dialog).getByRole("link", { name: /Leave this table/ });
+    const note = dialog.querySelector(`#${leave.getAttribute("aria-describedby")}`);
+    expect(text(note)).toBe(
+      "You send this table’s orders to the kitchen — once you leave, the others will need a server to send theirs.",
+    );
+    // Plain words: never "host" on a guest screen.
+    expect(text(note)).not.toMatch(/\bhost\b/i);
+    cleanup();
+    // Alone at the table (or a guest): nothing to say, nothing described.
+    render(<DoorSheet mode="dinein" tableNumber={7} />);
+    const plain = within(open()).getByRole("link", { name: /Leave this table/ });
+    expect(plain.getAttribute("aria-describedby")).toBeNull();
+  });
+
   it("to-go: To-go lit, dine-in + grocery links, NO exits", () => {
     render(<DoorSheet mode="pickup" />);
     const dialog = open();

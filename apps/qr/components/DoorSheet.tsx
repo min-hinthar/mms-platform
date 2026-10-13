@@ -68,6 +68,7 @@ export function DoorSheet({
   tables,
   flourish,
   onOpenChange,
+  sendsForOthers = false,
 }: {
   /** The menu's internal mode (dinein | pickup | scango) — what `doorFor` and `currentDoor` read. */
   mode: string;
@@ -81,6 +82,10 @@ export function DoorSheet({
   /** Codex round 4 on Phase 1a: the host suspends pull-to-refresh (and the market its camera —
    *  `decodeHold` treats any sheet over the stage as a hold) while this sheet is open. */
   onOpenChange?: (open: boolean) => void;
+  /** Session truth (finding 5) — this phone sends the table's orders (only it can) and someone else
+   *  is at the table: "Leave this table" says, before the tap, that the Send leaves with it. A PROP,
+   *  like `tableNumber`: the market mounts no cart provider. */
+  sendsForOthers?: boolean;
 }) {
   const [open, setOpenState] = useState(false);
   // 3c-i — the seated table whose code is being asked for, inline under the grid (null = no ask).
@@ -207,9 +212,20 @@ export function DoorSheet({
                 <span className="door-sheet-exits-note">keeps your table</span>
               </span>
             </Link>
+            {/* Session truth (finding 5) — the leave is device-only and `host_seat` never moves
+                (M169), so after the sender leaves nobody at the table can send a round: only a
+                server's console can. Said BEFORE the tap, in plain words (never "host"), and tied to
+                the button it qualifies. The leave itself is unchanged — the owner asked for it. */}
+            {sendsForOthers && (
+              <p id="door-leave-sends" className="door-sheet-sub">
+                You send this table’s orders to the kitchen — once you leave, the others will need a
+                server to send theirs.
+              </p>
+            )}
             <Link
               href={menuHref(null)}
               className={buttonClass({ variant: "danger", size: "lg", block: true })}
+              aria-describedby={sendsForOthers ? "door-leave-sends" : undefined}
               onClick={() => {
                 forgetDineinOnThisDevice();
                 forgetCart();

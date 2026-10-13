@@ -17,13 +17,23 @@ import type { MenuItem } from "./MenuBrowser";
  */
 const announce = vi.fn();
 vi.mock("@/components/TableCartProvider", () => ({
-  useCart: () => ({ cartId: null, announce, refresh: async () => {}, tableNumber: null }),
+  useCart: () => ({
+    cartId: null,
+    announce,
+    refresh: async () => {},
+    tableNumber: null,
+    role: null,
+    members: [],
+    me: null,
+    ended: null,
+  }),
 }));
 const none = () => null;
 vi.mock("@/components/AddButton", () => ({ AddButton: none }));
 vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
+vi.mock("@/components/MenuTableEnded", () => ({ MenuTableEnded: none }));
 vi.mock("@/components/DoorSheet", () => ({ DoorSheet: none }));
 vi.mock("@/components/PullToRefresh", () => ({ PullToRefresh: none }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: none }));
