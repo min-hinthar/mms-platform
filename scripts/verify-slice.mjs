@@ -37572,6 +37572,74 @@ const MUTANTS = [
     replace: "Promise.resolve({ ok: true as const })",
   },
   // ── lck: end ──
+  // ── lcr: start ── the order-lifecycle audit's residuals (claude/fix/lifecycle-residuals) ──
+  // Theme 5 — Cook now moves the ORDER, not only its lines.
+  {
+    id: "lcr/kitchen/cook-now-order-unmoved",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — Cook now moves only the lines: the guest reads 'You’re booked', the tray 'Scheduled', and the wall hides the code while Mom cooks",
+    find: "  await fireHeldOrderNow(cartId);\n",
+    replace: "",
+  },
+  {
+    id: "lcr/kitchen/cook-now-stamps-an-asap-order",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — without `fire_at > now` the write stamps an as-soon-as-possible order (null) and moves a reached stamp LATER",
+    find: '    .gt("fire_at", nowIso)\n    .select("id");',
+    replace: '    .select("id");',
+  },
+  {
+    id: "lcr/kitchen/cook-now-revives-a-refunded-order",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — without the status guard a refunded order's stamp moves and the wall publishes a bag nobody paid for",
+    find: '    .eq("status", "paid")\n    .gt("fire_at", nowIso)',
+    replace: '    .gt("fire_at", nowIso)',
+  },
+  {
+    id: "lcr/kitchen/cook-now-blocked-write-silent",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — the W17 lesson: a write the guard blocked reads as success unless the row count is read",
+    find: "  if ((moved ?? []).length === 0)\n",
+    replace: "  if (false)\n",
+  },
+  {
+    id: "lcr/kitchen/cook-now-on-the-app-clock",
+    file: "apps/qr/lib/kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — the order's stamp on the APP clock: every reader compares it against the DB clock, and a skew holds a cooking order 'booked'",
+    find: '      ? clock.data\n      : (() => {\n          console.error("[kitchen] mms_now unreadable — the held order moves on the app clock"',
+    replace:
+      '      ? new Date().toISOString()\n      : (() => {\n          console.error("[kitchen] mms_now unreadable — the held order moves on the app clock"',
+  },
+  {
+    id: "lcr/pickup-promise/started-bag-still-booked",
+    file: "apps/qr/lib/pickup-promise.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — the belt: a bag Mom has Started reads 'You’re booked' while the order's write has not landed",
+    find: "  const fired = isFired(o.fireAt, nowMs) || bagStarted(o.kitchen);",
+    replace: "  const fired = isFired(o.fireAt, nowMs);",
+  },
+  {
+    id: "lcr/order-kitchen/sent-counts-as-started",
+    file: "apps/qr/lib/order-kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — a fired line nobody tapped is not the kitchen's word: 'started' would fire a held booking on a stray read",
+    find: '  return bag === "cooking" || bag === "done";',
+    replace: "  return bag !== null;",
+  },
+  {
+    id: "lcr/order-kitchen/done-not-started",
+    file: "apps/qr/lib/order-kitchen.ts",
+    suite: "lib/cook-now.test.ts",
+    why: "Theme 5 — Mom's Done is the kitchen's word too: a finished bag must not read 'booked'",
+    find: '  return bag === "cooking" || bag === "done";',
+    replace: '  return bag === "cooking";',
+  },
+  // ── lcr: end ──
 ];
 
 // ── argv — strict, because a silently-ignored flag is a silently-different run ──────────────────────

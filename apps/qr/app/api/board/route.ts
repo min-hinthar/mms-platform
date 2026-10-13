@@ -215,7 +215,8 @@ export async function GET(req: NextRequest) {
     // wall publishes nothing it refuses). A refunded order is nobody's bag; the window is on the DUE
     // time (a pickup booked more than a day ahead came up uncalled); and a HELD scheduled order
     // (fire_at still ahead) stays off until the kitchen starts it — but a READY bag is on the wall
-    // whatever the schedule said (Cook now moves only the cart lines' fire time).
+    // whatever the schedule said (Cook now moves the order's fire time too since the residuals PR,
+    // but only through a guarded write that may fail — `fireTicketNow`, logged, never surfaced).
     .eq("status", "paid")
     .or(boardOrderReadOr(dayFloor, dbNowIso))
     // NEWEST READINESS first, then creation (the blind pass on A4·1, CRITICAL 3; the key reshaped

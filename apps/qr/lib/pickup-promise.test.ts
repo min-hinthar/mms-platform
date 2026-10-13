@@ -39,6 +39,7 @@ const base: PickupGuideInput = {
   togoStatus: "preparing",
   arrivedAt: null,
   createdAt: PAID,
+  kitchen: null, // no kitchen read: the order row speaks alone
 };
 
 describe("isFired — has the kitchen got this ticket?", () => {
