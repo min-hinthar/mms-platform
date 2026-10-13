@@ -268,6 +268,10 @@ export type TableDetail = {
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
+  /** M211 — the settled order's LINE read hit its bound: `lines` holds the first `ORDER_LINE_CAP`
+   *  rows (lib/floor.ts) and the order has more, so the surface must say the list is not the whole
+   *  record. Always false on an open cart. */
+  settledLinesTruncated: boolean;
   /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
    *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null

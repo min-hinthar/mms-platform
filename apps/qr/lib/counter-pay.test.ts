@@ -283,33 +283,34 @@ describe("requestCounterPay", () => {
   });
 });
 
-// ── Phase 2c · gate ──
-describe("requestCounterPay — the ask waits for everything to be sent (the Bill's own rule)", () => {
-  it("a hosted table holding unsent dine-in dishes is refused as `unsent`, and nothing is stamped", async () => {
-    // MUTATION (counter-pay/unsent-not-read): hardcode `unsentBlocks: false` — the ask lights the
-    // floor for a table whose dishes nobody sent, a door the Bill's Pay button keeps shut; red.
+// ── PD2 (m2 STATES "Unsent dishes", decision 12) — the ask CARRIES unsent dishes ──
+describe("requestCounterPay — the ask carries unsent dishes to the counter (PD2's lift, after P2do)", () => {
+  it("a hosted table holding unsent dine-in dishes asks, and is stamped — the counter checks them with the table", async () => {
+    // Phase 2c refused this as `unsent` until counter-floor's P2do; P2do shipped (#334): the floor
+    // reads "Not sent yet" on an asked table, and the register's settle doors still refuse over
+    // unsent dishes on their own (the staff gate), so the ask moves no money.
     sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [
       { cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false },
       { cart_id: "c-1", state: "fired", fulfillment: "dinein", qty: 1, comped: false },
     ];
-    expect(await requestCounterPay({ cartId: "c-1" })).toEqual({
-      ok: false,
-      reason: "unsent",
-      error: "Everything has to go to the kitchen first — then pay at the counter.",
-    });
-    expect(cart!.counter_requested_at).toBeNull();
+    const r = await requestCounterPay({ cartId: "c-1" });
+    expect(r.ok).toBe(true);
+    expect(typeof cart!.counter_requested_at).toBe("string");
+    if (r.ok) expect(r.counterRequestedAt).toBe(cart!.counter_requested_at);
   });
 
-  it("a table with NO host is never gated — nobody at the table can send", async () => {
-    // MUTATION (counter-pay/unsent-gates-a-hostless-table): read the host as always present — a
-    // staff-started table's diners (invite links, no host) can never ask for the counter; red.
-    sessions = [{ id: "s-1", host_seat: null }];
+  it("a table of nothing but unsent dishes asks too — a draft is something to settle", async () => {
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
     expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
   });
 
-  it("a to-go draft never blocks (it cooks at payment), and a sent table may ask", async () => {
+  it("a hostless table and a to-go draft ask exactly as before", async () => {
+    sessions = [{ id: "s-1", host_seat: null }];
+    items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
+    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+    cart!.counter_requested_at = null;
     sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [
       { cart_id: "c-1", state: "draft", fulfillment: "togo", qty: 1, comped: false },
@@ -318,14 +319,20 @@ describe("requestCounterPay — the ask waits for everything to be sent (the Bil
     expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
   });
 
-  it("an unreadable host fails OPEN — the ask moves no money; the settle doors behind it refuse", async () => {
-    // The host read errors while the count still answers: the gate reads "no host" and the ask
-    // goes through (the register's settle gate and create-intent each refuse on their own).
-    // MUTATION (counter-pay/unsent-host-read-fails-closed): read an unreadable host as present — a
-    // read blip holds a family at the table over an ask that moves no money; red.
-    readFails = true;
+  it("the wider refusals still hold over unsent dishes — a frozen or locked table says that", async () => {
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
-    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+    authz = { ...OPEN_AUTHZ, locked: true };
+    expect(await requestCounterPay({ cartId: "c-1" })).toMatchObject({
+      ok: false,
+      reason: "paying",
+    });
+    authz = { ...OPEN_AUTHZ, settling: true };
+    expect(await requestCounterPay({ cartId: "c-1" })).toMatchObject({
+      ok: false,
+      reason: "settling",
+    });
+    expect(cart!.counter_requested_at).toBeNull();
   });
 });
 

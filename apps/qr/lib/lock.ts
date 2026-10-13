@@ -152,7 +152,9 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
  * that does NOT is the PARKED split door (`openSettlement` / `abortSettlement`, behind
  * `SURFACES.selfServeSplit`): it keys on the host's seat uid — a person. Its releases are scoped to
  * that uid, which is narrower than by-cart, but two opens by one host share it, so the uniqueness
- * argument above does not transfer; reopening that door must mint per open (`lib/surfaces.ts`).
+ * argument above does not transfer — nor to its stale-pin release since M123
+ * (`releaseStalePinUnderFreeze`), which can cancel a linked intent at Stripe; reopening that door
+ * must mint per open (`lib/surfaces.ts`).
  *
  * ⚠️ THE SAME-OWNER RE-ACQUIRE ARM IS GONE, and it was the whole defect. The predicate used to
  * read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a re-open door for a host
@@ -486,8 +488,12 @@ export async function releaseStaleSettlement(
  * freeze, none, a stale one, a closed cart), a transport error, or any other answer is a request
  * that does NOT hold the cart — a successor's pay lock taken after the freeze among them — and the
  * caller stands down; superseding there cancelled whatever the cart named, after a stall a
- * successor's live checkout. Called from ONE place:
- * `acquireSettlementSuperseding`, before it answers `acquired` (lib/supersede.ts).
+ * successor's live checkout. Called from ONE function, `releaseStalePin` (lib/supersede.ts), which
+ * two doors reach: `acquireSettlementSuperseding` before it answers `acquired` (the counter's cash,
+ * Terminal and tab close, each under a request-unique owner), and `releaseStalePinUnderFreeze` (the
+ * PARKED split door, M123), whose owner is the host's seat uid — a person, so the proof above names
+ * every open by that host, not one request (`acquireSettlement`'s note; the reopen list in
+ * lib/surfaces.ts).
  */
 export type PromoPinRefusal =
   | ReleaseError
@@ -501,7 +507,11 @@ export type PromoPinRefusal =
 export type PromoGrantHolder =
   /** A PAY attempt's era (create-intent). */
   | string
-  /** A SETTLEMENT attempt's request-unique owner (`acquireSettlementSuperseding`). */
+  /**
+   * A SETTLEMENT attempt's owner: request-unique on the counter's doors
+   * (`acquireSettlementSuperseding`); the host's seat uid on the parked split door
+   * (`releaseStalePinUnderFreeze`), which must mint per open before it reopens (lib/surfaces.ts).
+   */
   | { settlement: string };
 
 export async function releasePromoGrantFor(
@@ -665,9 +675,13 @@ export async function releasePayAttempt(
  *   > "The pin has to outlive the lock for the charge to reconcile at all." (M70)
  *
  * PR #244 tried clearing it here and REVERTED — Codex P1 and the blind adversarial pass agreed it
- * traded a lesser defect for a worse one. The state this leaves behind (`locked = false` over a live
- * pin, which cash/Terminal/split will charge) is real and is OPEN-ITEMS **M123 (a′)**; it needs the
- * cart→intent link to fix safely, not a wider release here.
+ * traded a lesser defect for a worse one. The state this USED to leave behind (`locked = false` over
+ * a live pin, which cash/Terminal/split charged — OPEN-ITEMS **M123 (a′)**) was closed elsewhere,
+ * never by a wider release here: create-intent now releases the predecessor's pin directly under
+ * its supersede, above every one of these refusals (#331), and every settlement door releases a pin
+ * no intent names under its own freeze before it reads a total — cash, the Terminal and the tab
+ * close since M268 (`acquireSettlementSuperseding`), the split since M123
+ * (`releaseStalePinUnderFreeze`, lib/supersede.ts).
  *
  * ## Why era-scoping cannot strand a table
  *

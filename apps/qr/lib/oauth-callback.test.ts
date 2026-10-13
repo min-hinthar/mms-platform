@@ -5,6 +5,8 @@ import {
   googleAction,
   googleButtonLabel,
   shouldAutoRecover,
+  signedInCallbackMessage,
+  stripCallbackParams,
 } from "./oauth-callback";
 
 /**
@@ -164,5 +166,59 @@ describe("shouldAutoRecover", () => {
         expect(shouldAutoRecover(outcome, attempted, true)).toBe(false);
       }
     }
+  });
+});
+
+describe("M214 — signedInCallbackMessage (a bounce on a session already signed in)", () => {
+  it("says the diner is signed in, for EITHER kind of bounce, and asks nothing of them", () => {
+    // MUTATION uia11y/m214-upgraded-bounce-unsaid: the line returns null; red.
+    for (const outcome of [{ kind: "already-linked" }, { kind: "generic" }] as const) {
+      const msg = signedInCallbackMessage(outcome);
+      expect(msg).toBe(
+        "You’re already signed in — that Google step didn’t finish, and it doesn’t need to.",
+      );
+    }
+  });
+
+  it("promises nothing about the account's contents and sends nobody anywhere", () => {
+    // A carry proof stashed before the trip may still be redeemed on this page, so neither a
+    // carry-over nor "nothing changed" is ours to say; and there is no button to name.
+    const msg = signedInCallbackMessage({ kind: "already-linked" }) ?? "";
+    expect(msg).not.toMatch(/Stars|try again|tap|changed/i);
+  });
+
+  it("says nothing on an ordinary visit", () => {
+    // MUTATION uia11y/m214-says-it-on-every-visit: no bounce still speaks; red.
+    expect(signedInCallbackMessage(null)).toBeNull();
+  });
+});
+
+describe("M214 — stripCallbackParams (ONE strip for the guest card and the signed-in notice)", () => {
+  const BOUNCE =
+    "https://qr.example/account?error=server_error&error_code=identity_already_exists&error_description=Identity+is+already+linked+to+another+user#error=server_error";
+
+  it("deletes exactly the three OAuth keys", () => {
+    // MUTATION uia11y/m214-strip-keeps-error-code: red.
+    const out = stripCallbackParams(BOUNCE);
+    expect(out).not.toMatch(/error/);
+  });
+
+  it("keeps every co-present param — a lend-mode `resume` survives for the card's resume effect", () => {
+    const out = stripCallbackParams(
+      "https://qr.example/account?error_code=identity_already_exists&resume=owner%40x.com&tab=orders",
+    );
+    expect(out).toBe("/account?resume=owner%40x.com&tab=orders");
+  });
+
+  it("names the panel the bounce implied when the URL names none, and never overrides one it does", () => {
+    expect(stripCallbackParams(BOUNCE)).toBe("/account?tab=you");
+    expect(stripCallbackParams("https://qr.example/account?error=x&tab=rewards")).toBe(
+      "/account?tab=rewards",
+    );
+  });
+
+  it("drops the fragment Supabase mirrors the error into", () => {
+    // MUTATION uia11y/m214-strip-keeps-the-fragment: the `#error=…` copy survives; red.
+    expect(stripCallbackParams(BOUNCE)).not.toContain("#");
   });
 });

@@ -13,6 +13,7 @@ import {
   type SettleResult,
 } from "./lock";
 import { SETTLE_TTL_MS } from "./lock-ttl";
+import { releaseStalePinUnderFreeze, type SettleTakeover } from "./supersede";
 import { releaseHold } from "./split-hold";
 import { payBlockedByUnsent } from "./checkout-stage";
 import { kitchenDraftUnits } from "./unsent-read";
@@ -51,10 +52,12 @@ export type SplitContext = {
   members: { seat: string; name: string; role: "host" | "guest" }[];
   /** K2: the registered table (1–10) this dine-in session is seated at, or null. */
   tableNumber: number | null;
-  /** PD1/PD2 (PATH_DESIGN Codex correction 10) — the session's join code (the value InviteSheet
-   *  shows), so a table with no number yet can print its code on the counter pass. Read here,
-   *  server-side, beside the table number; null when the session row could not be read. */
-  qrCode: string | null;
+  /** PD1 (m1 decision 16) — the session this seat sits in, so the host's one-time name ask on /cart
+   *  renames THEIR OWN seat through `setDisplayName` (lib/members: member-authorized, scoped to the
+   *  caller's seat). Not a secret: the table's realtime channel is named by it and gated by
+   *  membership (RLS `is_member`). The secret is the session's JOIN CODE (`qr_code`), and it is
+   *  deliberately NOT here — see `getSplitContext`. */
+  sessionId: string;
 };
 
 /** One payer's row on the live settlement board (M3·P3.3b). `amountCents` is the PI target (base, then
@@ -74,6 +77,14 @@ export type SettlementShare = {
  * The per-seat SHARES are computed client-side from the server-authoritative total + lines via the
  * isomorphic `split-math` (instant, cent-reconciled — see SplitSection). The SERVER share derivation
  * lands with P3.3b, where each share backs a real PaymentIntent and must be server-issued + stored.
+ *
+ * ⚠️ THE JOIN CODE NEVER LEAVES THE SERVER THROUGH HERE (PD1's tail). `table_sessions.qr_code` is the
+ * table's bearer join secret and its realtime/RLS key (lib/session-code.ts): whoever reads it can
+ * join the table, add dishes that fire with its next Send, and read its names and cart. PD2 once
+ * carried it to /cart so a numberless table's pass could print it (PATH_DESIGN reconciliation 6);
+ * that was reversed on 2026-10-09 (no pass prints it — lib/pass-identity.ts), and a value with no
+ * reader is still a value shipped to every phone at the table. So it is neither selected nor
+ * returned (pinned by lib/split-context.test.ts).
  */
 export async function getSplitContext(cartId: string): Promise<SplitContext> {
   const { cartId: id } = cartViewInput.parse({ cartId });
@@ -81,7 +92,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
   const db = serviceClient();
   const { data: sess } = await db
     .from("table_sessions")
-    .select("mode,table_number,qr_code")
+    .select("mode,table_number")
     .eq("id", sessionId)
     .maybeSingle();
   const { data: members } = await db
@@ -101,7 +112,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
       role: m.role === "host" ? "host" : "guest",
     })),
     tableNumber: sess?.table_number ?? null,
-    qrCode: sess?.qr_code ?? null,
+    sessionId,
   };
 }
 
@@ -194,7 +205,7 @@ export async function getSettlement(cartId: string): Promise<SettlementResult> {
  * `never` at the end, so the claim is enforced by the compiler instead of asserted by a comment —
  * which is the exact shape of defect this function exists to close, one level up.
  */
-function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
+function openSplitRefusal(r: Exclude<SettleResult | SettleTakeover, "acquired">): string {
   switch (r) {
     case "closed":
       return "This order is no longer open";
@@ -207,6 +218,10 @@ function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
       // One sentence for both: from the host's side an abandoned attempt and a live one look the
       // same, and this door will not act on the difference (see the note at the acquire below).
       return "Someone’s checking out — try again in a moment";
+    case "paying":
+      // M123 — the stale-pin release found a linked intent CHARGING (lib/supersede.ts). The words
+      // create-intent answers the same state with, verbatim, so a diner hears one sentence for it.
+      return "That payment is already going through — give it a moment.";
   }
 }
 
@@ -250,7 +265,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     if (sess.mode !== "dinein") throw new Error("Splitting the bill is for dine-in tables.");
   }
   // Phase 1b — "Everything sent": a split is a way to PAY, so it opens only once the table's bill is
-  // final (`payBlockedByUnsent`, the binding the Bill's counter reads; create-intent's own gate is
+  // final (`payBlockedByUnsent`, the binding the Bill's Pay reads; create-intent's own gate is
   // D5's served gate since PD10, and D5's verdict reaches this door when the split reopens — lib/
   // surfaces' reopen list; the caller IS the host, so a host is present). Fail-open read — see lib/unsent-read.ts for why that direction is safe.
   // ⚠️ Read BEFORE `acquireSettlement` freezes the cart, so a tablemate's add landing in between is
@@ -269,7 +284,9 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   // the same intent client-side and never touches it). So a peer mid-3DS, or one working through a
   // decline, presents as `locked_stale` — and routing this door through the takeover would let any
   // host kill that payment from the split screen. No diner could do that before, and there is no
-  // urgency here that justifies it: a split can wait for the TTL or for staff.
+  // urgency here that justifies it: a split can wait for the TTL or for staff. (M123's stale-pin
+  // release below CAN supersede, and only an intent linked to an UNLOCKED cart — never a locked
+  // one, fresh or stale, both refused right here; `releaseStalePinUnderFreeze` has the argument.)
   const acq = await acquireSettlement(id, uid);
   if (acq !== "acquired") throw new Error(openSplitRefusal(acq));
 
@@ -309,6 +326,20 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     throw new Error("Couldn’t start the split — please try again");
   }
   if (live && live.length > 0) throw new Error("Payments are already in progress");
+
+  // M123 — release a dead card attempt's promo pin under THIS freeze before the grand total is read,
+  // as every other settlement door does since M268. `mms_promo_discount` honours any non-null pin
+  // outright (m70), so without this a pin an abandoned attempt left priced the grand total, every
+  // share was cut from it, and `settle_expected_cents` pinned that discounted figure: the table paid
+  // a discount a different basket earned, and the reconcile agreed. The release WITHOUT the takeover
+  // (`releaseStalePinUnderFreeze` says why that cannot reach a tablemate's live checkout). After the
+  // in-flight check on purpose: a refusal there keeps its freeze over live holds, and nothing here
+  // should touch a pin on that path. Every answer but `acquired` has already released or
+  // deliberately HELD this freeze, so this door only refuses — releasing again would undo a hold.
+  // ⚠️ `uid` is the host's seat, not this open: a stalled open of the same host passes the proof on
+  // a later open's freeze. Parked; the reopen list in lib/surfaces.ts mints a per-open owner.
+  const pin = await releaseStalePinUnderFreeze(id, uid);
+  if (pin !== "acquired") throw new Error(openSplitRefusal(pin));
 
   // ⚠️ W10c pre-merge review — the freeze is ALREADY HELD (acquireSettlement wrote settle_at above),
   // and every failure path below deliberately releases it before throwing. `getCartTotals` became

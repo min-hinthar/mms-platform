@@ -1,6 +1,6 @@
 import type { ServedHold } from "./checkout-stage";
 import { TABLE_STARTER } from "./confirm-copy";
-import { counterUnsentTapCopy } from "./counter-pay-state";
+import { COUNTER_ASK_CARRIES_UNSENT } from "./counter-pay-state";
 import { t } from "./i18n";
 
 /**
@@ -30,7 +30,7 @@ import { t } from "./i18n";
  *    never promises a verb the next screen refuses or does not offer.
  *
  * Imports only copy — `TABLE_STARTER` (the role sentence for a host the table cannot name), the
- * counter's unsent sentence (`counterUnsentTapCopy`) and the dictionary — no React, no DOM, so
+ * counter's unsent line (`COUNTER_ASK_CARRIES_UNSENT`) and the dictionary — no React, no DOM, so
  * `verify:slice` falsifies each arm with one input.
  */
 
@@ -130,8 +130,8 @@ export function servedHoldCopy(
       return PAY_OPENS_SERVED;
     case "unknownHost":
       // Codex round 2 on #346 — the Bill cannot read the table's host. Say only what is known:
-      // never the counter (its server read may refuse a hosted table's drafts), and never "send"
-      // (this reader may be a guest).
+      // never `hostless`'s "a server will send" (a hosted table's host sends them), and never
+      // "send" (this reader may be a guest).
       return `Some dishes haven’t gone to the kitchen yet — ${PAY_OPENS_SERVED}`;
   }
 }
@@ -140,24 +140,60 @@ export function servedHoldCopy(
 export const COUNTER_AFTER_UNDO = "Pay at the counter once the undo window closes.";
 
 /**
+ * PD2 (m2 STATES "Unsent dishes", decision 12) — the COUNTER door's own hold, on both docks (the
+ * parked Bill's one door and the served-gated Bill's quiet counter). The ask CARRIES unsent dishes to
+ * the counter — lifted once counter-floor's P2do shipped (#334; lib/counter-pay says why it moves no
+ * money) — and the kitchen never holds the counter (D5). So of `payBlock`'s precedence only two arms
+ * can hold it: a tablemate's lock (the same freeze refuses the ask on the server) and this device's
+ * undo window (the undo may put lines back). Delegated, never restated: `payBlock` with the unsent
+ * rule and the served gate answered "no".
+ */
+export type CounterBlock = Extract<PayBlock, "peer" | "grace">;
+
+export function counterDoorBlock(s: {
+  /** `freezeBlocksPayment(rawFreeze)` — a PEER's fresh lock. */
+  frozenByPeer: boolean;
+  /** The undo window is open on this device. */
+  graceOpen: boolean;
+  /** An undo write has not answered yet — the lines may come back as drafts. */
+  undoInFlight: boolean;
+}): CounterBlock | null {
+  const b = payBlock({ ...s, unsentBlocks: false, servedHold: null });
+  return b === "peer" || b === "grace" ? b : null;
+}
+
+/**
+ * PD2 (m2 screen 1, A1 · B1; STATES "Unsent dishes") — the parked Bill's dock line while the door is
+ * LIVE: the next step once. With dishes nobody has sent yet (`kitchenDraftQty`: what the register will
+ * check with the table and send before it takes payment — the staff gate's own count) it is m2's
+ * lifted line, English-only (K15); otherwise "The counter takes cash." — or, while the register takes
+ * a card too (`counterTakesCard`), "Ready for the bill?". A held door says its reason instead.
+ */
+export function counterRestLine(s: { unsentDishes: boolean; takesCard: boolean }): {
+  en: string;
+  my: string | null;
+} {
+  if (s.unsentDishes) return { en: COUNTER_ASK_CARRIES_UNSENT, my: null };
+  const key = s.takesCard ? "readyForBill" : "counterTakesCash";
+  return { en: t("en", key), my: t("my", key) };
+}
+
+/**
  * PD10 · D5 (the capped blind pass on #346, C3) — the COUNTER's OWN held sentence on the served-gated
- * Bill's dock. The counter is never gated by served, so its hold (`payBlock` with `servedHold: null`:
- * a tablemate's lock, the Send still owed, the Send's undo window) is never Pay's. Pay's slot can say
- * "Pay opens once everything’s served." while the counter waits on something else entirely. Read
- * beside it, that line would claim the kitchen holds the counter, which D5 forbids. So the counter
- * says its own reason, in words about the COUNTER: the unsent sentence names who sends and ends
- * "then pay at the counter" (`counterUnsentTapCopy`), and the undo window gets its own counter
- * sentence, never Pay's "Pay opens when the undo window closes.". A lock reads exactly as Pay's does
- * (one fact, said once). The served arms cannot reach the counter; were one ever handed in, it reads
- * as Pay's own reason, so the counter is held and SAYS so, never silently live.
+ * Bill's dock. The counter is never gated by served, so its hold (`counterDoorBlock`: a tablemate's
+ * lock, the Send's undo window) is never Pay's. Pay's slot can say "Pay opens once everything’s
+ * served." while the counter waits on something else entirely. Read beside it, that line would claim
+ * the kitchen holds the counter, which D5 forbids. So the counter says its own reason, in words about
+ * the COUNTER: the undo window gets its own counter sentence, never Pay's "Pay opens when the undo
+ * window closes.". A lock reads exactly as Pay's does (one fact, said once). Neither the served arms
+ * nor unsent (PD2's lift) can reach the counter; were one ever handed in, it reads as Pay's own
+ * reason, so the counter is held and SAYS so, never silently live.
  */
 export function counterHoldCopy(
   block: PayBlock,
   ctx: { lockedByName: string | null; canSend: boolean; hostName: string | null },
 ): string {
   switch (block) {
-    case "unsent":
-      return counterUnsentTapCopy(ctx.canSend ? null : (ctx.hostName ?? TABLE_STARTER));
     case "grace":
       return COUNTER_AFTER_UNDO;
     default:

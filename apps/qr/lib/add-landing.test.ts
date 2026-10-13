@@ -225,7 +225,8 @@ describe("addShortfallNotice — says what is known, and nothing more", () => {
   });
 
   it("states the outcome WITHOUT a cause when nothing landed", () => {
-    // A zero can be the cap or a comped sibling (T25) — naming either would be a guess.
+    // A zero can be the cap or a comp racing the merge bump (T25's window) — naming either would
+    // be a guess.
     expect(addShortfallNotice("none")).toBe("Nothing was added — your order below is up to date");
   });
 

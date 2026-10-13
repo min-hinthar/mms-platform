@@ -173,12 +173,24 @@ describe("webhookCandidatesForMode", () => {
     expect(pickEnv(webhookCandidatesForMode("live", onlyTest))).toBeNull();
   });
 
-  it.each(["test", "unknown"] as const)("in %s mode keeps both, _TEST first", (mode) => {
+  it("in TEST mode keeps both, _TEST first", () => {
     // The BASE name legitimately holds a test secret in local dev, in .env.example, and in every
     // deployment predating the rename. Dropping it would break working setups to guard a hazard
-    // that does not exist outside live mode.
-    expect(webhookCandidatesForMode(mode, CUTOVER_LEFTOVER).map(([n]) => n)).toEqual([
+    // that does not exist in test mode.
+    expect(webhookCandidatesForMode("test", CUTOVER_LEFTOVER).map(([n]) => n)).toEqual([
       "STRIPE_WEBHOOK_SECRET_TEST",
+      "STRIPE_WEBHOOK_SECRET",
+    ]);
+  });
+
+  it("in UNKNOWN mode drops the _TEST name, exactly as live does (M166, owner 2026-10-07)", () => {
+    // `unknown` means "cannot tell" — no secret key resolved, or a prefix `keyMode` does not read
+    // (a future format, a mock). The owner ruled that an unreadable mode counts as LIVE for the
+    // signing secret: keeping `_TEST` at top precedence there is the fail-open branch this module
+    // otherwise refuses, on the one credential whose mode nothing can check.
+    const picked = pickEnv(webhookCandidatesForMode("unknown", CUTOVER_LEFTOVER));
+    expect(picked).toEqual({ name: "STRIPE_WEBHOOK_SECRET", value: "whsec_live_real" });
+    expect(webhookCandidatesForMode("unknown", CUTOVER_LEFTOVER).map(([n]) => n)).toEqual([
       "STRIPE_WEBHOOK_SECRET",
     ]);
   });
@@ -245,16 +257,31 @@ describe("webhookSecretDiagnostic", () => {
     expect(msg).toMatch(/STRIPE_WEBHOOK_SECRET_TEST \(not set\)/);
   });
 
-  it.each(["test", "unknown"] as const)(
-    "in %s mode nothing is dropped, so it stays the plain message",
-    (mode) => {
-      // No candidate was ignored, so there is nothing to explain — an "Ignored because" clause here
-      // would describe a filter that did not run.
-      const msg = webhookSecretDiagnostic(mode, LIVE_CUTOVER);
-      expect(msg).toContain("STRIPE_WEBHOOK_SECRET_TEST");
-      expect(msg).not.toContain("Ignored because");
-    },
-  );
+  it("in TEST mode nothing is dropped, so it stays the plain message", () => {
+    // No candidate was ignored, so there is nothing to explain — an "Ignored because" clause here
+    // would describe a filter that did not run.
+    const msg = webhookSecretDiagnostic("test", LIVE_CUTOVER);
+    expect(msg).toContain("STRIPE_WEBHOOK_SECRET_TEST");
+    expect(msg).not.toContain("Ignored because");
+  });
+
+  it("in UNKNOWN mode names the ignored _TEST variable AND why — an unreadable mode, not a live one", () => {
+    // M166 (owner 2026-10-07): "an unrecognised Stripe key prefix counts as live for the webhook
+    // secret. A diagnostic names why." The why is the load-bearing half: an operator told "the API
+    // keys resolved to LIVE mode" while their secret key is a mock or a new prefix would go looking
+    // for a live key that does not exist. The message must say the mode could not be READ.
+    const msg = webhookSecretDiagnostic("unknown", LIVE_CUTOVER);
+    expect(msg).toMatch(/STRIPE_WEBHOOK_SECRET_TEST \(SET\)/);
+    expect(msg).toContain("could not be read");
+    expect(msg).not.toContain("resolved to LIVE");
+    expect(msg).not.toContain("whsec_");
+  });
+
+  it("in LIVE mode says the keys resolved to live — the two reasons stay distinct", () => {
+    const msg = webhookSecretDiagnostic("live", LIVE_CUTOVER);
+    expect(msg).toContain("resolved to LIVE");
+    expect(msg).not.toContain("could not be read");
+  });
 });
 
 /**
@@ -362,6 +389,48 @@ describe("the three call sites still read every candidate name", () => {
   ])("%s", (rel, expected) => {
     const reads = envReads(parse(rel));
     for (const name of expected) expect(reads).toContain(name);
+  });
+
+  it("the webhook's signing-secret candidates put _TEST FIRST, each name bound to its own read (M165)", () => {
+    // The sentence `publishableKeyCandidates` is pinned by — "the order decides which mode the
+    // deployment runs in" — is equally true here, and nothing pinned it. Reversed, a TEST
+    // deployment holding both names signs with the base secret, and a deliberate test setup
+    // fails every delivery. The webhook route is a Next handler a suite cannot import cheaply,
+    // so this reads the literal: ONE function, whose body is ONE return of an array literal, each
+    // entry a [name, process.env.NAME] pair with the name and the read spelling the same variable.
+    const route = parse("app/api/stripe/webhook/route.ts");
+    const fns: ts.FunctionDeclaration[] = [];
+    walk(route, (n) => {
+      if (ts.isFunctionDeclaration(n) && n.name?.text === "webhookSecretCandidates") fns.push(n);
+    });
+    expect(fns).toHaveLength(1);
+    const body = fns[0]!.body!.statements;
+    expect(body).toHaveLength(1);
+    const ret = body[0]!;
+    if (
+      !ts.isReturnStatement(ret) ||
+      !ret.expression ||
+      !ts.isArrayLiteralExpression(ret.expression)
+    )
+      throw new Error("webhookSecretCandidates must return one array literal");
+    const pairs = ret.expression.elements.map((el) => {
+      if (!ts.isArrayLiteralExpression(el) || el.elements.length !== 2) return null;
+      const [name, read] = el.elements;
+      const envRead =
+        read &&
+        ts.isPropertyAccessExpression(read) &&
+        ts.isPropertyAccessExpression(read.expression) &&
+        ts.isIdentifier(read.expression.expression) &&
+        read.expression.expression.text === "process" &&
+        read.expression.name.text === "env"
+          ? read.name.text
+          : null;
+      return [name && ts.isStringLiteral(name) ? name.text : null, envRead];
+    });
+    expect(pairs).toEqual([
+      ["STRIPE_WEBHOOK_SECRET_TEST", "STRIPE_WEBHOOK_SECRET_TEST"],
+      ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"],
+    ]);
   });
 
   it("no secret's variable name appears in the module a client component imports", () => {

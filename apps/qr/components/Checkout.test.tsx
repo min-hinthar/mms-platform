@@ -46,6 +46,10 @@ function deferred<T>() {
 
 const h = vi.hoisted(() => ({
   nudgeHost: vi.fn(),
+  /** PD1 (m1 decision 16) — the host's name ask's Server Action. */
+  setDisplayName: vi.fn(),
+  /** The Send's handle `focus()` — where the name ask lands focus once it leaves. */
+  sendFocus: vi.fn(),
   publishCart: vi.fn(),
   getCartView: vi.fn(),
   setQty: vi.fn(),
@@ -84,6 +88,10 @@ vi.mock("@/lib/realtime", () => ({
 }));
 // PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
 vi.mock("@/lib/send-nudge", () => ({ nudgeHost: (...a: unknown[]) => h.nudgeHost(...a) }));
+// PD1 (m1 decision 16) — the host's name ask saves through a Server Action (server-only).
+vi.mock("@/lib/members", () => ({
+  setDisplayName: (...a: unknown[]) => h.setDisplayName(...a),
+}));
 // `@mms/ui` stays REAL except for ONE export: `NumberFlow` re-exports `@number-flow/react`, which
 // drives a custom element jsdom does not register (`this.el?.willUpdate is not a function` at
 // commit). The animated digits are not what this file guards, and `Stepper` — which IS — keeps its
@@ -127,7 +135,22 @@ vi.mock("./SettlementBoard", () => ({
   SettlementBoard: () => <div data-testid="settlement-board">Your table is splitting the bill</div>,
 }));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
-vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
+// Renders nothing, but answers the Send's HANDLE (React 19: `ref` is a prop): the name ask lands
+// focus on the Send through `focus()` once its row leaves (m1 decision 16), and a case asks whether
+// it did. `send()` stays the no-op the old `null` ref was.
+vi.mock("./SendToKitchenButton", async () => {
+  const { useImperativeHandle } = await import("react");
+  return {
+    SendToKitchenButton: ({
+      ref,
+    }: {
+      ref?: React.Ref<{ send: () => void; focus: () => void }>;
+    }) => {
+      useImperativeHandle(ref, () => ({ send: () => {}, focus: () => h.sendFocus() }), []);
+      return null;
+    },
+  };
+});
 vi.mock("./SecureTabButton", () => ({ SecureTabButton: () => null }));
 vi.mock("./RewardField", () => ({ RewardField: () => null }));
 vi.mock("./PickupWhenChoice", () => ({ PickupWhenChoice: () => null }));
@@ -160,8 +183,23 @@ vi.mock("@/lib/surfaces", async (orig) => {
 });
 
 const { Checkout } = await import("./Checkout");
+// F20 — the promo action is the mocked module's `vi.fn()`; a case sets its answer.
+const { applyPromo: applyPromoAction } = await import("@/lib/cart");
 
 const CART = "cart-1";
+/** PD1 (m1 decision 16) — the session the split context carries (the host's name ask renames
+ *  their own seat in it). */
+const SESSION_ID = "session-1";
+/**
+ * PD1's tail — `SplitContext` no longer carries the session's join code (lib/split-context.test.ts
+ * pins the server half). The pass cases below still hand Checkout a context that LEAKED one — built
+ * through a variable, so no excess-property check applies — to pin the pass's own rule: whatever a
+ * context carries, no pass prints the code.
+ */
+function leakedCode<T extends object>(ctx: T): T & { qrCode: string } {
+  const leaked = { ...ctx, qrCode: "7C2E9A" };
+  return leaked;
+}
 const MY_SEAT = "seat-me";
 const PEER_SEAT = "seat-peer";
 const LINE = "line-mohinga";
@@ -567,10 +605,165 @@ describe("M230's half — the two pills beside the stepper share the same window
     );
   });
 
+  it("M230 — speaks a refusal the SERVER named: the line has already gone to the kitchen", async () => {
+    // The reachable case: the dine-in kitchen batch fires the line between this phone's read and the
+    // tap, so the pill renders on the last view's `draft`, flips optimistically, and the server
+    // answers `not_draft`. A re-read could only have named a LOCK (or hedged); the server's own word
+    // needs neither. Before M230 this snapped back and said nothing.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s already gone to the kitchen"),
+    );
+    // Not the re-read's diagnosis of this cart (no freeze → the `unknown` hedge): the server's fact.
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("M230 — drops the kitchen sentence when a LATER view wins before its frame, showing the line back in draft", async () => {
+    // The diagnosis read sees the line FIRED, so the fact holds at PARK time. A later read — the
+    // host's Undo inside the send's grace — then wins the screen before the sentence's frame. The
+    // fact is re-asked of the view that WON, at publish: asked at park (or of the diagnosis read) the
+    // sentence would print beside a line that reads "Not sent yet". The blind pass on #354 found the
+    // earlier fixture fed both reads the same draft line, so it could not tell the two apart.
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    // ⚠️ FAKE TIMERS FROM HERE, so the park → publish gap is held open by the test, not by the
+    // machine's speed (the same reason "waits for the region to be on screen and EMPTY" uses them).
+    vi.useFakeTimers();
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValueOnce(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "To go" }));
+      });
+      // Parked on the fired read, not yet said. The positive control: the diagnosis took the FIRED
+      // read (the one read so far), so the fact held at park and only the later view can drop it.
+      expect(h.getCartView).toHaveBeenCalledTimes(1);
+      await expect(h.getCartView.mock.results[0]!.value).resolves.toMatchObject({
+        items: [{ lineState: "fired" }],
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo: back in draft
+      await syncFromServer(); // issued later, so it wins the ticket and takes the screen
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the sentence's frame
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      expect(regionText()).not.toContain("didn’t go through");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("M230 — retires the kitchen sentence once SAID, when the host's Undo puts the line back in draft", async () => {
+    // The sentence was true when it was said: the host's Send fired the line, the server refused the
+    // re-route, and the re-read showed it fired. But a send stays undoable for its grace, and the
+    // host's Undo (a clean fired→draft the kitchen never saw) reaches this phone as an ordinary view
+    // AFTER the publish, with no edit of this diner's to retire the sentence (blind pass on #354,
+    // CRITICAL). Left standing it says "already gone to the kitchen" beside a line that reads "Not
+    // sent yet", its ⋯ live again.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo, by realtime
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // The coalesced echo (≤600 ms) re-applies the line as a draft: its ⋯ is back.
+    await waitFor(() => expect(screen.getByRole("button", { name: `More for ${ITEM.name}` })), {
+      timeout: 3000,
+    });
+    await settle();
+    expect(regionText()).not.toContain("gone to the kitchen");
+  });
+
+  it("M230 — the retire takes down ONLY the kitchen sentence: a later answer in the region stays", async () => {
+    // Blind pass over #354's fix commits: the per-view retire runs on every applied view, and the
+    // only thing keeping it off other text is that it clears `status` only while `status` still IS
+    // the sentence it said. The flip to the Bill empties the region but leaves the sentence armed;
+    // the Bill's counter door then answers in the region, and the host's Undo arrives after.
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }, ITEM_B] }));
+      // A host at a numbered table, so the Bill's counter door reads the table's sends.
+      const HOST_AT_7 = {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+        tableNumber: 7,
+        qrCode: null,
+      } as unknown as Parameters<typeof Checkout>[0]["splitContext"];
+      mount({ splitContext: HOST_AT_7, initialItems: [ITEM, ITEM_B] });
+      await openLineSheet();
+      await press("To go");
+      await settle();
+      await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+      await press(/View bill/);
+      // The counter door answers in the region: why it is held while a dish is still to send, or
+      // (once the ask carries unsent dishes, PD2's lift) the ask's own sentence. Either is a later
+      // answer that is not the kitchen sentence; that is all this case needs.
+      await press(/^Pay at the counter/);
+      await waitFor(() => expect(regionText()).not.toBe(""));
+      const LATER = regionText();
+      expect(LATER).not.toContain("gone to the kitchen");
+
+      h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] })); // the host's Undo
+      const reads = h.getCartView.mock.calls.length;
+      await act(async () => {
+        h.echo.current?.();
+      });
+      await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+        timeout: 3000,
+      });
+      await settle();
+      // MUTATION m230/retire-clears-any-status: red.
+      expect(regionText()).toBe(LATER);
+    } finally {
+      flags.phonePayOpen = true;
+      flags.splitOpen = true;
+    }
+  });
+
+  it("M230 — KEEPS the kitchen sentence while a later view still has the line with the kitchen", async () => {
+    // The separating twin of the case above: a retire that fired on ANY later view would pass that
+    // case and silence a sentence that is still true here — the cook started the dish.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    const reads = h.getCartView.mock.calls.length;
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "in_progress" }] }));
+    await act(async () => {
+      h.echo.current?.();
+    });
+    await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+      timeout: 3000,
+    });
+    await waitFor(() => expect(screen.getAllByText("Cooking").length).toBeGreaterThan(0));
+    await settle();
+    expect(regionText()).toContain("it’s already gone to the kitchen");
+  });
+
   it("stays silent on a refusal the re-read cannot honestly diagnose", async () => {
-    // `not_yours` is an OWNERSHIP fact — the kitchen fired the line between this phone's read and
-    // the tap. A re-read establishes nothing about it, so naming a lock here would be the M116/T14
-    // fabrication on the screen that just removed it. Silence until M230 gives it a real arm.
+    // `not_yours` is an OWNERSHIP (or comp) fact — since M230 a line the kitchen fired answers
+    // `not_draft` instead. A re-read establishes nothing about ownership, so naming a lock here would
+    // be the M116/T14 fabrication on the screen that just removed it, and no clause names it yet.
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });
@@ -1383,7 +1576,7 @@ describe("#300 — /cart keeps the header's count honest", () => {
     myRole: "host" as const,
     members: [],
     tableNumber: null,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("publishes the CONFIRMED count, and a server-emptied cart publishes zero", async () => {
@@ -1424,7 +1617,7 @@ describe("Phase 1b — the browser's Back walks the checkout's own steps", () =>
     myRole: "host" as const,
     members: [],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("View bill pushes a #bill entry, and Back returns to the Order stage", async () => {
@@ -1463,7 +1656,7 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   });
 
   it("a guest with unsent dishes sees the host's name where Send would be", () => {
@@ -1498,7 +1691,7 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("locks Pay while a dish is unsent, says why, and never starts a charge", async () => {
@@ -1529,56 +1722,41 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
 });
 
 // ── Phase 2c · gate ──
-describe("the Bill's other door — Pay at the counter keeps the 'Everything sent' rule", () => {
+describe("the Bill's other door — Pay at the counter CARRIES unsent dishes (PD2's lift); Pay keeps 'Everything sent'", () => {
   const HOST = {
     mode: "dinein",
     mySeat: MY_SEAT,
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
-  it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
+  it("while a dish is unsent, Pay is held with its reason — and the counter stays LIVE: the ask carries the dish", async () => {
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    // MUTATION (checkout/unsent-counter-door-open): gate the button on the freeze alone — the family
-    // is sent to the register over dishes nobody is cooking, a door the Pay button keeps shut; red.
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
-    expect(counter.hasAttribute("disabled")).toBe(false);
-    // The diner sees why while this button is the visible action: the dock's one line slot
-    // (PD10 — the served-gated Bill's dock; the unsent reason is D5's).
+    // Pay keeps its rule: the dock's one line slot is Pay's unsent reason (D5's words).
     expect(document.getElementById("pay-line")?.textContent).toBe(
       "Send everything to the kitchen first — Pay opens once everything’s served.",
     );
-    // …and the COUNTER says its OWN reason, tied to it (the capped blind pass on #346, C3): Pay's
-    // line ends "Pay opens once everything’s served.", which is never the counter's (D5).
-    // MUTATION (pay-dock/counter-reason-not-drawn): the counter's own line never drawn — the held
-    // counter's description points at nothing, and Pay's served line reads as the counter's; red.
-    // MUTATION (pay-dock/counter-described-by-nothing): the held counter carries no description; red.
-    const counterReason = counter.getAttribute("aria-describedby");
-    expect(counterReason).toBe("pay-counter-line");
-    expect(document.getElementById(counterReason!)?.textContent).toBe(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
-    expect(screen.getByRole("button", { name: /^Pay · / }).getAttribute("aria-describedby")).toBe(
+    expect(screen.getByRole("button", { name: /^Pay · /i }).getAttribute("aria-describedby")).toBe(
       "pay-line",
     );
+    // The counter does not: m2 decision 12, lifted once counter-floor's P2do shipped (#334).
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    // MUTATION (pdrem/checkout-counter-held-over-unsent): the counter's hold wired back to Phase 2c's
+    // `payBlock` with the unsent rule — the door is shut over a dish the ask would carry; red.
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    expect(counter.getAttribute("aria-describedby")).toBeNull();
+    expect(document.getElementById("pay-counter-line")).toBeNull();
     await act(async () => {
       fireEvent.click(counter);
     });
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // MUTATION (checkout/unsent-counter-tap-silent): the dimmed counter's tap says nothing — the
-    // diner taps a button that does nothing and reads nothing new; red.
-    expect(document.body.textContent).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("then pay at the counter");
   });
 
-  it("a GUEST's tap on the dimmed counter button says who sends — never tells them to send", async () => {
-    // Critic finding: the refusal told a guest to "Send everything to the kitchen" — only the host
-    // can; the note above already names the host.
+  it("a GUEST's counter is live over the host's unsent dishes too — Pay says who sends, nobody is told to send", async () => {
     mount({
       splitContext: {
         ...HOST,
@@ -1591,27 +1769,16 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
     expect(document.getElementById("pay-line")?.textContent).toBe(
       "Aye sends them — Pay opens once everything’s served.",
     );
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
       fireEvent.click(counter);
     });
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    // The PD10 dock's counter says who sends (`counterHoldCopy`; its mutant
-    // `checkout/dock-counter-guest-told-to-send` is owned by lib/checkout-verb.test.ts). The parked
-    // dock's twin is `checkout/unsent-counter-guest-told-to-send`, pinned in the PD2 describe.
-    expect(document.getElementById("pay-counter-line")?.textContent).toBe(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
-    expect(document.body.textContent).toContain(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
-    expect(document.body.textContent).not.toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("Send everything to the kitchen first — then");
   });
 
   it("a fully sent table may still ask for the counter", async () => {
@@ -1655,7 +1822,7 @@ describe("Phase 1b — the bill says which table it is", () => {
         myRole: "host",
         members: [],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
     });
     expect(screen.getByText("Table 7")).toBeTruthy();
@@ -1674,7 +1841,7 @@ describe("Phase 1b — a stale history entry is replaced, never stacked (blind p
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1706,7 +1873,7 @@ describe("Phase 1b → PD10 · D5 — a table with no host: nobody there can sen
         // is a failed member read, which leaves the host UNKNOWN — Codex round 2 on #346).
         members: [{ seat: MY_SEAT, name: "Me", role: "guest" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
@@ -1734,7 +1901,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
@@ -1762,7 +1929,7 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
         myRole: "host",
         members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
         tableNumber: 7,
-        qrCode: null,
+        sessionId: SESSION_ID,
       },
       initialItems: [{ ...ITEM, lineState: "draft" }],
     });
@@ -2172,7 +2339,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   /** Mutations inside the Bill's one polite region, from the moment this is called. */
   function watchRegion(text: string) {
@@ -2191,14 +2358,31 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     };
   }
 
+  // PD2's lift: an unsent dish no longer holds the counter, so these pin the re-say on the hold that
+  // still does — a tablemate's payment in flight (the same freeze refuses the ask on the server).
+  const TABLE = {
+    ...HOST,
+    members: [
+      { seat: MY_SEAT, name: "Me", role: "host" as const },
+      { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+    ],
+  };
+  const LOCKED_BY_TIN = { initialLocked: true, initialLockedBy: PEER_SEAT };
+
   it("a SECOND tap on the dimmed 'Pay at the counter' changes the region again — the same sentence is said twice", async () => {
-    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
-    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    mount({
+      splitContext: TABLE,
+      initialItems: [{ ...ITEM, lineState: "fired" }],
+      ...LOCKED_BY_TIN,
+    });
     const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    const said = "Send everything to the kitchen first — then pay at the counter.";
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const said = "Waiting for Tin to finish";
     await act(async () => {
       fireEvent.click(counter);
     });
+    // MUTATION (checkout/unsent-counter-tap-silent): the dock counter's refused tap says nothing —
+    // no region carries the reason to watch; red.
     const w = watchRegion(said);
     await act(async () => {
       fireEvent.click(counter);
@@ -2212,25 +2396,23 @@ describe("a refused tap re-says its reason on every tap (review open question)",
   });
 
   it("a refused tap is never masked by a standing pay error — it clears it, as every handler does", async () => {
-    // A failed counter ask leaves a pay error in the region; then a guest's dish lands unsent.
-    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    // A failed counter ask leaves a pay error in the region; then the diner taps the held Pay. (PD2's
+    // lift: the counter no longer dims over an unsent dish, and a tablemate's lock landing clears
+    // the error on its own edge — so the refused tap here is Pay's, held by the kitchen, D5.)
+    mount({ splitContext: TABLE, initialItems: [{ ...ITEM, lineState: "fired" }] });
     h.requestCounterPay.mockRejectedValueOnce(new Error("fetch failed"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
     });
     expect(regionText()).toContain("Couldn’t reach the counter just now");
-    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "draft" }] }));
-    await syncFromServer();
-    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
-    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    const pay = screen.getByRole("button", { name: /^Pay( the whole order)? · \$12\.00/ });
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
     await act(async () => {
-      fireEvent.click(counter);
+      fireEvent.click(pay);
     });
     // MUTATION (p2c-reg2/checkout-refusal-under-a-pay-error): keep the pay error — the region
     // renders `payError ?? status`, so the tap's reason is hidden behind a stale failure; red.
-    expect(regionText()).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(regionText()).toContain("Pay opens once everything’s served.");
     expect(regionText()).not.toContain("Couldn’t reach the counter just now");
   });
 
@@ -2265,7 +2447,7 @@ describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", ()
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   });
 
   it("a GUEST with unsent dishes is told WHO sends — the reason, never the label", () => {
@@ -2324,7 +2506,7 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
 
   it("with a tip previewed, the door's figure, its name and the Bill's hero total agree — a tip-less second sum separates", async () => {
@@ -2461,7 +2643,7 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const GUEST = {
     mode: "dinein",
@@ -2472,7 +2654,7 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
       { seat: MY_SEAT, name: "Me", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const dockLine = () => document.getElementById("counter-door-line")?.textContent ?? "";
   // The doors as SHIPPED: phone pay parked, the self-serve split parked.
@@ -2503,40 +2685,78 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(screen.getByText("Total")).toBeTruthy();
   });
 
-  it("a dish still to send HOLDS the door with the reason in the slot, never a count — and the host's tap re-says it", async () => {
+  it("a dish still to send: the door stays LIVE, the slot says the counter checks them with the table — never a count — and the ask carries them", async () => {
+    // m2 STATES "Unsent dishes" (decision 12), lifted once counter-floor's P2do shipped (#334).
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, qty: 2 }, FIRED] });
     await press("Total · $12.00 — View bill");
     const door = screen.getByRole("button", { name: /^Pay at the counter/ });
-    expect(door.getAttribute("aria-disabled")).toBe("true");
-    expect(door.hasAttribute("disabled")).toBe(false);
-    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
-    expect(dockLine()).toContain("Send everything to the kitchen first — then pay at the counter.");
-    // PD10 — the mark is the PASS's head now (the roll-up's hollow ring and the console's two
-    // words), said once for the table; the waiting dish wears its own ring. No number
-    // (DESIGN-LANGUAGE §21).
+    // MUTATION (pdrem/checkout-counter-held-over-unsent): the old hold wired back — the door is
+    // dimmed over a dish the ask would carry; red.
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+    expect(door.getAttribute("aria-describedby")).toBeNull();
+    // MUTATION (pdrem/checkout-dock-line-ignores-unsent): the dishes not handed to the line — it says
+    // only the tender, and nobody is told the counter checks the unsent dishes; red.
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+    // PD10 — the mark is the PASS's head (the roll-up's hollow ring and the console's two words),
+    // said once for the table; the waiting dish wears its own ring. No number (DESIGN-LANGUAGE §21).
     const head = document.querySelector(".ui-pass-status .ui-track")!;
     expect(head.getAttribute("data-stage")).toBe("unsent");
     expect(head.textContent).toContain("Not sent yet");
     expect(document.body.textContent).not.toMatch(/\d+ items? (haven’t|not sent)/);
+    // The host keeps the quiet way back to the Send.
     expect(screen.getByRole("button", { name: /Back to send them/ })).toBeTruthy();
     await press(/^Pay at the counter/);
-    expect(h.requestCounterPay).not.toHaveBeenCalled();
-    await settle();
-    expect(regionText()).toContain(
-      "Send everything to the kitchen first — then pay at the counter.",
-    );
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
   });
 
-  it("a GUEST's held door names who sends (checkout/unsent-counter-guest-told-to-send)", async () => {
+  it("a GUEST's door over the host's unsent dishes is live with the same line — and no way back to a Send they do not have", async () => {
     mount({ splitContext: GUEST, initialItems: [ITEM, FIRED] });
     // A guest with drafts WAITS (PD1 — "Show a server" is the hero): the Total door is the quiet one.
     await press("Total · $12.00 — View bill");
-    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
-    // a guest is told to send dishes only Aye can; red.
-    expect(dockLine()).toContain(
-      "Aye sends everything to the kitchen first — then pay at the counter.",
-    );
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+    expect(document.body.textContent).not.toContain("sends everything to the kitchen first");
     expect(screen.queryByRole("button", { name: /Back to send them/ })).toBeNull();
+    await press(/^Pay at the counter/);
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+  });
+
+  it("a HOSTLESS table's unsent dishes read the same — the console sends them before the register takes the cash", async () => {
+    mount({
+      splitContext: { ...GUEST, members: [{ seat: MY_SEAT, name: "Me", role: "guest" as const }] },
+      initialItems: [ITEM, FIRED],
+    });
+    await press(/View bill/);
+    expect(
+      screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(dockLine()).toBe("You can still ask — the counter will check them with your table.");
+  });
+
+  it("everything sent, the line is the register's tender again", async () => {
+    mount({ splitContext: GUEST, initialItems: [FIRED] });
+    expect(dockLine()).toContain("The counter takes cash.");
+  });
+
+  it("a tablemate's payment still HOLDS the door — said in the counter's words, and every tap re-says it", async () => {
+    mount({
+      splitContext: GUEST,
+      initialItems: [FIRED],
+      initialLocked: true,
+      initialLockedBy: PEER_SEAT,
+    });
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    // MUTATION (pdrem/checkout-parked-hold-said-silently): only the undo window holds the parked
+    // door — a family is sent to the register while Aye's card is mid-payment, the double-collect
+    // the lock exists to stop (the server refuses it as `paying`); red.
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
+    expect(dockLine()).toBe("Waiting for Aye to finish");
+    await press(/^Pay at the counter/);
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    await settle();
+    expect(regionText()).toContain("Waiting for Aye to finish");
   });
 
   it("the Order stage's door reads 'View bill', never '& pay', while phone pay is parked (checkout/door-ignores-the-parked-door)", async () => {
@@ -2591,17 +2811,17 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
   it("a table with no number yet holds up a NON-SECRET identity on the counter pass — never the join code", () => {
     // Owner-delegated decision (2026-10-09), widened from #335's blind pass: PATH_DESIGN
     // reconciliation 6 printed `qrCode` at the 40px holder tier here — the session's bearer join
-    // secret, on a pass held up in the dining room.
+    // secret, on a pass held up in the dining room. The context no longer carries it (PD1's tail);
+    // this one LEAKED it, and the pass still never prints it.
     mount({
-      splitContext: {
+      splitContext: leakedCode({
         ...GUEST,
         tableNumber: null,
-        qrCode: "7C2E9A",
         members: [
           { seat: PEER_SEAT, name: "Aye Aye", role: "host" as const },
           { seat: MY_SEAT, name: "Me", role: "guest" as const },
         ],
-      },
+      }),
       initialItems: [FIRED],
       initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
     });
@@ -2912,7 +3132,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const HOST = {
     ...GUEST,
@@ -3048,7 +3268,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       splitContext: GUEST,
       initialItems: [DRAFT],
       initialTableNumber: 7,
-      initialServerNow: "2026-10-08T10:00:00.000Z",
+      initialDbNow: "2026-10-08T10:00:00.000Z",
     });
     await press(/^Show a server/);
     const dialog = await screen.findByRole("dialog");
@@ -3062,23 +3282,30 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(status.textContent).toContain("Not sent yet");
     // No prices, no total on the ticket.
     expect(dialog.textContent).not.toMatch(/\$/);
-    // Dad sends: the view shows the line fired but INSIDE its grace — "Sending…", never the past tense.
+    // Dad sends: the view shows the line fired but INSIDE its grace on the view's DB clock —
+    // "Sending…", never the past tense. PD1's tail: the pass reads the DB clock that stamped
+    // `fire_at` (the kitchen track's clock), so an app server running ahead of the database
+    // (`serverNow` past the grace here) cannot flip it early.
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:00.000Z",
+        dbNow: "2026-10-08T10:00:00.000Z",
+        serverNow: "2026-10-08T10:00:06.000Z",
       }),
     );
     await syncFromServer();
     // MUTATION (checkout/pass-flips-on-the-device-clock): the status read against this phone's
-    // clock instead of the view's server clock — "Sent to kitchen" inside the grace; red.
+    // clock instead of the view's — "Sent to kitchen" inside the grace; red.
+    // MUTATION (pdrem/checkout-pass-reads-the-app-clock): the view's `serverNow` read instead of its
+    // `dbNow` — the app server's clock ahead of the database flips the pass inside the grace; red.
     await waitFor(() => expect(status.textContent).toContain("Sending…"));
     expect(status.textContent).not.toContain("Sent to kitchen");
-    // The re-read past the grace: the first stamp.
+    // The re-read past the grace on the DB clock: the first stamp.
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:05.400Z",
+        dbNow: "2026-10-08T10:00:05.400Z",
+        serverNow: "2026-10-08T10:00:00.000Z",
       }),
     );
     await syncFromServer();
@@ -3090,9 +3317,10 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 
   it("a table with no number yet (bound at Send) holds up the HOST'S name — never the session's join code", async () => {
     // Owner-delegated decision (2026-10-09; the blind pass on #335): the code is the session's
-    // bearer join secret and its RLS key, and a pass is held up in the dining room.
+    // bearer join secret and its RLS key, and a pass is held up in the dining room. The context no
+    // longer carries it (PD1's tail); this one LEAKED it, and the pass still never prints it.
     mountPD1({
-      splitContext: { ...GUEST, tableNumber: null, qrCode: "7C2E9A" },
+      splitContext: leakedCode({ ...GUEST, tableNumber: null }),
       initialItems: [DRAFT],
     });
     await press(/^Show a server/);
@@ -3108,15 +3336,14 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 
   it("a numberless table whose host has no chosen name holds up 'Your table'", async () => {
     mountPD1({
-      splitContext: {
+      splitContext: leakedCode({
         ...GUEST,
         tableNumber: null,
-        qrCode: "7C2E9A",
         members: [
           { seat: PEER_SEAT, name: "Guest", role: "host" as const },
           { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
         ],
-      },
+      }),
       initialItems: [DRAFT],
     });
     await press(/^Show a server/);
@@ -3129,7 +3356,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     mountPD1({
       splitContext: GUEST,
       initialItems: [DRAFT],
-      initialServerNow: "2026-10-08T10:00:00.000Z",
+      initialDbNow: "2026-10-08T10:00:00.000Z",
     });
     await press(/^Show a server/);
     const dialog = await screen.findByRole("dialog");
@@ -3144,7 +3371,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     h.getCartView.mockResolvedValue(
       view({
         items: [{ ...LATE, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
-        serverNow: "2026-10-08T10:00:00.000Z",
+        dbNow: "2026-10-08T10:00:00.000Z",
       }),
     );
     await syncFromServer();
@@ -3251,6 +3478,178 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 });
 
 // ── PD10 (PATH_DESIGN_2026-10-07 decision 10; m10) — the guest's live One Pass, and the served door ──
+describe("PD1 — the host's name, asked once when the party reaches two (m1 decision 16)", () => {
+  const HOST_SEAT = PEER_SEAT;
+  /** Aye started the table and still carries the default seat name; Thiri has joined. */
+  const UNNAMED_HOST = {
+    mode: "dinein",
+    mySeat: HOST_SEAT,
+    myRole: "host" as const,
+    members: [
+      { seat: HOST_SEAT, name: "Guest", role: "host" as const },
+      { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+    ],
+    tableNumber: 7,
+    sessionId: SESSION_ID,
+  };
+  const DRAFT: CartItem = { ...ITEM, qty: 2 };
+  const QUESTION = "What should your table call you?";
+  const DISMISS_KEY = `mms.nameAsk.notNow.${SESSION_ID}`;
+  const mountAsk = (p: Partial<Parameters<typeof Checkout>[0]> = {}) =>
+    mount({ splitContext: UNNAMED_HOST, initialItems: [DRAFT], ...p });
+  /** Let the sessionStorage read (a microtask after mount) land. */
+  const hydrate = () =>
+    act(async () => {
+      await Promise.resolve();
+    });
+  const field = () => screen.queryByRole("textbox", { name: QUESTION });
+  beforeEach(() => {
+    flags.phonePayOpen = false;
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+    h.setDisplayName.mockResolvedValue({ ok: true });
+  });
+  afterEach(() => {
+    flags.phonePayOpen = true;
+  });
+
+  it("an unnamed host at a table of two is asked above the Send: the question, its reason, a paper Save, a quiet Not now", async () => {
+    mountAsk();
+    await hydrate();
+    const input = field();
+    // MUTATION (pdrem/checkout-name-ask-never-drawn): the row's gate never true — the host is
+    // never asked, and every tablemate reads the role sentence for good; red.
+    expect(input).not.toBeNull();
+    expect(input!.getAttribute("placeholder")).toBe("Your name");
+    expect(input!.getAttribute("maxlength")).toBe("40");
+    expect(input!.getAttribute("autocomplete")).toBe("given-name");
+    // The reason is the field's description, tied to it (never a second live region).
+    const described = input!.getAttribute("aria-describedby");
+    expect(document.getElementById(described!)?.textContent).toBe(
+      "Your table sees you as the one who sends.",
+    );
+    // Save is PAPER — Send stays the one filled control in the state (m1 B11).
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.classList.contains("ui-btn-secondary")).toBe(true);
+    expect(save.classList.contains("checkout-cta")).toBe(false);
+    expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+    // No new live region: the view keeps its one.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("is never drawn for a host the table already names, nor for one alone at the table", async () => {
+    mountAsk({
+      splitContext: {
+        ...UNNAMED_HOST,
+        members: [
+          { seat: HOST_SEAT, name: "Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+        ],
+      },
+    });
+    await hydrate();
+    // MUTATION (pdrem/checkout-name-ask-ignores-the-seats-name): the seat's own name not read —
+    // "Aye" is asked what her table should call her; red.
+    expect(field()).toBeNull();
+    cleanup();
+    mountAsk({ splitContext: { ...UNNAMED_HOST, members: [UNNAMED_HOST.members[0]!] } });
+    await hydrate();
+    expect(field()).toBeNull();
+  });
+
+  it("asks once a tablemate who joined after the page loaded has a dish on the view — the party the view sees, not only the page's read (Codex round 1 on #356)", async () => {
+    // Aye opened /cart alone. Thiri joined afterwards: /cart watches the cart and its lines, never
+    // the members, so the page's member read still says one — until her dish lands on a view.
+    const ALONE = { ...UNNAMED_HOST, members: [UNNAMED_HOST.members[0]!] };
+    const MINE: CartItem = { ...DRAFT, bySeat: HOST_SEAT };
+    mountAsk({ splitContext: ALONE, initialItems: [MINE], initialMySeat: HOST_SEAT });
+    await hydrate();
+    expect(field()).toBeNull();
+    h.getCartView.mockResolvedValue(
+      view({ items: [MINE, { ...ITEM_B, bySeat: MY_SEAT }], mySeat: HOST_SEAT }),
+    );
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // MUTATION (pdrem/checkout-name-ask-reads-the-page-party): the gate counts only the page's
+    // members — Aye is never asked until she reloads, though Thiri now waits on her Send; red.
+    await waitFor(() => expect(field()).not.toBeNull(), { timeout: 3000 });
+  });
+
+  it("Save renames THIS seat in its session, says 'Name saved' once, leaves, and lands focus on Send", async () => {
+    mountAsk();
+    await hydrate();
+    fireEvent.change(field()!, { target: { value: "  Aye  " } });
+    await press("Save");
+    // MUTATION (pdrem/checkout-name-saved-into-the-wrong-session): the seat id passed as the
+    // session — `setDisplayName` authorizes nothing and renames nobody; red.
+    expect(h.setDisplayName).toHaveBeenCalledWith(SESSION_ID, "Aye");
+    await settle();
+    expect(regionText()).toContain("Name saved");
+    // The row leaves — the seat is named now (the saved name stands in for the page's read).
+    // MUTATION (pdrem/checkout-saved-name-forgotten): the saved name not kept — the row asks again
+    // over a seat it just named; red.
+    expect(field()).toBeNull();
+    // MUTATION (pdrem/checkout-name-saved-focus-dropped): focus left on a control that unmounted —
+    // it falls to the page; red.
+    expect(h.sendFocus).toHaveBeenCalledTimes(1);
+    // The device keeps it as its one identity (the menu's guest list, the pickup name).
+    expect(window.localStorage.getItem("mms.name")).toBe("Aye");
+  });
+
+  it("a refused or offline Save keeps the row, marks the field, says why once, and returns focus to it", async () => {
+    h.setDisplayName.mockRejectedValue(new Error("Could not update name"));
+    mountAsk();
+    await hydrate();
+    fireEvent.change(field()!, { target: { value: "Aye" } });
+    await press("Save");
+    await settle();
+    // MUTATION (pdrem/checkout-name-save-failure-silent): the failure never said — the host taps
+    // Save and nothing on screen changes; red.
+    expect(regionText()).toContain("Couldn’t save your name — please try again.");
+    const input = field()!;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "Couldn’t save your name — please try again.",
+    );
+    expect(document.activeElement).toBe(input);
+    expect(h.sendFocus).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("mms.name")).toBeNull();
+  });
+
+  it("Save with nothing typed — or only the default — writes nothing and keeps the answer's place", async () => {
+    mountAsk();
+    await hydrate();
+    await press("Save");
+    fireEvent.change(field()!, { target: { value: "Guest" } });
+    await press("Save");
+    expect(h.setDisplayName).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("Not now hides it for the visit — this table's session — and lands focus on Send", async () => {
+    mountAsk();
+    await hydrate();
+    await press("Not now");
+    expect(field()).toBeNull();
+    expect(h.sendFocus).toHaveBeenCalledTimes(1);
+    expect(h.setDisplayName).not.toHaveBeenCalled();
+    // A reload of the same visit (same tab, same table) is not asked again.
+    cleanup();
+    mountAsk();
+    await hydrate();
+    // MUTATION (pdrem/checkout-not-now-forgotten): the dismissal never kept — the next mount asks
+    // again; red.
+    expect(window.sessionStorage.getItem(DISMISS_KEY)).toBe("1");
+    expect(field()).toBeNull();
+    // Another table's session asks afresh.
+    cleanup();
+    mountAsk({ splitContext: { ...UNNAMED_HOST, sessionId: "session-2" } });
+    await hydrate();
+    expect(field()).not.toBeNull();
+  });
+});
+
 describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bill, live)", () => {
   /** Thiri's phone at Aye's table: a guest, the host named, a group (owners on the rows). */
   const TABLE = {
@@ -3262,7 +3661,7 @@ describe("PD10 — the Bill is the live One Pass (before C2: the counter-only Bi
       { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
     ],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
   const COOKING: CartItem = { ...ITEM, id: "l-cook", bySeat: MY_SEAT, lineState: "in_progress" };
@@ -3434,7 +3833,7 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
     myRole: "host" as const,
     members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
     tableNumber: 7,
-    qrCode: null,
+    sessionId: SESSION_ID,
   };
   const at = (ms: number) => new Date(Date.parse(DB_NOW) + ms).toISOString();
   const COOKING: CartItem = { ...ITEM, lineState: "in_progress" };
@@ -3728,8 +4127,8 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
 
   it("a split-read miss leaves the table's HOST unknown: the draft holds Pay with the honest reason — never the counter promise, never 'send' (Codex round 2 on #346)", async () => {
     // MUTATION (checkout/served-gate-guesses-the-host): the gate fed the split's guessed `false` —
-    // a hosted table is called hostless, and the Bill promises a counter whose own read of the
-    // real host_seat refuses the drafts; red.
+    // a hosted table is called hostless, and the Bill tells it a server will send the dishes its
+    // host sends; red.
     const UNKNOWN =
       "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.";
     mount({ splitContext: null, initialViewMode: "dinein", initialItems: [{ ...ITEM }] });
@@ -3837,5 +4236,279 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
       await waitFor(() => expect(regionText()).toContain("to finish"), { timeout: 3000 });
       expect(h.requestCounterPay).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to it", () => {
+  /**
+   * Before F20 every promo refusal was a sentence in the review step's one region, below the tip
+   * and the totals, with nothing tying it to the box. A refusal of the CODE (lib/promo-field.ts) is
+   * now drawn under the box, which is `aria-invalid` and described by it, and it is said ONCE: focus
+   * moves to the box when Apply was pressed from the KEYBOARD (the description speaks; the region
+   * stays quiet), and the region speaks it — hidden — otherwise: Enter in the box (focus is already
+   * there) and a TAP on Apply (focus in the box would hide the docked door, PD2, with no keyboard to
+   * make room for). A refusal about the ORDER stays the region's, drawn, with the box left alone.
+   */
+  // The served Bill at a table (PD2's fixture): the promo form is on screen there.
+  const FIRED: CartItem = { ...ITEM, lineState: "fired" };
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+    qrCode: null,
+  } as unknown as NonNullable<Parameters<typeof Checkout>[0]["splitContext"]>;
+  const bill = () => mount({ splitContext: HOST, initialItems: [FIRED] });
+  const box = () => screen.getByRole("textbox", { name: /promo/i }) as HTMLInputElement;
+  const described = (el: HTMLElement) =>
+    document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  /** `keyboard` — Apply focused the keyboard way; `tap` — Apply focused by a pointer; `enter` —
+   *  Enter in the box. jsdom has no input-modality heuristic (it answers `:focus-visible` like
+   *  `:focus`), so the button answers the pseudo-class the way the browser would for each. */
+  async function apply(code: string, via: "keyboard" | "tap" | "enter") {
+    fireEvent.change(box(), { target: { value: code } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    if (via !== "enter") {
+      const real = Element.prototype.matches;
+      vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+        return sel === ":focus-visible" ? via === "keyboard" : real.call(this, sel);
+      });
+    }
+    await act(async () => {
+      (via === "enter" ? box() : btn).focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    await settle();
+  }
+
+  it("Apply pressed from the keyboard: drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "keyboard");
+    // MUTATION uia11y/f20-promo-refusal-off-the-box: red.
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-focus-stays-on-apply: red.
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    // MUTATION uia11y/f20-promo-region-repeats-the-box: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    expect(screen.getAllByText("That code isn’t valid.")).toHaveLength(1);
+  });
+
+  it("a TAP on Apply: drawn under the box, focus left where it was (the docked door stays), the region says it hidden", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-tap-steals-focus: a pointer Apply moved focus into the box, and the
+    // Bill's ONE docked door hid with no keyboard to make room for; red.
+    expect(document.activeElement).not.toBe(box());
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code isn’t valid.");
+  });
+
+  it("Enter in the box: focus stays, and the region SAYS it once — hidden, since the box already shows it", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "expired" });
+    bill();
+    await apply("OLD10", "enter");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-enter-refusal-unsaid: red.
+    expect(regionText()).toContain("That code has expired.");
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code has expired.");
+  });
+
+  it("a refusal about the ORDER stays the region's, drawn, and leaves the box alone", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "locked" });
+    bill();
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain("Someone’s checking out"));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("retyping clears the refusal; an applied code is said in the region with the box valid", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: true, discountCents: 100 });
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain("Promo applied."));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("retyping after the region said it leaves the region empty — the words are never drawn there", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    fireEvent.change(box(), { target: { value: "NOPE2" } });
+    // MUTATION uia11y/f20-promo-retype-leaves-the-region: the region's copy outlives the box's and
+    // is drawn, visible, under the totals; red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
+  it("a refusal the region said is never said again by the next handler that empties it — Pay's answer is never 'That code isn't valid'", async () => {
+    // Blind pass on #355: the region's copy lived BESIDE `status`, hidden while anything else
+    // spoke, so the handler that emptied the region (Pay here; a stage flip, the counter ask and
+    // its withdrawal, a lock re-check and a reopen do the same) drew it back while create-intent
+    // was in flight, and the refusal was heard as the answer to Pay. A pickup cart reaches it: the
+    // missing-name refusal is the writer in between.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    // The Apply re-reads the cart: the view says pickup too, or it would stage a table (#346 C2).
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    await press(/^Pay/);
+    await waitFor(() => expect(regionText()).toContain("Add a first name for pickup"));
+    fireEvent.change(screen.getByLabelText(/First name for pickup/), { target: { value: "Min" } });
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "5105550123" } });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    try {
+      await press(/^Pay/);
+      expect(regionText()).not.toContain("Add a first name for pickup");
+      // MUTATION uia11y/f20-promo-region-copy-beside-status: red.
+      expect(regionText()).not.toContain("That code isn’t valid.");
+      // The box still says it: the refusal is the CODE's, and the code has not changed.
+      expect(described(box())).toBe("That code isn’t valid.");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a minimum the order has not met is the ORDER's: drawn in the region, the box left valid", async () => {
+    // Blind pass on #355: classed as the code's, "doesn't meet this code's minimum" sat under a box
+    // marked invalid — through a stage flip and through the edits that met the minimum — telling
+    // the diner a code that now applies was wrong (lib/promo-field.ts).
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    bill();
+    await apply("SAVE10", "tap");
+    await waitFor(() =>
+      expect(regionText()).toContain("Your order doesn’t meet this code’s minimum yet."),
+    );
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("on pickup, where nothing stages, an edit to the order retires the minimum's sentence", async () => {
+    // Blind pass over #355's fix commits: only a stage flip retired the region's sentence, so on
+    // pickup and scan-and-go it stood over an order the next edit had brought over the minimum.
+    const MIN = "Your order doesn’t meet this code’s minimum yet.";
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain(MIN));
+    const more = { ...ITEM, qty: 2 };
+    h.setQty.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    await press(`Add another ${ITEM.name}`);
+    await settle();
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red.
+    expect(regionText()).not.toContain(MIN);
+  });
+
+  it("the last line removed: the empty cart never prints the refusal, and the settlement board never does", async () => {
+    // Blind pass over #355's fix commits: the empty cart's region (and the board's) prints
+    // `status` raw — only the review step's hides the code refusal it holds — so "That code isn't
+    // valid." stood under "Your order is empty", with no box on that screen.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.setQty.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    await press(`Remove ${ITEM.name}`);
+    await settle();
+    expect(document.body.textContent).toContain("Nothing added yet");
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red here too.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    cleanup();
+    // The board: a group's Bill, then the split's settle starts under it.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED] });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], settling: true }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByTestId("settlement-board")).not.toBeNull());
+    // MUTATION uia11y/f20-promo-said-outlives-the-view: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
+  it("a code retyped during the round trip: the old code's refusal is the region's, the new box left valid", async () => {
+    // Codex on #355: the box stays editable while Apply is in flight, and the old code's refusal
+    // was drawn under the new code, marking it invalid. The answer is about the code SUBMITTED.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: /^Apply/ }).closest("form")!);
+    });
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    // MUTATION uia11y/f20-stale-promo-refusal-bound: red.
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("focus moved INTO the box during the round trip: the region says it, since moving focus there says nothing", async () => {
+    // Blind pass on #355: the voice was fixed at the press. A keyboard Apply chose "focus", the
+    // diner tabbed back into the box while the server answered, and `.focus()` on the focused box
+    // fires nothing — the refusal was said zero times. The voice is settled at the ANSWER.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    const real = Element.prototype.matches;
+    vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+      return sel === ":focus-visible" ? true : real.call(this, sel);
+    });
+    await act(async () => {
+      btn.focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    act(() => box().focus());
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-voice-fixed-at-the-press: red.
+    expect(regionText()).toContain("That code isn’t valid.");
   });
 });

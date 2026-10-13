@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionMintOutput } from "@mms/db/schemas";
 import { useAnonSession } from "./useAnonSession";
+import { sessionRefusal, type SessionRefusal } from "./session-refusal";
 
 export type TableSession = {
   cartId: string;
@@ -18,6 +19,17 @@ export type TableSession = {
    *  tell the diner their old table had ended instead of silently landing in an empty cart. */
   created: boolean;
 };
+
+/** J16 — a refused mint: the server's sentence (for people) and its machine word (for the client's
+ *  recovery, `joinFailureArm`), kept together so the two can never describe different refusals. */
+class MintRefused extends Error {
+  constructor(
+    message: string,
+    readonly reason: SessionRefusal | null,
+  ) {
+    super(message);
+  }
+}
 
 /** This device's stored session key for a mode — the dine-in join code, or a solo mode's own key. */
 const sessionKey = (mode: string) => `mms.qr.${mode}`;
@@ -94,7 +106,11 @@ export function useTableSession(
   const door = opts?.door;
   const tableNumber = opts?.tableNumber;
   const [session, setSession] = useState<TableSession | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // ONE state for the failure: its sentence and its J16 word are set and cleared together.
+  const [failure, setFailure] = useState<{
+    message: string;
+    reason: SessionRefusal | null;
+  } | null>(null);
   const minting = useRef(false);
   const [nonce, setNonce] = useState(0);
 
@@ -106,7 +122,7 @@ export function useTableSession(
   const revalidate = useCallback(() => {
     minting.current = false;
     setSession(null);
-    setError(null); // clear a prior failure so a successful retry dismisses the recovery banner
+    setFailure(null); // clear a prior failure so a successful retry dismisses the recovery banner
     setNonce((n) => n + 1);
   }, []);
 
@@ -179,8 +195,10 @@ export function useTableSession(
     })
       .then(async (r) => {
         if (!r.ok) {
-          const j = (await r.json().catch(() => ({}))) as { error?: string };
-          throw new Error(j.error ?? `HTTP ${r.status}`);
+          const j = (await r.json().catch(() => ({}))) as { error?: string; reason?: unknown };
+          // J16 — the word is parsed against the ONE list; an unknown word (deploy skew) is null,
+          // which every reader treats as the generic, retryable failure.
+          throw new MintRefused(j.error ?? `HTTP ${r.status}`, sessionRefusal(j.reason));
         }
         // Parse the response shape (not just trust the cast) — a missing/blank cartId from a deploy
         // skew throws here instead of silently driving a cart-less UI.
@@ -206,12 +224,23 @@ export function useTableSession(
         });
       })
       .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Couldn’t get you connected — try again"),
+        setFailure({
+          message: e instanceof Error ? e.message : "Couldn’t get you connected — try again",
+          reason: e instanceof MintRefused ? e.reason : null,
+        }),
       )
       .finally(() => {
         minting.current = false;
       });
   }, [anon, mode, session, code, joinOnly, door, tableNumber, nonce]);
 
-  return { session, loading: !session && !error, error, revalidate };
+  return {
+    session,
+    loading: !session && !failure,
+    error: failure?.message ?? null,
+    /** J16 — the refusal's machine word (`SESSION_REFUSALS`), or null: not refused by the route
+     *  (a network failure, an unreadable body), or a word this build does not know. */
+    errorReason: failure?.reason ?? null,
+    revalidate,
+  };
 }

@@ -17,6 +17,7 @@ import { TodayOrders } from "@/components/TodayOrders";
 import { AccountLiveOrders } from "@/components/AccountLiveOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
+import { AccountCallbackNotice } from "@/components/AccountCallbackNotice";
 import { SoundToggle } from "@/components/SoundToggle";
 import { AccountFavorites } from "@/components/AccountFavorites";
 import { AccountHelp } from "@/components/AccountHelp";
@@ -74,6 +75,10 @@ export default async function Account({
   // "no card" — exactly today's degraded page, never a thrown one.
   const kind = state ? null : await getSessionKind().catch(() => null);
   const guest = state ? !state.isUpgraded : kind === "anon";
+  // M214 — POSITIVELY known to be signed in (an upgraded diner, or — on the failed-read branch — a
+  // diner or staff session). Unknown (`kind` null after both reads failed) is not signed in: the
+  // notice below says "already signed in", and that is only ours to say when the server said so.
+  const signedIn = state ? state.isUpgraded : kind === "diner" || kind === "staff";
 
   // 2 · YOU — identity: the save + sign-in door for a guest (K3a: a signed-in diner gets the quiet
   // identity/sign-out card instead). On the failed branch a GUEST still gets the door, with stars={0}
@@ -175,6 +180,11 @@ export default async function Account({
 
   const you = (
     <>
+      {/* M214 — an OAuth bounce that lands on a SIGNED-IN session: the guest card that reads and
+          strips bounces is not mounted here, so this line says what is true and cleans the URL. */}
+      {signedIn && (
+        <AccountCallbackNotice errorCode={params.error_code ?? null} error={params.error ?? null} />
+      )}
       {identity && <div style={{ marginBottom: "var(--s4)" }}>{identity}</div>}
       {/* Deep pass on #312 — a signed-in diner on the failed-read branch has no identity card (and
           no Switch account / lend door with it); the only explanation sat in the Orders panel. Say

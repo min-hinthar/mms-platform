@@ -3,6 +3,7 @@ import { surfaceOpen } from "@/lib/surfaces";
 import { serviceClient } from "@mms/db/server";
 import { secureTabInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
+import { MEAL_PAYMENT_METHOD_TYPES } from "@/lib/payment-methods";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { getPostHogClient } from "@/lib/posthog-server";
@@ -63,10 +64,13 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     let customerId = existing?.stripe_customer_id ?? null;
     if (!customerId) {
-      const customer = await getStripe().customers.create({
-        metadata: { cartId, sessionId },
-        description: `MMS tab ${cartId}`,
-      });
+      // M72c — keyed on the CART, the one create in this route that carried no key. A retried
+      // request (the SDK's own, or a re-tap after a lost response) replays the first Customer
+      // instead of minting a second one for the same tab.
+      const customer = await getStripe().customers.create(
+        { metadata: { cartId, sessionId }, description: `MMS tab ${cartId}` },
+        { idempotencyKey: `cus_${cartId}` },
+      );
       customerId = customer.id;
       // ignoreDuplicates: if two saves raced, the first row wins and this one is a no-op — re-read it so
       // both requests converge on ONE Customer (the rare loser-created Customer is an empty orphan, harmless).
@@ -88,7 +92,9 @@ export async function POST(req: NextRequest) {
       {
         customer: customerId,
         usage: "off_session",
-        automatic_payment_methods: { enabled: true },
+        // M155 (owner ruling #7) — a CARD is what a tab saves: a bank debit charged off-session at
+        // close would sit in `processing` for days. `lib/payment-methods.ts` says why it is named.
+        payment_method_types: [...MEAL_PAYMENT_METHOD_TYPES],
         metadata: { cartId },
       },
       // Reuse one SetupIntent across re-opens of the secure sheet for this cart+customer.
