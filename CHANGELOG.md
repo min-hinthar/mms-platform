@@ -4,6 +4,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
+
+- **Every staff surface tells the same truth, live, and a mistake can be taken back** — a bump reads
+  "done" on the expo, the bell and the floor only once Mom's 6-second undo closes (one re-read when it
+  does); a line's Done is undoable; a held card says its day and Cook now asks first; a dish voided or
+  refunded off the board is called out until Got it; the wall shows a ready bag whatever its schedule,
+  windows by due time and drops refunds and scan-and-go baskets; the expo says "Refunded — don't bag";
+  a sent dish keeps its note, sold-out flag and kitchen stage on the table page (with the paid round's
+  food); staff box a draft to go (K18); the cash, reader and tab-close doors refuse a sold-out draft; a
+  free clear asks before dropping a party's unsent dishes; the merge says the phones stay; a table
+  closed under a server's page is named on the floor. No migration — M303–M307, M313, K49 filed.
+
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
