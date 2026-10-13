@@ -22,9 +22,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   dish.** `setLineFulfillment` and `makeItNow` answer `not_draft` for a line that has left draft, ahead
   of the ownership check. The toggle then says "That didn’t go through — it’s already gone to the
   kitchen." The sentence is dropped if the line is back in draft by the time it would be said (a send
-  undone in its grace).
-  - "Send to kitchen now" stays silent on `not_draft`, because the dish is already where the diner
-    asked. `not_yours`, `error` and the other RPC codes stay silent too.
+  undone in its grace), and taken down if a later view puts it back in draft after it was said.
+  - "Send to kitchen now" stays silent on `not_draft`, because the dish is almost always already
+    where the diner asked. When staff voided it instead, the sheet closes and the line's chip says
+    "Removed". `not_yours`, `error` and the other RPC codes stay silent too.
 - **P2au: an 86 whose ledger record failed now gets its Undo.** The flag landed, so `setItemSoldOut`
   answers with a new `unlogged` code that carries it, and the new `lib/sold-out-landing.ts` is how a
   caller asks whether the dish changed. The KDS offers its 6-second Undo for an unlogged 86 and takes
@@ -40,9 +41,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     of helper hops, by import identity. `releasePayLock` is back in reach, through its exemption.
   - `check-echo-coalesce` (M226 f and h) resolves aliases by declaration, not by name, and refuses any
     re-export of `useCartRealtime`.
-- **The mutant battery grows from 4171 to 4191.** Two mutants retired with the code they guarded
-  (`refusal/qty-refusal-goes-unpublished` and `refusal/latch-outlives-its-write`), five were
+- **The mutant battery grows from 4171 to 4196.** Two mutants retired with the code they guarded
+  (`refusal/qty-refusal-goes-unpublished` and `refusal/latch-outlives-its-write`), six were
   re-anchored or re-pointed, and one target module was added (`sold-out-landing.ts`).
+- **The blind review's fix round.**
+  - The kitchen sentence is now re-checked on every view /cart applies, not only when it is said. When
+    the host's Undo puts the line back in draft inside the send's grace, the sentence comes down.
+    Before, it stayed beside a line that read "Not sent yet".
+  - Only a freeze clears a standing pay error. The rule is now `refusalClearsPayError`, a switch with
+    no default; the old `cause !== "unknown"` had let the kitchen sentence erase "Couldn’t start
+    checkout".
+  - The T41 freeze case now checks that the region says the hedge before the lock banner, instead of
+    reading only the final text. The M230 draft-line case now gives the diagnosis read and the
+    winning view different lines, so it can tell when the check runs.
+  - Two comments that described old behaviour are corrected: `AddButton`'s note on `unconfirmed`, and
+    the "Send to kitchen now" note, which now names the voided case. Five mutants were added and one
+    re-pointed.
 - **Copy:** the one new sentence ("…it’s already gone to the kitchen", on /cart) is English only,
   like every /cart refusal. The unlogged-86 sentence is unchanged and still said verbatim in English
   on the KDS. No Burmese string was added, so nothing joins the K15 ledger.

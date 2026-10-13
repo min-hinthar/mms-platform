@@ -2277,11 +2277,14 @@ export function Checkout({
     // `accepted` and `refused` are separate for the same reason as the toggle above.
     //
     // M230 — the toggle's THIRD answer is deliberately NOT spoken here. `not_draft` on "Send to
-    // kitchen now" means the dish is already with the kitchen — the outcome the diner asked for, done
-    // by a tablemate's send a beat earlier. The re-sync below closes the sheet (its subject stops
-    // being draft) and the line's chip says where the dish is; "That didn't go through" over a dish
-    // that is cooking would alarm about the one result they wanted, which is the landing this path's
-    // own predicate already counts (`lineState !== "draft"`).
+    // kitchen now" means the dish has left draft: almost always it is already with the kitchen —
+    // the outcome the diner asked for, done by a tablemate's send a beat earlier — and, rarer, staff
+    // voided it (the pre-check and the RPC both answer `not_draft` for `voided`). Either way the
+    // re-sync below closes the sheet (its subject stops being draft), focus lands on the line's name,
+    // and the line's chip says which: "Sent to kitchen", or "Removed" with "removed by our staff".
+    // "That didn't go through" over a dish that is cooking would alarm about the one result they
+    // wanted, which is the landing this path's own predicate already counts (`lineState !==
+    // "draft"`); a void reaching this screen any other way is not announced either.
     let accepted = false;
     let refused = false;
     try {

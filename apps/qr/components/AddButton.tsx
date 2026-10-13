@@ -342,11 +342,12 @@ export function AddButton({
           // `refused` the recovery read that proved the refusal — so the fallback is reached only
           // when there genuinely is no current cart to be had.
           //
-          // `unconfirmed` still re-reads first: that state means the write COMMITTED and we could
-          // not see it, so the last render's list holds the pre-write quantity. If the re-read also
-          // fails the fallback degrades honestly rather than corrupting — `setQty` is ABSOLUTE, so
-          // re-sending `qty - 1` against a quantity the server already has is an idempotent no-op:
-          // the tap is lost, the cart is not wrong.
+          // `unconfirmed` still re-reads first: that state means we could not establish whether the
+          // write landed — it may have COMMITTED unseen, or (since T41) a re-read showed the line off
+          // our target, where it may never have committed at all — so the last render's list cannot
+          // be trusted either way. If the re-read also fails the fallback degrades honestly rather
+          // than corrupting — `setQty` is ABSOLUTE, so re-sending `qty - 1` against a quantity the
+          // server already has is an idempotent no-op: the tap is lost, the cart is not wrong.
           // ⚠️ USE WHAT THE REFRESH RETURNS (Codex round 3 on #251, P2). `await refresh()` updates the
           // PROVIDER; this ref catches up a render later, so reading it here discards a perfectly
           // good recovery read: two rapid decrements from 3 lost the second tap even when the
