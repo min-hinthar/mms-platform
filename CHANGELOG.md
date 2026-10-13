@@ -6,20 +6,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
-- **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (593) was read against the code
+- **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
   at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`. It gives each row's next step:
   - 334 can be built without the owner (19 high). Building is not always closing: a row that needs a
     migration still waits on the owner's go for the prod apply, and some need the device sitting.
   - 99 are owner-gated, and 121 stay open.
-  - 35 close here.
+  - 36 close here.
   - 4 (A1–A4) already read DONE and stay in the Option A table as the record of the owner's picks.
 
   The registry stays the one place open work lives.
 
-- **35 rows move to Closed, each with its evidence.**
+- **36 rows move to Closed, each with its evidence.**
   - 24 were already fixed by later work or were retracted: M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew,
-    P2fl, M56, M13, K20, K26, K28, K29, K35, G13, G18, T19, T36, C4, C10, C15, C21 and C22. C10's
-    Apple Pay domain was read live from Stripe on 2026-10-13: it reads `active`.
+    P2fl, M56, M13, K20, K26, K28, K29, K35, G13, G18, T19, T36, C4, C10, C21, C22 and F11. C10's
+    Apple Pay domain was read live from Stripe on 2026-10-13: it reads `active`. F11's open note was
+    about a pause coin that Phase 0 retired.
+  - C15 was already closed in its own row; it only moves.
   - 6 were duplicates, and each one's note now lives on the row it folds into:
 
     | Row  | Folded into                            |
@@ -38,7 +40,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **Every "already fixed" and "duplicate" verdict was re-checked by a pass told to refute it.** Eleven
   were refuted. Ten stay open: P2z, P2ak, P2df, K33, M172, P2ey, J27, J49, C16 and F8. The eleventh, A1,
-  already reads DONE in the Option A table. The snapshot keeps the reason for each.
+  already reads DONE in the Option A table. The snapshot keeps the reason for each. F11 and the three
+  ruling rows (T37, J38, K16) were checked by hand.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
