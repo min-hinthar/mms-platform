@@ -197,26 +197,24 @@ export function sameActiveOrder(
   return url.paymentIntent === null && stored.cartId !== null && url.cartId === stored.cartId;
 }
 
-/**
- * F — what a STALE live read means for the device's order (the row was there, and a later read that
- * SUCCEEDED found none: the session closed or lapsed, `useOrderStatus`). A dine-in order has no
- * pick-up signal — its session closing IS the end of the meal, the same rule `getMyLiveOrders`'
- * session gate applies — so it is finished, and the pill and the home card stop saying "At your
- * table" about a meal eaten hours ago. Any other kind may still have a bag waiting: what changed is
- * only that this device can no longer SEE it, so the status is unknown (the honest floor, "Placed").
- */
-export function staleOrderFate(kind: LiveOrderKind | null): "finished" | "unknown" {
-  return kind === "dinein" ? "finished" : "unknown";
-}
+/** F — what a stale read is judged by: the KIND of a real row (`kindFromTrackedOrder`) and whether it
+ *  carries to-go food. Read off the row this mount saw, or the one /track saw land (`ActiveOrder.landed`)
+ *  — never inferred from the device's door (the second capped pass on #359: an all-to-go order placed
+ *  at a dine-in table has `mode: "dinein"`). */
+export type StaleBasis = { kind: LiveOrderKind; hasTogoFood: boolean };
 
 /**
- * F (the blind pass on #359) — the KIND the device's order pointer implies when no row has been read
- * in this mount (the pill's fresh subscription after a cleared table finds none): the door it was
- * placed through. Only `dinein` is a kind on its own — the to-go door navigates with `mode=pickup`
- * (W22b), so "pickup" names no kind, and a stale order of no known kind stays "unknown".
+ * F — what a STALE live read means for the device's order (the row was there, and a later read that
+ * SUCCEEDED found none: the session closed or lapsed, `useOrderStatus`). A PURE dine-in order (no to-go
+ * food) has no pick-up signal — its session closing IS the end of the meal, the same rule
+ * `getMyLiveOrders`' session gate applies — so it is finished, and the pill and the home card stop
+ * saying "At your table" about a meal eaten hours ago. Anything else may still have a bag waiting —
+ * a to-go box on a dine-in order, a to-go or pickup order, an order of NO recorded kind — and what
+ * changed is only that this device can no longer SEE it: unknown, the honest floor ("Placed"), and
+ * the pointer is never cleared on it.
  */
-export function pointerKind(mode: string | null): LiveOrderKind | null {
-  return mode === "dinein" ? "dinein" : null;
+export function staleOrderFate(basis: StaleBasis | null): "finished" | "unknown" {
+  return basis !== null && basis.kind === "dinein" && !basis.hasTogoFood ? "finished" : "unknown";
 }
 
 /**

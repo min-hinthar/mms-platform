@@ -19,7 +19,7 @@ import {
   encodeCartMode,
 } from "@/lib/order-noun";
 import { tabsMode } from "@/lib/diner-tabs";
-import { activeOrderExpiresAt, sameActiveOrder } from "@/lib/live-order";
+import { activeOrderExpiresAt, sameActiveOrder, type StaleBasis } from "@/lib/live-order";
 import type { DrainOutcome } from "@/lib/write-ledger";
 
 /**
@@ -45,12 +45,14 @@ export type ActiveOrder = {
    *  order (`noteTrackedOrder`): the pointer then lives until the slot plus the linger
    *  (`activeOrderExpiresAt`, lib/live-order.ts), not four hours from the tap. Absent otherwise. */
   pickupSlot?: string | null;
-  /** F (the blind pass on #359) — /track has SEEN this order's row (`noteTrackedOrder`). A pointer
-   *  captured from Stripe's return races the webhook, so an empty first read means "not yet"; once
-   *  the order is known to exist there is no race, and an empty read means "no longer this device's
-   *  to read" (the table was cleared) — the pill's live read takes it as such (`useOrderStatus`'s
-   *  `known`). Absent until then. */
-  landed?: boolean;
+  /** F (the blind pass on #359) — /track has SEEN this order's row (`noteTrackedOrder`), and what that
+   *  ROW said: its kind and whether it carries to-go food. A pointer captured from Stripe's return
+   *  races the webhook, so an empty first read means "not yet"; once the order is known to exist there
+   *  is no race, and an empty read means "no longer this device's to read" (`useOrderStatus`'s
+   *  `known`). What that means is judged on THIS record (`staleOrderFate`), never on `mode` — the
+   *  device's door, which is not the order's kind (an all-to-go order placed at a dine-in table has
+   *  `mode: "dinein"`). Absent until then. */
+  landed?: StaleBasis;
 };
 
 type ActiveOrderCtx = {
@@ -63,7 +65,7 @@ type ActiveOrderCtx = {
    *  and its pickup slot (E — a pickup booked hours ahead stays resumable until its slot). Applies
    *  only to the stored order the current /track URL names (a tray link to another order never
    *  stretches or marks this one). */
-  noteTrackedOrder: (info: { pickupSlot: string | null }) => void;
+  noteTrackedOrder: (info: { pickupSlot: string | null } & StaleBasis) => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
    *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
    *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
@@ -286,19 +288,30 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  const noteTrackedOrder = useCallback((info: { pickupSlot: string | null }) => {
+  // ⚠️ The deferred `setOrder` below cannot lose `landed` to the route effect's capture: both write
+  // localStorage SYNCHRONOUSLY, and this is only ever called once the order's row has landed — an
+  // async read, never on OrderTracker's first render — so the capture (in the commit that mounted
+  // /track) has already written the pointer this reads, and its frame callback was scheduled first.
+  // Frame callbacks run in the order they were scheduled, so in a shared frame this one lands last.
+  const noteTrackedOrder = useCallback((info: { pickupSlot: string | null } & StaleBasis) => {
     try {
       const raw = localStorage.getItem(KEY_ORDER);
       if (!raw) return;
       const o = JSON.parse(raw) as ActiveOrder;
       if (!o || typeof o.createdAt !== "number") return;
       const pickupSlot = info.pickupSlot ?? o.pickupSlot ?? null;
-      if (o.landed === true && (o.pickupSlot ?? null) === pickupSlot) return;
+      const landed: StaleBasis = { kind: info.kind, hasTogoFood: info.hasTogoFood };
+      if (
+        o.landed?.kind === landed.kind &&
+        o.landed.hasTogoFood === landed.hasTogoFood &&
+        (o.pickupSlot ?? null) === pickupSlot
+      )
+        return;
       // Only the order the page is ABOUT: the /track URL in the address bar right now.
       const url = new URLSearchParams(window.location.search);
       const key = { paymentIntent: url.get("payment_intent"), cartId: url.get("cart") };
       if (!sameActiveOrder(o, key)) return;
-      const next: ActiveOrder = { ...o, landed: true, pickupSlot };
+      const next: ActiveOrder = { ...o, landed, pickupSlot };
       localStorage.setItem(KEY_ORDER, JSON.stringify(next));
       requestAnimationFrame(() => setOrder(next)); // deferred (lint-safe), like clearOrder
     } catch {

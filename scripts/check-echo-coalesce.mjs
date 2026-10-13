@@ -202,8 +202,11 @@
  *
  * So state the guarantee honestly: this catches the REGRESSION (a new consumer wired the obvious
  * way — or behind a barrel — a handler that stops scheduling, a second window constant), not a
- * deliberate evasion. The remaining shapes need invocation tracking, assignment tracking or a type
- * checker; two of the
+ * deliberate evasion. One more known limit, of the `READERS` allowlist itself: it does not tie a
+ * consumer to ITS OWN reader. A consumer that coalesces through the wrong one — the open cart's
+ * `getCartView` where its events are a paid cart's (`getOrderKitchen`), or the reverse — passes,
+ * because either name satisfies "reaches a reader". The remaining shapes need invocation tracking,
+ * assignment tracking or a type checker; two of the
  * suggested remedies are themselves a name-keyed matcher, which is what LEARNINGS #60 forbids, and
  * "treat every unresolved mutable callee as a reader" would flag unrelated `let` callbacks — a
  * guard that cries wolf gets ignored (LEARNINGS #92). If that pass is ever wanted it belongs in a
@@ -301,9 +304,9 @@ const HOOK = "useCartRealtime";
 const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
 /** The consumers that exist today. A walk that finds fewer than this has broken, not improved. */
-const MIN_CALL_SITES = 2;
+const MIN_CALL_SITES = 3;
 /** Same idiom for the docblock's case list: MEASURED at the round that set it, never counted by eye. */
-const MIN_PINNED_CASES = 68;
+const MIN_PINNED_CASES = 74;
 const CASES_HEADING = "## The cases this guard has been watched against";
 
 const problems = [];

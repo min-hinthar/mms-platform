@@ -466,11 +466,15 @@ export function OrderTracker({
   // EXISTS (F — the pill's later empty read is then a cleared table, never the webhook race), and E —
   // a pickup's pointer lives until its SLOT (plus the linger), not 4 h after the tap: the guest who
   // paid at noon for 6:20 PM and closed the tab must still find the pill at 5:50.
+  // The KIND recorded is the real row's (`kindFromTrackedOrder`), never the device's door.
   const landedId = order?.id ?? null;
   const slotToNote = order?.pickupSlot ?? null;
+  const landedKind = order ? kindFromTrackedOrder(order) : null;
+  const landedTogo = !!order?.hasTogoFood;
   useEffect(() => {
-    if (landedId) noteTrackedOrder({ pickupSlot: slotToNote });
-  }, [landedId, slotToNote, noteTrackedOrder]);
+    if (landedId && landedKind)
+      noteTrackedOrder({ pickupSlot: slotToNote, kind: landedKind, hasTogoFood: landedTogo });
+  }, [landedId, slotToNote, landedKind, landedTogo, noteTrackedOrder]);
   const orderDone =
     togo === "picked_up" ||
     refunded ||

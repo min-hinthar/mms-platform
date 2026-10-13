@@ -9,7 +9,6 @@ import {
   liveOrdersMoving,
   liveOrderTrackHref,
   liveWithoutSession,
-  pointerKind,
   sameActiveOrder,
   staleOrderFate,
   uncollectedPickupHref,
@@ -250,16 +249,15 @@ describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
     ).toBe(false);
   });
 
-  it("F — a pointer's door names a kind only for dine-in (the to-go door navigates as `pickup`)", () => {
-    expect(pointerKind("dinein")).toBe("dinein");
-    for (const m of ["pickup", "scango", "", null]) expect(pointerKind(m)).toBeNull();
-  });
-
-  it("F — a stale DINE-IN order is finished (its session closing is the meal's end); others unknown", () => {
+  it("F — only a PURE dine-in row is finished by a stale read; everything else is unknown", () => {
     // RED when every kind reads "unknown": the pill says "At your table" for the rest of the TTL.
-    expect(staleOrderFate("dinein")).toBe("finished");
-    for (const k of ["pickup", "togo", "grocery", null] as const)
-      expect(staleOrderFate(k)).toBe("unknown");
+    expect(staleOrderFate({ kind: "dinein", hasTogoFood: false })).toBe("finished");
+    // RED when a to-go box rides along unnoticed: the bag still cooks after the table is cleared.
+    expect(staleOrderFate({ kind: "dinein", hasTogoFood: true })).toBe("unknown");
+    for (const kind of ["pickup", "togo", "grocery"] as const)
+      expect(staleOrderFate({ kind, hasTogoFood: kind !== "grocery" })).toBe("unknown");
+    // No recorded row, no verdict.
+    expect(staleOrderFate(null)).toBe("unknown");
   });
 
   it("E — only a PICKUP still to collect (slot today or later) stands without a live session", () => {

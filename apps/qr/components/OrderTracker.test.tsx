@@ -318,7 +318,20 @@ describe("F — the landed order is noted on the device's pointer (the blind pas
     mount();
     // RED when only a pickup slot is noted: the pill's later empty read after a clear then reads as
     // the webhook race, and the pointer lives out its TTL saying "Placed".
-    expect(noted).toContainEqual({ pickupSlot: null });
+    expect(noted).toContainEqual({ pickupSlot: null, kind: "dinein", hasTogoFood: false });
+  });
+
+  it("records the ROW's kind, not where it was placed: an all-to-go order at a seated table is to-go", () => {
+    // The second capped pass on #359 — a stale read is judged on this record; a "dinein" here would
+    // let the clear delete the pointer while the bag cooks.
+    live = dineIn({
+      hasDineInFood: false,
+      hasTogoFood: true,
+      togoStatus: "preparing",
+      tableNumber: 7,
+    });
+    mount();
+    expect(noted).toContainEqual({ pickupSlot: null, kind: "togo", hasTogoFood: true });
   });
 
   it("notes nothing before the order lands", () => {

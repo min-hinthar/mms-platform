@@ -104,10 +104,10 @@ describe("useLiveOrders with a seed — /account's live row (blind review)", () 
   });
 });
 
-describe("useLiveOrders — J, an OPT-IN re-poll while a fired bag is still moving (lifecycle audit)", () => {
-  // /account "Today" has no Realtime and the header pill is off there on purpose, so a guest who paid
-  // and stayed on the page watched "Preparing" through the expo's Ready until they switched apps. The
-  // blind pass on #359: the header shares this hook on every diner page, so the timer is opt-in.
+describe("useLiveOrders — J, a re-poll for every caller, gated by the moving rule alone (lifecycle audit)", () => {
+  // The header's tray rows and its cross-device chip, and /account "Today", have no realtime of their
+  // own; the gate is `liveOrdersMoving` — fired and not Ready — and nothing else (the second capped
+  // pass on #359: an opt-in left the header's tray frozen).
   const cooking = {
     id: "c",
     hasTogoFood: true,
@@ -115,14 +115,15 @@ describe("useLiveOrders — J, an OPT-IN re-poll while a fired bag is still movi
     fireAt: null,
   } as LiveOrder;
   const ready = { id: "r", hasTogoFood: true, togoStatus: "ready", fireAt: null } as LiveOrder;
-  const held = {
-    id: "h",
-    hasTogoFood: true,
-    togoStatus: "preparing",
-    fireAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  } as LiveOrder;
-  function Seeded({ initial, poll = true }: { initial: LiveOrder[]; poll?: boolean }) {
-    const { orders } = useLiveOrders(true, null, initial, { poll });
+  const heldFor = (ms: number) =>
+    ({
+      id: "h",
+      hasTogoFood: true,
+      togoStatus: "preparing",
+      fireAt: new Date(Date.now() + ms).toISOString(),
+    }) as LiveOrder;
+  function Seeded({ initial }: { initial: LiveOrder[] }) {
+    const { orders } = useLiveOrders(true, null, initial);
     return <p data-testid="polled">{orders.map((o) => o.id).join(",") || "none"}</p>;
   }
   const tick = (n = 1) =>
@@ -132,7 +133,7 @@ describe("useLiveOrders — J, an OPT-IN re-poll while a fired bag is still movi
     });
   afterEach(() => vi.useRealTimers());
 
-  it("re-reads every LIVE_ORDERS_POLL_MS while a fired bag is cooking and the page is visible", async () => {
+  it("/account Today re-reads every LIVE_ORDERS_POLL_MS while a fired bag is cooking", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [cooking] });
     render(<Seeded initial={[cooking]} />);
@@ -142,18 +143,47 @@ describe("useLiveOrders — J, an OPT-IN re-poll while a fired bag is still movi
     expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
   });
 
-  it("reads NOTHING while every order is at rest — a Ready bag, or a HELD pickup", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    render(<Seeded initial={[ready, held]} />);
-    await tick(3);
-    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+  it("the HEADER's call (no seed) re-reads too while a fired bag isn't Ready — its tray has no feed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "requestAnimationFrame"] });
+    h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [cooking] });
+    render(<Probe enabled poke="a" />);
+    await act(async () => {
+      vi.advanceTimersToNextFrame();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(probe()).toBe("idle:1"));
+    const mountReads = h.readMyLiveOrders.mock.calls.length;
+    await tick();
+    // RED when the timer is opt-in (or /account's alone): the header's tray froze on "Preparing".
+    expect(h.readMyLiveOrders.mock.calls.length).toBe(mountReads + 1);
   });
 
-  it("is OPT-IN — the header's call (no `poll`) never reads on a timer, cooking bag or not", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    render(<Seeded initial={[cooking]} poll={false} />);
+  it("reads NOTHING on a timer while every order is held or at rest — header or /account", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "requestAnimationFrame"] });
+    h.readMyLiveOrders.mockResolvedValue({
+      ok: true,
+      orders: [ready, heldFor(24 * 60 * 60 * 1000)],
+    });
+    render(<Probe enabled poke="a" />);
+    await act(async () => {
+      vi.advanceTimersToNextFrame();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(probe()).toBe("idle:2"));
+    const mountReads = h.readMyLiveOrders.mock.calls.length;
     await tick(3);
-    // RED when the interval lives in the shared hook for every caller.
+    expect(h.readMyLiveOrders.mock.calls.length).toBe(mountReads);
+  });
+
+  it("a HELD pickup starts the reads by itself once its fire_at passes", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(Date.parse("2026-10-13T21:00:00.000Z"));
+    const held = heldFor(45_000); // fires 45 s from now
+    h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [held] });
+    render(<Seeded initial={[held]} />);
+    await tick(); // 30 s: still held — nothing read
     expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+    await tick(); // 60 s: past fire_at — the tick reads by itself. RED when the gate ignores the clock.
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
   });
 });

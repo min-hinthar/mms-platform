@@ -24,6 +24,7 @@ vi.mock("./realtime", () => ({
 }));
 
 const { useOrderKitchen } = await import("./useOrderKitchen");
+const { ECHO_MAX_WAIT_MS } = await import("./echo-refresh");
 
 const ORDER = "11111111-1111-4111-8111-111111111111";
 const NOW = "2026-10-13T19:00:00.000Z";
@@ -136,5 +137,25 @@ describe("useOrderKitchen — when /track asks the kitchen again", () => {
     wake();
     await settle();
     expect(getOrderKitchen).not.toHaveBeenCalled();
+  });
+});
+
+describe("useOrderKitchen — a burst of cart events is ONE read (M193's one window)", () => {
+  it("five events on the paid cart's channel inside the echo window produce a single re-read", async () => {
+    // A Send or a ticket bump writes several rows at once. RED when the channel's callback is the raw
+    // reader (or bypasses the coalescer): one read starts, the rest queue one more behind it.
+    reads.push(cooking, served, served, served);
+    const { result } = renderHook(() => useOrderKitchen(ORDER));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await waitFor(() => expect(onCartChange).not.toBeNull());
+    expect(getOrderKitchen).toHaveBeenCalledTimes(1);
+    act(() => {
+      for (let i = 0; i < 5; i++) onCartChange?.();
+    });
+    // Past ECHO_MAX_WAIT_MS and any queued read behind an in-flight one.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, ECHO_MAX_WAIT_MS + 300));
+    });
+    expect(getOrderKitchen).toHaveBeenCalledTimes(2);
   });
 });

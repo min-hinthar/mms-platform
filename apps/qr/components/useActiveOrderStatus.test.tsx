@@ -85,6 +85,18 @@ describe("useActiveOrderStatus — a stale read is not a live status", () => {
     await waitFor(() => expect(clearOrder).toHaveBeenCalled());
   });
 
+  it("a STALE dine-in order with a TO-GO box is not finished — its bag may still be cooking", () => {
+    status = {
+      order: tracked({ hasTogoFood: true, togoStatus: "preparing" }),
+      timedOut: false,
+      stale: true,
+    };
+    const { result } = renderHook(() => useActiveOrderStatus(true));
+    expect(result.current.isDone).toBe(false);
+    expect(result.current.statusWord).toBe("Placed");
+    expect(clearOrder).not.toHaveBeenCalled();
+  });
+
   it("a STALE pickup drops to the honest floor, not its last word, and is not retired", () => {
     status = {
       order: tracked({

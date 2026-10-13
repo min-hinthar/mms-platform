@@ -19,8 +19,7 @@ export function AccountLiveOrders({
   initial: LiveOrder[];
   children: ReactNode;
 }) {
-  // J — the one live-orders surface with no Realtime status of its own re-polls while a bag cooks.
-  const { orders } = useLiveOrders(true, null, initial, { poll: true });
+  const { orders } = useLiveOrders(true, null, initial);
   return <LiveOrdersContext.Provider value={orders}>{children}</LiveOrdersContext.Provider>;
 }
 

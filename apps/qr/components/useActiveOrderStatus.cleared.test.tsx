@@ -44,12 +44,6 @@ vi.mock("@/lib/order-actions", () => ({ resolveSplitOrderId: () => Promise.resol
 
 const { useActiveOrderStatus } = await import("./useActiveOrderStatus");
 
-const settle = () =>
-  act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(0);
-  });
-
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
   reads = 0;
@@ -60,51 +54,75 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("useActiveOrderStatus — a cleared table retires the pill through the real empty read", () => {
-  it("a COUNTER-paid dine-in pointer (cart branch, resolved id) is finished on its first empty read", async () => {
-    stored = { paymentIntent: null, cartId: "c1", mode: "dinein", createdAt: Date.now() };
-    const { result } = renderHook(() => useActiveOrderStatus(true));
-    await settle();
-    expect(reads).toBe(1);
-    // RED without `known`: ten polls, `timedOut`, "Placed" — and the pointer lives its whole TTL.
-    expect(result.current.isDone).toBe(true);
-    await settle();
-    expect(clearOrder).toHaveBeenCalled();
+/** Let the hook live a while longer and keep its history — a verdict that would flip later shows. */
+const linger = () =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
   });
 
-  it("a single-pay pointer /track has SEEN land (`landed`) reads the same way", async () => {
+describe("useActiveOrderStatus — a cleared table retires the pill through the real empty read", () => {
+  it("a COUNTER-paid PURE dine-in pointer (cart branch) /track saw land is finished on its first empty read", async () => {
+    stored = {
+      paymentIntent: null,
+      cartId: "c1",
+      mode: "dinein",
+      createdAt: Date.now(),
+      landed: { kind: "dinein", hasTogoFood: false },
+    };
+    const { result } = renderHook(() => useActiveOrderStatus(true));
+    // RED without `known`: ten polls, `timedOut`, "Placed" — and the pointer lives its whole TTL.
+    await vi.waitFor(() => expect(clearOrder).toHaveBeenCalled());
+    expect(result.current.isDone).toBe(true);
+    expect(reads).toBe(1);
+  });
+
+  it("a single-pay PURE dine-in pointer /track saw land reads the same way", async () => {
     stored = {
       paymentIntent: "pi_1",
       cartId: null,
       mode: "dinein",
       createdAt: Date.now(),
-      landed: true,
+      landed: { kind: "dinein", hasTogoFood: false },
     };
     const { result } = renderHook(() => useActiveOrderStatus(true));
-    await settle();
-    expect(result.current.isDone).toBe(true);
+    await vi.waitFor(() => expect(result.current.isDone).toBe(true));
+  });
+
+  it("an ALL-TO-GO order placed at a dine-in table (door 'dinein', row 'togo') SURVIVES — its bag still cooks", async () => {
+    // The second capped pass on #359: the device's door is not the order's kind. RED when the fate
+    // is read off `mode`: the clear deletes the pointer while the bag is still on the wok.
+    stored = {
+      paymentIntent: null,
+      cartId: "c1",
+      mode: "dinein",
+      createdAt: Date.now(),
+      landed: { kind: "togo", hasTogoFood: true },
+    };
+    const { result } = renderHook(() => useActiveOrderStatus(true));
+    await vi.waitFor(() => expect(result.current.statusWord).toBe("Placed"));
+    await linger();
+    expect(result.current.isDone).toBe(false);
+    expect(clearOrder).not.toHaveBeenCalled();
+  });
+
+  it("a stale pointer with NO recorded row goes quiet ('Placed') and is never cleared", async () => {
+    stored = { paymentIntent: null, cartId: "c1", mode: "dinein", createdAt: Date.now() };
+    const { result } = renderHook(() => useActiveOrderStatus(true));
+    await vi.waitFor(() => expect(result.current.statusWord).toBe("Placed"));
+    await linger();
+    expect(result.current.isDone).toBe(false);
+    expect(clearOrder).not.toHaveBeenCalled();
   });
 
   it("a fresh Stripe return (not landed) racing the webhook is NOT finished by an empty read", async () => {
     stored = { paymentIntent: "pi_1", cartId: null, mode: "dinein", createdAt: Date.now() };
     const { result } = renderHook(() => useActiveOrderStatus(true));
-    await settle();
+    // History, not a moment: past the poll's 3 s the hook has read again (the first empty read's
+    // verdict was "not yet"), and still nothing is finished.
+    await linger();
+    expect(reads).toBeGreaterThanOrEqual(2);
     expect(result.current.isDone).toBe(false);
     expect(result.current.statusWord).toBe("Confirming");
     expect(clearOrder).not.toHaveBeenCalled();
-  });
-
-  it("a landed PICKUP pointer that cannot be read drops to 'Placed' and stays (its bag may wait)", async () => {
-    stored = {
-      paymentIntent: "pi_1",
-      cartId: null,
-      mode: "pickup",
-      createdAt: Date.now(),
-      landed: true,
-    };
-    const { result } = renderHook(() => useActiveOrderStatus(true));
-    await settle();
-    expect(result.current.isDone).toBe(false);
-    expect(result.current.statusWord).toBe("Placed");
   });
 });

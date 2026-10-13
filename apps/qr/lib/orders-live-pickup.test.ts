@@ -93,6 +93,9 @@ describe("readMyLiveOrders — a pickup still to collect outlives its session", 
     expect(r.orders.map((o) => [o.id, o.kind, o.statusWord])).toEqual([
       ["p1", "pickup", "Scheduled"],
     ]);
+    // The held pickup's fire time reaches the client: J's re-poll gate reads it (RED as `null`, which
+    // would count a held pickup as fired and poll for a day).
+    expect(r.orders[0]?.fireAt).toBe("2026-10-14T01:00:00.000Z");
   });
 
   it("finds a pickup booked YESTERDAY for today through the slot-windowed read", async () => {

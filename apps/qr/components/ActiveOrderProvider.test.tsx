@@ -344,7 +344,10 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     function Noter({ slot }: { slot: string }) {
       const { noteTrackedOrder } = useActiveOrder();
       return (
-        <button type="button" onClick={() => noteTrackedOrder({ pickupSlot: slot })}>
+        <button
+          type="button"
+          onClick={() => noteTrackedOrder({ pickupSlot: slot, kind: "pickup", hasTogoFood: true })}
+        >
           note
         </button>
       );
@@ -357,8 +360,8 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     await frames();
     act(() => screen.getByRole("button").click());
     expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
-    // F — and the pointer now knows the order exists. RED when `landed` is not stamped.
-    expect(stored().landed).toBe(true);
+    // F — and the pointer now records the REAL row's kind. RED when `landed` is not stamped.
+    expect(stored().landed).toEqual({ kind: "pickup", hasTogoFood: true });
     // A tray link to ANOTHER order never stretches this one.
     window.history.replaceState(null, "", "/track?payment_intent=pi_2&redirect_status=succeeded");
     cleanup();

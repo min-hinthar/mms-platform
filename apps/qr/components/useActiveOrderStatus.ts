@@ -6,7 +6,6 @@ import { resolveSplitOrderId } from "@/lib/order-actions";
 import {
   kindFromTrackedOrder,
   liveOrderStatusWord,
-  pointerKind,
   staleOrderFate,
   type LiveOrderKind,
 } from "@/lib/live-order";
@@ -79,7 +78,7 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // exist — a cart-branch id came from a server resolve, and a single-pay pointer is `landed` once
   // /track saw its row — so an empty first read of THIS mount (the header after a cleared table) is
   // stale at once, not the webhook race polled to a timeout (the blind pass on #359).
-  const known = !!order && (order.paymentIntent ? order.landed === true : oid !== null);
+  const known = !!order && (order.paymentIntent ? !!order.landed : oid !== null);
   const { order: tracked, timedOut, stale } = useOrderStatus(pi, oid, { known });
   // M65 — a HELD pickup turns "Scheduled" → "Preparing" at its fire_at with no row change to wake
   // the subscription, so while a stamp lies ahead the pill re-reads the clock once a minute.
@@ -102,10 +101,17 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // the J1 cut cross-faded two different claims about one order.
   const kind = tracked ? kindFromTrackedOrder(tracked) : null;
   // F (lifecycle audit, 2026-10-13) — what a STALE read means, decided once (`staleOrderFate`): a
-  // dine-in order's session closing is the end of the meal, so the pill and the home card retire it
-  // instead of saying "At your table" for the rest of the TTL; any other kind is merely unknown from
-  // here, and drops to the honest floor below.
-  const fate = stale ? staleOrderFate(kind ?? pointerKind(order?.mode ?? null)) : null;
+  // PURE dine-in order's session closing is the end of the meal, so the pill and the home card retire
+  // it instead of saying "At your table" for the rest of the TTL; anything else is merely unknown from
+  // here, and drops to the honest floor below. Judged on a REAL row — the one this mount read, else
+  // the one /track recorded when it landed (`order.landed`) — never on the device's door (the second
+  // capped pass on #359: an all-to-go order placed at a dine-in table carries `mode: "dinein"`, and
+  // the clear would have deleted its pointer while the bag cooked). No recorded row, no verdict: the
+  // pointer goes quiet ("Placed") and stays — the rule below (`timedOut`) says why it never vanishes.
+  const basis = tracked
+    ? { kind: kindFromTrackedOrder(tracked), hasTogoFood: tracked.hasTogoFood }
+    : (order?.landed ?? null);
+  const fate = stale ? staleOrderFate(basis) : null;
   const live = !!tracked && !stale;
   // "Ready" as a STATE (the lit chip) — not merely the raw column. A grocery basket is never "ready"
   // in the sense the chip lights for: there was no wait to end.
