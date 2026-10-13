@@ -41,12 +41,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the native check. No Burmese was added.
 - **Tests and mutants.** A new `lib/split-context.test.ts`, plus cases in show-server, send-nudge-state,
   counter-pay, counter-pay-state, checkout-verb and the three Checkout suites, each watched red against
-  the old code. `verify:slice` goes from 4171 to 4192 mutants: 29 new `pdrem/*` (three for the Codex
-  fix) and 8 retired with the lifted unsent rule.
+  the old code. `verify:slice` goes from 4171 to 4195 mutants: 32 new `pdrem/*` (three for the Codex
+  fix, three for the blind pass) and 8 retired with the lifted unsent rule.
 - **Docs.** The m1 and m2 specs record what was built, and their stale "not built yet" notes point at
   it. DESIGN-LANGUAGE's settle-gate bullets match the lift. OPEN-ITEMS closes PD1 and PD2 and files
   M281 (the name save's unchecked row count), M282 (`getCartView.serverNow` has no reader now) and
   M283 (/cart reads the members once per page load).
+- **The blind pass's fix round.** The parked Bill's undo-window hold on its one door is pinned now (a
+  grace-suite case and `pdrem/checkout-parked-grace-not-held`). At the window's elapse the parked Bill
+  reads the counter's own hold, not Pay's: a tablemate's dish landing inside the window no longer
+  lets the door light up with nothing said, and over unsent dishes the edge says the dock's line,
+  never "Ready to pay." (two more mutants). Comments that still had the counter ask refusing unsent
+  dishes, or `getCartView.serverNow` with a reader, now match the code; the "Let {host} know"
+  docblock sits on `nudge` again; a regex that could not fail beside an exact match is gone. Filed
+  J57 (whether the undo window should still hold the counter: the owner's call) and T58
+  (`getCartView`'s clock-before-the-lines order has no test).
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
