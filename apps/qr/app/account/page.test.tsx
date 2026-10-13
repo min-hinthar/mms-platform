@@ -289,6 +289,13 @@ describe("M214 — a bounce that lands on a SIGNED-IN /account", () => {
     const known = await arrive(BOUNCED);
     expect(known.container.textContent).toMatch(NOTICE);
     cleanup();
+    // A STAFF session is signed in too (blind pass on #355 — this arm had no case of its own).
+    h.getSessionKind.mockResolvedValue("staff");
+    const staff = await arrive(BOUNCED);
+    // MUTATION uia11y/m214-staff-told-nothing: red.
+    expect(staff.container.textContent).toMatch(NOTICE);
+    expect(window.location.search).toBe("?tab=you");
+    cleanup();
     // Both reads failed: `kind` is null, which is not "signed in" — no claim, and the URL is not ours.
     h.getSessionKind.mockRejectedValue(new Error("staff lookup failed"));
     const unknown = await arrive(BOUNCED);

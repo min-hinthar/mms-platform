@@ -5985,6 +5985,14 @@ const MUTANTS = [
     replace: '  const signedIn = state ? state.isUpgraded : kind !== "anon";',
   },
   {
+    id: "uia11y/m214-staff-told-nothing",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 · blind pass on #355 — a STAFF session on the failed-read branch is signed in too; dropped from the rule, a staff member's bounce on /account sat in the address bar with nothing on screen explaining it",
+    find: '  const signedIn = state ? state.isUpgraded : kind === "diner" || kind === "staff";',
+    replace: '  const signedIn = state ? state.isUpgraded : kind === "diner";',
+  },
+  {
     id: "uia11y/m214-upgraded-bounce-not-stripped",
     file: "apps/qr/components/AccountCallbackNotice.tsx",
     suite: "app/account/page.test.tsx",

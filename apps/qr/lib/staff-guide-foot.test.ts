@@ -32,14 +32,21 @@ import { cssDeclarations } from "./css-declarations";
 const CSS = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
 const DECLS = cssDeclarations(CSS);
 const members = (selector: string) => selector.split(",").map((s) => s.trim());
+/** Every property that sets the foot's bottom inset: `bottom`, and the logical insets that write
+ *  the same side in horizontal-tb (blind pass on #355 — a later `inset-block-end: 96px` overrode
+ *  `bottom: 0` with both cases below green, since the walker does no logical-to-physical mapping). */
+const BOTTOM_INSET = /^(bottom|inset|inset-block|inset-block-end)$/;
 const footRules = DECLS.filter(
-  (d) => d.prop === "bottom" && members(d.selector).some((s) => /\.staff-guide-foot$/.test(s)),
+  (d) =>
+    BOTTOM_INSET.test(d.prop) && members(d.selector).some((s) => /\.staff-guide-foot$/.test(s)),
 );
 
 describe("the step guide's sticky foot — flush with its scroller's content edge, in every host", () => {
   it("ONE `bottom` for the foot, and it is 0 — no inset, no custom property feeding one", () => {
     // A floor: the foot must still be sticky at the bottom, or Next scrolls away (risk 9's point).
-    expect(footRules.map((d) => [d.selector, d.value])).toEqual([[".staff-guide-foot", "0"]]);
+    expect(footRules.map((d) => [d.selector, d.prop, d.value])).toEqual([
+      [".staff-guide-foot", "bottom", "0"],
+    ]);
     expect(
       DECLS.find((d) => d.prop === "position" && members(d.selector).includes(".staff-guide-foot"))
         ?.value,
