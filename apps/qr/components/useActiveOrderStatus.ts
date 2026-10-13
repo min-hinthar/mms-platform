@@ -3,8 +3,14 @@ import { useEffect, useState } from "react";
 import { useActiveOrder, type ActiveOrder } from "./ActiveOrderProvider";
 import { useOrderStatus, type TrackedOrder } from "@/lib/useOrderStatus";
 import { resolveSplitOrderId } from "@/lib/order-actions";
-import { kindFromTrackedOrder, liveOrderStatusWord, type LiveOrderKind } from "@/lib/live-order";
+import {
+  kindFromTrackedOrder,
+  liveOrderStatusWord,
+  staleOrderFate,
+  type LiveOrderKind,
+} from "@/lib/live-order";
 import { isFired } from "@/lib/pickup-promise";
+import { trackRefunded } from "@/lib/track-settled";
 
 export type ActiveOrderStatus = {
   order: ActiveOrder | null;
@@ -67,7 +73,13 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // single-pay or a different order (orderId takes precedence over the PI in useOrderStatus).
   const oid =
     track && order && !order.paymentIntent && resolved?.cartId === cartId ? resolved.id : null;
-  const { order: tracked, timedOut } = useOrderStatus(pi, oid);
+  // F — `stale` is read too: a row the live read once had and has since lost (the session closed or
+  // lapsed) is NOT a live status any more, whatever `tracked` still holds. And the order is `known` to
+  // exist — a cart-branch id came from a server resolve, and a single-pay pointer is `landed` once
+  // /track saw its row — so an empty first read of THIS mount (the header after a cleared table) is
+  // stale at once, not the webhook race polled to a timeout (the blind pass on #359).
+  const known = !!order && (order.paymentIntent ? !!order.landed : oid !== null);
+  const { order: tracked, timedOut, stale } = useOrderStatus(pi, oid, { known });
   // M65 — a HELD pickup turns "Scheduled" → "Preparing" at its fire_at with no row change to wake
   // the subscription, so while a stamp lies ahead the pill re-reads the clock once a minute.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -88,14 +100,30 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // the header pill did not, and the pill MORPHS into /track's chip on the tap (`.vt-order-status`), so
   // the J1 cut cross-faded two different claims about one order.
   const kind = tracked ? kindFromTrackedOrder(tracked) : null;
+  // F (lifecycle audit, 2026-10-13) — what a STALE read means, decided once (`staleOrderFate`): a
+  // PURE dine-in order's session closing is the end of the meal, so the pill and the home card retire
+  // it instead of saying "At your table" for the rest of the TTL; anything else is merely unknown from
+  // here, and drops to the honest floor below. Judged on a REAL row — the one this mount read, else
+  // the one /track recorded when it landed (`order.landed`) — never on the device's door (the second
+  // capped pass on #359: an all-to-go order placed at a dine-in table carries `mode: "dinein"`, and
+  // the clear would have deleted its pointer while the bag cooked). No recorded row, no verdict: the
+  // pointer goes quiet ("Placed") and stays — the rule below (`timedOut`) says why it never vanishes.
+  const basis = tracked
+    ? { kind: kindFromTrackedOrder(tracked), hasTogoFood: tracked.hasTogoFood }
+    : (order?.landed ?? null);
+  const fate = stale ? staleOrderFate(basis) : null;
+  const live = !!tracked && !stale;
   // "Ready" as a STATE (the lit chip) — not merely the raw column. A grocery basket is never "ready"
   // in the sense the chip lights for: there was no wait to end.
-  const ready = !!tracked && kind !== "grocery" && tracked.togoStatus === "ready";
+  const ready = live && kind !== "grocery" && tracked.togoStatus === "ready";
   const isDone =
-    !!tracked &&
-    (tracked.togoStatus === "picked_up" ||
-      tracked.status === "refunded" ||
-      tracked.status === "failed");
+    fate === "finished" ||
+    (!!tracked &&
+      (tracked.togoStatus === "picked_up" ||
+        // C — the refund STATE, not `status`: a cash refund to the last cent leaves `status` 'paid'.
+        trackRefunded(tracked.refund) ||
+        tracked.status === "refunded" ||
+        tracked.status === "failed"));
 
   // Retire the resumable order on a terminal state. clearOrder defers its setState (rAF) → lint-safe.
   useEffect(() => {
@@ -117,7 +145,7 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // `payment_intent` in any URL). The pill must go quiet, not disappear.
   const statusWord = !order
     ? null
-    : tracked && kind
+    : live && kind
       ? liveOrderStatusWord({
           kind,
           togoStatus: tracked.togoStatus,
@@ -125,7 +153,7 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
           // M65 — the pill reads the same gate /track does, on its own minute clock below.
           fired: isFired(tracked.fireAt, nowMs),
         })
-      : timedOut
+      : timedOut || stale
         ? "Placed"
         : "Confirming";
 

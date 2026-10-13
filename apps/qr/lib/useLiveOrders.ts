@@ -1,13 +1,20 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { readMyLiveOrders } from "./orders";
-import type { LiveOrder } from "./live-order";
+import { liveOrdersMoving, type LiveOrder } from "./live-order";
+
+/** J — the re-poll's tick, for every caller. Each tick reads the server only while the page is visible
+ *  and a fired bag is not yet Ready (`liveOrdersMoving`). Modest: a status word, not a ticker (the
+ *  pickup page's own tick is 30 s too). */
+export const LIVE_ORDERS_POLL_MS = 30_000;
 
 /**
  * K4 — the client freshness layer over `getMyLiveOrders`. The plan's "one realtime-ish freshness rule":
  * refetch on mount, on `visibilitychange`→visible, and on window focus (the J3 pattern) — NO new realtime
- * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus; the tray is
- * a poll). `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
+ * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus). The
+ * tray rows, the header's cross-device chip and /account "Today" have NO realtime feed of their own,
+ * so beside those events there is ONE timer (J, below), gated by `liveOrdersMoving` alone.
+ * `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
  * count/tray catch up shortly after the webhook stamps earned_by; the visibility/focus refetch is the
  * backstop for the redirect→stamp race.
  *
@@ -96,6 +103,29 @@ export function useLiveOrders(
       window.removeEventListener("focus", onWake);
     };
   }, [enabled, load, pokeKey]); // pokeKey change = a new order / navigation → refetch
+
+  // J (lifecycle audit, 2026-10-13) — the lists this hook feeds have no realtime of their own: the
+  // header's tray rows (two or more live orders) and its cross-device chip (`serverSingle`, an order
+  // this device did not place), and /account "Today" (the header pill is off there on purpose). So a
+  // guest watched "Preparing" through the expo's Ready until they switched apps and back. Every
+  // caller gets a local tick every LIVE_ORDERS_POLL_MS that asks `liveOrdersMoving` on its own clock
+  // and reads the server only while the page is visible and a FIRED bag is not yet Ready — the gate is
+  // that rule alone (the second capped pass on #359). A held or next-day pickup, a dine-in row or a
+  // grocery row costs no round trip; a held pickup starts the reads by itself once its `fire_at` passes,
+  // and a fired bag is minutes to an hour of reads.
+  const poll = enabled && orders.length > 0;
+  const ordersRef = useRef(orders);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+  useEffect(() => {
+    if (!poll) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible" && liveOrdersMoving(ordersRef.current, Date.now()))
+        load();
+    }, LIVE_ORDERS_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [poll, load]);
 
   return {
     orders: enabled ? orders : [],
