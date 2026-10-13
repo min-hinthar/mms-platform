@@ -53,7 +53,7 @@ import { surfaceOpen } from "./surfaces";
 // ── Phase 2d · floor ──
 import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
-import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
+import { foldFloorKitchen, servedUnsettled, type FloorKitchenRow } from "./floor-kitchen";
 import { settleLeftMs } from "./bump-settle";
 import { PAID_KITCHEN_CAP, paidRoundKitchen } from "./paid-round";
 import { trackStage } from "./kitchen-track";
@@ -453,7 +453,14 @@ export async function getFloorView(): Promise<FloorPoll> {
   const cookingMenuIds = [
     ...new Set(
       [...(lines ?? []), ...(paidLines ?? [])]
-        .filter((l) => l.state === "fired" || l.state === "in_progress")
+        // #360 (Codex P2) — and a dish bumped inside Mom's undo window, which the fold still counts
+        // as in the kitchen (`servedUnsettled`, the fold's own predicate): its flag stays as long.
+        .filter(
+          (l) =>
+            l.state === "fired" ||
+            l.state === "in_progress" ||
+            (l.state === "served" && servedUnsettled(l, serverNow)),
+        )
         .map((l) => l.menu_item_id)
         .filter((id) => UUID_RE.test(id)),
     ),
