@@ -97,6 +97,8 @@ let memberUpdateError: { code?: string; message: string } | null = null;
 let rateOk = true;
 /** The membership read fails (an outage). */
 let membersReadFails = false;
+/** …answering THIS error: a transport failure unless a case scripts another (M169's two arms). */
+let membersReadError: { code?: string; message: string } = { message: "fetch failed" };
 /** The registry (`qr_tables`) read fails (an outage) — the sticker arm's and the claim arm's. */
 let registryReadFails = false;
 /** A `table_sessions` read keyed on THIS token fails (an outage) — the prior-code read, the zero-row re-read. */
@@ -280,7 +282,7 @@ vi.mock("@mms/db/server", () => ({
           return { data: hit, error: null };
         }
         if (table === "session_members") {
-          if (membersReadFails) return { data: null, error: { message: "fetch failed" } };
+          if (membersReadFails) return { data: null, error: membersReadError };
           const hit = members.filter((m) => matches(m, q));
           return {
             data: hit.map((m) => ({ id: `${m.session_id}:${m.seat_id}`, role: m.role ?? null })),
@@ -421,6 +423,7 @@ beforeEach(() => {
   rateOk = true;
   memberInsertError = null;
   membersReadFails = false;
+  membersReadError = { message: "fetch failed" };
   registryReadFails = false;
   tokenReadFailsFor = null;
   rpcs = [];
@@ -1701,7 +1704,8 @@ describe("/api/session — M169: ONE host source — the member row's role is ke
   // Every server gate reads `session_members.role` (`assertCartMember` → fire a round, open or
   // cancel a split, bind the table, nudge the host); the mint answers `role` from
   // `table_sessions.host_seat`. The row used to be written ONCE, at the first join, so a seat that
-  // joined a server's table by invite (a guest) and then claimed it from the sticker (W6a) was told
+  // joined a server's table by invite (a guest) and then claimed it (W6a: the sticker, or its own
+  // reload of the code it kept — every join but an invite code) was told
   // "host" by its own phone while every gate refused it — and a claim whose UPDATE errored was read
   // as a lost race. host_seat is the source: it moves once (null → a seat) and never back, so a read
   // naming this seat is never stale; the row is PROMOTED to match it, and never demoted by a read of
@@ -1830,13 +1834,20 @@ describe("/api/session — M169: ONE host source — the member row's role is ke
     expect(myRow()?.role).toBe("host");
   });
 
-  it("the membership read before the insert failing is the W10a 503 — never a join whose row nobody read", async () => {
+  it("the membership read before the insert failing is the W10a 503 — never a join whose row nobody read — and any other error is 'try again' (500)", async () => {
     // MUTATION (hostsrc/member-read-discarded): the failed read is "not a member", the insert lands
     // over a row whose role was never checked, and the response says whatever host_seat says.
     sessions = [row("ABCD2345", "dinein", OTHER)];
     membersReadFails = true;
-    const res = await POST(req({ qrCode: "ABCD2345", mode: "dinein" }));
+    let res = await POST(req({ qrCode: "ABCD2345", mode: "dinein" }));
     expect(res.status).toBe(503);
+    expect(memberWrites()).toEqual([]);
+    // MUTATION (hostsrc/member-read-error-unbound): only the transport arm is bound, so a refused
+    // read (here a permission error) falls through to the insert exactly as a discarded one did.
+    membersReadError = { code: "42501", message: "permission denied" };
+    res = await POST(req({ qrCode: "ABCD2345", mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(await reasonOf(res)).toBe("try_again");
     expect(memberWrites()).toEqual([]);
   });
 });

@@ -34,6 +34,8 @@ const script: { items: Res; promo: Res; live: Res; reward: Res; link: Res } = {
 };
 /** Every `qr_carts` read this run made — the charge basis must make none. */
 let linkReads = 0;
+/** The one cart every case prices. The link read answers `script.link` only when keyed on it. */
+const CART = "cart-1";
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
@@ -41,10 +43,14 @@ vi.mock("@mms/db/server", () => ({
       table === "qr_carts"
         ? {
             select: () => ({
-              eq: () => ({
+              // The FILTER is part of the read (the blind pass on #353): keyed on any other column or
+              // value, postgrest answers no row and no error, so a mis-keyed read reads as unlinked.
+              eq: (col: string, val: unknown) => ({
                 maybeSingle: () => {
                   linkReads += 1;
-                  return Promise.resolve(script.link);
+                  return Promise.resolve(
+                    col === "id" && val === CART ? script.link : { data: null, error: null },
+                  );
                 },
               }),
             }),
@@ -138,29 +144,30 @@ describe("getCartTotals — never returns a total it isn't sure of (M30)", () =>
   });
 });
 
-describe("PD2 (PATH_DESIGN moment 2) — two reads, ONE derivation: the guest's pass and Dad's pane agree", () => {
-  // The guest's pass shows `totals.totalCents` from the view read; Dad's pane reads the floor's
-  // settle quote (lib/floor.ts). Since M123 (b) both are ONE call, `getCartTotals(id, 0, "quote")`
-  // (pinned at each site: cart-view-read.test.ts, floor-detail-promo.test.ts). This case still pins
-  // the DEFAULT tip at 0 — the split's grand total (`getCartTotals(id)`) prices every share off it.
-  // The same promo'd cart must answer the same figure from both calls, with the promo actually IN
-  // it — otherwise the family holds up a phone that says one total while the register names another.
+describe("PD2 (PATH_DESIGN moment 2) — the DEFAULT tip is zero: the split's grand total is the explicit tip-0 figure", () => {
+  // What this case does NOT pin, said so the title cannot claim it (the blind pass on #353): the
+  // guest's pass and Dad's pane agree because both sites make ONE call, `getCartTotals(id, 0,
+  // "quote")`, and that is pinned where each site calls it — cart-view-read.test.ts and
+  // floor-detail-promo.test.ts (`m123/view-quotes-the-charge-basis`,
+  // `m123/floor-quotes-the-charge-basis`). What is left here is the default: the split's grand
+  // total (`getCartTotals(id)`) prices every share off it, so a promo'd cart must answer the same
+  // figure from the default call as from the explicit tip-0 call, with the promo actually IN it.
   it("a promo'd cart answers the same total from the default call and the explicit tip-0 call", async () => {
     const PROMO = 450;
     script.promo = { data: PROMO, error: null };
-    const guest = await getCartTotals("cart-1");
-    const pane = await getCartTotals("cart-1", 0);
-    // MUTATION (totals/default-tip-not-zero): the default tip rate drifts off 0 — the guest's
-    // figure grows by a tip no one chose while Dad's stays; red.
-    expect(guest).toEqual(pane);
-    expect(guest.promoCents).toBe(PROMO);
-    expect(guest.tipCents).toBe(0);
+    const byDefault = await getCartTotals("cart-1");
+    const explicit = await getCartTotals("cart-1", 0);
+    // MUTATION (totals/default-tip-not-zero): the default tip rate drifts off 0 — the default
+    // call's figure grows by a tip no one chose while the explicit call's stays; red.
+    expect(byDefault).toEqual(explicit);
+    expect(byDefault.promoCents).toBe(PROMO);
+    expect(byDefault.tipCents).toBe(0);
     // …and the figure is the DISCOUNTED one, measured against the undiscounted run of the same cart
     // (never a transcribed total: tax follows the discounted base, so only the direction is pinned).
     script.promo = { data: 0, error: null };
     const undiscounted = await getCartTotals("cart-1", 0);
     expect(undiscounted.promoCents).toBe(0);
-    expect(guest.totalCents).toBeLessThan(undiscounted.totalCents);
+    expect(byDefault.totalCents).toBeLessThan(undiscounted.totalCents);
   });
 });
 
@@ -188,7 +195,9 @@ describe("M123 (b) — the QUOTE basis: the pin only while an intent is live, th
   it("quotes a LINKED cart at its pin — the amount the live intent was minted at", async () => {
     // A declined card is retried inline against the SAME PaymentIntent, at its original,
     // pin-inclusive amount (lib/lock.ts `releasePromoGrantFor`, point 1), so the screen beside that
-    // prompt must quote the same discount. MUTATION (m123/quote-always-live): red.
+    // prompt must quote the same discount. MUTATION (m123/quote-always-live): red. MUTATION
+    // (m123/link-read-wrong-key): the link read keyed on another column finds no row, and the
+    // linked cart is quoted live beside the intent that charges the pin; red.
     script.link = { data: { live_payment_intent_id: "pi_live" }, error: null };
     const quoted = await getCartTotals("cart-1", 0, "quote");
     expect(quoted.promoCents).toBe(PIN);

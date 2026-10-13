@@ -4174,6 +4174,15 @@ const MUTANTS = [
     replace: "  if (false && linkRes?.error) throw new Error('unreachable');",
   },
   {
+    id: "m123/link-read-wrong-key",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "M123 (b) — the link read keyed on any column but the cart's own id still typechecks and finds no row, so every linked cart reads as unlinked: the review step and the floor pane quote the live figure beside an intent that charges the pin (the blind pass on #353)",
+    find: '      ? db.from("qr_carts").select("live_payment_intent_id").eq("id", cartId).maybeSingle()',
+    replace:
+      '      ? db.from("qr_carts").select("live_payment_intent_id").eq("session_id", cartId).maybeSingle()',
+  },
+  {
     id: "m123/view-quotes-the-charge-basis",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-view-read.test.ts",
@@ -32629,6 +32638,14 @@ const MUTANTS = [
     suite: "app/api/session/route.test.ts",
     why: "M169 · W10a — an outage on the membership read reads 'try again' (500) instead of the 503",
     find: "  if (existingErr && isTransportFailure(existingErr)) return unavailable();\n",
+    replace: "",
+  },
+  {
+    id: "hostsrc/member-read-error-unbound",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "M169 — only the transport arm bound: a refused membership read (a permission or query error) is 'not a member' again, and the insert lands over a row whose role nobody checked (the blind pass on #353)",
+    find: '  if (existingErr) return refuse(500, "try_again", "Could not join session");\n',
     replace: "",
   },
   // ── J16 — every /api/session refusal names a machine reason; GuestList switches on it ───────────
