@@ -294,6 +294,12 @@ describe("clearHint — the paid card's quiet 'Clear when they leave'", () => {
     expect(clearHint({ ...GO, kitchen: { notSent: 0, inKitchen: 0, up: 1 } })).toBe(false);
     expect(clearHint({ ...GO, kitchen: { notSent: 0, inKitchen: 1, up: 0 } })).toBe(false);
     expect(clearHint({ ...GO, kitchen: { notSent: 1, inKitchen: 0, up: 0 } })).toBe(false);
+    // lck/clear-verdict/bag-still-to-bag-goes — the table's take-home dish is out of the kitchen and
+    // not yet bagged: "Clear when they leave" over food still at the pass.
+    expect(clearHint({ ...GO, kitchen: { notSent: 0, inKitchen: 0, up: 0, bagUp: 1 } })).toBe(
+      false,
+    );
+    expect(clearHint({ ...GO, kitchen: { notSent: 0, inKitchen: 0, up: 0, bagUp: 0 } })).toBe(true);
     // MUTATION clear-hint/unknown-kitchen-goes → red.
     expect(clearHint({ ...GO, kitchenUnknown: true })).toBe(false);
     expect(clearHint({ ...GO, kitchen: null, kitchenUnknown: true })).toBe(false);

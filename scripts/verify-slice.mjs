@@ -5192,8 +5192,8 @@ const MUTANTS = [
     file: "apps/qr/lib/expo.ts",
     suite: "lib/expo.test.ts",
     why: "A4·2 (K30 B) — the read exists to put the kitchen's progress on the ticket; hardcoding `unknown` keeps the query, the log line and the badge code and ships none of the behaviour — every bag reads unknown, no badge is ever drawn, the lane never reorders. The wiring suite is what tells this from a working read",
-    find: "    const kitchen = kitchenStateOf(cartLinesOf);",
-    replace: "    const kitchen = kitchenStateOf(undefined);",
+    find: "    const kitchen = kitchenStateOf(cartLinesOf, nowIso);",
+    replace: "    const kitchen = kitchenStateOf(undefined, nowIso);",
   },
   {
     id: "expo/a-truncated-kitchen-read-still-verdicts",
@@ -12031,23 +12031,23 @@ const MUTANTS = [
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — the wait counts from the table's OLDEST ticket (the KDS's rule); the newest understates how long a table has waited",
-    find: "      if (fireMs < oldestMs) {",
-    replace: "      if (oldestFireAt === null || fireMs > oldestMs) {",
+    find: "    if (fireMs < oldestMs) {",
+    replace: "    if (oldestFireAt === null || fireMs > oldestMs) {",
   },
   {
     id: "p2d-floor/kitchen-counts-rows-not-dishes",
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — counts are dish units: a line of three is three in the kitchen, as the KDS and the card's item count say",
-    find: "      inKitchen += r.qty;",
-    replace: "      inKitchen += 1;",
+    find: "    inKitchen += r.qty;",
+    replace: "    inKitchen += 1;",
   },
   {
     id: "p2d-floor/kitchen-zero-record-not-null",
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — a table with nothing to say about the kitchen is null, so the card draws no kitchen row; a zero record draws an empty one",
-    find: "  if (notSent === 0 && inKitchen === 0 && up === 0 && done === 0) return null;\n",
+    find: "  if (notSent === 0 && inKitchen === 0 && up === 0 && bagUp === 0 && done === 0) return null;\n",
     replace: "",
   },
   {
@@ -12055,8 +12055,8 @@ const MUTANTS = [
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — 'Kitchen done' over a dish nobody sent is the one lie this row could tell: a table still owing a Send is never done",
-    find: "  if (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && k.done > 0)",
-    replace: "  if (k.inKitchen === 0 && k.up === 0 && k.done > 0)",
+    find: "  if (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && bagUp === 0 && k.done > 0)",
+    replace: "  if (k.inKitchen === 0 && k.up === 0 && bagUp === 0 && k.done > 0)",
   },
   {
     id: "p2d-floor/wait-on-an-empty-kitchen",
@@ -12261,8 +12261,9 @@ const MUTANTS = [
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · floor — 'not sent' is dine-in drafts only; without the fulfillment column the send rule sees none and every table owes nothing",
     // Phase 2d · review — re-anchored: the paged read selects `id` first (floor #6).
-    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
-    replace: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fire_at,bumped_at,by_seat",',
+    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat,menu_item_id",',
+    replace:
+      '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fire_at,bumped_at,by_seat,menu_item_id",',
   },
   {
     id: "p2d-floor/read-drops-who-added-it",
@@ -12270,9 +12271,9 @@ const MUTANTS = [
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · floor — on a host table only staff-added drafts are owed; without by_seat every diner's line reads as staff-added",
     // Phase 2d · review — re-anchored: the paged read selects `id` first (floor #6).
-    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
+    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat,menu_item_id",',
     replace:
-      '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at",',
+      '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,menu_item_id",',
   },
   {
     id: "p2d-floor/read-host-ignored",
@@ -14204,8 +14205,9 @@ const MUTANTS = [
     file: "apps/qr/lib/clear-verdict.ts",
     suite: "lib/clear-table.test.ts",
     why: "PD7 · m7 B6 — a family eating is never told to leave: a dish served inside the wall's linger holds the hint",
-    find: "  return k === null || (k.notSent === 0 && k.inKitchen === 0 && k.up === 0);\n",
-    replace: "  return k === null || (k.notSent === 0 && k.inKitchen === 0);\n",
+    find: "  return k === null || (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && (k.bagUp ?? 0) === 0);\n",
+    replace:
+      "  return k === null || (k.notSent === 0 && k.inKitchen === 0 && (k.bagUp ?? 0) === 0);\n",
   },
   {
     id: "clear-hint/unknown-kitchen-goes",
@@ -15824,8 +15826,9 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · Codex round 1 · ready — the paid-cart read must carry the line id: without it a paid round's key is `undefined@<stamp>`, a timestamp alone, and 'once per newly-ready line' rests on no two bumps ever sharing an instant rather than on the line",
-    find: '          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")',
-    replace: '          .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")',
+    find: '          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat,menu_item_id")',
+    replace:
+      '          .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat,menu_item_id")',
   },
   {
     id: "p2d-cx1/ready-board-forgets-what-it-heard",
@@ -16221,7 +16224,7 @@ const MUTANTS = [
     file: "apps/qr/lib/counter-order.ts",
     suite: "lib/counter-order.test.ts",
     why: "Phase 2f review PT3 — the bell keys finished counter food by its finish; without the stamp a second batch that finishes later never rings",
-    find: '    doneAt: orderKitchen === "done" ? kitchenDoneAt(i.lines) : null,',
+    find: '    doneAt: orderKitchen === "done" ? kitchenDoneAt(i.lines, nowIso) : null,',
     replace: "    doneAt: null,",
   },
   {
@@ -16342,7 +16345,7 @@ const MUTANTS = [
     file: "apps/qr/lib/expo.ts",
     suite: "lib/expo.test.ts",
     why: "Phase 2f review PT3 — the paid counter bag must carry the finish its unpaid bag did (off the same cart lines), or payment re-rings the bell and a later finish never does",
-    find: '      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf) : null,',
+    find: '      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf, nowIso) : null,',
     replace: "      doneAt: null,",
   },
   {
@@ -16980,8 +16983,8 @@ const MUTANTS = [
     file: "apps/qr/lib/counter-order.ts",
     suite: "lib/counter-order.test.ts",
     why: "Codex r3 on #308 — the bag's kitchen state reads the lines in the kitchen; over the whole order a draft or an in-grace send keeps a finished bag cooking forever",
-    find: "  const kitchen = kitchenStateOf(inKitchen);\n",
-    replace: "  const kitchen = kitchenStateOf(i.lines);\n",
+    find: "  const kitchen = kitchenStateOf(inKitchen, nowIso);\n",
+    replace: "  const kitchen = kitchenStateOf(i.lines, nowIso);\n",
   },
   {
     id: "p2f-cx3-bag/unpaid-cap-drops-comped",
@@ -36019,6 +36022,98 @@ const MUTANTS = [
     find: "    const door = servedHold === null;",
     replace: "    const door = false;",
   },
+  // ── The lifecycle audit (2026-10-13) · KITCHEN ↔ FLOOR ↔ BOARD — every staff surface tells the
+  // same truth, live, and a mistake can be taken back. Prefix `lck/`. ──
+  {
+    id: "lck/expo-rules/done-on-a-raw-served",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "The lifecycle audit — a raw `state = served` reads 'Kitchen done' inside Mom's six-second Undo: the bag jumps the queue, the counter bell rings, and a bagger can tap 'Bagged & ready' (no reverse edge) over food still on the wok",
+    find: '  return food.some((l) => !bumpSettled(l, nowIso)) ? "cooking" : "done";',
+    replace: '  return food.some((l) => l.state !== "served") ? "cooking" : "done";',
+  },
+  {
+    id: "lck/expo-rules/done-at-reads-an-unsettled-bump",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "The lifecycle audit — the bell's finish key minted from a bump still inside the undo window rings a finish the Undo then takes back, and the real finish later rings nothing new",
+    find: '    if (l.fulfillment !== "togo" || !bumpSettled(l, nowIso)) continue;',
+    replace: '    if (l.fulfillment !== "togo" || l.state !== "served" || !l.bumped_at) continue;',
+  },
+  {
+    id: "lck/bump-settle/settled-ignores-the-state",
+    file: "apps/qr/lib/bump-settle.ts",
+    suite: "lib/bump-settle.test.ts",
+    why: "The lifecycle audit — a stale stamp on a line that is no longer served (recalled, or mid-write) would read as a finished dish",
+    find: '  return l.state === "served" && servedSettled(l.bumped_at ?? null, nowIso);',
+    replace: "  return servedSettled(l.bumped_at ?? null, nowIso);",
+  },
+  {
+    id: "lck/bump-settle/latest-window-wins",
+    file: "apps/qr/lib/bump-settle.ts",
+    suite: "lib/bump-settle.test.ts",
+    why: "The lifecycle audit — scheduling the LAST window to close leaves the first bump's 'Kitchen done' / 'Ready to serve' waiting on a bump seconds younger",
+    find: "    if (left > 0 && (soonest === null || left < soonest)) soonest = left;",
+    replace: "    if (left > 0 && (soonest === null || left > soonest)) soonest = left;",
+  },
+  {
+    id: "lck/floor-kitchen/up-inside-the-undo",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "The lifecycle audit — the floor card rings 'Ready to serve — Table 7' within the debounce of a mis-tapped All done, and the Undo three seconds later cannot take the server's walk to the pass back",
+    find: "      if (bumpedMs !== null && !servedSettled(r.bumped_at, nowIso)) {",
+    replace: "      if (bumpedMs !== null && bumpedMs > ctx.nowMs) {",
+  },
+  {
+    id: "lck/floor-kitchen/table-togo-served-to-the-table",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "The lifecycle audit — a dine-in table's take-home dish is announced 'Ready to serve — Table 7' while the expo lane tells the counter to bag it: one dish, two instructions",
+    find: '        if (ctx.mode === "dinein" && r.fulfillment === "togo") bagUp += r.qty;',
+    replace: '        if (ctx.mode === "dinein" && r.fulfillment === "grocery") bagUp += r.qty;',
+  },
+  {
+    id: "lck/floor-kitchen/sold-out-uncounted",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "The lifecycle audit — the KDS tags a fired dish 'Sold out' and the floor card says nothing: only a verbal relay tells anyone",
+    find: "    if (r.soldOut === true) soldOut += r.qty;",
+    replace: "    if (r.soldOut === true) soldOut += 0;",
+  },
+  {
+    id: "lck/clear-verdict/bag-still-to-bag-goes",
+    file: "apps/qr/lib/clear-verdict.ts",
+    suite: "lib/clear-table.test.ts",
+    why: "The lifecycle audit — 'Clear when they leave' over a table whose take-home dish is out of the kitchen and not yet bagged",
+    find: " && (k.bagUp ?? 0) === 0);",
+    replace: ");",
+  },
+  {
+    id: "lck/expo/settle-reread-unscheduled",
+    file: "apps/qr/lib/expo.ts",
+    suite: "lib/expo.test.ts",
+    why: "The lifecycle audit — nothing in the database changes when Mom's undo window closes, so without the scheduled re-read 'Kitchen done' waits for the next poll after the bag is really finished",
+    find: "  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso, settleInMs } };",
+    replace:
+      "  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso, settleInMs: null } };",
+  },
+  {
+    id: "lck/floor/sold-out-flag-dropped",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "The lifecycle audit — the card's sold-out flag read off the wrong menu rows: a dish 86'd since it was sent says nothing, and a dish on sale says 'sold out'",
+    find: '      .eq("is_sold_out", true);\n    if (soldError)',
+    replace: '      .eq("is_sold_out", false);\n    if (soldError)',
+  },
+  {
+    id: "lck/floor/settle-reread-unscheduled",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "The lifecycle audit — without the one scheduled re-read, 'Ready to serve' waits for the next poll after the dish is really out",
+    find: "      kitchenUnknown,\n      settleInMs,\n    },",
+    replace: "      kitchenUnknown,\n      settleInMs: null,\n    },",
+  },
+  // ── lck: end ──
 ];
 
 // ── argv — strict, because a silently-ignored flag is a silently-different run ──────────────────────

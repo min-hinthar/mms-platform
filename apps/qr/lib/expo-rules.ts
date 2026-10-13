@@ -1,3 +1,4 @@
+import { bumpSettled } from "./bump-settle";
 import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
 
 /**
@@ -18,8 +19,9 @@ import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
  */
 export type KitchenState = "done" | "cooking" | "unknown";
 
-/** The two columns the rule reads off `qr_cart_items`. */
-export type KitchenLineRow = { state: string; fulfillment: string };
+/** The columns the rule reads off `qr_cart_items` (`bumped_at` — the lifecycle audit: a bump is
+ *  "done" only once it has left Mom's undo window, `bumpSettled`). */
+export type KitchenLineRow = { state: string; fulfillment: string; bumped_at?: string | null };
 
 /**
  * The bag's kitchen state from its cart's lines.
@@ -28,15 +30,24 @@ export type KitchenLineRow = { state: string; fulfillment: string };
  * bag), and a `grocery` line is never fired (bag-and-go), so a grocery-only bag is "done" the
  * moment it is paid — which is exactly what the counter needs to know about it. A voided line is
  * off the ticket and cannot keep a bag "cooking" forever.
+ *
+ * The lifecycle audit (2026-10-13) — a dish counts as finished only on the ONE track's settled
+ * predicate (`bumpSettled`: served AND its bump `KDS_UNDO_MS` old on the DB clock `nowIso`). A raw
+ * `state = served` read "Kitchen done" inside Mom's six-second Undo: the bag jumped the queue, the
+ * counter bell rang, and a bagger could tap "Bagged & ready" — which has no reverse edge — over food
+ * still on the wok.
  */
-export function kitchenStateOf(lines: readonly KitchenLineRow[] | undefined): KitchenState {
+export function kitchenStateOf(
+  lines: readonly KitchenLineRow[] | undefined,
+  nowIso: string,
+): KitchenState {
   if (lines === undefined || lines.length === 0) return "unknown";
   const togo = lines.filter((l) => l.fulfillment === "togo");
   const food = togo.filter((l) => l.state !== "voided");
   // Every dish on the bag voided after payment: nothing left to cook, and "Kitchen done" on a bag
   // that is being refunded would be a true sentence that misleads — say nothing (blind pass).
   if (togo.length > 0 && food.length === 0) return "unknown";
-  return food.some((l) => l.state !== "served") ? "cooking" : "done";
+  return food.some((l) => !bumpSettled(l, nowIso)) ? "cooking" : "done";
 }
 
 /**
@@ -47,17 +58,19 @@ export function kitchenStateOf(lines: readonly KitchenLineRow[] | undefined): Ki
  * seen from the unpaid bag and from the paid bag that replaces it is ONE stamp, so one ring. Read off
  * the cart's lines on both sides, so payment cannot change it.
  */
-export function kitchenDoneAt(
-  lines: readonly (KitchenLineRow & { bumped_at?: string | null })[],
-): string | null {
+export function kitchenDoneAt(lines: readonly KitchenLineRow[], nowIso: string): string | null {
   let best: string | null = null;
   let bestMs = Number.NEGATIVE_INFINITY;
   for (const l of lines) {
-    if (l.fulfillment !== "togo" || l.state !== "served" || !l.bumped_at) continue;
-    const ms = Date.parse(l.bumped_at);
+    // The lifecycle audit — only a SETTLED bump is a finish (`bumpSettled`): a stamp still inside
+    // Mom's undo window may be taken back, and a key minted from it would ring for food on the wok.
+    if (l.fulfillment !== "togo" || !bumpSettled(l, nowIso)) continue;
+    // Settled implies a parseable stamp (`servedSettled` refuses a null or unreadable one).
+    const at = l.bumped_at as string;
+    const ms = Date.parse(at);
     if (ms > bestMs) {
       bestMs = ms;
-      best = l.bumped_at;
+      best = at;
     }
   }
   return best;

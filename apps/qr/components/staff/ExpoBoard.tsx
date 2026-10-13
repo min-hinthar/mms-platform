@@ -44,6 +44,7 @@ import { boundWrite, track } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { factSubject, laneFacts } from "@/lib/counter-attention";
+import { GRACE_REREAD_MARGIN_MS } from "@/lib/live-pass";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -922,6 +923,16 @@ export function ExpoBoard({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [refresh]);
+  // The lifecycle audit — a bump becomes "Kitchen done" only when Mom's undo window closes, and the
+  // database says nothing at that moment: ONE re-read for it (`settleInMs`, measured on the DB clock
+  // at the read; the shared margin lands it after the instant — the live pass's own pattern). Each
+  // snapshot replaces the timer, so it never stacks.
+  const settleInMs = snap.settleInMs ?? null;
+  useEffect(() => {
+    if (settleInMs === null) return;
+    const id = setTimeout(() => void refresh(), settleInMs + GRACE_REREAD_MARGIN_MS);
+    return () => clearTimeout(id);
+  }, [snap, settleInMs, refresh]);
 
   // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): a picked-up bump drops the card — restore focus
   // to the heading only when it fell to <body> from a real control (edge-triggered; poll-safe).

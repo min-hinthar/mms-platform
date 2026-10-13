@@ -369,7 +369,9 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
   // Phase 2g · P2fk — the bag's age is `counterSentMs`, the ONE derivation `counterUncollected` reads
   // (never null here: `inKitchen` is non-empty, and it is exactly the set `counterSentMs` scans).
   const sentMs = counterSentMs(i.lines, i.nowMs) ?? i.nowMs;
-  const kitchen = kitchenStateOf(inKitchen);
+  // The lifecycle audit — "done" is the ONE track's settled bump, on the read's DB clock (`nowMs`).
+  const nowIso = new Date(i.nowMs).toISOString();
+  const kitchen = kitchenStateOf(inKitchen, nowIso);
   // Self-review PT-4 — while a draft is unsent the ORDER is not done, whatever its sent lines say
   // (the floor card's rule), so no "Kitchen done" and no bell: the ring comes when the LAST batch
   // finishes, keyed by that batch's bump (`kitchenDoneAt`), after every draft is sent.
@@ -382,7 +384,7 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
     moreUnits,
     owes: counterOwes(i.lines),
     kitchen: orderKitchen,
-    doneAt: orderKitchen === "done" ? kitchenDoneAt(i.lines) : null,
+    doneAt: orderKitchen === "done" ? kitchenDoneAt(i.lines, nowIso) : null,
     sentAt: new Date(sentMs).toISOString(),
   };
 }

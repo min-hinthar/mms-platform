@@ -96,6 +96,12 @@ export type FloorKitchen = {
    *  bump's `<line id>@<bumped_at>` (`floor-kitchen.ts`). The floor's cue reads these, never `up`:
    *  a count holds still when one dish leaves the window as another comes out. */
   upKeys: string[];
+  /** The lifecycle audit — a dine-in table's served TO-GO dishes inside that window: bagged, never
+   *  served to the table, so never in `up`/`upKeys` (no "Ready to serve" cue). Absent reads as 0. */
+  bagUp?: number;
+  /** The lifecycle audit — dishes counted in `inKitchen` whose menu item was 86'd after they were
+   *  sent (the floor's advisory menu read). A question for the kitchen, never a cancel. Absent = 0. */
+  soldOut?: number;
   /** Served before that window (or with no bump stamp). */
   done: number;
   /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */
@@ -127,6 +133,10 @@ export type FloorSnapshot = {
    *  `kitchen` is null because it is UNKNOWN, not empty, and the board says so once in its region.
    *  Required, never defaulted — a producer that forgot it would draw "nothing in the kitchen". */
   kitchenUnknown: boolean;
+  /** The lifecycle audit — how long (ms, on the DB clock) until the earliest bump on the floor leaves
+   *  Mom's undo window and turns into "ready to serve" (`settleLeftMs`): the board schedules ONE
+   *  re-read for it. Null/absent when no bump is inside the window. */
+  settleInMs?: number | null;
 };
 
 /** W10b: the floor poll discriminant (K10 parity with KitchenPoll/ExpoPoll). A failed gate/read used

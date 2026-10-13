@@ -9,6 +9,7 @@ import {
 } from "./floor-kitchen";
 import { PULSE_PASS_LINGER_MS } from "./board-pulse";
 import { DEFAULT_KDS_THRESHOLDS } from "./kds-urgency";
+import { KDS_UNDO_MS } from "./kds-undo";
 
 /**
  * Phase 2d · floor — the table card's kitchen row, decided as VALUES.
@@ -324,5 +325,85 @@ describe("foldFloorKitchen — the ready keys", () => {
     const first = fold([row({ id: "l-a", state: "served", bumped_at: at(-3 * MIN) })]);
     const again = fold([row({ id: "l-a", state: "served", bumped_at: at(-10_000) })]);
     expect(upRose(heardUp(undefined, first?.upKeys ?? []), again?.upKeys ?? [])).toBe(true);
+  });
+});
+
+describe("foldFloorKitchen — the lifecycle audit: one track, the bag's verb, a sold-out flag", () => {
+  it("a bump inside Mom's undo window is still IN THE KITCHEN — never 'ready to serve', never a cue", () => {
+    // lck/floor-kitchen/up-inside-the-undo — the card rang "Ready to serve — Table 7" within the
+    // realtime debounce of a mis-tapped All done, and the Undo three seconds later could not take
+    // the server's walk to the pass back. One millisecond inside the window is cooking.
+    const inside = row({
+      id: "l-mis",
+      state: "served",
+      bumped_at: at(-(KDS_UNDO_MS - 1)),
+      fire_at: at(-3 * MIN),
+    });
+    const k = fold([inside]);
+    expect(k?.up).toBe(0);
+    expect(k?.upKeys).toEqual([]);
+    expect(k?.inKitchen).toBe(1);
+    // …and it is the oldest dish still on the wok, so the wait pill keeps counting from it
+    expect(k?.oldestFireAt).toBe(at(-3 * MIN));
+    // exactly at the window it is out: up, with its key
+    const settled = fold([{ ...inside, bumped_at: at(-KDS_UNDO_MS) }]);
+    expect(settled?.up).toBe(1);
+    expect(settled?.upKeys).toEqual([`l-mis@${at(-KDS_UNDO_MS)}`]);
+  });
+
+  it("a dine-in table's served TO-GO dish is bagged — `bagUp`, never 'ready to serve'", () => {
+    // lck/floor-kitchen/table-togo-served-to-the-table — the floor said "Ready to serve — Table 7"
+    // for the take-home curry the expo lane was telling the counter to bag.
+    const k = fold([
+      row({ id: "l-bag", state: "served", fulfillment: "togo", bumped_at: at(-MIN) }),
+      row({ id: "l-dish", state: "served", fulfillment: "dinein", bumped_at: at(-MIN) }),
+    ]);
+    expect(k?.bagUp).toBe(1);
+    expect(k?.up).toBe(1);
+    expect(k?.upKeys).toEqual([`l-dish@${at(-MIN)}`]);
+    expect(kitchenSegments(k)).toEqual([
+      { k: "floor.kitchen.up", n: 1 },
+      { k: "floor.kitchen.up.pickup", n: 1 },
+    ]);
+    // A COUNTER order (mode pickup) is all bags already: its card says "ready to bag" for `up`.
+    const counter = foldFloorKitchen(
+      [row({ id: "l-c", state: "served", fulfillment: "togo", bumped_at: at(-MIN) })],
+      { mode: "pickup", hostPresent: false, nowMs: NOW },
+    );
+    expect(counter?.up).toBe(1);
+    expect(counter?.bagUp).toBe(0);
+  });
+
+  it("a bag still to bag keeps the row from saying 'Kitchen done'", () => {
+    expect(
+      kitchenSegments({
+        notSent: 0,
+        inKitchen: 0,
+        up: 0,
+        upKeys: [],
+        bagUp: 1,
+        done: 2,
+        oldestFireAt: null,
+      }),
+    ).toEqual([{ k: "floor.kitchen.up.pickup", n: 1 }]);
+  });
+
+  it("a dish 86'd since it was sent is FLAGGED and still counted in the kitchen", () => {
+    // lck/floor-kitchen/sold-out-uncounted — the KDS tags the fired line "Sold out" and the card
+    // said nothing. The 86's own words are "orders already on the board stay", so it is a question
+    // for the kitchen, never a cancel: still in the kitchen, plus the flag.
+    const k = fold([
+      row({ id: "l-86", soldOut: true, fire_at: at(-9 * MIN) }),
+      row({ id: "l-ok", fire_at: at(-2 * MIN) }),
+      // a served (and so finished) sold-out dish is no question for anyone
+      row({ id: "l-gone", soldOut: true, state: "served", bumped_at: at(-MIN) }),
+    ]);
+    expect(k?.inKitchen).toBe(2);
+    expect(k?.soldOut).toBe(1);
+    expect(kitchenSegments(k)).toEqual([
+      { k: "floor.kitchen.inKitchen", n: 2 },
+      { k: "floor.kitchen.soldOut", n: 1 },
+      { k: "floor.kitchen.up", n: 1 },
+    ]);
   });
 });

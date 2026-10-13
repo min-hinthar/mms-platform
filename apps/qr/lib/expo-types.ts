@@ -111,6 +111,10 @@ export type ExpoQueue = {
   unpaidTruncated?: boolean;
   /** Server clock at snapshot (ISO) — the client seeds relative-time ticks from this (clock-skew safe). */
   serverNow: string;
+  /** The lifecycle audit — how long (ms, on the DB clock) until the earliest to-go bump on the lane
+   *  leaves Mom's undo window and turns into "Kitchen done" (`settleLeftMs`); the lane schedules ONE
+   *  re-read for it. Null/absent when no bump is inside the window. */
+  settleInMs?: number | null;
 };
 
 /** W3d (K10): poll gate discriminant — an expired staff cookie / locked console redirects instead of

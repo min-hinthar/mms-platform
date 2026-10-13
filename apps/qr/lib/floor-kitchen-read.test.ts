@@ -551,3 +551,52 @@ describe("getFloorView — a line read at its cap", () => {
     expect(t.kitchen).not.toBeNull();
   });
 });
+
+describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one settle re-read)", () => {
+  const MENU = "11111111-2222-4333-8444-555555555555";
+  it("a dish 86'd since it was sent is flagged on the card, read from the menu on this poll", async () => {
+    // lck/floor/sold-out-flag-dropped — the KDS tagged the fired line "Sold out" while the card
+    // kept "1 in kitchen" and a climbing wait pill with no word about it.
+    rows.qr_cart_items = [
+      line({ id: "l-86", cart_id: PAID, state: "fired", fire_at: ago(9), menu_item_id: MENU }),
+      line({ id: "l-ok", state: "fired", fire_at: ago(2), menu_item_id: "a-barcode" }),
+    ];
+    rows.menu_items = [{ id: MENU, is_sold_out: true }];
+    const { t } = await table7();
+    expect(t.kitchen?.inKitchen).toBe(2);
+    expect(t.kitchen?.soldOut).toBe(1);
+    // …and a dish still on sale is never flagged
+    rows.menu_items = [{ id: MENU, is_sold_out: false }];
+    expect((await table7()).t.kitchen?.soldOut).toBe(0);
+  });
+
+  it("an unreadable menu flags nothing and never takes the room down", async () => {
+    rows.qr_cart_items = [
+      line({ id: "l-86", cart_id: PAID, state: "fired", fire_at: ago(9), menu_item_id: MENU }),
+    ];
+    rows.menu_items = [{ id: MENU, is_sold_out: true }];
+    failing.add("menu_items");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { t } = await table7();
+    expect(t.kitchen?.inKitchen).toBe(1);
+    expect(t.kitchen?.soldOut).toBe(0);
+    spy.mockRestore();
+  });
+
+  it("a bump inside Mom's undo window schedules ONE re-read for when it settles", async () => {
+    // lck/floor/settle-reread-unscheduled — nothing in the database changes when the window closes,
+    // so without it "Ready to serve" waited for the next 5 s poll after the dish was really out.
+    const bumped = new Date(Date.parse(DB_NOW) - 2_000).toISOString();
+    rows.qr_cart_items = [
+      line({ id: "l-just", state: "served", fire_at: ago(3), bumped_at: bumped }),
+    ];
+    const { snap, t } = await table7();
+    expect(t.kitchen?.up).toBe(0);
+    expect(t.kitchen?.inKitchen).toBe(1);
+    expect(snap.settleInMs).toBe(4_000);
+    rows.qr_cart_items = [
+      line({ id: "l-out", state: "served", fire_at: ago(3), bumped_at: ago(1) }),
+    ];
+    expect((await table7()).snap.settleInMs).toBeNull();
+  });
+});

@@ -19,6 +19,7 @@ import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { readUnpaidCounterCarts } from "./register-queue";
 import { counterUncollected, unpaidBag } from "./counter-order";
+import { settleLeftMs, soonerMs } from "./bump-settle";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -265,8 +266,19 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     };
   };
   const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
+  // The lifecycle audit — a bump turns into "Kitchen done" only once Mom's undo window closes
+  // (`bumpSettled`), and NOTHING changes in the database at that moment, so no realtime event will
+  // say it: the lane re-reads ONCE when the earliest window closes (`settleLeftMs`, a duration on
+  // the DB clock). The unpaid bags' own to-go lines are counted here; the paid bags' below.
+  const unpaidSettle = settleLeftMs(
+    unpaidRead.carts.flatMap((c) => (c.items ?? []).filter((l) => l.fulfillment === "togo")),
+    nowIso,
+  );
   if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso } };
+    return {
+      ok: true,
+      queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso, settleInMs: unpaidSettle },
+    };
 
   const linesByOrder = new Map<string, ExpoLine[]>();
   for (const it of items ?? []) {
@@ -362,7 +374,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     if (lines.length === 0) continue; // no takeaway line at all — not a bag (defensive)
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
     const cartLinesOf = o.cart_id ? linesByCart.get(o.cart_id) : undefined;
-    const kitchen = kitchenStateOf(cartLinesOf);
+    const kitchen = kitchenStateOf(cartLinesOf, nowIso);
     tickets.push({
       orderId: o.id,
       cartId: o.cart_id ?? null,
@@ -377,7 +389,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       status: o.togo_status === "ready" ? "ready" : "preparing",
       kitchen,
       // Phase 2f review PT3 — the finish, off the SAME cart lines an unpaid bag reads its own from.
-      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf) : null,
+      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf, nowIso) : null,
       pickupSlot: o.pickup_slot ?? null,
       arrivedAt: o.arrived_at ?? null,
       lines,
@@ -389,7 +401,14 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // finished, then the effective due time (the pickup slot when one exists, else payment time), then
   // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
   tickets.sort(compareExpoTickets);
-  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso } };
+  const settleInMs = soonerMs(
+    unpaidSettle,
+    settleLeftMs(
+      [...linesByCart.values()].flat().filter((l) => l.fulfillment === "togo"),
+      nowIso,
+    ),
+  );
+  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso, settleInMs } };
 }
 
 export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };

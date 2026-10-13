@@ -179,7 +179,7 @@ beforeEach(() => {
     order(ORDER_B, CART_B, "2026-09-13T17:00:00Z"),
   ];
   cartLineRows = [
-    { cart_id: CART_A, state: "served", fulfillment: "togo" },
+    { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:00Z" },
     { cart_id: CART_B, state: "fired", fulfillment: "togo" },
   ];
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -199,6 +199,30 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
       [ORDER_A, "done"],
       [ORDER_B, "cooking"],
     ]);
+  });
+  it("a bump inside Mom's undo window is still COOKING, and the lane is told when it settles", async () => {
+    // The lifecycle audit — a mis-tapped All done read "Kitchen done" within the realtime debounce,
+    // lifted the bag and rang the bell; the Undo three seconds later took none of it back. Two
+    // seconds after the bump (NOW is the fake's DB clock) the bag is cooking, and the lane learns the
+    // window closes in four.
+    cartLineRows = [
+      { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:58Z" },
+      { cart_id: CART_B, state: "fired", fulfillment: "togo" },
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets.map((t) => [t.orderId, t.kitchen])).toEqual([
+      [ORDER_B, "cooking"],
+      [ORDER_A, "cooking"],
+    ]);
+    expect(res.queue.settleInMs).toBe(4_000);
+    // …and once it has settled there is nothing left to wait for
+    cartLineRows = [
+      { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:59:00Z" },
+    ];
+    const later = await getExpoQueue();
+    if (!later.ok) throw new Error("expected ok");
+    expect(later.queue.settleInMs).toBeNull();
   });
   it("a failed cart-lines read is ADVISORY: every bag reads unknown, the queue keeps its due order", async () => {
     // MUTATION: refuse the counter (`outage`) on the failed read → the whole lane freezes over a

@@ -2,6 +2,7 @@ import { PULSE_COOKING_STATES, PULSE_PASS_LINGER_MS } from "./board-pulse";
 import { kdsUrgency } from "./kds-urgency";
 import { staffOwedSendUnits, staffSendCounts } from "./staff-send-view";
 import { ERR_DWELL_MS } from "./kds-errors";
+import { servedSettled } from "./kitchen-track";
 import type { FloorKitchen } from "./floor-types";
 import type { KdsThresholds } from "./kitchen-types";
 
@@ -19,6 +20,14 @@ import type { KdsThresholds } from "./kitchen-types";
  *                   wall skip it (the 10-second undo, a held pickup). `nowMs` is the DATABASE clock.
  *   ready to serve  served with `bumped_at` inside `PULSE_PASS_LINGER_MS` — the window the wall keeps
  *                   a served Send for. Never a claim that anyone RAN the food: no runner event exists.
+ *                   The lifecycle audit (2026-10-13): and only once that bump has left Mom's undo
+ *                   window (`servedSettled`, the ONE track's predicate) — inside it the dish is still
+ *                   COOKING, exactly as the wall and the guest's pass say. A dine-in table's TO-GO
+ *                   dish is never "ready to serve": it is bagged (`bagUp`, the counter card's verb).
+ *   sold out        a dish in the kitchen whose menu item has been 86'd since it was sent (`soldOut`
+ *                   on the row, the floor's advisory menu read). Still COUNTED in the kitchen: the
+ *                   86's own words are "orders already on the board stay — tell the counter if you
+ *                   can't make them", so the flag is a question for the kitchen, never a cancel.
  *   not sent        2a's ONE count (plan conflict "floor × send-kitchen"): `staffOwedSendUnits(
  *                   hostPresent, staffSendCounts(…))` over the OPEN cart — every sendable dish on a
  *                   hostless table, only staff-added ones on a host table (owner decision 5c) — plus,
@@ -42,6 +51,9 @@ export type FloorKitchenRow = {
   /** The table's OPEN cart (true) or one of its paid carts (false). Only the open cart can owe a
    *  Send: a paid cart's leftovers are fired by settlement. */
   onOpenCart: boolean;
+  /** The lifecycle audit — the dish has been 86'd since it was sent (the floor's ADVISORY menu
+   *  read; absent or false when unknown). */
+  soldOut?: boolean;
 };
 
 export type FloorKitchenContext = {
@@ -92,9 +104,22 @@ export function foldFloorKitchen(
   let inKitchen = 0;
   let up = 0;
   const upKeys: string[] = [];
+  let bagUp = 0;
+  let soldOut = 0;
   let done = 0;
   let oldestMs = Number.POSITIVE_INFINITY;
   let oldestFireAt: string | null = null;
+  const nowIso = new Date(ctx.nowMs).toISOString();
+  // A dish ON THE WOK — fired, started, or bumped inside Mom's undo window: counted, flagged when 86'd,
+  // and the oldest one's fire time is what the wait pill counts from.
+  const cooking = (r: FloorKitchenRow, fireMs: number) => {
+    inKitchen += r.qty;
+    if (r.soldOut === true) soldOut += r.qty;
+    if (fireMs < oldestMs) {
+      oldestMs = fireMs;
+      oldestFireAt = r.fire_at ?? new Date(fireMs).toISOString();
+    }
+  };
   // Every other count is ONE of two state sets: cooking (`PULSE_COOKING_STATES`) or `served`. A
   // draft (whose only word is "not sent", counted above) and a voided line are in neither, so they
   // fall through below without a skip of their own — a guard nothing can reach is decoration, and
@@ -108,41 +133,63 @@ export function foldFloorKitchen(
     // Held, or inside the send's undo grace: the kitchen has not seen it, so the floor must not.
     if (fireMs > ctx.nowMs) continue;
     if (PULSE_COOKING_STATES.has(r.state)) {
-      inKitchen += r.qty;
-      if (fireMs < oldestMs) {
-        oldestMs = fireMs;
-        oldestFireAt = r.fire_at ?? new Date(fireMs).toISOString();
-      }
+      cooking(r, fireMs);
       continue;
     }
     if (r.state === "served") {
       const bumpedMs = parse(r.bumped_at);
+      // The lifecycle audit — a bump inside Mom's undo window is still COOKING on the ONE track
+      // (`servedSettled`): the floor no longer cues "ready to serve" for food she can take back with
+      // one tap. A served line with no stamp has nothing to settle (it falls to `done`, as before).
+      if (bumpedMs !== null && !servedSettled(r.bumped_at, nowIso)) {
+        cooking(r, fireMs);
+        continue;
+      }
       if (bumpedMs !== null && bumpedMs >= ctx.nowMs - lingerMs) {
-        up += r.qty;
-        upKeys.push(upKey(r.id, r.bumped_at!));
+        // A dine-in table's TO-GO dish is bagged, never served to the table: it is the expo lane's
+        // (the KDS tags it "Bag it"), so it never rings the floor's "Ready to serve — Table N".
+        if (ctx.mode === "dinein" && r.fulfillment === "togo") bagUp += r.qty;
+        else {
+          up += r.qty;
+          upKeys.push(upKey(r.id, r.bumped_at!));
+        }
       } else done += r.qty;
     }
   }
-  if (notSent === 0 && inKitchen === 0 && up === 0 && done === 0) return null;
-  return { notSent, inKitchen, up, upKeys, done, oldestFireAt };
+  if (notSent === 0 && inKitchen === 0 && up === 0 && bagUp === 0 && done === 0) return null;
+  return { notSent, inKitchen, up, upKeys, bagUp, soldOut, done, oldestFireAt };
 }
 
 /** One segment of the card's kitchen row — a count key with its `{n}`, or the all-done word. */
 export type KitchenSegment =
-  | { k: "floor.kitchen.notSent" | "floor.kitchen.inKitchen" | "floor.kitchen.up"; n: number }
+  | {
+      k:
+        | "floor.kitchen.notSent"
+        | "floor.kitchen.inKitchen"
+        | "floor.kitchen.soldOut"
+        | "floor.kitchen.up"
+        | "floor.kitchen.up.pickup";
+      n: number;
+    }
   | { k: "expo.kitchenDone" };
 
 /**
  * The row's words, in the order the card shows them. "Kitchen done" (the expo's word) stands alone
  * and only when nothing is unsent, cooking or ready — a table still owing a Send is never "done".
+ * The lifecycle audit — "N marked sold out" follows "in kitchen" (it is a part of it, a question for
+ * the kitchen), and a table's finished TO-GO food says the counter card's verb, "ready to bag".
  */
 export function kitchenSegments(k: FloorKitchen | null): KitchenSegment[] {
   if (k === null) return [];
+  const bagUp = k.bagUp ?? 0;
+  const soldOut = k.soldOut ?? 0;
   const out: KitchenSegment[] = [];
   if (k.notSent > 0) out.push({ k: "floor.kitchen.notSent", n: k.notSent });
   if (k.inKitchen > 0) out.push({ k: "floor.kitchen.inKitchen", n: k.inKitchen });
+  if (soldOut > 0) out.push({ k: "floor.kitchen.soldOut", n: soldOut });
   if (k.up > 0) out.push({ k: "floor.kitchen.up", n: k.up });
-  if (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && k.done > 0)
+  if (bagUp > 0) out.push({ k: "floor.kitchen.up.pickup", n: bagUp });
+  if (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && bagUp === 0 && k.done > 0)
     out.push({ k: "expo.kitchenDone" });
   return out;
 }

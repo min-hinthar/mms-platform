@@ -53,6 +53,7 @@ import { surfaceOpen } from "./surfaces";
 import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
+import { settleLeftMs } from "./bump-settle";
 import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
@@ -338,10 +339,19 @@ export async function getFloorView(): Promise<FloorPoll> {
     fire_at: string | null;
     bumped_at: string | null;
     by_seat: string | null;
+    menu_item_id: string;
   };
   type PaidLineRow = Pick<
     FloorLineRow,
-    "id" | "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
+    | "id"
+    | "cart_id"
+    | "qty"
+    | "state"
+    | "fulfillment"
+    | "fire_at"
+    | "bumped_at"
+    | "by_seat"
+    | "menu_item_id"
   >;
   // Phase 2d · review — the open carts' lines, read WHOLE (above), in pages until one comes back
   // short; past the ceiling, `saturated`.
@@ -381,7 +391,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       let q = db
         .from("qr_cart_items")
         .select(
-          "id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
+          "id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat,menu_item_id",
         )
         .in("cart_id", cartIds);
       if (linesAsOf !== null) q = q.lte("created_at", linesAsOf);
@@ -412,7 +422,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       ? db
           .from("qr_cart_items")
           // `id` — Phase 2d · Codex round 1 · ready: half of a served line's ready key (`upKey`).
-          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
+          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat,menu_item_id")
           .in("cart_id", paidCartIds)
           .in("state", ["fired", "in_progress", "served"])
           .limit(FLOOR_LINE_CAP)
@@ -433,6 +443,31 @@ export async function getFloorView(): Promise<FloorPoll> {
     console.error("[floor] paid-cart line read saturated — the kitchen row is unknown this poll", {
       cap: FLOOR_LINE_CAP,
     });
+  // The lifecycle audit — which dishes in the kitchen have been 86'd since they were sent: the KDS
+  // tags the line, and the card now says "N marked sold out" beside "in kitchen" instead of only a
+  // wait pill climbing over it. ADVISORY and bounded by the lines this poll already holds: a failed
+  // read logs and flags nothing (the card reads as it did before), never an outage of the room.
+  const cookingMenuIds = [
+    ...new Set(
+      [...(lines ?? []), ...(paidLines ?? [])]
+        .filter((l) => l.state === "fired" || l.state === "in_progress")
+        .map((l) => l.menu_item_id)
+        .filter((id) => UUID_RE.test(id)),
+    ),
+  ];
+  const soldOutIds = new Set<string>();
+  if (cookingMenuIds.length > 0) {
+    const { data: sold, error: soldError } = await db
+      .from("menu_items")
+      .select("id")
+      .in("id", cookingMenuIds)
+      .eq("is_sold_out", true);
+    if (soldError)
+      console.error("[floor] sold-out read failed — the card flags no sold-out dish this poll", {
+        message: soldError.message,
+      });
+    for (const m of sold ?? []) soldOutIds.add(m.id);
+  }
   // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
   const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
   const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
@@ -452,6 +487,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       bumped_at: l.bumped_at,
       by_seat: l.by_seat,
       onOpenCart: true,
+      soldOut: soldOutIds.has(l.menu_item_id),
     });
   for (const l of paidLines ?? [])
     addKitchenRow(paidCartSession.get(l.cart_id), {
@@ -463,6 +499,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       bumped_at: l.bumped_at,
       by_seat: l.by_seat,
       onOpenCart: false,
+      soldOut: soldOutIds.has(l.menu_item_id),
     });
   const serverNowMs = Date.parse(serverNow);
 
@@ -567,6 +604,13 @@ export async function getFloorView(): Promise<FloorPoll> {
     if (b.tableNumber != null) return 1;
     return a.label.localeCompare(b.label, undefined, { numeric: true });
   });
+  // The lifecycle audit — "ready to serve" waits out Mom's undo window (`foldFloorKitchen`), and the
+  // database says nothing when it closes: ONE re-read is scheduled for the earliest bump on the floor
+  // (the tables' kitchen rows and the counter orders' lines alike), on the DB clock.
+  const settleInMs = settleLeftMs(
+    [...[...kitchenRowsBySession.values()].flat(), ...[...counter.lines.values()].flat()],
+    serverNow,
+  );
   return {
     ok: true,
     snapshot: {
@@ -577,6 +621,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       registry,
       thresholds,
       kitchenUnknown,
+      settleInMs,
     },
   };
 }

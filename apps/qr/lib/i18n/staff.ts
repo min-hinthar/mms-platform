@@ -3512,6 +3512,9 @@ export const STAFF = {
   // Phase 2f review — the same segment on a COUNTER order's card: nobody serves a bag, it is bagged
   // and handed over (the lane's own verb, `expo.verb.bagged`). K15 draft.
   "floor.kitchen.up.pickup": { en: "{n} ready to bag", my: "{n} ခု ထုပ်လို့ရပြီ" }, // grounded: kds.line.bagit ထုပ်, board.status ယူလို့ရပြီ
+  // The lifecycle audit (2026-10-13) — a dish 86'd AFTER it was sent: still counted in the kitchen
+  // (the 86 keeps orders on the board), flagged so the floor asks the kitchen. K15 draft.
+  "floor.kitchen.soldOut": { en: "{n} marked sold out", my: "{n} ခု ကုန်သွားပြီ" }, // K15 draft — grounded: table.line.soldOut ကုန်သွားပြီ, floor.kitchen.notSent {n} ခု
   "floor.kitchen.wait": { en: "{n} min", my: "{n} မိနစ်" }, // grounded: time.minAgo မိနစ်
   // The floor's ONE region when food comes out: one table, or several joined ", " in {id}.
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).

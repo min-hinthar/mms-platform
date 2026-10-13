@@ -23,6 +23,7 @@ import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
 // ── Phase 2d · floor ──
 import { UP_NOTICE_DWELL_MS, heardUp, upRose } from "@/lib/floor-kitchen";
+import { GRACE_REREAD_MARGIN_MS } from "@/lib/live-pass";
 import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { localizeCount, plural } from "@/lib/i18n/fill";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
@@ -311,6 +312,15 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       timers.clear();
     };
   }, [refresh]);
+  // The lifecycle audit — "ready to serve" waits out Mom's undo window (`foldFloorKitchen`), and the
+  // database says nothing when it closes: ONE re-read for the earliest bump (`settleInMs`, measured
+  // on the DB clock at the read, plus the shared margin). Each snapshot replaces the timer.
+  const settleInMs = snap.settleInMs ?? null;
+  useEffect(() => {
+    if (settleInMs === null) return;
+    const id = setTimeout(() => void refresh(), settleInMs + GRACE_REREAD_MARGIN_MS);
+    return () => clearTimeout(id);
+  }, [snap, settleInMs, refresh]);
   // Phase 2d · floor — the notices' dwell timers die with the board.
   useEffect(
     () => () => {
