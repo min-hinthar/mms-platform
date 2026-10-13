@@ -3035,6 +3035,22 @@ export const STAFF = {
   "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
   "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
+  // The lifecycle audit (2026-10-13) — a sent dish inside the diner's send grace (the KDS has not
+  // seen it yet): the track's own word, never "Sent".
+  "table.line.state.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" }, // grounded: table.send.sending
+  // K18 — staff move a draft dish between For here and To go.
+  "table.line.forHere": { en: "For here", my: "ဆိုင်မှာ စား" }, // grounded: kds.channel.dinein
+  "table.line.toGo": { en: "To go", my: "ပါဆယ်" }, // grounded: kds.channel.togo
+  "table.line.a11y.where": {
+    en: "For here or to go — {x}",
+    my: "ဆိုင်မှာ စား ဒါမှမဟုတ် ပါဆယ် — {x}",
+  }, // K15 draft — grounded: kds.channel.dinein, kds.channel.togo
+  // The table page's "From the paid round" group: the food of a round the table already paid for,
+  // still in the kitchen (or just out), with each dish's stage.
+  "table.detail.paidKitchen.title": {
+    en: "From the paid round",
+    my: "ငွေရှင်းပြီးသား အလှည့်က",
+  }, // K15 draft — grounded: kds.round အလှည့်, floor.status.paid ငွေရှင်းပြီး
   // Phase 2c · pad — the add page's interim bridge to the Send (`browse.reviewUnsent`) is retired:
   // the order pad carries the Send itself (OPEN-ITEMS P2ai).
 

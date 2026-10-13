@@ -20,6 +20,7 @@ import {
 } from "./ManagerPinStepUp";
 import { ApprovalSlip, KindMark, litApproverId, signersFor, zeroReasonFor } from "./ApprovalSlip";
 import { Chrome } from "./Chrome";
+import { TicketNote } from "./TicketText";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
 import { useStaffLang } from "./StaffLangProvider";
@@ -486,6 +487,18 @@ export function LossActionSheet({
           <span className="settle-flag-leader" aria-hidden />
           <span style={price}>{fmt(line.unitPriceCents * line.qty)}</span>
         </p>
+        {/* The lifecycle audit — WHICH bowl: the guest's options and the kitchen's note, so two
+            "1× Mohinga" rows can never be told apart only by a guess (the allergy one is the one
+            with the note). Verbatim, as the KDS and the line row print them. */}
+        {line.modifiers.length > 0 && <p style={lineDetail}>{line.modifiers.join(" · ")}</p>}
+        {line.notes && (
+          <TicketNote
+            id={`loss-note-${line.id}`}
+            lang={lang}
+            note={line.notes}
+            className="loss-note"
+          />
+        )}
 
         {/* ONE chip = what + why: two columns, each headed by its kind mark and the shipped segment
             word, every chip wearing the column's mark at 18px. `aria-pressed` buttons (the app's
@@ -647,6 +660,12 @@ const lineSummary: CSSProperties = {
   gap: 10,
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-semibold)",
+};
+// The lifecycle audit — the line's options under its summary, quiet like the line row's own.
+const lineDetail: CSSProperties = {
+  margin: "2px 0 0",
+  color: "var(--t3)",
+  fontSize: "var(--fs-sm)",
 };
 const price: CSSProperties = {
   fontSize: "var(--fs-body)",

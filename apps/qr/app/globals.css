@@ -9418,21 +9418,24 @@ a .chrome-en {
   overflow-wrap: anywhere;
 }
 .kds-note > svg,
-.expo-note > svg {
+.expo-note > svg,
+.loss-note > svg {
   flex: none;
   width: 1em;
   height: 1em;
   margin-top: 0.15em;
 }
 .kds-note > .ticket-note-text,
-.expo-note > .ticket-note-text {
+.expo-note > .ticket-note-text,
+.loss-note > .ticket-note-text {
   flex: 1;
   min-width: 0;
 }
 /* A Burmese run of the note: Padauk at its heaviest cut (700 — a declared 800 resolves to the same
    face), never faux-bolded, at the Burmese leading (1.3 clips stacked marks; P1 measured it). */
 .kds-note [lang="my"],
-.expo-note [lang="my"] {
+.expo-note [lang="my"],
+.loss-note [lang="my"] {
   font-family: var(--font-my);
   font-weight: var(--fw-bold);
   font-synthesis: none;
@@ -9440,7 +9443,8 @@ a .chrome-en {
 }
 /* The expo bag line's note (a <span>: its parent is phrasing content). The ⚠ and the warn rule mark
    it as the diner's words, so the quotes are gone. */
-.expo-note {
+.expo-note,
+.loss-note {
   display: flex;
   gap: var(--s1);
   margin-top: var(--s1);
@@ -9449,6 +9453,10 @@ a .chrome-en {
   font-size: var(--fs-body);
   font-weight: var(--fw-bold);
   color: var(--tx);
+}
+/* The lifecycle audit — the loss sheet's note is a <p> under the line summary. */
+.loss-note {
+  margin-bottom: 0;
 }
 
 .kds-bump {

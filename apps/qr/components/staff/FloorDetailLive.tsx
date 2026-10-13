@@ -29,6 +29,7 @@ import { Badge, CounterPass, Icon, buttonClass } from "@mms/ui";
 import { ReceiptStack } from "./ReceiptStack";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
+import { PaidRoundKitchen } from "./PaidRoundKitchen";
 import { CashSettleButton } from "./CashSettleButton";
 import { TerminalSettleButton, TerminalCollectPanel } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
@@ -1262,6 +1263,12 @@ export function FloorDetailLive({
             )}
           </div>
 
+          {/* The lifecycle audit — a round this table already PAID for, with food still in the kitchen
+              (or just out): the floor card counts it, so the page names it, dish by dish, with its
+              stage. Read-only; above the open round or the settled record. */}
+          {detail.paidKitchen && detail.paidKitchen.length > 0 && (
+            <PaidRoundKitchen lang={lang} lines={detail.paidKitchen} />
+          )}
           {detail.lines.length === 0 ? (
             <p style={muted}>
               <Chrome lang={lang} k="table.detail.cart.empty" echo="stack" />
@@ -1285,6 +1292,8 @@ export function FloorDetailLive({
                   onWaiting={onLineWaiting}
                   // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.
                   unsentAge={askLive ? { serverNow: detail.serverNow } : undefined}
+                  // The lifecycle audit (K18) — a dine-in table's draft dish: For here / To go.
+                  reroute={detail.mode === "dinein"}
                 />
               ))}
             </ul>

@@ -7,6 +7,7 @@ import {
   setQtyInput,
   settleCashInput,
   staffAddItemInput,
+  setLineFulfillmentInput,
 } from "@mms/db/schemas";
 import { staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
 import { addFailureCode, type StaffWriteCode } from "./staff-add-outcome";
@@ -36,6 +37,7 @@ import { maybeRenewSession } from "./authz";
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
 import { lineRpcRefusal } from "./line-rpc-refusal";
+import { REROUTE_SENT, staffRerouteOutcome } from "./staff-fulfillment";
 import { readPendingApprovalFlags } from "./approvals-read";
 import {
   approvalPendingRefusal,
@@ -319,6 +321,63 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
   if (!updated || updated.length === 0)
     return { ok: false, error: "That item already went to the kitchen — its note is frozen." };
   await touchCart(cart.id, "setLineNotes");
+  revalidatePath(`/staff/table/${sessionId}`);
+  return { ok: true };
+}
+
+/**
+ * The lifecycle audit (K18) — a STAFF member moves a DRAFT dish between For here and To go ("box this
+ * one to take home", for a guest without a phone). The diner's own RPC, `mms_set_line_fulfillment`,
+ * through the service role (no new SQL): it re-checks the open cart, the DRAFT state, grocery and the
+ * dine-in session IN the write, and re-taxes the line (cold food is taxable dine-in, exempt to go).
+ * This action adds what the RPC cannot know — that the line is on THIS table's open cart — and the
+ * same mid-payment refusal every staff line edit carries. The answer is read through
+ * `staffRerouteOutcome` (lib/staff-fulfillment.ts): only `ok` lands.
+ *
+ * What it cannot close: a merge moving the line to another table's cart between the scope read and
+ * the RPC re-routes the dish on its new table (the RPC takes no cart) — the dish the server meant.
+ */
+export async function staffSetLineFulfillment(
+  sessionId: string,
+  raw: unknown,
+): Promise<StaffWriteResult> {
+  // The gate IS the authorization (this action has no per-caller provenance to record).
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const parsed = setLineFulfillmentInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { cartItemId, fulfillment } = parsed.data;
+
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (!session) return { ok: false, error: "That table is closed." };
+  if (!cart) return { ok: false, error: "This table has no open order." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
+
+  const db = serviceClient();
+  // The line must be on THIS table's open cart (the RPC takes no cart: an id from another table would
+  // otherwise be re-routed from here). W10b — an unread line is an outage, never "not on this table".
+  const { data: line, error: lineError } = await db
+    .from("qr_cart_items")
+    .select("id,state")
+    .eq("id", cartItemId)
+    .eq("cart_id", cart.id)
+    .maybeSingle();
+  if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (!line) return { ok: false, error: "That item isn’t on this table." };
+  if (line.state !== "draft") return { ok: false, error: REROUTE_SENT };
+
+  const { data, error: rpcError } = await db.rpc("mms_set_line_fulfillment", {
+    p_line: cartItemId,
+    p_fulfillment: fulfillment,
+  });
+  if (rpcError) {
+    console.error("[staff-cart] mms_set_line_fulfillment failed", { message: rpcError.message });
+    return { ok: false, error: STAFF_WRITE_OUTAGE };
+  }
+  const out = staffRerouteOutcome(data);
+  if (!out.ok) return out;
+  await touchCart(cart.id, "staffSetLineFulfillment");
   revalidatePath(`/staff/table/${sessionId}`);
   return { ok: true };
 }

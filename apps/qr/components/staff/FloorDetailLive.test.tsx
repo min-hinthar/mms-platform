@@ -95,7 +95,7 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 /** K44 — the retired pre-tax line and note, in their own last words (the keys are deleted). */
 const RETIRED_SO_FAR = "subtotal so far";
@@ -2459,5 +2459,35 @@ describe("M211 — a settled record cut at the line read's bound says so", () =>
     mountSettled(SETTLED);
     expect(screen.queryByText(/Showing the first/)).toBeNull();
     expect(lines().hasAttribute("aria-describedby")).toBe(false);
+  });
+});
+
+describe("the lifecycle audit — the table page names a paid round's food and re-routes a draft", () => {
+  it("draws 'From the paid round' with each dish's stage, above the open round", () => {
+    // lck/floor-detail/paid-round-undrawn — the card said "Paid · 2 in kitchen" and the page it opens
+    // named none of that food once a new round opened.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 2,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+        },
+      ],
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
+    expect(text).toContain(`2× Chicken curry · ${STAFF["table.line.state.inProgress"].en}`);
+  });
+
+  it("a dine-in table's draft dish offers For here / To go", () => {
+    // lck/floor-detail/reroute-unoffered
+    mountWith({ ...DETAIL, lines: [{ ...line("l1", "Mohinga"), state: "draft" }] });
+    expect(screen.getByRole("button", { name: STAFF["table.line.toGo"].en })).toBeTruthy();
   });
 });

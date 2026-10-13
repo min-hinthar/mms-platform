@@ -54,6 +54,8 @@ import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
 import { settleLeftMs } from "./bump-settle";
+import { paidRoundKitchen } from "./paid-round";
+import { trackStage } from "./kitchen-track";
 import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
@@ -127,6 +129,9 @@ const SETTLED_ORDER_CAP = 20;
  *      honestly UNKNOWN for the poll (`kitchenUnknown`: no kitchen row on any card, one note in the
  *      board's region) while the room — cards, strip, starts — keeps working. */
 const FLOOR_LINE_CAP = 900;
+/** The lifecycle audit — the paid rounds' kitchen lines a table page reads (a table's paid food still
+ *  on the wok or just out: a handful). Past it the group shows the first rows. */
+const PAID_KITCHEN_CAP = 100;
 /** Phase 2d · review — pages of `FLOOR_LINE_CAP` the open-cart read may walk (4,500 lines in the
  *  room's open carts, a ceiling no real service reaches) before it refuses to draw a partial sum. */
 const FLOOR_OPEN_LINE_PAGES = 5;
@@ -832,7 +837,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select(
-        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids,fire_at",
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids,fire_at,bumped_at",
       )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
@@ -927,6 +932,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       refundedCents: 0, // an OPEN cart line cannot be refunded — it is voided or comped instead
       // P2do — the line's age, for an asked table's "Not sent yet · 4m ago" (plain text, no rule).
       createdAt: i.created_at ?? null,
+      // The lifecycle audit — a sent dish's tag is its stage on the ONE track (Sending… inside the
+      // send grace, Sent, Cooking, Served once Mom's undo window closes), never the raw column.
+      stage: trackStage(
+        {
+          state: i.state ?? "draft",
+          fire_at: i.fire_at ?? null,
+          bumped_at: i.bumped_at ?? null,
+          fulfillment: i.fulfillment ?? null,
+        },
+        new Date(dbNowMs).toISOString(),
+      ),
     }));
     // Phase 2a · send — the table's send counts, ONE binding (`kitchenDraftUnitsFromRows` inside),
     // so the Send's "3 items", the add page's "3 not sent" and the diner's Pay gate agree.
@@ -1035,6 +1051,40 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       refundedCents: i.refunded_cents ?? 0,
     }));
   }
+
+  // The lifecycle audit — a table that PAID a round with food still in the kitchen: the card says
+  // "Paid · 2 in kitchen" (getFloorView folds the paid carts) while this page showed the settled
+  // record with no stage — and once a new round opened, nothing of that food at all. The paid carts'
+  // kitchen lines, with their stage on the ONE track (`paidRoundKitchen`). ADVISORY and bounded: a
+  // failed read logs and the group is simply not drawn (null), never an outage of the page.
+  const paidCartIds = [
+    ...new Set(
+      settledOrders
+        // A REFUNDED order's food is nobody's (the KDS takes it off the board): only paid rounds.
+        .filter((o) => o.status === "paid")
+        .map((o) => o.cart_id)
+        .filter((c): c is string => !!c && c !== (cart?.id ?? null)),
+    ),
+  ];
+  let paidKitchen: TableDetail["paidKitchen"] = null;
+  if (paidCartIds.length > 0) {
+    const { data: pk, error: pkError } = await db
+      .from("qr_cart_items")
+      .select("id,name,qty,state,fire_at,bumped_at,fulfillment,notes,modifiers,comped")
+      .in("cart_id", paidCartIds)
+      .in("state", ["fired", "in_progress", "served"])
+      .order("created_at", { ascending: true })
+      .limit(PAID_KITCHEN_CAP);
+    if (pkError)
+      console.error(
+        "[floor] getTableDetail paid-round kitchen read failed — the group is not drawn",
+        {
+          sessionId,
+          message: pkError.message,
+        },
+      );
+    else paidKitchen = paidRoundKitchen(pk ?? [], new Date(dbNowMs).toISOString());
+  } else paidKitchen = [];
 
   const paymentInFlight =
     !!cart &&
@@ -1173,6 +1223,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,
     // M211 — the settled record's LINES were cut at `ORDER_LINE_CAP`; the surface says so.
     settledLinesTruncated,
+    // The lifecycle audit — the paid rounds' food still in the kitchen (or just out), with its stage.
+    paidKitchen,
     // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
     // new read): the session the webhook's best-effort, single-shot close left active (its after() is
     // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on

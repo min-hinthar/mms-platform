@@ -1,14 +1,21 @@
 "use client";
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
-import { setLineNotes, staffSetQty, type StaffWriteResult } from "@/lib/staff-cart";
+import {
+  setLineNotes,
+  staffSetLineFulfillment,
+  staffSetQty,
+  type StaffWriteResult,
+} from "@/lib/staff-cart";
+import { lineTagKey } from "@/lib/staff-line-tag";
 import { boundWrite } from "@/lib/bounded-write";
 import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 import { draftHeld } from "@/lib/reload-guard";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import { KitchenTrack, Stepper, useSheetSubject } from "@mms/ui";
-import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { staffCanReroute } from "@/lib/staff-fulfillment";
+import { ts } from "@/lib/i18n/staff";
 import { al, dishVisible } from "@/lib/staff-labels";
 // ── Phase 2c · pad ──
 import { tf } from "@/lib/i18n/fill";
@@ -22,15 +29,6 @@ import { ReloadButton } from "./ReloadOffer";
 import { useReloadHold } from "./useReloadHold";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-
-/** Phase 2a · send (K25 for this surface) — a post-fire line's state in the DEVICE language. It
- *  replaced the English-only `STAFF_STATE_COPY`, so on a Burmese console the one word that separates
- *  a sent dish from an unsent one is no longer half-translated. */
-const LINE_STATE_KEY: Record<"fired" | "in_progress" | "served", StaffKey> = {
-  fired: "table.line.state.fired",
-  in_progress: "table.line.state.inProgress",
-  served: "table.line.state.served",
-};
 
 /**
  * One cart line on the staff drill-down. The control depends on the line's kitchen state (S2.1/S2.3):
@@ -68,6 +66,7 @@ export function StaffLineEditor({
   rowProps,
   leaving = false,
   unsentAge,
+  reroute = false,
 }: {
   sessionId: string;
   line: TableLineView;
@@ -97,6 +96,9 @@ export function StaffLineEditor({
    *  got says how long it has waited, "Not sent yet · 4m ago", as plain text — no "late" rule, no
    *  escalation (the loudness ladder: only Late escalates with time). The server's clock. */
   unsentAge?: { serverNow: string };
+  /** The lifecycle audit (K18) — the table is a DINE-IN session, so a draft food line may be moved
+   *  between For here and To go by staff (`staffCanReroute`). Absent: no control. */
+  reroute?: boolean;
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -189,6 +191,42 @@ export function StaffLineEditor({
     } finally {
       noteInFlight.current = false;
       setNotePending(false); // frees AT THE BOUND (fact 3)
+    }
+  }
+
+  // The lifecycle audit (K18) — For here / To go on a DRAFT dish, by staff. The pressed segment is the
+  // CONFIRMED value (the line as the last read said); the tapped one shows busy until the answer, and
+  // the live re-fetch turns it — never an optimistic flip on a write that re-taxes the line.
+  const [reroutePending, setReroutePending] = useState<"dinein" | "togo" | null>(null);
+  const rerouteInFlight = useRef(false);
+  async function setWhere(next: "dinein" | "togo") {
+    if (rerouteInFlight.current || busy || next === line.fulfillment) return; // §17 — the attribute says so
+    rerouteInFlight.current = true;
+    setReroutePending(next);
+    try {
+      const out = await boundWrite(
+        staffSetLineFulfillment(sessionId, { cartItemId: line.id, fulfillment: next }),
+      );
+      if (out.kind === "answer") {
+        if (!out.value.ok) onError(out.value.error);
+        return;
+      }
+      if (out.kind === "threw") {
+        onError(WRITE_UNCONFIRMED);
+        return;
+      }
+      onError(WRITE_WAITING);
+      markWaiting(true);
+      // The late answer is said through the PAGE's region, which outlives this row (9e); a late
+      // success says nothing (the re-fetch shows the dish where it now goes).
+      void out.late.then((late) => {
+        if (late.kind !== "answer") onError(WRITE_UNCONFIRMED);
+        else if (!late.value.ok) onError(late.value.error);
+        markWaiting(false);
+      });
+    } finally {
+      rerouteInFlight.current = false;
+      setReroutePending(null); // frees AT THE BOUND (fact 3)
     }
   }
 
@@ -310,14 +348,27 @@ export function StaffLineEditor({
   // ── Phase 2c · review fixes · pad2 ── ONE name for every control on the row (P12): the dish as it
   // RENDERS — the same binding the stepper's Remove reads — never the English beside a Burmese one.
   const dishLabel = dishVisible(lang, line.name, line.nameMy);
+  // The lifecycle audit — the kitchen note (an allergy) and the sold-out fact ride EVERY branch: a
+  // sent, comped or removed dish lost both, so a server could not tell which bowl carried "no
+  // peanuts", or that the kitchen had 86'd the dish since it was sent.
+  const note = line.notes ? <span style={noteText}>“{line.notes}”</span> : null;
+  const soldOutTag = line.soldOut ? (
+    <span style={soldOutStyle}>
+      {" · "}
+      <Chrome lang={lang} k="table.line.soldOut" />
+    </span>
+  ) : null;
 
   // ── Terminal / settled-as-free states: a muted row, no controls ──────────────────────────────────────
   if (line.state === "voided") {
     return (
       <li {...rowProps} className={ghostClass(leaving)} style={{ ...row, opacity: 0.55 }}>
-        <span style={{ ...nameCell, textDecoration: "line-through" }}>
-          {line.qty}× {dish}
-          {mods}
+        <span style={nameCell}>
+          <span style={{ textDecoration: "line-through" }}>
+            {line.qty}× {dish}
+            {mods}
+          </span>
+          {note}
         </span>
         <span style={badge}>
           <Chrome lang={lang} k="table.detail.line.voided" />
@@ -330,6 +381,7 @@ export function StaffLineEditor({
       <li {...rowProps} className={ghostClass(leaving)} style={row}>
         <span style={nameCell}>
           {line.qty}× {dish}
+          {soldOutTag}
           {mods}
           {line.bySeatName && (
             <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
@@ -337,6 +389,7 @@ export function StaffLineEditor({
               · {line.bySeatName}
             </span>
           )}
+          {note}
         </span>
         <span style={{ ...badge, color: "var(--ac-strong)" }}>
           <Chrome lang={lang} k="table.line.comped" />
@@ -354,10 +407,14 @@ export function StaffLineEditor({
           {line.qty}× {dish}
           <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
             {" · "}
-            {/* S12's one vocabulary, now the dictionary's — no echo: a tag inside a dense row. */}
-            <Chrome lang={lang} k={LINE_STATE_KEY[line.state as keyof typeof LINE_STATE_KEY]} />
+            {/* S12's one vocabulary, now the dictionary's — no echo: a tag inside a dense row. The
+                lifecycle audit: the dish's stage on the ONE track (`lineTagKey`), never the raw
+                column — "Sending…" inside the send grace, "Cooking" inside Mom's undo window. */}
+            <Chrome lang={lang} k={lineTagKey(line)} />
           </span>
+          {soldOutTag}
           {mods}
+          {note}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
           <span style={priceCell}>{fmt(line.unitPriceCents * line.qty)}</span>
@@ -468,7 +525,32 @@ export function StaffLineEditor({
         )}
         {line.notes && noteDraft === null && <span style={noteText}>“{line.notes}”</span>}
       </span>
-      <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)", flexWrap: "wrap" }}>
+        {/* The lifecycle audit (K18) — For here / To go, a two-segment control on the console's ONE
+            selection vocabulary (`.staff-chip[aria-pressed]`'s lit cap), 44px each. The pressed
+            segment is the line as the server last read it; the tapped one is busy until the answer. */}
+        {reroute && staffCanReroute("dinein", line) && (
+          <span
+            className="staff-seg"
+            role="group"
+            aria-label={tf(lang, "table.line.a11y.where", { x: dishLabel })}
+          >
+            {(["dinein", "togo"] as const).map((w) => (
+              <button
+                key={w}
+                type="button"
+                className="staff-chip"
+                aria-pressed={line.fulfillment === w}
+                aria-busy={reroutePending === w || undefined}
+                aria-disabled={busy || reroutePending !== null || undefined}
+                onClick={() => void setWhere(w)}
+                style={whereBtn}
+              >
+                <Chrome lang={lang} k={w === "dinein" ? "table.line.forHere" : "table.line.toGo"} />
+              </button>
+            ))}
+          </span>
+        )}
         <span style={priceCell}>{fmt(line.unitPriceCents * qty)}</span>
         <button
           ref={noteBtnRef}
@@ -665,6 +747,13 @@ const noteText: CSSProperties = {
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-semibold)",
 };
+const soldOutStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-regular)",
+};
+// The lifecycle audit (K18) — a For here / To go segment: the 44px floor, the chip's own look.
+const whereBtn: CSSProperties = { minHeight: 44, padding: "0 12px", fontSize: "var(--fs-sm)" };
 const noteBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 12px",

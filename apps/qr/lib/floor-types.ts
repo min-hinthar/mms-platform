@@ -10,6 +10,7 @@
 // `tableDisplay`, is exercised through `lib/floor-merge-promo.test.ts` — the merge refusal names the
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
+import type { KitchenStage } from "./kitchen-track";
 import type { ClearPreview, ClearRefusal } from "./clear-table";
 import type { LineState } from "@mms/db";
 import type { RefundState, RefundSummary } from "./refund-view";
@@ -202,6 +203,24 @@ export type TableLineView = {
    *  unsent line can say "Not sent yet · 4m ago" as plain text (no "late" rule). Advisory: absent on a
    *  settled record line and on a fixture that predates it, and then no age is said. */
   createdAt?: string | null;
+  /** The lifecycle audit — a sent dish's stage on the ONE kitchen track (`trackStage`: Sending…
+   *  inside the send grace, Sent, Cooking, Served once Mom's undo window closes), on the read's clock.
+   *  Null for a line off the track (voided, grocery); absent on a settled record line and on a
+   *  fixture that predates it — the editor then tags the raw state, as before. */
+  stage?: KitchenStage | null;
+};
+
+/** The lifecycle audit — one dish of a PAID round still in the kitchen (or just out), as the table
+ *  page's "From the paid round" group draws it (`paidRoundKitchen`, lib/paid-round.ts). */
+export type PaidKitchenLine = {
+  id: string;
+  name: string;
+  qty: number;
+  stage: KitchenStage;
+  notes: string | null;
+  modifiers: string[];
+  /** A to-go dish — bagged at the counter, never served to the table. */
+  togo: boolean;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -282,6 +301,10 @@ export type TableDetail = {
    *  rows (lib/floor.ts) and the order has more, so the surface must say the list is not the whole
    *  record. Always false on an open cart. */
   settledLinesTruncated: boolean;
+  /** The lifecycle audit — the table's PAID rounds' dishes still in the kitchen or just out, each
+   *  with its stage; [] when none, null when that ADVISORY read failed (the group is not drawn), and
+   *  absent on a fixture that predates it. */
+  paidKitchen?: PaidKitchenLine[] | null;
   /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
    *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null
