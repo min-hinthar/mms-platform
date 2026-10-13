@@ -159,3 +159,75 @@ describe("LineOptionsSheet — where the dish goes", () => {
     expect(within(dialog).getByRole("status").textContent).toContain("didn’t go through");
   });
 });
+
+/**
+ * Lifecycle audit (edit-notes 3) — the dish's kitchen note, editable while it is unsent. The write is
+ * the parent's (`setLineNote`), awaited BOUNDED here; only an answered `ok` closes the sheet.
+ */
+describe("LineOptionsSheet — the kitchen note", () => {
+  it("is seeded from the line, saves the TRIMMED text, and closes on ok", async () => {
+    const onSaveNote = vi.fn(() => Promise.resolve({ ok: true }));
+    const { onOpenChange, dialog } = mount({
+      line: { ...LINE, notes: "No egg" },
+      onSaveNote,
+    });
+    const field = within(dialog).getByLabelText("A note for the kitchen") as HTMLTextAreaElement;
+    expect(field.value).toBe("No egg");
+    expect(field.maxLength).toBe(160);
+    // Unchanged: the save is offered but inert (aria-disabled, never native — focus can rest on it).
+    const save = within(dialog).getByRole("button", { name: "Save note" });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.change(field, { target: { value: "  No peanuts — allergy  " } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(onSaveNote).toHaveBeenCalledWith("No peanuts — allergy");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("STAYS open on a refusal — the typed note is not thrown away", async () => {
+    // MUTATION (lcb/line-sheet/note-closes-on-a-refusal): close on any answer — the diner's allergy
+    // note vanishes with the sheet on a refusal they must act on; red.
+    const onSaveNote = vi.fn(() => Promise.resolve({ ok: false }));
+    const { onOpenChange, dialog } = mount({ onSaveNote });
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No peanuts" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(onSaveNote).toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("clearing an existing note is offered as removing it", () => {
+    const { dialog } = mount({ line: { ...LINE, notes: "No egg" }, onSaveNote: vi.fn() });
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "" },
+    });
+    expect(within(dialog).getByRole("button", { name: "Remove the note" })).toBeTruthy();
+  });
+
+  it("under a freeze nothing reaches the parent", async () => {
+    const onSaveNote = vi.fn(() => Promise.resolve({ ok: true }));
+    const { dialog } = mount({ frozen: true, onSaveNote });
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No egg" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(onSaveNote).not.toHaveBeenCalled();
+  });
+
+  it("off a table the sheet holds the note alone — no For here / To go, no Send now", () => {
+    const { dialog } = mount({
+      dineIn: false,
+      line: { ...LINE, fulfillment: "togo" },
+      onSaveNote: vi.fn(),
+    });
+    expect(within(dialog).queryByRole("group", { name: /Where .* goes/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Send to kitchen now/i })).toBeNull();
+    expect(within(dialog).getByLabelText("A note for the kitchen")).toBeTruthy();
+  });
+});

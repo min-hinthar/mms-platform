@@ -49,9 +49,21 @@ vi.mock("./authz", () => ({
       lineSeat: "u-1",
       lineState: "draft",
       comped: false,
+      ...member.current,
     }),
   AuthzError: FakeAuthzError,
   UNAVAILABLE: () => new FakeAuthzError("We’re having trouble on our end", 503, "unavailable"),
+}));
+// Lifecycle audit — the line the authz read returns, steered per case (state · qty · dish).
+const member = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+// The dish availability pre-read (`dishSellable`) — steered per case; `null` is "unknowable".
+const sellable = vi.hoisted(() => ({ current: true as boolean | null, asked: [] as unknown[] }));
+vi.mock("./availability-read", () => ({
+  dishSellable: (id: unknown) => {
+    sellable.asked.push(id);
+    return Promise.resolve(sellable.current);
+  },
+  sendBlockingNames: () => Promise.resolve([]),
 }));
 vi.mock("./rate", () => ({
   assertMutationRate: () => Promise.resolve(),
@@ -96,17 +108,19 @@ const { setQty } = await import("./cart");
 
 beforeEach(() => {
   rpcAnswer = { data: 1, error: null };
+  member.current = {};
+  sellable.current = true;
+  sellable.asked = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 describe("setQty — the RPC's draft and freeze re-check (P2dd · P2cy)", () => {
-  it("a Send that won the race reads as 'already gone to the kitchen'", async () => {
+  it("a Send that won the race is NAMED as a value — 'already gone to the kitchen' (not_draft)", async () => {
     // MUTATION (p2d-guards/diner-setqty-sent-reads-closed): drop the mapping — the diner is told
-    // their open table closed; red.
+    // their open table closed; red. Lifecycle audit (edit-notes 6): it is a VALUE now, because a
+    // thrown message is redacted in production and the diner heard "We couldn’t confirm that".
     rpcAnswer = { data: null, error: { code: "P0001", message: "line already sent" } };
-    await expect(setQty("line-1", 3)).rejects.toThrow(
-      "Ask our staff to change an item that’s already gone to the kitchen",
-    );
+    await expect(setQty("line-1", 3)).resolves.toMatchObject({ refused: "not_draft" });
   });
 
   it("a settlement that won the race reads as the table paying", async () => {
@@ -120,5 +134,45 @@ describe("setQty — the RPC's draft and freeze re-check (P2dd · P2cy)", () => 
   it("a zero-row answer is still 'no longer open' (a closed cart)", async () => {
     rpcAnswer = { data: 0, error: null };
     await expect(setQty("line-1", 3)).rejects.toThrow("Cart is no longer open");
+  });
+});
+
+/**
+ * Lifecycle audit (edit-notes 6 · out-of-stock 1) — the two refusals `setQty` NAMES as a value.
+ *
+ * A line that already left draft is the server's own fact, named before the ownership rule (M230's
+ * order), so a menu "−" on a dish a tablemate just sent can say "it's already gone to the kitchen".
+ * And a write that would GROW a line whose dish sold out is refused — only a growth asks the catalog.
+ */
+describe("setQty — named refusals (lifecycle audit)", () => {
+  it("a fired line is refused as not_draft BEFORE any write", async () => {
+    // MUTATION (lcb/setqty-fired-line-throws): the pre-check folded back into the ownership throw.
+    member.current = { lineState: "fired" };
+    rpcAnswer = { data: 1, error: null };
+    await expect(setQty("line-1", 0)).resolves.toMatchObject({ refused: "not_draft" });
+  });
+
+  it("growing a line whose dish sold out is refused as sold_out", async () => {
+    // MUTATION (lcb/setqty-grows-a-sold-out-line): drop the growth gate — the "+" lands on a dish the
+    // kitchen cannot make, and the cart charges for it until someone removes it; red.
+    member.current = { lineQty: 1, menuItemId: "11111111-1111-1111-1111-111111111111" };
+    sellable.current = false;
+    await expect(setQty("line-1", 2)).resolves.toMatchObject({ refused: "sold_out" });
+  });
+
+  it("SHRINKING a sold-out line is always allowed — it is the way out — and never asks", async () => {
+    // MUTATION (lcb/setqty-gate-blocks-the-way-out): gate every write, not only a growth; red.
+    member.current = { lineQty: 2, menuItemId: "11111111-1111-1111-1111-111111111111" };
+    sellable.current = false;
+    const v = await setQty("line-1", 1);
+    expect(v && "refused" in v ? v.refused : "landed").toBe("landed");
+    expect(sellable.asked).toEqual([]);
+  });
+
+  it("an unknowable catalog (null) fails OPEN — the charge boundary re-reads regardless", async () => {
+    member.current = { lineQty: 1, menuItemId: "11111111-1111-1111-1111-111111111111" };
+    sellable.current = null;
+    const v = await setQty("line-1", 2);
+    expect(v && "refused" in v ? v.refused : "landed").toBe("landed");
   });
 });

@@ -53,6 +53,7 @@ const h = vi.hoisted(() => ({
   publishCart: vi.fn(),
   getCartView: vi.fn(),
   setQty: vi.fn(),
+  setLineNote: vi.fn(),
   setLineFulfillment: vi.fn(),
   makeItNow: vi.fn(),
   releasePayLock: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@/lib/cart", () => ({
   makeItNow: h.makeItNow,
   releasePayLock: h.releasePayLock,
   setLineFulfillment: h.setLineFulfillment,
+  setLineNote: h.setLineNote,
   setQty: h.setQty,
 }));
 // 3c-ii — the bind sheet is mounted for every dine-in host; its Server Action reaches the service
@@ -2590,9 +2592,15 @@ describe("Phase 3c-i (D17) — the line is a receipt row; its choices live behin
     expect(screen.queryByRole("button", { name: /Send to kitchen now/i })).toBeNull();
   });
 
-  it("no ⋯ on a pickup cart — the sheet's choices are a table's", () => {
+  it("on a pickup cart the ⋯ carries the kitchen NOTE alone — the routing choices are a table's", async () => {
+    // Lifecycle audit (edit-notes 3) — an allergy note is not a dine-in-only fact, so the ⋯ is
+    // offered off a table too; For here / To go and "Send to kitchen now" stay a table's.
     mount({ splitContext: PICKUP });
-    expect(screen.queryByRole("button", { name: /^More for /i })).toBeNull();
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText("A note for the kitchen")).toBeTruthy();
+    expect(within(dialog).queryByRole("group", { name: /Where .* goes/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Send to kitchen now/i })).toBeNull();
   });
 
   it("'To go' reaches setLineFulfillment, the sheet closes, and focus returns to that line's ⋯", async () => {
@@ -4510,5 +4518,166 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     expect(document.activeElement).toBe(box());
     // MUTATION uia11y/f20-promo-voice-fixed-at-the-press: red.
     expect(regionText()).toContain("That code isn’t valid.");
+  });
+});
+
+/**
+ * Lifecycle audit — the diner side of sold out, removals and edits on /cart.
+ */
+describe("Lifecycle audit — /cart says every change to the diner's order", () => {
+  it("a stepper write the server refuses as ALREADY SENT is named — never the re-read's hedge", async () => {
+    // MUTATION (lcb/checkout/qty-named-refusal-dropped): drop the server's word — the re-read finds
+    // no freeze and hedges "We couldn’t confirm that" over a dish that is cooking; red.
+    h.setQty.mockResolvedValueOnce({ refused: "not_draft", at: DB_NOW });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s already gone to the kitchen"),
+    );
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("a stepper '+' the server refuses as SOLD OUT says so", async () => {
+    h.setQty.mockResolvedValueOnce({ refused: "sold_out", at: DB_NOW });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, soldOut: true }] }));
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s sold out now"),
+    );
+  });
+
+  it("an UNSENT dish whose dish sold out wears a VISIBLE, bilingual mark that names the way through", () => {
+    // MUTATION (lcb/checkout/sold-out-mark-missing): drop the mark — only a dimmed "+" and a
+    // screen-reader label said it; red.
+    const { container } = mount({
+      splitContext: DINE_IN,
+      initialItems: [{ ...ITEM, soldOut: true }],
+    });
+    const mark = container.querySelector("[data-line-soldout]");
+    expect(mark?.textContent).toContain(t("en", "soldOutRemoveIt"));
+    expect(mark?.querySelector('[lang="my"]')?.textContent).toBe(t("my", "soldOutRemoveIt"));
+    // A dish still on the menu carries no mark.
+    cleanup();
+    const again = mount({ splitContext: DINE_IN });
+    expect(again.container.querySelector("[data-line-soldout]")).toBeNull();
+  });
+
+  it("a dish card's chip reads the ONE TRACK — 'Sending…' inside the Send's grace — and a comp keeps its stage", () => {
+    // MUTATION (lcb/checkout/chip-reads-the-raw-state): the raw column — "Sent to kitchen" beside a
+    // live Undo while the strip says Sending; red. MUTATION (lcb/checkout/comp-tag-replaces-the-stage):
+    // drop the tag beside the stage; red.
+    const inGrace: CartItem = {
+      ...ITEM_B,
+      lineState: "fired",
+      fireAt: "2026-10-08T10:00:08.000Z", // 8 s after the view's DB clock: still in the grace
+    };
+    const compedCooking: CartItem = { ...ITEM_C, lineState: "in_progress", comped: true };
+    mount({ splitContext: DINE_IN, initialItems: [ITEM, inGrace, compedCooking] });
+    const card = (id: string) => document.querySelector(`li[data-line-id="${id}"]`);
+    expect(card(LINE_B)?.textContent).toContain(t("en", "sending"));
+    expect(card(LINE_B)?.textContent).not.toContain("Sent to kitchen");
+    expect(card(LINE_C)?.textContent).toContain("Cooking");
+    expect(card(LINE_C)?.textContent).toContain("On the house");
+  });
+
+  it("a removed dish says 'we ran out' on its card when that was staff's reason", () => {
+    const gone: CartItem = { ...ITEM_B, lineState: "voided", removedReason: "sold_out" };
+    mount({ splitContext: DINE_IN, initialItems: [ITEM, gone] });
+    expect(document.querySelector(`li[data-line-id="${LINE_B}"]`)?.textContent).toContain(
+      "Removed — we ran out",
+    );
+  });
+
+  it("a change someone ELSE made to the order is said, once, from the re-read", async () => {
+    // MUTATION (lcb/checkout/order-diff-silent): never diff the applied view — the dish just goes,
+    // in silence; red.
+    mount({ splitContext: DINE_IN, initialItems: [{ ...ITEM, bySeat: MY_SEAT }, ITEM_B] });
+    h.getCartView.mockResolvedValue(view({ items: [ITEM_B] }));
+    await syncFromServer();
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("Mohinga was taken off your order."));
+  });
+
+  it("…and the diner's OWN stepper change is never read back to them", async () => {
+    // MUTATION (lcb/checkout/own-edit-announced): never hold this phone's own line; red.
+    mount({ splitContext: DINE_IN, initialItems: [{ ...ITEM, bySeat: MY_SEAT }] });
+    h.setQty.mockResolvedValueOnce(view({ items: [{ ...ITEM, bySeat: MY_SEAT, qty: 2 }] }));
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, bySeat: MY_SEAT, qty: 2 }] }));
+    await addOne();
+    await settle();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    await settle();
+    expect(regionText()).not.toContain("is now");
+  });
+
+  it("a 409 from create-intent re-reads the cart, so the dish the sentence names shows its mark", async () => {
+    // MUTATION (lcb/checkout/409-no-re-read): drop the re-read — the line still looks orderable beside
+    // a refusal naming it; red.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "Mohinga just sold out — remove it to pay." }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    h.getCartView.mockResolvedValue(view({ items: [SERVED] }));
+    mount({ splitContext: DINE_IN, initialItems: [SERVED] });
+    const calls = h.getCartView.mock.calls.length;
+    await press(/^Pay( the whole order)? · /);
+    await waitFor(() => expect(regionText()).toContain("Mohinga just sold out"));
+    await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(calls));
+    fetchSpy.mockRestore();
+  });
+
+  it("'Send to kitchen now' refused as SOLD OUT is named", async () => {
+    // MUTATION (lcb/checkout/make-now-sold-out-silent): read no sold-out answer — the sheet frees
+    // and nothing is said; red.
+    const TOGO: CartItem = { ...ITEM, fulfillment: "togo" };
+    h.makeItNow.mockResolvedValueOnce({ ok: false, reason: "sold_out" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...TOGO, soldOut: true }] }));
+    mount({ splitContext: DINE_IN, initialItems: [TOGO] });
+    await openLineSheet();
+    await press(/Send to kitchen now/);
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s sold out now"),
+    );
+  });
+
+  it("the diner edits their own UNSENT dish's kitchen note from its ⋯ — saved, the sheet closes, and it is said", async () => {
+    // MUTATION (lcb/checkout/note-save-unwired): no `onSaveNote` — the field is gone and the note
+    // stays "remove/re-add to change it"; red.
+    h.setLineNote.mockResolvedValueOnce({ ok: true });
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No peanuts — allergy" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(h.setLineNote).toHaveBeenCalledWith(LINE, "No peanuts — allergy");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(regionText()).toContain("Note saved for Mohinga."));
+  });
+
+  it("a note save the server refuses because the dish already went to the kitchen is named", async () => {
+    h.setLineNote.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No egg" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
   });
 });

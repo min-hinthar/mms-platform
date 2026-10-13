@@ -207,3 +207,26 @@ describe("PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a shared table's bar name
     expect(document.querySelector(".cartbar-line2")!.textContent).toContain("Someone’s waiting");
   });
 });
+
+/**
+ * Lifecycle audit (diner-live-status 3) — a dish staff REMOVED is out of the bar's count and its
+ * money alike. The provider's `count` and the bar's confirmed count are one binding
+ * (`orderUnitCount`), so a removed line can never leave the amount stuck on "updating".
+ */
+describe("CartBar — a removed dish is not counted", () => {
+  it("a confirmed view with a removed line shows its amount, never a stuck 'updating'", async () => {
+    // MUTATION (lcb/cartbar/confirmed-count-forks): count the removed unit here while the provider
+    // does not — `pending` never clears and the amount reads "updating" for good; red.
+    const CartBar = await freshCartBar();
+    ctx.current = {
+      count: 1,
+      totals: TOTALS,
+      cartId: "cart-1",
+      drain,
+      items: [LINE, { ...LINE, id: "line-gone", lineState: "voided" }],
+    };
+    const { container } = render(<CartBar />);
+    const bar = container.querySelector("button");
+    expect(bar?.getAttribute("aria-label")).not.toContain("updating");
+  });
+});

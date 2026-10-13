@@ -55,3 +55,14 @@ export function cartBarName(s: {
     s.line2 === "unsent" ? ", not sent yet" : s.line2 === "waiting" ? ", someone’s waiting" : "";
   return `View order${state} — subtotal ${s.dollars}`;
 }
+
+/**
+ * Lifecycle audit (diner-live-status 3) — how many units the order bar counts: every line's
+ * quantity EXCEPT a removed (voided) line's. The bar's subtotal already excludes a removed dish
+ * (`getCartTotals`), so counting its unit read "1 · View order · $0.00" after staff took the table's
+ * only dish off. One binding for the provider's `count` and the bar's own confirmed count, so the two
+ * cannot disagree about what "pending" means. A comped line still counts: the dish still comes.
+ */
+export function orderUnitCount(items: ReadonlyArray<Pick<CartItem, "qty" | "lineState">>): number {
+  return items.reduce((n, i) => (i.lineState === "voided" ? n : n + i.qty), 0);
+}

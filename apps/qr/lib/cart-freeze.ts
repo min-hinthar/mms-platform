@@ -337,6 +337,9 @@ export type RefusedWrite =
   | { cause: "settling" }
   /** M230 — server-NAMED, never diagnosed: the line has already gone to the kitchen. */
   | { cause: "sent" }
+  /** Lifecycle audit (out-of-stock 0) — server-NAMED like `sent`: the dish can't be ordered now
+   *  (`priceItem`'s `ItemUnsellableError`, or `setQty` growing a line whose dish is unsellable). */
+  | { cause: "sold_out" }
   | { cause: "unreachable" }
   | { cause: "unknown" };
 
@@ -425,8 +428,53 @@ export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
  * already classifies honestly. Naming any of those would be a guess at a cause, which is the class
  * this module exists to remove.
  */
-export function serverNamedRefusal(reason: string): { cause: "sent" } | null {
-  return reason === "not_draft" ? { cause: "sent" } : null;
+export function serverNamedRefusal(
+  reason: string,
+): { cause: "sent" } | { cause: "sold_out" } | null {
+  if (reason === "not_draft") return { cause: "sent" };
+  // Lifecycle audit (out-of-stock 0/1) — the dish cannot be ordered now: `addItemOutcome` and
+  // `setQty` answer it when `priceItem` / the line's own dish read says so, and `makeItNow` /
+  // `sendToKitchen` when their availability pre-read does. A refusal NOTHING was written under.
+  if (reason === "sold_out") return { cause: "sold_out" };
+  return null;
+}
+
+/**
+ * Lifecycle audit — a diner write the SERVER refused for a reason it can name, returned as a VALUE.
+ *
+ * Next redacts a thrown Server Action's message in production, so `priceItem`'s "Mohinga just sold
+ * out" and `setQty`'s "Ask our staff to change an item that's already gone to the kitchen" never
+ * reached the browser: the provider re-read, found no lock, and hedged ("We couldn’t confirm
+ * Mohinga"). These two are DEFINITE non-writes — the sold-out refusal is decided before the insert,
+ * and the sent one is the RPC's own raise or the pre-check above it — so they travel as a value the
+ * client can name, the M230 pattern (`setLineFulfillment`'s `not_draft`). `at` is the SERVER's clock
+ * as it refused (ISO), so a sold-out mark can be weighed against the catalog's render stamp and the
+ * cart view's DB clock without trusting this phone's clock.
+ */
+export type ServerRefusal = { refused: "not_draft" | "sold_out"; at: string };
+
+/** Is a write's answer a server-named refusal rather than a view (or the written-unreadable null)? */
+export function isServerRefusal(v: unknown): v is ServerRefusal {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "refused" in v &&
+    ((v as { refused: unknown }).refused === "not_draft" ||
+      (v as { refused: unknown }).refused === "sold_out")
+  );
+}
+
+/**
+ * Does a server-named refusal still describe this line in the view that won the screen? The
+ * `sent` arm is `sentRefusalHolds`; a `sold_out` one holds while the line is still a draft the view
+ * flags sold out — a manager putting the dish back on retires it, and so does the line leaving draft.
+ */
+export function namedRefusalHolds(
+  refusal: { cause: "sent" } | { cause: "sold_out" },
+  line: { lineState: string; soldOut?: boolean } | undefined,
+): boolean {
+  if (refusal.cause === "sent") return sentRefusalHolds(line);
+  return !!line && line.lineState === "draft" && line.soldOut === true;
 }
 
 /**
@@ -496,6 +544,10 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
       // M230 — the server's own fact (`not_draft`), in the vocabulary `setQty`'s refusal already
       // uses for the same line state. Nothing about a lock: no freeze was involved.
       return "it’s already gone to the kitchen";
+    case "sold_out":
+      // Lifecycle audit — the server's own fact. "now", never "just": recency is not a fact this
+      // refusal carries (`catalog-freshness.ts`'s rule for the same word).
+      return "it’s sold out now";
     default:
       // The write did not land as far as we can tell, and the view beside this sentence is server
       // truth (the caller applied the same re-read). Nothing about a lock, a table, or a session.
@@ -572,6 +624,9 @@ export function refusalClearsPayError(refusal: PublishableRefusal): boolean {
       return true;
     case "sent":
     case "unknown":
+      return false;
+    // Lifecycle audit — one dish is off; Pay still works for everything else.
+    case "sold_out":
       return false;
   }
 }

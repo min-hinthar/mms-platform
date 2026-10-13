@@ -15,31 +15,13 @@ import {
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 import { createRevertCue, pillAddClaim, stepClaim, stepOvertakenNotice } from "@/lib/add-feedback";
+import { matchOwnLines } from "@/lib/own-lines";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
 
-// The viewer's OWN draft quick-add lines for this item, from a given cart snapshot: item + no modifiers +
-// the session-default fulfillment + draft + not comped + own verified seat. Shared by the render (current
-// items) and the write-queue (the freshest threaded snapshot) so both agree on which lines the stepper
-// owns. Require a known seat — a staff line has `bySeat` undefined and session recovery blanks `mySeat`, so
-// an unguarded `=== mySeat` would false-match a staff line (a real diner line always carries its by_seat).
-function matchOwnLines(
-  items: CartItem[],
-  menuItemId: string,
-  fulfillment: string,
-  mySeat: string | undefined,
-): CartItem[] {
-  if (!mySeat) return [];
-  return items.filter(
-    (i) =>
-      i.menuItemId === menuItemId &&
-      i.modifiers.length === 0 &&
-      i.fulfillment === fulfillment &&
-      i.lineState === "draft" &&
-      !i.comped &&
-      i.bySeat === mySeat,
-  );
-}
+// The viewer's OWN draft quick-add lines for this item — `lib/own-lines.ts` (moved there with its
+// allergy rule, lifecycle audit edit-notes 0: a NOTED line is never one of them, mirroring the
+// server's merge key). Shared by the render and the write-queue so both agree on what the stepper owns.
 
 /** Is keyboard focus orphaned — nowhere, or dropped to <body> because the focused node left the DOM? */
 function focusOrphaned(): boolean {
@@ -71,6 +53,10 @@ export function AddButton({
 }: {
   menuItemId: string;
   name: string;
+  /** Lifecycle audit (out-of-stock 0 · 5) — the dish's sold-out fact from the FRESHEST reading this
+   *  phone holds (the catalog render, the cart view, a refusal just met — `lib/dish-sold-out.ts`),
+   *  decided by `MenuBrowser`. It gates the pill AND the in-cart "+", in both directions: a dish put
+   *  back on the menu is addable again the moment a fresher reading says so. */
   soldOut?: boolean;
 }) {
   const {
@@ -112,9 +98,10 @@ export function AddButton({
   // Displayed qty = server truth + the optimistic in-flight delta (the instant-morph). All UI (the digit,
   // aria labels, the MAX gate, the morph) keys off this; the WRITE still targets real server lines only.
   const qty = serverQty + optimistic;
-  // Fresher 86'd signal: any matching own line flagged sold-out (server-derived live in getCartView) OR the
-  // page-render menu prop. Gates the in-cart "+" so a line 86'd after load can't keep incrementing.
-  const liveSoldOut = soldOut || myLines.some((l) => l.soldOut);
+  // Lifecycle audit (out-of-stock 5) — ONE sold-out fact for the pill and the "+": `soldOut` is
+  // already the freshest reading (the cart's live line flag included), so it is not ORed with a stale
+  // render here — that OR kept a restocked dish's "+" dead while /cart's was live.
+  const liveSoldOut = soldOut;
   // Morph once the viewer has the item in their own line(s) — all modes (per-seat merge shows each diner their
   // own contribution). Qty-driven: the stepper stays the control even if 86'd ("+" disables, "−" still removes).
   const inCart = qty > 0;

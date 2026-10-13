@@ -118,3 +118,28 @@ export function pickUnavailable(lines: CartLineish[], items: CatalogItemish[]): 
 export function foodMenuIds(lines: CartLineish[]): string[] {
   return [...new Set(blockableLines(lines).map((l) => l.menu_item_id as string))];
 }
+
+/**
+ * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — the dishes a dine-in SEND would put on
+ * the kitchen's board that the kitchen has already said it cannot make.
+ *
+ * `mms_fire_cart` fires every `dinein` draft and reads no availability, so a dish 86'd while it sat
+ * in a guest's cart went to the board anyway: a ticket for food the kitchen had just said no to, the
+ * guest's phone saying "Sent to kitchen" for a dish nobody would cook, and the verbal relay the 86
+ * hint asks for ("tell the counter"). The Send now refuses, naming these, until the guest removes
+ * them. ONLY `dinein` drafts: those are exactly what the Send fires — a to-go draft waits for the
+ * payment (and its own charge-boundary gate), so it must not hold the table's Send.
+ *
+ * The same sellability rule as every other gate (`pickUnavailable` → `itemSellable`). Read-then-fire
+ * leaves a race window (an 86 landing between this read and the RPC); closing it needs the RPC to
+ * skip sold-out drafts in SQL, which is a migration — filed, not guessed at here.
+ */
+export function sendBlockingDishes(
+  lines: CartLineish[],
+  items: CatalogItemish[],
+): UnavailableLine[] {
+  return pickUnavailable(
+    lines.filter((l) => l.fulfillment === "dinein"),
+    items,
+  );
+}

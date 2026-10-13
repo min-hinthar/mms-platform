@@ -43,6 +43,7 @@ import {
   makeItNow,
   releasePayLock,
   setLineFulfillment,
+  setLineNote,
   setQty as setQtyAction,
   type PromoReason,
 } from "@/lib/cart";
@@ -56,6 +57,8 @@ import {
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  isServerRefusal,
+  namedRefusalHolds,
   refusalClearsPayError,
   refusedWriteNotice,
   reopenFailureNotice,
@@ -82,7 +85,9 @@ import { taxRate } from "@/lib/tax";
 import { rewardShortfallCents } from "@/lib/totals-math";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { pickupContactMissing } from "@/lib/pickup-contact";
-import { DINER_STATE_COPY } from "@/lib/line-state-copy";
+import { DINER_STATE_COPY, lineChipWord } from "@/lib/line-state-copy";
+import { passRowStage } from "@/lib/live-pass";
+import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
 import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
@@ -486,6 +491,29 @@ export function Checkout({
   // line's write threw, and the refusal sentence is decided one `await` later in the transition.
   // `true` = the server accepted it; `false` = it refused, and something has to say so.
   const qtyChain = useRef<Map<string, Promise<boolean>>>(new Map());
+  /**
+   * Lifecycle audit (edit-notes 7) — the lines THIS phone has a quantity or note write in flight on,
+   * so the order-change diff below never reads a diner's own edit back to them as someone else's.
+   * Counted, and released a beat AFTER the write settles: the re-sync that shows the edit lands
+   * after the answer.
+   */
+  const ownWritesRef = useRef(new Map<string, number>());
+  const holdOwn = useCallback((id: string): (() => void) => {
+    const m = ownWritesRef.current;
+    m.set(id, (m.get(id) ?? 0) + 1);
+    return () => {
+      window.setTimeout(() => {
+        const n = (m.get(id) ?? 1) - 1;
+        if (n <= 0) m.delete(id);
+        else m.set(id, n);
+      }, 2000);
+    };
+  }, []);
+  /** The order-change diff's voice — assigned below, beside the region it speaks through (`status`'s
+   *  renumbering lives there); `applyCartView` calls it with the previous confirmed lines. */
+  const orderDiffRef = useRef<
+    ((prev: CartItem[], next: CartItem[], mySeat: string) => void) | null
+  >(null);
   const [tipRate, setTipRate] = useState(0);
   // W2d — custom tip: an open flag + the raw dollar string the diner types. The tip stays a RATE under
   // the hood (customCents / netCents) so the server path is identical to the presets — server-confirmed,
@@ -846,6 +874,10 @@ export function Checkout({
     // effect is a later render; the latch in `explainRefusal` runs before any of them land, so the
     // ref is the only honest answer to "what does the screen now say" at that moment.
     //
+    // Lifecycle audit (out-of-stock 2 · edit-notes 7) — what someone ELSE changed since the view this
+    // screen last showed (`lib/order-changes.ts`), asked BEFORE the ref below moves on: its `items`
+    // is that view (seeded from the rendered prop, so the first read diffs against what is drawn).
+    orderDiffRef.current?.(freezeFactsRef.current.items, v.items, v.mySeat);
     // ⚠️ AND THAT MAKES THIS FUNCTION A LATCH-CURRENCY WRITER, which its name does not say (the
     // blind pass on this PR). `freezeFactsRef` is the SOLE input to `latchExplained`'s currency
     // check, so any future path that applies a view between a refusal's publish and its latch would
@@ -1190,6 +1222,30 @@ export function Checkout({
     sayRefusal(text);
     setOutcomeMy(my ? { text, my } : null);
   };
+  /**
+   * Lifecycle audit (out-of-stock 2 · diner-live-status 3 · edit-notes 7) — a change someone ELSE
+   * made to this order (staff removing a dish — "we ran out" when that was the reason —, the host or
+   * a server changing this diner's own unsent dish or its note, a server adding one) used to arrive
+   * on /cart in silence: the struck "Removed" and a moved number were visible, and nothing was SAID.
+   * ONE sentence per re-read (`orderChangeNotice`), through this view's one region. It is NEWS: it
+   * never clears a standing pay error (that one is actionable and about money — the region shows it
+   * first), and it rides a frame so a view that swaps the region's subtree still announces it.
+   */
+  useLayoutEffect(() => {
+    orderDiffRef.current = (prev, next, seat) => {
+      const notice = orderChangeNotice(
+        orderChanges(prev, next, seat, {
+          lineIds: new Set(ownWritesRef.current.keys()),
+          dishes: new Set<string>(),
+        }),
+      );
+      if (!notice) return;
+      requestAnimationFrame(() => {
+        setStatus(notice);
+        setStatusSeq((seq) => seq + 1);
+      });
+    };
+  });
   /**
    * Phase 3c-ii (D27 · D28) — the table bound at SEND. The first Send on an UNBOUND dine-in session
    * opens `TableBindSheet` (the button's gate, `sendNeedsTable`); a chip binds the live session and
@@ -2233,9 +2289,21 @@ export function Checkout({
     // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
     // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
     const prev = qtyChain.current.get(id) ?? Promise.resolve(true);
+    // Lifecycle audit (edit-notes 6 · out-of-stock 1) — a refusal the SERVER NAMED rides out of the
+    // write in a HOLDER (a `let` assigned in this callback narrows back to null after the await).
+    const said: { named: { cause: "sent" } | { cause: "sold_out" } | null } = { named: null };
+    const releaseOwn = holdOwn(id); // lifecycle audit — this line's change is OURS (the diff skips it)
     const write = prev.then(async () => {
       try {
-        await setQtyAction(id, qty);
+        const r = await setQtyAction(id, qty);
+        // A DEFINITE refusal, named — `setQty` answers it as a value (a thrown message is redacted):
+        // the line already went to the kitchen, or the dish sold out under a "+". It used to be a
+        // throw, and the re-read's freeze reading — "We couldn’t confirm that — the order below is
+        // up to date" — stood in for "it's already gone to the kitchen" on a cart that proved it.
+        if (isServerRefusal(r)) {
+          said.named = serverNamedRefusal(r.refused);
+          return false;
+        }
         return true;
       } catch {
         // ⚠️ A THROW HERE PROVES THE WRITE DID NOT LAND, and that is MEASURED in `cart.ts`, not
@@ -2252,6 +2320,7 @@ export function Checkout({
       }
     });
     qtyChain.current.set(id, write);
+    void write.then(releaseOwn);
     startCartTransition(async () => {
       applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
       const accepted = await write; // this write + all prior for the line, in order → truth below
@@ -2262,8 +2331,15 @@ export function Checkout({
       }
       // M224 — the refusal gets a SENTENCE, from the re-read that also re-syncs the list beside it.
       // A qty of 0 is a REMOVAL, so its landing is the line's absence, not a quantity of zero.
-      await explainAndAnnounce(gesture, (seen) =>
-        qty <= 0 ? !lineIn(seen, id) : lineIn(seen, id)?.qty === qty,
+      // Lifecycle audit — a NAMED refusal speaks for itself (M230's toggle shape), re-asked of the
+      // winning view at publish (`namedRefusalHolds`: an Undo inside the Send's grace retires "sent").
+      const named = said.named;
+      await explainAndAnnounce(
+        gesture,
+        (seen) => (qty <= 0 ? !lineIn(seen, id) : lineIn(seen, id)?.qty === qty),
+        named
+          ? { refusal: named, holds: (items) => namedRefusalHolds(named, lineIn(items, id)) }
+          : undefined,
       );
     });
   }
@@ -2364,6 +2440,13 @@ export function Checkout({
     gesture: number,
     action: ReturnType<typeof makeItNow>,
   ): Promise<void> {
+    // Lifecycle audit (out-of-stock 1) — "Send to kitchen now" on a dish the kitchen can no longer
+    // make is refused as `sold_out` (`makeItNow`'s availability pre-read) and NAMED below. Read off
+    // the same promise (awaiting it twice is free), so the M230 `not_draft` silence stays as is.
+    const soldOut = await action.then(
+      (r) => !r.ok && r.reason === "sold_out",
+      () => false,
+    );
     // `accepted` and `refused` are separate for the same reason as the toggle above.
     //
     // M230 — the toggle's THIRD answer is deliberately NOT spoken here. `not_draft` on "Send to
@@ -2392,7 +2475,69 @@ export function Checkout({
       );
       return;
     }
+    if (soldOut) {
+      const named = { cause: "sold_out" } as const;
+      await explainAndAnnounce(
+        gesture,
+        (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
+        { refusal: named, holds: (items) => namedRefusalHolds(named, lineIn(items, id)) },
+      );
+      return;
+    }
     if (accepted) supersedeRefusals(gesture);
+    await refresh();
+  }
+
+  /**
+   * Lifecycle audit (edit-notes 3) — the diner adds, changes or clears the kitchen note on their own
+   * UNSENT dish from its ⋯ sheet. The `makeNow` shape: the RAW write goes back to the sheet, which
+   * awaits it bounded and closes on an answered `ok`; the follow-through rides `settleNote` beside it.
+   * Not optimistic — the allergy channel shows only what the server holds.
+   */
+  function saveNote(id: string, notes: string): ReturnType<typeof setLineNote> {
+    const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
+    const releaseOwn = holdOwn(id); // the note change is OURS — the order-change diff skips it
+    const action = setLineNote(id, notes);
+    void settleNote(id, notes, gesture, action).finally(releaseOwn);
+    return action;
+  }
+  async function settleNote(
+    id: string,
+    notes: string,
+    gesture: number,
+    action: ReturnType<typeof setLineNote>,
+  ): Promise<void> {
+    let r: Awaited<ReturnType<typeof setLineNote>> | null = null;
+    try {
+      r = await action;
+    } catch {
+      r = null; // authz / transport — the write may not have landed; the re-read below decides
+    }
+    const name = lineIn(viewItems, id)?.name ?? "that dish";
+    if (r?.ok) {
+      supersedeRefusals(gesture);
+      await refresh();
+      sayOutcome(notes ? `Note saved for ${name}.` : `Note removed from ${name}.`);
+      return;
+    }
+    // A NAMED refusal (`not_draft`: the dish went to the kitchen while the sheet was open) speaks for
+    // itself; a freeze (`busy`) or a throw is diagnosed from the re-read, like every edit here.
+    const named = r ? serverNamedRefusal(r.reason) : null;
+    if (named || r === null || r.reason === "busy") {
+      await explainAndAnnounce(
+        gesture,
+        (seen) => (lineIn(seen, id)?.notes ?? "") === notes,
+        named
+          ? { refusal: named, holds: (items) => namedRefusalHolds(named, lineIn(items, id)) }
+          : undefined,
+      );
+      return;
+    }
+    sayRefusal(
+      r.reason === "rate_limited"
+        ? reasonCopy.rate_limited
+        : `Couldn’t save the note for ${name} — please try again.`,
+    );
     await refresh();
   }
 
@@ -2859,6 +3004,10 @@ export function Checkout({
             ? data.error
             : "Couldn’t start checkout — please try again.",
         );
+        // Lifecycle audit (out-of-stock 1) — a 409 is a fact about the CART that moved under this
+        // screen (a dish sold out, a tablemate's lock, a slot filled): re-read it, so the line the
+        // sentence names shows its own mark ("Sold out — remove it") instead of the view from before.
+        if (res.status === 409) void refresh();
         return;
       }
       // W21 (Codex P1 on #192) — re-read the cart NOW, after create-intent LOCKED it, so the pay
@@ -4018,7 +4167,8 @@ export function Checkout({
                       {/* W3b: the diner's own kitchen note — visible so it's verifiable (a safety
                           channel can't be write-only), and so a noted line reads apart from an
                           identical plain sibling (the two never merge). Full text color: allergy-
-                          adjacent, never muted. Read-only — remove/re-add to change it. */}
+                          adjacent, never muted. Editable while unsent, from the line's ⋯ (lifecycle
+                          audit, edit-notes 3 — `setLineNote`). */}
                       {i.notes && (
                         <div
                           style={{
@@ -4066,36 +4216,63 @@ export function Checkout({
                           format={{ style: "currency", currency: "USD" }}
                         />
                       </div>
+                      {/* Lifecycle audit (out-of-stock 1) — an UNSENT dish whose dish sold out after it
+                          was added said so only by dimming its "+" (the words lived in a screen-reader
+                          label), and the Send fired it anyway. Now the mark is VISIBLE, both tongues,
+                          and names the way through — the Send refuses while it stays (`sendToKitchen`).
+                          Static text, not a live region: the view's one region says the refusal. */}
+                      {i.lineState === "draft" && i.soldOut && (
+                        <div
+                          data-line-soldout
+                          style={{
+                            display: "inline-flex",
+                            flexWrap: "wrap",
+                            alignItems: "baseline",
+                            marginTop: 6,
+                            padding: "3px 10px",
+                            borderRadius: "var(--r-full)",
+                            background: "var(--warnb)",
+                            color: "var(--warn)",
+                            fontSize: "var(--fs-sm)",
+                            fontWeight: "var(--fw-bold)",
+                          }}
+                        >
+                          {t("en", "soldOutRemoveIt")}
+                          <My k="soldOutRemoveIt" inline size="var(--fs-sm)" color="var(--warn)" />
+                        </div>
+                      )}
                       {/* Phase 3c-i (D17) — the line is a receipt row: For here / To go and "Send to
                           kitchen now" live behind this ⋯ (ONE `LineOptionsSheet`, subject-keyed), under
                           the exact gate the pills had — dine-in food, still a draft, and this diner may
                           edit it. A 44×44 ghost from `.checkout-pill`, never the lit cap: it is a door,
                           not a selection. `aria-haspopup="dialog"` says what it opens. */}
-                      {isDineIn &&
-                        i.fulfillment !== "grocery" &&
-                        i.lineState === "draft" &&
-                        canEdit && (
-                          <div style={{ marginTop: 8 }}>
-                            <button
-                              id={`line-more-${i.id}`}
-                              type="button"
-                              aria-label={`More for ${i.name}`}
-                              aria-haspopup="dialog"
-                              aria-expanded={lineSheetId === i.id}
-                              onClick={() => {
-                                if (leaving) return;
-                                setLineSheetId(i.id);
-                              }}
-                              className="checkout-pill checkout-line-more"
-                            >
-                              <Icon name="more" size={20} aria-hidden />
-                            </button>
-                          </div>
-                        )}
+                      {/* Lifecycle audit (edit-notes 3) — the ⋯ now also carries the dish's kitchen
+                          NOTE, which every food diner needs (an allergy is not a dine-in-only fact), so
+                          it is offered off a table too; the sheet draws For here / To go and "Send to
+                          kitchen now" only at a table (`dineIn`). */}
+                      {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            id={`line-more-${i.id}`}
+                            type="button"
+                            aria-label={`More for ${i.name}`}
+                            aria-haspopup="dialog"
+                            aria-expanded={lineSheetId === i.id}
+                            onClick={() => {
+                              if (leaving) return;
+                              setLineSheetId(i.id);
+                            }}
+                            className="checkout-pill checkout-line-more"
+                          >
+                            <Icon name="more" size={20} aria-hidden />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {i.comped ? (
-                      <LineStateChip state={i.lineState} comped />
-                    ) : i.lineState === "draft" ? (
+                    {/* Lifecycle audit (diner-live-status 6) — a comped dish keeps its kitchen STAGE
+                        with the comp tag beside it (it still cooks), and every chip reads the ONE
+                        track (`LineStateChip`), never the raw column. */}
+                    {!i.comped && i.lineState === "draft" ? (
                       <Stepper
                         qty={i.qty}
                         // §17 (K35): the shared Stepper is `aria-disabled` while frozen, so a diner
@@ -4120,7 +4297,7 @@ export function Checkout({
                         }}
                       />
                     ) : (
-                      <LineStateChip state={i.lineState} comped={false} />
+                      <LineStateChip line={i} nowIso={dbNowIso} />
                     )}
                   </li>
                 );
@@ -5415,6 +5592,8 @@ export function Checkout({
                   toggleFulfillment(id, ful);
                 }}
                 onMakeNow={() => makeNow(lineSheet.held!.id)}
+                dineIn={isDineIn}
+                onSaveNote={(notes) => saveNote(lineSheet.held!.id, notes)}
                 onCloseAutoFocus={(e) => landAfterLineSheet(e, lineSheet.held!.id)}
               />
             )}
@@ -5470,60 +5649,82 @@ const customTipWrap: CSSProperties = {
 // The honest replacement for a stepper once a line has gone to the kitchen (S2.2) or been comped/voided
 // by a server (S2.3). Shows the line's state in place of the (now-forbidden) edit control. Static text —
 // NOT a live region (the state arrives via a cart refresh, announced once by SendToKitchenButton, not
-// per line). `comped` takes precedence over `state` (a comped line keeps its kitchen state but reads
-// "Comped" to the diner).
-function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
-  const label = comped ? "On the house" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
-  const glyph = comped ? (
-    <Icon name="gift" size={15} />
-  ) : state === "served" ? (
-    <Icon name="check" size={15} />
-  ) : state === "voided" ? (
-    <Icon name="close" size={15} />
-  ) : (
-    <Icon name="flame" size={15} />
-  );
+// per line).
+//
+// Lifecycle audit (diner-live-status 6 · out-of-stock 2) — the WORD is the ONE KITCHEN TRACK's
+// (`lineChipWord(line, passRowStage(line, dbNow))`), never the raw `lineState`: inside the Send's undo
+// grace it reads "Sending…" like the strip above it and the live Undo, and a dish Mom bumped reads
+// "Cooking" until her six-second undo window is over — the chip used to say "Sent to kitchen" and
+// "Served" there, and flip back on a recall. A comped dish keeps its stage with "On the house" BESIDE it
+// (it still cooks — the comp chip used to replace the stage). A removed dish says why when staff said
+// "We ran out".
+function LineStateChip({ line, nowIso }: { line: CartItem; nowIso: string }) {
+  const stage = passRowStage(line, nowIso);
+  const label = lineChipWord(line, stage);
+  const voided = line.lineState === "voided";
+  const comped = !!line.comped && !voided;
+  const glyph =
+    stage === "served" ? (
+      <Icon name="check" size={15} />
+    ) : voided ? (
+      <Icon name="close" size={15} />
+    ) : stage === "unsent" ? null : (
+      <Icon name="flame" size={15} />
+    );
   // The context is REAL (visually-hidden) text, not an aria-label on this non-interactive span (which
-  // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper.
-  const hint = comped
-    ? " — on the house, no charge"
-    : state === "voided"
-      ? " — removed by our staff"
+  // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper. A removal
+  // whose visible word already says why ("Removed — we ran out") needs no second reason.
+  const hint = voided
+    ? line.removedReason === "sold_out"
+      ? ""
+      : " — removed by our staff"
+    : comped
+      ? " — on the house, no charge"
       : " — ask our staff to make changes";
   return (
     <span
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "8px 12px",
-        minHeight: 44,
-        borderRadius: 999,
-        border: "1px solid var(--bd)",
-        background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
-        color: "var(--ac-strong)",
-        fontSize: "var(--fs-sm)",
-        fontWeight: "var(--fw-heavy)",
-        whiteSpace: "nowrap",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        gap: 4,
       }}
     >
-      <span aria-hidden>{glyph}</span>
-      {label}
       <span
         style={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          padding: 0,
-          margin: -1,
-          overflow: "hidden",
-          clip: "rect(0 0 0 0)",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 12px",
+          minHeight: 44,
+          borderRadius: 999,
+          border: "1px solid var(--bd)",
+          background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
+          color: "var(--ac-strong)",
+          fontSize: "var(--fs-sm)",
+          fontWeight: "var(--fw-heavy)",
           whiteSpace: "nowrap",
-          border: 0,
         }}
       >
-        {hint}
+        {glyph && <span aria-hidden>{glyph}</span>}
+        {label}
+        {hint && <span className="sr-only">{hint}</span>}
       </span>
+      {comped && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: "var(--fs-xs)",
+            fontWeight: "var(--fw-bold)",
+            color: "var(--t2)",
+          }}
+        >
+          <Icon name="gift" size={13} aria-hidden />
+          On the house
+        </span>
+      )}
     </span>
   );
 }

@@ -6,7 +6,7 @@ import { useJourneyRouter } from "./nav/TransitionNav";
 import { navEpoch } from "@/lib/nav-epoch";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
-import { cartBarCountShown, cartBarLine2, cartBarName } from "@/lib/cart-bar-state";
+import { cartBarCountShown, cartBarLine2, cartBarName, orderUnitCount } from "@/lib/cart-bar-state";
 import { t } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
 
@@ -56,7 +56,9 @@ export function CartBar() {
   // A write is in flight exactly when the optimistic count differs from the sum of the confirmed lines
   // (see the amount note below). Pure derivations, hoisted above the early return so the effect can
   // read them.
-  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
+  // Lifecycle audit — the provider's `count` and this confirmed count are ONE binding
+  // (`orderUnitCount`: a removed line is not counted), so "pending" can only mean a write in flight.
+  const confirmedCount = orderUnitCount(items);
   const pending = totals === null || count !== confirmedCount;
   useEffect(() => {
     if (cartId && count > 0 && !pending) cartBarSprung = true;

@@ -60,9 +60,10 @@ export type CartItem = {
    *  checkout) · `grocery` (no kitchen, bagged). Drives routing + per-line tax (cold food is taxable only
    *  dine-in). The diner groups the cart by this; a food line can toggle dinein↔togo. */
   fulfillment: LineFulfillment;
-  /** W3b: the kitchen note ("no peanuts — allergy") the diner attached at add time. Read-only in the
-   *  cart (remove/re-add to change it) but VISIBLE — a safety-adjacent channel must be verifiable, and
-   *  it's what tells a noted line apart from an identical-looking plain sibling (notes never merge). */
+  /** W3b: the kitchen note ("no peanuts — allergy") the diner attached at add time. VISIBLE — a
+   *  safety-adjacent channel must be verifiable, and it's what tells a noted line apart from an
+   *  identical-looking plain sibling (notes never merge). Editable while the line is a draft
+   *  (`setLineNote`, lifecycle audit edit-notes 3). */
   notes?: string | null;
   /** W13 — the line's catalog photo (menu image_url for uuid refs, grocery image_url for barcode
    *  refs), server-joined in getCartView and CONTAINED by lib/media-url (next/image throws on
@@ -71,6 +72,10 @@ export type CartItem = {
   /** W13 — the line's Burmese name (menu/grocery name_my), joined alongside imageUrl. The post-add
    *  path speaks both tongues; render with lang="my" + the --font-my stack. Display-only. */
   nameMy?: string | null;
+  /** Lifecycle audit (out-of-stock 2) — WHY staff removed a voided line, when the reason is one a
+   *  guest may be told: `sold_out` ("We ran out", `mms_approvals.reason_code`). null for every other
+   *  reason, a line that is not voided, or an unreadable audit (advisory, like `soldOut`). */
+  removedReason?: "sold_out" | null;
 };
 
 /** A cart line's destination/routing tag (S4). Grocery is auto-tagged; food toggles dinein↔togo. */

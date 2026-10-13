@@ -58,6 +58,11 @@ export const CART = {
     en: "Your order’s with the kitchen.",
     my: "သင့်အော်ဒါ မီးဖိုချောင်ထဲ ရောက်နေပါပြီနော်",
   },
+  // Lifecycle audit (out-of-stock 1) — the mark on an UNSENT dish whose dish sold out after it was
+  // added: the Send refuses while it stays, so the mark says the way through. "ကုန်သွားပြီ" is the
+  // shipped "Sold out" (`table.line.soldOut`, grounded); "— ဖျက်ပေးပါ" ("please remove it") is a
+  // Claude-authored draft — K15 · diner-changes in OPEN-ITEMS.
+  soldOutRemoveIt: { en: "Sold out — remove it", my: "ကုန်သွားပြီ — ဖျက်ပေးပါ" }, // K15 draft (lifecycle)
   countItem: { en: "item", my: "ခု" },
   countItems: { en: "items", my: "ခု" },
   // Suffix after a NAME in both tongues ("{name} is checking out" / "{name} ရှင်းနေပါတယ်").

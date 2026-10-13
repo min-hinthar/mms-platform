@@ -3,6 +3,7 @@ import {
   pickUnavailable,
   pickUnavailableNames,
   foodMenuIds,
+  sendBlockingDishes,
   type CartLineish,
   type CatalogItemish,
 } from "./availability";
@@ -187,5 +188,42 @@ describe("foodMenuIds", () => {
 
   it("asks nothing of the catalog for a grocery-only basket", () => {
     expect(foodMenuIds([line({ menu_item_id: "a", fulfillment: "grocery" })])).toEqual([]);
+  });
+});
+
+/**
+ * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — the dishes that hold a dine-in SEND:
+ * exactly the `dinein` drafts the Send would fire whose dish can no longer be made. A to-go draft
+ * waits for the payment (and its own gate), so it must never hold the table's Send.
+ */
+describe("sendBlockingDishes — what a Send would put on the board that the kitchen said no to", () => {
+  const catalog: CatalogItemish[] = [
+    { id: "m1", name_en: "Mohinga", is_sold_out: true, is_active: true },
+    { id: "m2", name_en: "Tea Leaf Salad", is_sold_out: false, is_active: true },
+    { id: "m3", name_en: "Shan Noodles", is_sold_out: false, is_active: false },
+  ];
+  it("names sold-out and delisted dine-in drafts, and nothing sendable", () => {
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "draft", fulfillment: "dinein" },
+      { menu_item_id: "m2", name: "Tea Leaf Salad", state: "draft", fulfillment: "dinein" },
+      { menu_item_id: "m3", name: "Shan Noodles", state: "draft", fulfillment: "dinein" },
+    ];
+    expect(sendBlockingDishes(lines, catalog).map((u) => u.name)).toEqual([
+      "Mohinga",
+      "Shan Noodles",
+    ]);
+  });
+  it("a TO-GO draft of a sold-out dish never holds the table's Send", () => {
+    // MUTATION (lcb/availability/to-go-draft-holds-the-send): drop the dine-in filter; red.
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "draft", fulfillment: "togo" },
+    ];
+    expect(sendBlockingDishes(lines, catalog)).toEqual([]);
+  });
+  it("a line already with the kitchen is not the Send's (it is not fired again)", () => {
+    const lines: CartLineish[] = [
+      { menu_item_id: "m1", name: "Mohinga", state: "fired", fulfillment: "dinein" },
+    ];
+    expect(sendBlockingDishes(lines, catalog)).toEqual([]);
   });
 });

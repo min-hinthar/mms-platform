@@ -15,6 +15,7 @@ import { t, type DictKey } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
 import { sentCopy } from "@/lib/confirm-copy";
 import { undoTapHeld } from "@/lib/send-grace";
+import { soldOutSendNotice } from "@/lib/dish-sold-out";
 import { FROZEN_NOTE, reasonCopy, useGraceCountdown, type UndoGrace } from "./useUndoGrace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
@@ -164,6 +165,12 @@ export function SendToKitchenButton({
           grace.open(res, Date.now());
           setSendBeat((n) => n + 1); // W22a — one paper beat per successful send
           onChanged(); // steppers → "Sent to kitchen" chips
+        } else if (res.reason === "sold_out") {
+          // Lifecycle audit (out-of-stock 1) — nothing went to the kitchen: a dish the kitchen can
+          // no longer make is still in the batch. NAMED, and the way through is said (remove it,
+          // then send the rest); `onChanged` re-reads so each such dish's "Sold out" mark shows.
+          onMessage(soldOutSendNotice(res.names));
+          onChanged();
         } else {
           onMessage(reasonCopy[res.reason]);
         }

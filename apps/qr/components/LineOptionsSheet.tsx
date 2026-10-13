@@ -38,9 +38,11 @@ export function LineOptionsSheet({
   frozen,
   prepMinutes,
   notice,
+  dineIn = true,
   onOpenChange,
   onChoose,
   onMakeNow,
+  onSaveNote,
   onCloseAutoFocus,
 }: {
   /** The LIVE line (held through the exit by the parent's `useSheetSubject`). */
@@ -52,6 +54,9 @@ export function LineOptionsSheet({
   prepMinutes: number;
   /** The view's one sentence (`payError ?? status`), mirrored into this sheet's region. */
   notice: string | null;
+  /** Lifecycle audit (edit-notes 3) — a dine-in table's line: draws For here / To go and the to-go
+   *  line's "Send to kitchen now". Off a table the sheet holds the kitchen note alone. */
+  dineIn?: boolean;
   onOpenChange: (open: boolean) => void;
   /** A destination chosen — the parent closes the sheet and runs its optimistic toggle. */
   onChoose: (ful: "dinein" | "togo") => void;
@@ -59,9 +64,30 @@ export function LineOptionsSheet({
   /** The RAW `makeItNow` write — what `boundWrite` tracks and bounds; its answer is the parent's to
    *  read (the sheet only waits), so the type is deliberately opaque. */
   onMakeNow: () => Promise<unknown>;
+  /** Lifecycle audit (edit-notes 3) — the RAW `setLineNote` write for this line, as the parent runs
+   *  it (the follow-through — the re-sync and any refusal's sentence — rides beside it, the
+   *  `makeNow` shape). Awaited BOUNDED here; an answered `ok` closes the sheet. Omitted = no field. */
+  onSaveNote?: (notes: string) => Promise<{ ok: boolean }>;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // The note as the diner is editing it — seeded from the LIVE line once per open (the parent keys
+  // the sheet per open). Bounded to 160, the Zod cap and the `qr_cart_items.notes` column CHECK.
+  const [note, setNote] = useState(line.notes ?? "");
+  const noteUnchanged = note.trim() === (line.notes ?? "").trim();
+
+  async function saveNote() {
+    if (busy || frozen || noteUnchanged || !onSaveNote) return;
+    setBusy(true);
+    try {
+      // The RAW write, awaited bounded, outside any transition (9b) — the `sendNow` shape. A note is
+      // the allergy channel, so the sheet holds for the answer rather than closing on a hope.
+      const out = await boundWrite(onSaveNote(note.trim()));
+      if (out.kind === "answer" && out.value.ok) onOpenChange(false);
+    } finally {
+      setBusy(false); // frees AT THE BOUND on every path — the M82 guard parses for it
+    }
+  }
 
   async function sendNow() {
     if (busy || frozen) return;
@@ -104,35 +130,37 @@ export function LineOptionsSheet({
       <div className="checkout-line-sheet">
         {/* For-here / To-go (S4): the server recomputes per-line tax (cold food flips taxability);
             the parent's toggle is optimistic (instant re-group), reconciled on refresh. */}
-        <div role="group" aria-label={`Where ${line.name} goes`} className="checkout-pill-row">
-          {(["dinein", "togo"] as const).map((f) => {
-            const on = line.fulfillment === f;
-            return (
-              <button
-                key={f}
-                type="button"
-                data-ful-line={line.id}
-                data-ful-val={f}
-                aria-pressed={on}
-                // Unavailable under a freeze AND while "Send to kitchen now" is held (Codex round 6
-                // on #313): the handler already refused the tap; the control must SAY so too.
-                aria-disabled={frozen || busy || undefined}
-                onClick={() => {
-                  if (frozen || busy) return;
-                  onChoose(f);
-                }}
-                className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
-                style={frozen || busy ? { opacity: 0.55 } : undefined}
-              >
-                {f === "dinein" ? "For here" : "To go"}
-              </button>
-            );
-          })}
-        </div>
+        {dineIn && (
+          <div role="group" aria-label={`Where ${line.name} goes`} className="checkout-pill-row">
+            {(["dinein", "togo"] as const).map((f) => {
+              const on = line.fulfillment === f;
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  data-ful-line={line.id}
+                  data-ful-val={f}
+                  aria-pressed={on}
+                  // Unavailable under a freeze AND while "Send to kitchen now" is held (Codex round 6
+                  // on #313): the handler already refused the tap; the control must SAY so too.
+                  aria-disabled={frozen || busy || undefined}
+                  onClick={() => {
+                    if (frozen || busy) return;
+                    onChoose(f);
+                  }}
+                  className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
+                  style={frozen || busy ? { opacity: 0.55 } : undefined}
+                >
+                  {f === "dinein" ? "For here" : "To go"}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to the
             kitchen early. NOT optimistic — a fire is one-way, so the sheet holds for the answer and
             the line's chip changes only when the server says so. */}
-        {line.fulfillment === "togo" && (
+        {dineIn && line.fulfillment === "togo" && (
           <button
             type="button"
             aria-disabled={frozen || undefined}
@@ -151,6 +179,53 @@ export function LineOptionsSheet({
                 the config estimate. While the write is out, the shipped "Sending…". */}
             {busy ? t("en", "sending") : `Send to kitchen now · usually ~${prepMinutes} min`}
           </button>
+        )}
+        {/* Lifecycle audit (edit-notes 3) — the dish's kitchen note, editable while it is unsent (the
+            line read "remove/re-add to change it" before, and a diner who only wanted to add an
+            allergy had to rebuild the dish). Empty clears it. The same field, words and bound as the
+            item sheet's (`ItemSheet`), so the allergy channel reads one way everywhere. */}
+        {onSaveNote && (
+          <div className="item-note">
+            <label htmlFor={`line-note-${line.id}`} className="item-note-label">
+              A note for the kitchen
+            </label>
+            <textarea
+              id={`line-note-${line.id}`}
+              className="item-note-input"
+              value={note}
+              maxLength={160}
+              rows={2}
+              placeholder="e.g. No peanuts — allergy"
+              onChange={(e) => setNote(e.target.value)}
+              aria-describedby={note.length >= 120 ? `line-note-count-${line.id}` : undefined}
+            />
+            {note.length >= 120 && (
+              <p id={`line-note-count-${line.id}`} className="item-note-count">
+                {160 - note.length} characters left
+              </p>
+            )}
+            <button
+              type="button"
+              // `aria-disabled`, never native, for the same reason as the pills: a peer's lock can
+              // land while this holds focus, and a native disable would drop it to <body>.
+              aria-disabled={frozen || busy || noteUnchanged || undefined}
+              aria-busy={busy || undefined}
+              onClick={() => void saveNote()}
+              className="checkout-pill checkout-pill-accent"
+              style={{
+                display: "flex",
+                width: "100%",
+                marginTop: 8,
+                ...(frozen || noteUnchanged ? { opacity: 0.55 } : null),
+              }}
+            >
+              {busy
+                ? "Saving…"
+                : note.trim() === "" && line.notes
+                  ? "Remove the note"
+                  : "Save note"}
+            </button>
+          </div>
         )}
         {/* The sheet's ONE region — the view's sentence, where a reader can hear it. Plain text
             colour follows the sentence's kind on the page; here it stays quiet. */}

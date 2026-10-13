@@ -16,11 +16,24 @@ import type { MenuItem } from "./MenuBrowser";
  * the spy — the region itself is the provider's, pinned by its own suite.
  */
 const announce = vi.fn();
+/** Lifecycle audit — the cart facts a case steers (the cart view's lines and clock, the marks). */
+const cart = vi.hoisted(() => ({ extra: {} as Record<string, unknown> }));
 vi.mock("@/components/TableCartProvider", () => ({
-  useCart: () => ({ cartId: null, announce, refresh: async () => {}, tableNumber: null }),
+  useCart: () => ({
+    cartId: null,
+    announce,
+    refresh: async () => {},
+    tableNumber: null,
+    ...cart.extra,
+  }),
 }));
 const none = () => null;
-vi.mock("@/components/AddButton", () => ({ AddButton: none }));
+// A MARKER carrying the one prop the lifecycle cases ask about: the sold-out fact the page decided.
+vi.mock("@/components/AddButton", () => ({
+  AddButton: ({ menuItemId, soldOut }: { menuItemId: string; soldOut?: boolean }) => (
+    <span data-add={menuItemId} data-soldout={String(!!soldOut)} />
+  ),
+}));
 vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
@@ -83,6 +96,7 @@ const spoken = () =>
 
 beforeEach(() => {
   announce.mockClear();
+  cart.extra = {};
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -220,5 +234,53 @@ describe("F31 — /menu speaks through ONE region", () => {
     );
     expect(screen.getByText("Nothing on the menu fits these filters — ease one.")).toBeTruthy();
     expect(announce).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Lifecycle audit (out-of-stock 0 · 5) — every surface on the page reads ONE sold-out fact, the
+ * FRESHEST this phone holds (`lib/dish-sold-out.ts`): a refusal an add just met flips the card at
+ * once, and a fresher cart reading puts a restocked dish back — the render's stale flag no longer
+ * outvotes it.
+ */
+describe("the menu's sold-out fact is the freshest reading", () => {
+  const soldOutOf = (id: string) =>
+    document.querySelector(`[data-add="${id}"]`)?.getAttribute("data-soldout");
+
+  it("a sold-out refusal's MARK flips the card to Sold out, with no reload", () => {
+    // MUTATION (lcb/menu/refusal-mark-ignored): drop the mark — the card stays live under every
+    // retry, each meeting the same refusal; red.
+    cart.extra = { soldOutMarks: new Map([["m1", Date.parse("2026-10-13T12:00:05Z")]]) };
+    render(
+      <MenuBrowser
+        items={ITEMS}
+        mode="dinein"
+        usual={{ kind: "none" } as never}
+        catalogStamp={Date.parse("2026-10-13T12:00:00Z")}
+      />,
+    );
+    expect(soldOutOf("m1")).toBe("true");
+    expect(soldOutOf("t1")).toBe("false");
+    expect(screen.getByText("· Sold out")).toBeTruthy();
+  });
+
+  it("a FRESHER cart reading puts a restocked dish back, over the render's stale Sold out", () => {
+    // MUTATION (lcb/menu/cart-reading-ignored): read only the render — the restocked dish stays dead
+    // on /menu while /cart's "+" is live; red.
+    const stale = ITEMS.map((i) => (i.id === "m1" ? { ...i, is_sold_out: true } : i));
+    cart.extra = {
+      items: [{ menuItemId: "m1", soldOut: false, fulfillment: "dinein" }],
+      dbNow: "2026-10-13T12:05:00.000Z",
+    };
+    render(
+      <MenuBrowser
+        items={stale}
+        mode="dinein"
+        usual={{ kind: "none" } as never}
+        catalogStamp={Date.parse("2026-10-13T12:00:00Z")}
+      />,
+    );
+    expect(soldOutOf("m1")).toBe("false");
+    expect(screen.queryByText("· Sold out")).toBeNull();
   });
 });

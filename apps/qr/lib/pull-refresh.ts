@@ -37,3 +37,22 @@ export function pullTravel(dy: number): number {
 export function pullArmed(travel: number): boolean {
   return travel >= PULL_TRIGGER_PX;
 }
+
+/**
+ * Lifecycle audit (out-of-stock 5) — how often an OPEN, VISIBLE /menu re-reads the catalog when
+ * nobody pulls. The wake re-read covers a pocketed phone; it never covers a diner who keeps the menu
+ * open on the table, and that is exactly the diner a restock or a fresh 86 goes unannounced to: the
+ * card read "Sold out" until they happened to pull, or stayed live over a dish the kitchen had just
+ * run out of. The re-read is `ambient`, so it speaks only with news ("Mohinga is back on."). Slow on
+ * purpose — the catalog read is one query, but every open phone in the room makes it.
+ */
+export const MENU_AMBIENT_REFRESH_MS = 90_000;
+
+/**
+ * May the ambient interval re-read now? Only while the page is VISIBLE (a hidden tab is the wake
+ * re-read's to catch up on return, and a background tab must not spend the room's catalog reads)
+ * and nothing is already in flight (a pull the diner asked for owns the answer).
+ */
+export function ambientRefreshDue(visibility: string, inFlight: boolean): boolean {
+  return visibility === "visible" && !inFlight;
+}

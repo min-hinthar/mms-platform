@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { KITCHEN_STAGES } from "@mms/ui";
 import { t } from "./i18n";
 import { STAFF } from "./i18n/staff";
-import { DINER_STAGE_WORD, DINER_STATE_COPY } from "./line-state-copy";
+import {
+  DINER_STAGE_WORD,
+  DINER_STATE_COPY,
+  lineChipWord,
+  removedReasons,
+  removedWord,
+} from "./line-state-copy";
 
 /**
  * PD10 (m10 decision 2 · appendix C) — the guest's track words are the FAMILY's console words.
@@ -37,5 +43,51 @@ describe("DINER_STAGE_WORD — one vocabulary, both tongues, on every diner surf
 
   it("inside the Send's grace the words are '-ing' — the cart's own `sending` pair (D3)", () => {
     expect(DINER_STAGE_WORD.sending).toEqual({ en: t("en", "sending"), my: t("my", "sending") });
+  });
+});
+
+/**
+ * Lifecycle audit (diner-live-status 6 · out-of-stock 2) — the dish card's chip word follows the ONE
+ * TRACK, never the raw column, and a removed dish says why when staff said "We ran out".
+ */
+describe("lineChipWord — the chip reads the track", () => {
+  it("inside the Send's grace a fired line reads 'Sending…'; inside Mom's undo window a served one 'Cooking'", () => {
+    // MUTATION (lcb/line-copy/chip-reads-the-raw-state): key the word on `lineState` — "Sent to
+    // kitchen" beside a live Undo, "Served" over a bump Mom can still take back; red.
+    expect(lineChipWord({ lineState: "fired" }, "sending")).toBe(DINER_STAGE_WORD.sending.en);
+    expect(lineChipWord({ lineState: "served" }, "cooking")).toBe("Cooking");
+    expect(lineChipWord({ lineState: "fired" }, "sent")).toBe("Sent to kitchen");
+    expect(lineChipWord({ lineState: "served" }, "served")).toBe("Served");
+  });
+
+  it("a removed line keeps its removal word, with the reason when the guest may hear it", () => {
+    // MUTATION (lcb/line-copy/removed-reason-lost): drop the reason; red.
+    expect(lineChipWord({ lineState: "voided", removedReason: "sold_out" }, null)).toBe(
+      "Removed — we ran out",
+    );
+    expect(lineChipWord({ lineState: "voided", removedReason: null }, null)).toBe("Removed");
+    expect(removedWord(undefined)).toBe("Removed");
+  });
+
+  it("a line with no stage (grocery) keeps its state's word", () => {
+    expect(lineChipWord({ lineState: "draft" }, null)).toBe(DINER_STATE_COPY.draft);
+  });
+});
+
+describe("removedReasons — an INCLUSION list: only 'we ran out' is told", () => {
+  it("maps sold_out, hides every other code, and the newest row per line wins", () => {
+    // MUTATION (lcb/line-copy/every-reason-told): pass every code through — "mistake" or "quality"
+    // reaches a guest as a reason; red.
+    const out = removedReasons([
+      { line_id: "a", reason_code: "sold_out", created_at: "2026-10-13T10:00:00Z" },
+      { line_id: "b", reason_code: "mistake", created_at: "2026-10-13T10:00:00Z" },
+      { line_id: "c", reason_code: "quality", created_at: "2026-10-13T09:00:00Z" },
+      { line_id: "c", reason_code: "sold_out", created_at: "2026-10-13T10:00:00Z" },
+      { line_id: null, reason_code: "sold_out", created_at: "2026-10-13T10:00:00Z" },
+    ]);
+    expect(out.get("a")).toBe("sold_out");
+    expect(out.get("b")).toBeNull();
+    expect(out.get("c")).toBe("sold_out");
+    expect(out.size).toBe(3);
   });
 });

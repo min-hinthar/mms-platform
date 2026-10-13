@@ -7,6 +7,8 @@ import {
   freezeBanner,
   freezeBlocksPayment,
   freezeNotice,
+  isServerRefusal,
+  namedRefusalHolds,
   namedRefusedWriteNotice,
   refusalNeedsRemint,
   refusalClearsPayError,
@@ -705,5 +707,50 @@ describe("refusalClearsPayError — only a freeze supersedes a pay error", () =>
   it("a cause that freezes nothing does not — the kitchen fact and the hedge alike", () => {
     expect(refusalClearsPayError({ cause: "sent" })).toBe(false);
     expect(refusalClearsPayError({ cause: "unknown" })).toBe(false);
+  });
+});
+
+/**
+ * Lifecycle audit (out-of-stock 0 · edit-notes 6) — the refusals the SERVER names as values.
+ *
+ * Next redacts a thrown Server Action's message in production, so "Mohinga just sold out" and "Ask
+ * our staff to change an item that’s already gone to the kitchen" never reached the browser: the
+ * diner heard "We couldn’t confirm Mohinga". These pin the value, its sentence, and its truth test.
+ */
+describe("server-named refusals — sold_out joins sent", () => {
+  it("`sold_out` is named, in the plain words, and never 'just' (recency is not a fact it carries)", () => {
+    // MUTATION (lcb/freeze/sold-out-unnamed): the reason maps to nothing — the hedge comes back; red.
+    expect(serverNamedRefusal("sold_out")).toEqual({ cause: "sold_out" });
+    expect(serverNamedRefusal("not_draft")).toEqual({ cause: "sent" });
+    expect(serverNamedRefusal("busy")).toBeNull();
+    expect(namedRefusedWriteNotice({ cause: "sold_out" }, "Mohinga")).toBe(
+      "Mohinga didn’t go through — it’s sold out now.",
+    );
+    expect(refusedWriteClause({ cause: "sold_out" })).not.toMatch(/just/);
+  });
+
+  it("a sold-out refusal never clears a standing pay error — one dish is off, Pay still works", () => {
+    expect(refusalClearsPayError({ cause: "sold_out" })).toBe(false);
+  });
+
+  it("isServerRefusal tells the value from a view and from the written-unreadable null", () => {
+    expect(isServerRefusal({ refused: "sold_out", at: "2026-10-13T00:00:00Z" })).toBe(true);
+    expect(isServerRefusal({ refused: "not_draft", at: "2026-10-13T00:00:00Z" })).toBe(true);
+    expect(isServerRefusal(null)).toBe(false);
+    expect(isServerRefusal({ items: [], totals: {} })).toBe(false);
+    expect(isServerRefusal({ refused: "something_else" })).toBe(false);
+  });
+
+  it("a sold-out refusal HOLDS only while the line is a draft its view still flags sold out", () => {
+    // MUTATION (lcb/freeze/sold-out-holds-after-restock): hold regardless — "it's sold out now"
+    // printed beside a dish a manager has just put back on; red.
+    const sold = { cause: "sold_out" } as const;
+    expect(namedRefusalHolds(sold, { lineState: "draft", soldOut: true })).toBe(true);
+    expect(namedRefusalHolds(sold, { lineState: "draft", soldOut: false })).toBe(false);
+    expect(namedRefusalHolds(sold, { lineState: "fired", soldOut: true })).toBe(false);
+    expect(namedRefusalHolds(sold, undefined)).toBe(false);
+    // The `sent` arm is M230's own test.
+    expect(namedRefusalHolds({ cause: "sent" }, { lineState: "fired" })).toBe(true);
+    expect(namedRefusalHolds({ cause: "sent" }, { lineState: "voided" })).toBe(false);
   });
 });

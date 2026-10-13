@@ -280,14 +280,21 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
 /** Same guard, keyed by a cart *line* id (resolves the owning cart first). Also returns the line's
  *  owner seat (`lineSeat`) and its `lineState` so a caller can apply canMutateLine (host-any /
  *  guest-own-only, draft-only for diners — S2.1a). */
-export async function assertCartItemMember(
-  cartItemId: string,
-): Promise<
-  CartAuthz & { cartId: string; lineSeat: string | null; lineState: LineState; comped: boolean }
+export async function assertCartItemMember(cartItemId: string): Promise<
+  CartAuthz & {
+    cartId: string;
+    lineSeat: string | null;
+    lineState: LineState;
+    comped: boolean;
+    /** Lifecycle audit — the line's quantity and dish, off the SAME row read (no extra round trip):
+     *  `setQty` refuses to GROW a line whose dish the kitchen can no longer make. */
+    lineQty: number;
+    menuItemId: string;
+  }
 > {
   const { data: item, error: itemErr } = await serviceClient()
     .from("qr_cart_items")
-    .select("cart_id,by_seat,state,comped")
+    .select("cart_id,by_seat,state,comped,qty,menu_item_id")
     .eq("id", cartItemId)
     .maybeSingle();
   if (itemErr) throw UNAVAILABLE(); // W10a — unknowable ≠ missing line
@@ -298,5 +305,7 @@ export async function assertCartItemMember(
     lineSeat: item.by_seat ?? null,
     lineState: (item.state ?? "draft") as LineState,
     comped: item.comped ?? false,
+    lineQty: item.qty,
+    menuItemId: item.menu_item_id,
   };
 }

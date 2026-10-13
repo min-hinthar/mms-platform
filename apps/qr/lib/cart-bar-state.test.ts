@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CartItem } from "@mms/db";
-import { cartBarCountShown, cartBarLine2, cartBarName } from "./cart-bar-state";
+import { cartBarCountShown, cartBarLine2, cartBarName, orderUnitCount } from "./cart-bar-state";
 
 /**
  * PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21 "a count is a claim") — the /menu order bar on a SHARED
@@ -96,5 +96,24 @@ describe("cartBarName — the static accessible name, counted only off the table
     expect(cartBarName({ shared: true, count: 3, line2: null, dollars: "—" })).toBe(
       "View order — subtotal —",
     );
+  });
+});
+
+/**
+ * Lifecycle audit (diner-live-status 3) — the bar counts what the subtotal charges for: a REMOVED
+ * line is out of both. "1 · View order · $0.00" after staff took the table's only dish off was the
+ * count and the money disagreeing on one bar.
+ */
+describe("orderUnitCount — a removed line is not counted", () => {
+  it("sums every line's quantity except a voided one (a comped dish still comes, so it counts)", () => {
+    // MUTATION (lcb/cart-bar/removed-units-counted): count voided units; red.
+    expect(
+      orderUnitCount([
+        { qty: 2, lineState: "draft" },
+        { qty: 1, lineState: "voided" },
+        { qty: 3, lineState: "served" },
+      ]),
+    ).toBe(5);
+    expect(orderUnitCount([{ qty: 1, lineState: "voided" }])).toBe(0);
   });
 });
