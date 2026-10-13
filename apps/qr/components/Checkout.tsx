@@ -816,18 +816,26 @@ export function Checkout({
    * that: `isStableReader` ends in `isUseCallback(init, ctx.react)`, which matches the CALL SHAPE,
    * and nothing in that guard reads `arguments[1]`. Adding a per-render value to this dep array
    * would keep the guard green while re-breaking the coalescer. Keep `onReadFailed`'s deps at
-   * `[cartId, tableProbe]` (a boolean, stable across views). Per-instance by construction: `view-seq.ts` holds
-   * no module state, so /cart and /menu get their own counters and a remount gets a fresh one.
+   * `[cartId]`: everything else it reads comes through a ref (`stepRef`, `tableProbeRef`).
+   * Per-instance by construction: `view-seq.ts` holds no module state, so /cart and /menu get their
+   * own counters and a remount gets a fresh one.
    */
   const viewSeqRef = useRef<ViewSeq>(newViewSeq());
   const stepRef = useRef<"review" | "pay">("review");
+  // Session truth (Codex round 2 on #361) — the probe's mode, read through a ref like the step.
+  // `tableProbe` comes from the cart VIEW (`gateMode`) and can flip when the first view lands; as a
+  // dep of `onReadFailed` it re-created `refresh`, which re-armed the freeze re-check and dropped
+  // the coalescer's pending read over a mode change nothing on screen needed
+  // (`m227/freeze-recheck-stops-re-arming` SURVIVED behind exactly that re-arm).
+  const tableProbeRef = useRef(tableProbe);
   // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
-  // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
-  // always runs after the effect that commits the latest values.
+  // on a render-time `ref.current =`). All three are read only inside `refresh`'s async catch or
+  // the probe's tick, which always run after the effect that commits the latest values.
   useEffect(() => {
     journeyRef.current = journey;
     stepRef.current = step;
-  }, [journey, step]);
+    tableProbeRef.current = tableProbe;
+  }, [journey, step, tableProbe]);
   // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
   // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
   // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
@@ -1020,7 +1028,7 @@ export function Checkout({
     // gets the settled close; anything else keeps the last good bill (the swallow below).
     // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
     // and the Payment Element's return_url is the right exit for the payer, not a close card.
-    if (tableProbe && stepRef.current !== "pay" && !settleCheckRef.current) {
+    if (tableProbeRef.current && stepRef.current !== "pay" && !settleCheckRef.current) {
       settleCheckRef.current = true;
       void counterPayOutcome({ cartId })
         .then((o) => {
@@ -1063,7 +1071,7 @@ export function Checkout({
     // whole job is to re-read on demand ("Check again") must be able to tell "the server says
     // still locked" from "we never heard back", or it silently repeats the defect it was added to
     // fix.
-  }, [cartId, tableProbe]);
+  }, [cartId]);
 
   const refresh = useCallback(async () => {
     const outcome = await readTicketed(
