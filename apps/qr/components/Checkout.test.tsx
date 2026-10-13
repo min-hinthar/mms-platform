@@ -3224,9 +3224,13 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(nudge.getAttribute("aria-disabled")).toBe("true");
     expect(nudge.getAttribute("aria-describedby")).toBe("nudge-seen");
     expect(document.getElementById("nudge-seen")!.textContent).toContain(
-      "Aye can see you’re waiting.",
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
     );
-    expect(regionText()).toContain("Aye can see you’re waiting.");
+    expect(regionText()).toContain(
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
+    );
+    // The way out the confirmation names is on the same block whenever the confirmation is.
+    expect(screen.getByRole("button", { name: /Show a server/ })).toBeTruthy();
     // The settled control writes nothing more.
     await press(/^Let Aye know/);
     expect(h.nudgeHost).toHaveBeenCalledTimes(1);
@@ -3450,7 +3454,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(document.getElementById("nudge-line")).toBeNull();
     // …but the nudger's own confirmation follows the stamp.
     expect(document.getElementById("nudge-seen")!.textContent).toContain(
-      "Aye can see you’re waiting.",
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
     );
   });
   it("a TABLEMATE's standing nudge is named as theirs — this phone never claims it ('taken')", async () => {
@@ -3478,7 +3482,9 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     // MUTATION (checkout/taken-recorded-as-this-phones-seat): the stamp recorded in this phone's
     // seat — the control settles over Mya's nudge with Thiri's confirmation; red.
     expect(document.getElementById("nudge-seen")).toBeNull();
-    expect(regionText()).not.toContain("Aye can see you’re waiting.");
+    expect(regionText()).not.toContain(
+      "We’ve let Aye know — if they’re away, Show a server sends it too.",
+    );
     expect(
       screen.getByRole("button", { name: /^Let Aye know/ }).getAttribute("aria-disabled"),
     ).toBeNull();

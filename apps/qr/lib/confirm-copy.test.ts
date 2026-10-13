@@ -161,7 +161,13 @@ describe("PD1 — the guest's two ways forward, named from the table's own names
   it("the nudge names the host in both tongues, and its confirmation claims only the waiting line", () => {
     const c = nudgeCopy(" Aye ");
     expect(c.button).toEqual({ en: "Let Aye know", my: "Aye ကို ပြောလိုက်မယ်" });
-    expect(c.seen.en).toBe("Aye can see you’re waiting.");
+    // Session truth (finding 5) — the confirmation claims nothing the code cannot keep: a host who
+    // left the table on their phone sees no stamp, so "Aye can see you're waiting" was a promise
+    // about a screen nobody may be looking at. It names the way out that always exists instead.
+    // MUTATION (lcs/nudge-confirmation-claims-the-host-sees): the old sentence back; red.
+    expect(c.seen.en).toBe("We’ve let Aye know — if they’re away, Show a server sends it too.");
+    expect(c.seen.en).not.toMatch(/can see/);
+    expect(c.seen.my).toContain("Aye");
     expect(/\p{Script=Myanmar}/u.test(c.seen.my)).toBe(true);
   });
   it("a tablemate's standing nudge is named as THEIRS — never 'Aye can see you're waiting'", () => {

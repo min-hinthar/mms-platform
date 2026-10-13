@@ -7961,6 +7961,14 @@ const MUTANTS = [
     replace: "            {false && (\n",
   },
   {
+    id: "lcs/nudge-confirmation-claims-the-host-sees",
+    file: "apps/qr/lib/confirm-copy.ts",
+    suite: "lib/confirm-copy.test.ts",
+    why: "Session truth (finding 5; m1 §H item 3) — the nudge's confirmation claims only what the code keeps. 'Aye can see you’re waiting' promised a screen nobody may be looking at — a host who left the table on their phone draws the stamp nowhere — while the wait block's 'Show a server' is the way out that always exists",
+    find: "    seen: {\n      en: `We’ve let ${who} know — if they’re away, Show a server sends it too.`,\n",
+    replace: "    seen: {\n      en: `${who} can see you’re waiting.`,\n",
+  },
+  {
     id: "lcs/card-steals-or-drops-focus",
     file: "apps/qr/components/TableEnded.tsx",
     suite: "components/TableEnded.test.tsx",

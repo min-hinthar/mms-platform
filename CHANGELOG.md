@@ -23,10 +23,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
   share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
 - A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
-  is told before "Leave this table" that the Send leaves with it; a thrown Send re-reads.
+  is told before "Leave this table" that the Send leaves with it; the guest's nudge confirmation
+  claims only what the code keeps ("We’ve let Aye know — if they’re away, Show a server sends it
+  too.", never "Aye can see you’re waiting"); a thrown Send re-reads.
 - `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
-- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60, J61, S19,
-  K15 · session-truth (9 Burmese drafts for the native sitting).
+- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
+  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (10 Burmese
+  drafts for the native sitting).
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 

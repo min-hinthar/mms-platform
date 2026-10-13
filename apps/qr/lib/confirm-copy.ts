@@ -146,9 +146,16 @@ export function staffCanSendCopy(hostName: string | null): { en: string; my: str
 /**
  * PD1 (owner answer 3; m1 B7) — the quiet "Let {host} know" and its settled confirmation. Offered
  * ONLY for a host the table can name (`nudgeOffered` takes `chosenName(host)`): "Let Guest know"
- * would name a placeholder, so there is no role branch and no English-only orphan. The confirmation
- * claims only what the stamp keeps — the host's Order page and order bar draw the waiting line
- * whenever they look, until the Send clears it. Both MY lines are K15 drafts (m1, quiet).
+ * would name a placeholder, so there is no role branch and no English-only orphan. The OFFER never
+ * waits on the host's presence (m1 A6, owner answer 3: a face-down phone is the common case).
+ *
+ * Session truth (the order-lifecycle audit, finding 5; m1 §H item 3, the lead's delegated call) —
+ * the CONFIRMATION claims only what the code keeps. It said "{host} can see you’re waiting", and
+ * nothing keeps that: a host who left the table on their phone (device-only, `host_seat` never
+ * moves) draws the stamp nowhere. What IS kept: the stamp was written for the host's Order page and
+ * order bar, and "Show a server" — the wait block's own filled CTA, drawn whenever this line is (both
+ * hide under the same freeze) — sends the round whoever is away. The MY line is a K15 draft (session
+ * truth), built from the button's ပြောလိုက် and `showServer`'s own words.
  */
 export function nudgeCopy(hostName: string): {
   button: { en: string; my: string };
@@ -157,7 +164,10 @@ export function nudgeCopy(hostName: string): {
   const who = hostName.trim();
   return {
     button: { en: `Let ${who} know`, my: `${who} ကို ပြောလိုက်မယ်` },
-    seen: { en: `${who} can see you’re waiting.`, my: `စောင့်နေတာ ${who} မြင်ရပါပြီ` },
+    seen: {
+      en: `We’ve let ${who} know — if they’re away, Show a server sends it too.`,
+      my: `${who} ကို ပြောလိုက်ပါပြီ — ${who} မရှိရင် ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ`,
+    },
   };
 }
 
