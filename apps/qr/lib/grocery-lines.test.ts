@@ -15,6 +15,10 @@ import { computeTotals, type TotalsLine } from "./totals-math";
  * basket charges, so it is not in the basket's list. The assertion that matters is the PARITY, not
  * the filter: the page's sum over the returned lines equals `computeTotals`'s subtotal over the
  * same cart rows, on a fixture where the comped line's price moves the answer.
+ *
+ * ⚠️ The parity is over a cart of MARKET lines. The read lists `fulfillment = 'grocery'` lines only,
+ * and a scan-and-go cart can also hold a to-go dish (`addItem` on `/menu?mode=scango`), which the
+ * charge counts and the basket does not show — the last case pins that boundary (M286).
  */
 
 vi.mock("server-only", () => ({}));
@@ -158,7 +162,7 @@ const chargedSubtotal = () =>
         taxCents: r.tax_cents as number,
         state: r.state as string,
         comped: r.comped as boolean,
-        fulfillment: "grocery",
+        fulfillment: r.fulfillment as TotalsLine["fulfillment"],
       }),
     ),
     0,
@@ -198,5 +202,32 @@ describe("M187 — the grocery basket shows the chargeable base", () => {
       ["l-balm", 1, 899],
     ]);
     expect(shownSubtotal(r.lines)).toBe(chargedSubtotal());
+  });
+
+  it("the parity is the MARKET lines' — a food line on the same cart is outside it (M286)", async () => {
+    // The blind pass on #352: the parity holds for a cart of market lines, not for every scan-and-go
+    // cart. `addItem` writes a `togo` food line to any cart whose session is not dine-in, and a
+    // hand-typed `/menu?mode=scango` mounts the same per-device session key /grocery uses (no link
+    // in the app leads there: `menuHref` sends scango to /grocery, and HomeSessionCard's /menu
+    // fallback needs a peeked cart id, which a card with items always has) — so the cart can hold a
+    // dish. The basket lists only
+    // `fulfillment = 'grocery'` lines, so its subtotal leaves the dish out while the charge counts it.
+    // Pinned here as what it is, a known gap filed as M286, so the parity above is never read as
+    // covering it — and so a fix that changes either side has to come through this case.
+    cartRows = [
+      ...cartRows,
+      row({
+        id: "l-mohinga",
+        menu_item_id: "00000000-0000-4000-8000-00000000f00d",
+        name: "Mohinga",
+        fulfillment: "togo",
+        unit_price_cents: 1295,
+      }),
+    ];
+    const r = await getGroceryLines(CART);
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.lines.map((l) => l.lineId)).toEqual(["l-tea"]);
+    expect(shownSubtotal(r.lines)).toBe(700);
+    expect(chargedSubtotal()).toBe(700 + 1295);
   });
 });

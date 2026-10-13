@@ -166,8 +166,9 @@ export function GroceryBasketSheet({
                 type="button"
                 className="item-add-btn"
                 // Phase 1c — "subtotal … before tax": the figure is Σ unit × qty, pre-tax (M187's
-                // honest-label half). The lines exclude comped ones (readGroceryLines, M187), so the
-                // figure is the charge authority's own subtotal.
+                // honest-label half). The lines exclude comped ones (readGroceryLines, M187), so for
+                // a cart of market lines the figure is the charge authority's own subtotal (a to-go
+                // dish on the same cart is charged and not listed, M286).
                 aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, subtotal $${(
                   totalCents / 100
                 ).toFixed(2)} before tax`}

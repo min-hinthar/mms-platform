@@ -196,7 +196,9 @@ export type GroceryLine = {
 // and the kiosk all sum `unitPriceCents * qty` over what this returns. Filtering only `voided` left a
 // line staff comped in the basket at full price, so the figure on the phone read higher than the
 // card would be charged, by exactly that line. A comped line is immutable (setQty refuses it) and
-// charges nothing, so it is not a basket row; the checkout lists it as "On the house".
+// charges nothing, so it is not a basket row; the checkout lists it as "On the house". The list is
+// the MARKET lines (`fulfillment = 'grocery'`): a to-go dish on the same cart (`addItem` from a
+// hand-typed `/menu?mode=scango`) is charged and not listed here (M286).
 async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
   const db = serviceClient();
   const { data: rows, error } = await db
