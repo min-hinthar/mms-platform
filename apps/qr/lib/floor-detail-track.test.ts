@@ -58,6 +58,8 @@ let paidRows: Row[] = [];
 let paidReadFails = false;
 let orders: Row[] = [];
 let paidAsked: unknown[] | null = null;
+// #360's blind pass (question c) — every IN-list each read asked for, by table, in order.
+let inLists: { table: string; col: string; n: number }[] = [];
 
 function pick(row: Row, cols: string): Row {
   const out: Row = {};
@@ -80,6 +82,7 @@ function tableApi(name: string) {
     eq: () => api,
     in(col: string, v: unknown[]) {
       if (name === "qr_cart_items" && col === "cart_id") inCarts = v;
+      if (col !== "status" && col !== "state") inLists.push({ table: name, col, n: v.length });
       return api;
     },
     order(col: string, o?: { ascending?: boolean }) {
@@ -135,7 +138,7 @@ function tableApi(name: string) {
         });
       if (name === "qr_cart_items") {
         if (inCarts !== null) {
-          paidAsked = inCarts;
+          paidAsked = [...(paidAsked ?? []), ...inCarts];
           if (paidReadFails) return resolve({ data: null, error: { message: "down" } });
           // …and the cart filter: a line on a cart the read did not ask for is not returned.
           const asked = paidRows.filter((r) => !("cart_id" in r) || inCarts!.includes(r.cart_id));
@@ -200,6 +203,7 @@ beforeEach(() => {
   paidReadFails = false;
   orders = [];
   paidAsked = null;
+  inLists = [];
 });
 
 describe("getTableDetail — a sent line's tag is its stage on the one track", () => {
@@ -380,5 +384,63 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     expect(note && fill(STAFF[note.key].en, note.vars ?? {}, "en")).toBe(
       "Older rounds aren’t listed here.",
     );
+  });
+
+  it("a 202-round night reads its 200 carts and their ledger in IN-lists of at most 50, and keeps every chunk's answer (question c)", async () => {
+    // One IN-list of 200 uuids was ~7.8 KB of URL against an unmeasured gateway limit.
+    // lck/floor/paid-round-one-in-list — red. lck/floor/paid-round-chunk-dropped — red.
+    orders = Array.from({ length: 202 }, (_, i) => ({
+      id: `o-${i}`,
+      total_cents: 1200,
+      created_at: ago(60_000 * (i + 1)),
+      status: "paid",
+      refunded_cents: 100, // a partial refund on every round: the line ledger is read for each
+      service_charge_cents: 0,
+      tip_cents: 0,
+      cart_id: `c-paid-${i}`,
+    }));
+    paidRows = [
+      line({ id: "newest-main", cart_id: "c-paid-0", state: "in_progress" }),
+      line({ id: "oldest-main", cart_id: "c-paid-199", state: "in_progress" }),
+    ];
+    const d = await detail();
+    const sizes = (table: string) => inLists.filter((r) => r.table === table).map((r) => r.n);
+    expect(sizes("qr_cart_items")).toEqual([50, 50, 50, 50]);
+    expect(sizes("mms_refunds")).toEqual([50, 50, 50, 50]);
+    expect(sizes("qr_order_items")).toEqual([50, 50, 50, 50]);
+    expect(new Set(d.paidKitchen?.map((l) => l.id))).toEqual(
+      new Set(["newest-main", "oldest-main"]),
+    );
+  });
+
+  it("chunked, the NEWEST dishes are kept ACROSS chunks — merged newest first, then capped", async () => {
+    // 60 rounds: two IN-lists. 105 dishes alternate between a cart in each, oldest first; one
+    // request would have kept the newest 100, and the merged chunks must keep the same 100.
+    // lck/floor/paid-round-chunks-unmerged — chunk results concatenated, not re-sorted: red.
+    orders = Array.from({ length: 60 }, (_, i) => ({
+      id: `o-${i}`,
+      total_cents: 1200,
+      created_at: ago(60_000 * (i + 1)),
+      status: "paid",
+      refunded_cents: 0,
+      service_charge_cents: 0,
+      tip_cents: 0,
+      cart_id: `c-paid-${i}`,
+    }));
+    const n = PAID_KITCHEN_CAP + 5;
+    paidRows = Array.from({ length: n }, (_, i) =>
+      line({
+        id: `d-${String(i).padStart(3, "0")}`,
+        cart_id: i % 2 === 0 ? "c-paid-0" : "c-paid-55",
+        created_at: new Date(Date.parse(ago(3_000_000)) + i * 1000).toISOString(),
+      }),
+    );
+    const d = await detail();
+    expect(inLists.filter((r) => r.table === "qr_cart_items").map((r) => r.n)).toEqual([50, 10]);
+    const ids = d.paidKitchen?.map((l) => l.id) ?? [];
+    expect(ids).toHaveLength(PAID_KITCHEN_CAP);
+    expect(ids[0]).toBe("d-005");
+    expect(ids[ids.length - 1]).toBe(`d-${String(n - 1).padStart(3, "0")}`);
+    expect(d.paidKitchenCapped).toBe(true);
   });
 });

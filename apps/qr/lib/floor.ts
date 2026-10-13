@@ -25,7 +25,8 @@ import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
 import { refundedCarts, type RefundOrderRow } from "./refunded-cart";
-import { readLineRefunds } from "./refunded-cart-read";
+import { readLineRefunds, REFUND_ID_CHUNK } from "./refunded-cart-read";
+import { chunkIds } from "./kitchen-stop-read";
 import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
@@ -56,7 +57,7 @@ import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { foldFloorKitchen, servedUnsettled, type FloorKitchenRow } from "./floor-kitchen";
 import { settleLeftMs, soonerMs } from "./bump-settle";
-import { PAID_KITCHEN_CAP, paidRoundKitchen } from "./paid-round";
+import { newestFirst, PAID_KITCHEN_CAP, paidRoundKitchen } from "./paid-round";
 import { trackStage } from "./kitchen-track";
 import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
@@ -1126,14 +1127,6 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       scopeOrders.map((o) => o.cart_id).filter((c): c is string => !!c && c !== (cart?.id ?? null)),
     ),
   ];
-  // #360 (CRITICAL 1) — the line ledger for a paid round that had money back (every dish refunded,
-  // the tip kept); ADVISORY: unreadable, it logs and the order row alone decides.
-  const refundedRound = refundedCarts(
-    scopeOrders,
-    scopeFailed || paidCartIds.length === 0
-      ? null
-      : await readLineRefunds(db, scopeOrders, "floor/detail"),
-  );
   let paidKitchen: TableDetail["paidKitchen"] = null;
   let paidKitchenCapped = false;
   let paidRoundsCapped = false;
@@ -1142,14 +1135,35 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // #360 (CRITICAL 3) — the NEWEST end of a long night: newest first, one past the cap so the page
     // can say it is showing only the latest (oldest first was keeping the first rounds and dropping
     // the one still cooking); reversed below for the page's oldest-first order.
-    const { data: pk, error: pkError } = await db
-      .from("qr_cart_items")
-      .select("id,cart_id,name,qty,state,fire_at,bumped_at,fulfillment,notes,modifiers,comped")
-      .in("cart_id", paidCartIds)
-      .in("state", ["fired", "in_progress", "served"])
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(PAID_KITCHEN_CAP + 1);
+    // #360's blind pass (question c) — in IN-lists of at most `REFUND_ID_CHUNK` carts, run in
+    // parallel: the scope reaches 200 carts, and one IN-list of them was ~7.8 KB of URL against a
+    // gateway limit nobody has measured. Each chunk keeps its own newest cap + 1; merged newest first
+    // and cut again, they keep exactly the rows one request would have.
+    // #360 (CRITICAL 1) — beside it, the line ledger for a paid round that had money back (every dish
+    // refunded, the tip kept); ADVISORY: unreadable, it logs and the order row alone decides.
+    const [pkReads, lineRefunds] = await Promise.all([
+      Promise.all(
+        chunkIds(paidCartIds, REFUND_ID_CHUNK).map((chunk) =>
+          db
+            .from("qr_cart_items")
+            .select(
+              "id,cart_id,name,qty,state,fire_at,bumped_at,fulfillment,notes,modifiers,comped,created_at",
+            )
+            .in("cart_id", chunk)
+            .in("state", ["fired", "in_progress", "served"])
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .limit(PAID_KITCHEN_CAP + 1),
+        ),
+      ),
+      readLineRefunds(db, scopeOrders, "floor/detail"),
+    ]);
+    const pkError = pkReads.find((r) => r.error)?.error;
+    const pk = pkReads
+      .flatMap((r) => r.data ?? [])
+      .sort(newestFirst)
+      .slice(0, PAID_KITCHEN_CAP + 1);
+    const refundedRound = refundedCarts(scopeOrders, lineRefunds);
     if (pkError)
       console.error(
         "[floor] getTableDetail paid-round kitchen read failed — the group is not drawn",
@@ -1159,7 +1173,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
         },
       );
     else {
-      const got = pk ?? [];
+      const got = pk;
       // #360's blind pass (CRITICAL 2) — two caps, two sentences (`paidRoundCapNote`): the dish read
       // stopping short is not the round read stopping short, and neither knows a count it did not read.
       paidKitchenCapped = got.length > PAID_KITCHEN_CAP;

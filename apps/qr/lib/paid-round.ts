@@ -72,6 +72,15 @@ export function paidRoundKitchen(
   return out;
 }
 
+/** #360's blind pass (question c) — the paid read's own `.order()` (`created_at` desc, then `id` desc),
+ *  applied to its chunks' merged rows, so the newest cap + 1 across every chunk are the rows one
+ *  request would have kept. PostgREST writes every `created_at` in one format, so the strings
+ *  compare in time order. */
+export function newestFirst<T extends { created_at: string; id: string }>(a: T, b: T): number {
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
 /**
  * #360 (the blind pass, CRITICAL 2) — what the group SAYS under a cap, with only a number that is
  * true. Two reads can stop short, and each gets its own sentence:
