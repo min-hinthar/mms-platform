@@ -163,12 +163,15 @@ type CartCtx = {
    *  (the diner's own change, said for them), a `correction` (a retraction or diagnosis), or `news`
    *  (the default: everything else) — and `opts.quiet` marks a claim that is SPOKEN BUT NOT DRAWN,
    *  for a change already visible where the diner acted. A claim waits behind a correction still in
-   *  its window, a quiet line waits behind visible text, and news always shows. */
+   *  its window, a quiet line waits behind visible text, and news always shows. `opts.still` (F31 ·
+   *  blind pass on #355) is asked when a line that WAITED comes to be said: a claim true when it was
+   *  made may not be by then ("Nothing matches" over a search the diner has since corrected), and a
+   *  waiting line it denies is dropped, never said. */
   announce: (
     msg: string,
     ms?: number,
     my?: string,
-    opts?: { quiet?: boolean; kind?: NoticeKind },
+    opts?: { quiet?: boolean; kind?: NoticeKind; still?: () => boolean },
   ) => void;
   /** Pickup mode only: the chosen slot (ISO instant), READ from the server view. Phase 3b · D10 —
    *  this context carries no opener and mounts no picker: the When write has ONE owner,
@@ -643,14 +646,21 @@ export function TableCartProvider({
   // `showingRef` is the notice INSIDE its display window (null through the leave phase, so anything
   // may take the slot then); `deferredRef` is one-deep, newest wins, shown when the window ends.
   const showingRef = useRef<(SlotNotice & { seq: number }) | null>(null);
-  const deferredRef = useRef<{ notice: SlotNotice; ms: number } | null>(null);
+  const deferredRef = useRef<{ notice: SlotNotice; ms: number; still?: () => boolean } | null>(
+    null,
+  );
   const noticeSeq = useRef(0);
   const flash = useCallback(
     (
       msg: string,
       ms = 2200,
       my?: string,
-      opts: { quiet?: boolean; kind?: NoticeKind; family?: SlotNotice["family"] } = {},
+      opts: {
+        quiet?: boolean;
+        kind?: NoticeKind;
+        family?: SlotNotice["family"];
+        still?: () => boolean;
+      } = {},
     ) => {
       // Put a notice in the slot and run its window. `keepSeq` (an `extend`) keeps the node's key, so
       // the identical correction is not spoken twice; the window restarts.
@@ -665,9 +675,10 @@ export function TableCartProvider({
         setNotice(shown);
         noticeTimer.current = window.setTimeout(() => {
           // The window ended: a notice that waited for it goes next, otherwise the slot leaves.
+          // A waiting line is asked again first (`still`, F31): one no longer true is dropped.
           const next = deferredRef.current;
-          if (next) {
-            deferredRef.current = null;
+          deferredRef.current = null;
+          if (next && next.still?.() !== false) {
             display(next.notice, next.ms, false);
             return;
           }
@@ -694,7 +705,7 @@ export function TableCartProvider({
       if (waiting && purgesDeferred(incoming, waiting.notice)) deferredRef.current = null;
       const verdict = admitNotice(showingRef.current, incoming);
       if (verdict === "defer") {
-        deferredRef.current = { notice: incoming, ms };
+        deferredRef.current = { notice: incoming, ms, still: opts.still };
         return;
       }
       // Two dishes refused under one lock → the unnamed sentence, which covers both (rule 2).

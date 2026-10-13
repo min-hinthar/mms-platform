@@ -453,6 +453,74 @@ describe("--grad — the one ornament gradient nothing else pins", () => {
   });
 });
 
+describe("M127 — --surface-elevated and --oa, pinned by what they ARE, not by a ratio", () => {
+  /**
+   * M127's open half. Both tokens were asserted only as contrast PAIRS (`t3 on surface-elevated`,
+   * `oa on solid ac`), and a wrong-but-legible value satisfies every one of those — M126 showed how
+   * that bites when light's chrome moved onto a legible-but-forbidden surface with every ratio green.
+   * Neither token hand-copies another's channels the way `--surface-glass` does, so a parity check
+   * cannot hold them; what CAN is the relationship tokens.css states for each, asserted here so a
+   * one-sided edit reddens instead of drifting:
+   *
+   *   · Night `--surface-elevated` is the TOP RUNG of M126's six-rung ladder (pg → sunken → sf → cd →
+   *     cd-raised → surface-elevated), whose OKLab ΔL steps tokens.css records as "dead even". Every
+   *     step must sit within LADDER_TOL of the ladder's median step — which also gives the ladder the
+   *     first test coverage it has had (the token comment's numbers were a one-off computation).
+   *   · Light `--surface-elevated` IS `--cd-raised` (white): "raised in light is expressed by SHADOW
+   *     alone" — above a near-white card there is no tone left, so the two names are one colour, and
+   *     both sit above `--cd`.
+   *   · Light `--oa` IS the house cream: the same channels as `--cd` and as `--on-ink`, its constant
+   *     twin (tokens.css: `--on-ink` mirrors `--oa` because `--oa` flips in Night).
+   *   · Night `--oa` "tracks the floor, NOT a ladder rung": strictly above `--pg`, and nearer to it
+   *     than half a rung — so it is neither the floor itself nor a step up the ladder.
+   *
+   * RED-FIRST — each induced in tokens.css, watched fail, restored md5-identical (numbers are this
+   * guard's output). The first is the shape M127 names: under it, every other test in this file and
+   * in contrast-audit.test.ts stays green — only the ladder says no.
+   *   Night --surface-elevated #413053 → #3c2c4e   top step off the median by 0.0164         FAIL
+   *   light --surface-elevated #ffffff → #fffefb   "IS --cd-raised"                          FAIL
+   *   light --oa #fffdf8 → #ffffff (MORE legible)  "IS the house cream"                      FAIL
+   *   Night --oa #130d1e → #000000 (MORE legible)  rise over --pg −0.1666, not > 0           FAIL
+   *   Night --oa #130d1e → #1a1626 (a rung up)     rise 0.0465, not < half a rung 0.0177     FAIL
+   */
+  const okL = (c: Rgba) => toOklab([c.r, c.g, c.b])[0];
+  const LADDER = ["--pg", "--sunken", "--sf", "--cd", "--cd-raised", "--surface-elevated"] as const;
+  /** The ladder's measured spread is 0.0353 … 0.0361 (0.0008); one 8-bit step on the top rung's
+   *  green or blue channel moves its step by 0.0012–0.0028. */
+  const LADDER_TOL = 0.001;
+  const nightSteps = () => {
+    const Ls = LADDER.map((n) => okL(t(dark, n)));
+    return Ls.slice(1).map((v, i) => v - Ls[i]!);
+  };
+  const medianStep = () => {
+    const s = [...nightSteps()].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)]!;
+  };
+  const sameChannels = (a: Rgba, b: Rgba) =>
+    [a.r, a.g, a.b, a.a].join() === [b.r, b.g, b.b, b.a].join();
+
+  it("Night · --surface-elevated is the top rung of an even six-rung ladder", () => {
+    const med = medianStep();
+    for (const step of nightSteps()) {
+      expect(step).toBeGreaterThan(0); // the ladder only climbs
+      expect(Math.abs(step - med)).toBeLessThanOrEqual(LADDER_TOL);
+    }
+  });
+  it("light · --surface-elevated IS --cd-raised, and both sit above --cd", () => {
+    expect(sameChannels(t(light, "--surface-elevated"), t(light, "--cd-raised"))).toBe(true);
+    expect(okL(t(light, "--surface-elevated"))).toBeGreaterThan(okL(t(light, "--cd")));
+  });
+  it("light · --oa IS the house cream — the card's paper and its constant twin --on-ink", () => {
+    expect(sameChannels(t(light, "--oa"), t(light, "--cd"))).toBe(true);
+    expect(sameChannels(t(light, "--oa"), t(light, "--on-ink"))).toBe(true);
+  });
+  it("Night · --oa tracks the floor: above --pg, and nearer it than half a rung", () => {
+    const rise = okL(t(dark, "--oa")) - okL(t(dark, "--pg"));
+    expect(rise).toBeGreaterThan(0);
+    expect(rise).toBeLessThan(medianStep() / 2);
+  });
+});
+
 describe("chrome — the surface the header's own text sits on", () => {
   /**
    * `.app-header-rewards` renders BARE `--ac`, which is legible on a narrow set of surfaces: the
@@ -863,6 +931,152 @@ describe("scan stage — the ink box, its scrim and its reticle over a live came
     expect(parseBlock(".dark")["--on-ink"]).toBeUndefined();
     expect(parseBlock(".dark")["--scan-scrim"]).toBeUndefined();
     expect(parseBlock(".dark")["--scan-dim"]).toBeUndefined();
+  });
+});
+
+// ── PD4 · m4 amendment A2 ──
+describe("the paper tag and the CounterPass — one constant cream for Dad, over a live image", () => {
+  /**
+   * m4 amendment A2 made constant cream the house rule for every Dad-facing paper and asked for the
+   * composite rows ONCE, for the grocery's paper tag and the shared CounterPass together. Both
+   * papers are opaque, so no TEXT on either composites over what lies beneath — the rows are what
+   * the hex audit cannot name:
+   *
+   *   · ONE CREAM. The tag's paper and the pass's paper are the same colour in both themes, read
+   *     through the `.dark` merge — a tag re-pointed at a theme surface (or a pass at `--cd` "so it
+   *     matches Night") splits the look Dad learns, with every ratio still green.
+   *   · THE TAG. Its ink on its paper, and its one button (`.scan-tag-btn`): the fill's edge on the
+   *     paper (3:1, a control's boundary) and the label on the fill (AA).
+   *   · OVER THE LIVE IMAGE. The only mark of the tag's that could meet the camera is its keyboard
+   *     ring (the tag is a focus-parking target). It is drawn ON the paper, inset, so the image is
+   *     never its ground: its ink must clear 3:1 on the paper and its band (`outline-offset` +
+   *     `--focus-w`) must stay inside the paper's edge. The REASON is pinned beside it, the way the
+   *     gold chip pins `--oa`: `--ac` outside the tag, over the dimmed white label, is under 3:1.
+   *   · THE PASS's STUB. `.ui-pass-stub` paints `--pass-stub-ground` (`--pass-ink` 6% into the
+   *     paper, `color-mix(in srgb …)`), a ground no token names; every pass ink a stub field may
+   *     wear must clear AA on it.
+   *
+   * No host draws a CounterPass over a camera image today (its hosts are the diner's pass, the live
+   * Bill, the counter ask, the guide pictures, the staff handoff and the TV board), so the pass's
+   * image-facing edges are the notches (`--pass-hole`, the HOST's ground by design) and its hairline
+   * — decorative. If a host ever puts a pass on the lens, its rows join this block.
+   *
+   * BOUND TO THE CSS THAT SHIPS: every token is read out of globals.css / pass.css, so a rule
+   * switched to a different token re-points the assertion instead of leaving it measuring a
+   * constant nothing uses; ambiguity (two rules, a non-token value) throws.
+   *
+   * RED-FIRST — induced one at a time, watched fail, restored md5-identical:
+   *   the shipped PD4 rule back (an `--ac` ring 3px OUTSIDE the tag)   ring row, both themes   FAIL
+   *   the inset ring's colour → `var(--ac)`                            ring row, Night         FAIL
+   *   the inset ring's offset → `3px` (back over the image)            ring row, both themes   FAIL
+   *   `.paper-tag-paper { background: var(--cd) }`                     one cream + 3 more, Night FAIL
+   *   `.scan-tag-btn { background: var(--sunken) }`                    button row, light       FAIL
+   *   `--pass-stub-ground` ink 6% → 30%                                ink-2 + ink-3, both     FAIL
+   * The reason row's own numbers: `--ac` over `--scan-dim` on white measures 1.9390 (light) and
+   * 1.1898 (Night) — the figures globals.css quotes beside the ring.
+   */
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const globals = strip(
+    readFileSync(
+      fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+      "utf8",
+    ),
+  );
+  const passCss = strip(
+    readFileSync(fileURLToPath(new URL("../pass.css", import.meta.url)), "utf8"),
+  );
+  /** The ONE value `prop` takes across the rules whose selector list holds a selector `match`es. */
+  const value = (
+    cssText: string,
+    match: (selector: string) => boolean,
+    prop: string,
+    where: string,
+  ): string => {
+    const values = [...cssText.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => m[1]!.split(",").some((s) => match(s.trim())))
+      .map((m) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(m[2]!)?.[1]?.trim())
+      .filter((v): v is string => v !== undefined);
+    if (values.length !== 1)
+      throw new Error(`${where}: ${values.length} \`${prop}\` rules (need 1)`);
+    return values[0]!;
+  };
+  const token = (v: string, where: string): string => {
+    const tok = /^var\((--[\w-]+)\)$/.exec(v);
+    if (!tok) throw new Error(`${where} is not a bare token: ${v}`);
+    return tok[1]!;
+  };
+  const exact = (sel: string) => (s: string) => s === sel;
+  const tagToken = (sel: string, prop: string) =>
+    token(value(globals, exact(sel), prop, `globals.css \`${sel}\``), `\`${sel} { ${prop} }\``);
+  const passPaper = () =>
+    token(
+      value(passCss, (s) => /> \.ui-pass-paper$/.test(s), "background", "pass.css paper"),
+      "the pass paper",
+    );
+  /** `color-mix(in srgb, var(A) N%, var(B))` — straight sRGB channels, both stops opaque. */
+  const stubGround = (map: Record<string, string>): Rgba => {
+    const decl = value(passCss, exact(".ui-pass"), "--pass-stub-ground", "pass.css .ui-pass");
+    const m =
+      /^color-mix\(\s*in srgb\s*,\s*var\((--[\w-]+)\)\s+([\d.]+)%\s*,\s*var\((--[\w-]+)\)\s*\)$/.exec(
+        decl,
+      );
+    if (!m) throw new Error(`--pass-stub-ground = "${decl}" is not a form this guard can mix`);
+    const [a, b, w] = [t(map, m[1]!), t(map, m[3]!), Number(m[2]) / 100];
+    const ch = (x: number, y: number) => x * w + y * (1 - w);
+    return { r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: 1 };
+  };
+  const px = (v: string, where: string) => {
+    const m = /^(-?[\d.]+)px$/.exec(v.trim());
+    if (!m) throw new Error(`${where} is not a px length: ${v}`);
+    return Number(m[1]);
+  };
+  const THREE = 3;
+  const RING = ".paper-tag:focus-visible > .paper-tag-paper";
+  const sameChannels = (a: Rgba, b: Rgba) =>
+    [a.r, a.g, a.b, a.a].join() === [b.r, b.g, b.b, b.a].join();
+
+  for (const [theme, map] of [
+    ["light", light],
+    ["Night", dark],
+  ] as const) {
+    const paper = () => t(map, tagToken(".paper-tag-paper", "background"));
+    it(`${theme} · ONE cream — the tag's paper IS the pass's paper`, () => {
+      expect(sameChannels(paper(), t(map, passPaper()))).toBe(true);
+    });
+    it(`${theme} · the tag's ink on its paper ≥ AA`, () => {
+      expect(ratio(t(map, tagToken(".paper-tag", "color")), paper())).toBeGreaterThanOrEqual(AA);
+    });
+    it(`${theme} · the tag's button: its fill holds 3:1 on the paper, its label AA on the fill`, () => {
+      const fill = t(map, tagToken(".scan-tag-btn", "background"));
+      expect(ratio(fill, paper())).toBeGreaterThanOrEqual(THREE);
+      expect(ratio(t(map, tagToken(".scan-tag-btn", "color")), fill)).toBeGreaterThanOrEqual(AA);
+    });
+    it(`${theme} · the tag's keyboard ring is drawn on the paper (≥ 3:1), never over the image`, () => {
+      expect(ratio(t(map, tagToken(RING, "outline-color")), paper())).toBeGreaterThanOrEqual(THREE);
+      const offset = px(value(globals, exact(RING), "outline-offset", RING), "outline-offset");
+      const width = px(
+        raw(map, token(value(globals, exact(RING), "outline-width", RING), RING)),
+        "--focus-w",
+      );
+      // The band runs from `offset` to `offset + width` past the paper's edge: ≤ 0 keeps it inside.
+      expect(offset + width).toBeLessThanOrEqual(0);
+    });
+    it(`${theme} · the REASON: --ac outside the tag, over the dimmed white label, is under 3:1`, () => {
+      // A negative pin, like the gold chip's `--oa`: if `--ac` ever clears 3:1 there, the ring may
+      // move back outside the tag — re-read the rule above before relying on that.
+      const ground = over(t(map, "--scan-dim"), WHITE);
+      expect(ratio(t(map, "--ac"), ground)).toBeLessThan(THREE);
+    });
+    for (const ink of ["--pass-ink", "--pass-ink-2", "--pass-ink-3"] as const) {
+      it(`${theme} · ${ink} clears AA on the pass's stub ground`, () => {
+        expect(ratio(t(map, ink), stubGround(map))).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
+  it("the stub's own rule paints that ground (a re-pointed stub re-points this block)", () => {
+    expect(
+      token(value(passCss, exact(".ui-pass-stub"), "background", ".ui-pass-stub"), "stub"),
+    ).toBe("--pass-stub-ground");
   });
 });
 

@@ -65,6 +65,46 @@ export function callbackMessage(outcome: CallbackOutcome | null): string | null 
 }
 
 /**
+ * M214 — what /account says about a bounce that lands on a session the server ALREADY resolves as
+ * signed in (a sign-in completed in another tab, a stale-tab reload). The guest card that reads
+ * bounces is not mounted for this diner, so without a line of its own the raw error sat in the
+ * address bar with nothing on screen explaining it. There is nothing to recover — they are signed
+ * in, which is what they set out to be — so it names that and asks nothing. Deliberately NO promise
+ * about the account's contents: a carry proof stashed before the trip may still be redeemed here
+ * (`MergeRedeemer`), so "nothing changed" would not be ours to say.
+ */
+export function signedInCallbackMessage(outcome: CallbackOutcome | null): string | null {
+  if (!outcome) return null;
+  return "You’re already signed in — that Google step didn’t finish, and it doesn’t need to.";
+}
+
+/**
+ * The address a bounce leaves behind, cleaned: ONE strip, for the guest card and the signed-in
+ * notice alike (M214 — the two used to be one card's private effect).
+ *
+ * ⚠️ DELETE ONLY THE OAUTH KEYS — NEVER REPLACE WITH `pathname`. The old call was
+ * `replaceState(null, "", window.location.pathname)`, which discarded EVERY other param: a lend-mode
+ * return arriving beside a bounce lost its `resume` before the card's resume effect could act on it
+ * (and because the strip propagates to `useSearchParams`, that effect was torn down mid-flight).
+ *
+ * The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed on You,
+ * and `router.refresh()` after a sign-in re-requests the canonical URL — without `?tab=you` the hub
+ * re-rendered on Orders the moment the account confirmed.
+ *
+ * The fragment goes as well: Supabase mirrors the error there, the SDK does not clean an
+ * error-carrying callback (it throws before either of its two URL rewrites), and nothing in the app
+ * reads the hash. Returns path + query, for `history.replaceState`.
+ */
+export function stripCallbackParams(href: string): string {
+  const url = new URL(href);
+  url.searchParams.delete("error");
+  url.searchParams.delete("error_code");
+  url.searchParams.delete("error_description");
+  if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");
+  return `${url.pathname}${url.search}`;
+}
+
+/**
  * Which call the Google button fires.
  *
  * ⚠️ `link` AFTER AN already-linked BOUNCE IS THE FAILURE, REPEATED. `linkIdentity` is still the
