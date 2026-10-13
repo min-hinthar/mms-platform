@@ -283,6 +283,18 @@ const REALTIME_MODULE = `${APP}/lib/realtime`;
 const CART_MODULE = `${APP}/lib/cart`;
 /** The ONE server-authoritative cart read. A coalescer that does not reach this refreshes nothing. */
 const READER = "getCartView";
+/**
+ * Every server read a cart-channel echo may legitimately refresh, as [module, export] pairs resolved
+ * from each file's IMPORTS (never a bare name). The open cart's consumers re-read `getCartView`; the
+ * post-order kitchen read (lifecycle audit, 2026-10-13) re-reads a PAID cart's lines through
+ * `getOrderKitchen`, which `getCartView` refuses by design (`cart_closed`). A coalescer must reach
+ * ONE of these — the M193 rule is unchanged: one window, and no consumer's events left unread.
+ */
+const READERS = [
+  [CART_MODULE, READER],
+  [`${APP}/lib/order-kitchen-read`, "getOrderKitchen"],
+];
+const READER_NAMES = READERS.map(([, name]) => `\`${name}\``).join(" or ");
 const HOOK = "useCartRealtime";
 const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
@@ -606,13 +618,18 @@ function resolveFunction(from, name, react, loose = false, seen = new Set()) {
  * calls `getCartView` itself, while `TableCartProvider.refresh` reaches it through `readView`. So
  * the walk follows local function bindings transitively, guarded by a visited set.
  */
+/** A call to ANY of the accepted readers, each resolved through its own import (`READERS`). */
+function isReaderCall(n, ctx, loose = false) {
+  return ctx.readers.some(({ binding, name }) => isCallToBinding(n, binding, name, loose));
+}
+
 function reachesReader(fn, ctx, loose = false, seen = new Set()) {
   if (!fn || !fn.body || seen.has(fn.pos)) return false;
   seen.add(fn.pos);
   let found = false;
   walk(fn.body, (n) => {
     if (found || !ts.isCallExpression(n)) return;
-    if (isCallToBinding(n, ctx.reader, READER, loose)) {
+    if (isReaderCall(n, ctx, loose)) {
       found = true;
       return;
     }
@@ -634,7 +651,7 @@ function directReaderCalls(fn, ctx) {
     // ⚠️ THE IMPORTED-BINDING CHECK COMES FIRST (Codex round 3 on #287). Filtering to identifier
     // callees before this discarded `cart.getCartView(id)` — a namespace import — so a handler could
     // schedule AND read immediately through the qualified form.
-    if (isCallToBinding(n, ctx.reader, READER, true)) {
+    if (isReaderCall(n, ctx, true)) {
       hits.push(n.expression.getText());
       return;
     }
@@ -748,7 +765,7 @@ for (const rel of windowFiles) {
 
   const ctx = {
     coalescer: importedFrom(src, rel, COALESCER_MODULE, COALESCER),
-    reader: importedFrom(src, rel, CART_MODULE, READER),
+    readers: READERS.map(([mod, name]) => ({ binding: importedFrom(src, rel, mod, name), name })),
     react: importedAs(src, (t) => t === "react", "useCallback"),
   };
   const coalescer = ctx.coalescer;
@@ -801,7 +818,7 @@ for (const rel of windowFiles) {
       if (direct.length === 0) return true;
       fail(
         `${where}: onChange schedules through ${COALESCER} but ALSO calls ` +
-          `\`${[...new Set(direct)].join("`, `")}\`, which reaches \`${READER}\` directly — so every ` +
+          `\`${[...new Set(direct)].join("`, `")}\`, which reaches ${READER_NAMES} directly — so every ` +
           `row event still starts its own read and the coalesced one is added beside it (M193).`,
       );
       return "reported";

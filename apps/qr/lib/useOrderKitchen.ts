@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAnonSession } from "./useAnonSession";
 import { useCartRealtime } from "./realtime";
+import { useCoalescedRefresh } from "./echo-refresh";
 import { getOrderKitchen } from "./order-kitchen-read";
 import {
   kitchenPending,
@@ -116,8 +117,11 @@ export function useOrderKitchen(orderId: string | null): OrderKitchenView {
     return () => cancelAnimationFrame(raf);
   }, [orderId, load]);
 
-  // Every change to the paid cart's lines (and the channel's (re)subscribe) asks again.
-  useCartRealtime(cartId ?? "", anon?.accessToken ?? "", load);
+  // Every change to the paid cart's lines (and the channel's (re)subscribe) asks again — through the
+  // ONE echo window (M193): a Send or a ticket bump writes several rows at once, and one re-read
+  // answers them all.
+  const scheduleEchoRefresh = useCoalescedRefresh(load);
+  useCartRealtime(cartId ?? "", anon?.accessToken ?? "", scheduleEchoRefresh);
 
   // The clock's own re-read: when a Send leaves its grace or a bump leaves Mom's undo window.
   useEffect(() => {
