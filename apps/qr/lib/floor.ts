@@ -1136,6 +1136,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   );
   let paidKitchen: TableDetail["paidKitchen"] = null;
   let paidKitchenCapped = false;
+  let paidRoundsCapped = false;
   if (scopeFailed) paidKitchen = null;
   else if (paidCartIds.length > 0) {
     // #360 (CRITICAL 3) — the NEWEST end of a long night: newest first, one past the cap so the page
@@ -1159,7 +1160,10 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       );
     else {
       const got = pk ?? [];
-      paidKitchenCapped = scopeCapped || got.length > PAID_KITCHEN_CAP;
+      // #360's blind pass (CRITICAL 2) — two caps, two sentences (`paidRoundCapNote`): the dish read
+      // stopping short is not the round read stopping short, and neither knows a count it did not read.
+      paidKitchenCapped = got.length > PAID_KITCHEN_CAP;
+      paidRoundsCapped = scopeCapped;
       paidKitchen = paidRoundKitchen(
         got
           .slice(0, PAID_KITCHEN_CAP)
@@ -1310,6 +1314,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // The lifecycle audit — the paid rounds' food still in the kitchen (or just out), with its stage.
     paidKitchen,
     paidKitchenCapped,
+    paidRoundsCapped,
     // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
     // new read): the session the webhook's best-effort, single-shot close left active (its after() is
     // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on

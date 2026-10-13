@@ -165,7 +165,9 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { getTableDetail } = await import("./floor");
-const { PAID_KITCHEN_CAP } = await import("./paid-round");
+const { PAID_KITCHEN_CAP, paidRoundCapNote } = await import("./paid-round");
+const { STAFF } = await import("./i18n/staff");
+const { fill } = await import("./i18n/fill");
 
 const line = (over: Row): Row => ({
   id: "l-1",
@@ -322,6 +324,7 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     expect(ids[0]).toBe("d-005");
     expect(ids[ids.length - 1]).toBe(`d-${String(n - 1).padStart(3, "0")}`);
     expect(d.paidKitchenCapped).toBe(true);
+    expect(d.paidRoundsCapped).toBe(false);
     // exactly at the cap: nothing was cut, nothing is said
     paidRows = paidRows.slice(0, PAID_KITCHEN_CAP);
     expect((await detail()).paidKitchenCapped).toBe(false);
@@ -364,6 +367,18 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     paidRows = [line({ id: "newest-main", cart_id: "c-paid-0", state: "in_progress" })];
     const d = await detail();
     expect(d.paidKitchen?.map((l) => l.id)).toEqual(["newest-main"]);
-    expect(d.paidKitchenCapped).toBe(true);
+    // #360's blind pass (CRITICAL 2) — the ROUND read was capped, not the dish read: the group says
+    // older rounds are not here, with no number. It said "Showing the latest 100 dishes" above this
+    // one-dish list. lck/floor/paid-round-rounds-cap-unsaid · lck/floor/paid-round-caps-merged — red.
+    expect(d.paidRoundsCapped).toBe(true);
+    expect(d.paidKitchenCapped).toBe(false);
+    const note = paidRoundCapNote(
+      d.paidKitchen?.length ?? 0,
+      d.paidKitchenCapped === true,
+      d.paidRoundsCapped === true,
+    );
+    expect(note && fill(STAFF[note.key].en, note.vars ?? {}, "en")).toBe(
+      "Older rounds aren’t listed here.",
+    );
   });
 });
