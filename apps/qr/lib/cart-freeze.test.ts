@@ -9,9 +9,12 @@ import {
   freezeNotice,
   namedRefusedWriteNotice,
   refusalNeedsRemint,
+  refusalClearsPayError,
   refusedWriteClause,
   refusedWriteNotice,
   reopenFailureNotice,
+  sentRefusalHolds,
+  serverNamedRefusal,
   visibleFreeze,
 } from "./cart-freeze";
 import { inertReason } from "./inert-reason";
@@ -619,5 +622,88 @@ describe("namedRefusedWriteNotice — the correction names WHICH dish did not go
     expect([...seen].map((s) => (JSON.parse(s) as { cause: string }).cause).sort()).toEqual(
       expect.arrayContaining(["frozen", "settling", "unknown"]),
     );
+  });
+});
+
+/**
+ * M230 — a refusal the SERVER named, which no re-read diagnoses.
+ *
+ * `setLineFulfillment` refuses a line that has left draft (the kitchen batch fired it between this
+ * phone's read and the tap). That is not a freeze, so the re-read classification could only ever
+ * name a LOCK as its reason — the M116/T14 fabrication — and /cart stayed silent instead. The
+ * server's own reason carries the fact; this arm speaks it without claiming a freeze.
+ */
+describe("M230 — a refusal the server NAMED has its own arm", () => {
+  it("maps the server's `not_draft` — and nothing else — to the kitchen arm", () => {
+    expect(serverNamedRefusal("not_draft")).toEqual({ cause: "sent" });
+    // Reasons that name no fact a diner may be told stay unnamed: ownership/comp (`not_yours`), a
+    // logged RPC failure, a race whose winner is unknown (`stale` — a fire OR a pay), and the
+    // freeze, which the re-read already classifies honestly (`busy`).
+    for (const reason of ["not_yours", "error", "stale", "busy", "not_open", "not_dinein_session"])
+      expect(serverNamedRefusal(reason)).toBeNull();
+  });
+
+  it("says the kitchen fact with the ASSERTIVE opener, and never a freeze", () => {
+    const notice = refusedWriteNotice({ cause: "sent" });
+    expect(notice).toBe("That didn’t go through — it’s already gone to the kitchen.");
+    // The server said so — no hedge — and nothing about a lock, a table, or a split.
+    for (const forbidden of ["couldn’t confirm", "lock", "checks out", "pays", "splitting"])
+      expect(notice.toLowerCase()).not.toContain(forbidden);
+  });
+
+  it("is a FRAGMENT like every clause, so a composing caller can carry it (T32)", () => {
+    const clause = refusedWriteClause({ cause: "sent" });
+    expect(clause.length).toBeGreaterThan(0);
+    expect(clause[0]).toBe(clause[0]?.toLowerCase());
+    expect(clause.endsWith(".")).toBe(false);
+    expect(clause).not.toContain("didn’t go through");
+    expect(refusedWriteNotice({ cause: "sent" })).toBe(`That didn’t go through — ${clause}.`);
+  });
+
+  it("the named twin keeps parity with the unnamed sentence", () => {
+    const named = namedRefusedWriteNotice({ cause: "sent" }, "that");
+    expect(`${named[0]?.toUpperCase() ?? ""}${named.slice(1)}`).toBe(
+      refusedWriteNotice({ cause: "sent" }),
+    );
+  });
+
+  it("the classifier never PRODUCES it — a re-read cannot diagnose a kitchen fact", () => {
+    for (const locked of [false, true])
+      for (const lockedBy of [null, SEAT, PEER])
+        for (const settling of [false, true])
+          expect(classifyRefusedWrite(OK({ locked, lockedBy, settling })).cause).not.toBe("sent");
+  });
+
+  it("holds only while the line is WITH the kitchen — a draft or a voided line falsifies it", () => {
+    // Re-asked at publish time against the view that won: a send undone inside its grace puts the
+    // line back in draft, and a staff void takes it out of the kitchen altogether.
+    expect(sentRefusalHolds({ lineState: "fired" })).toBe(true);
+    expect(sentRefusalHolds({ lineState: "in_progress" })).toBe(true);
+    expect(sentRefusalHolds({ lineState: "served" })).toBe(true);
+    expect(sentRefusalHolds({ lineState: "draft" })).toBe(false);
+    expect(sentRefusalHolds({ lineState: "voided" })).toBe(false);
+    expect(sentRefusalHolds(undefined)).toBe(false);
+  });
+});
+
+/**
+ * Blind pass on #354 — which refusal may take the slot from a standing pay error.
+ *
+ * /cart's region renders `payError ?? status`, and the shipped rule was `cause !== "unknown"`. That
+ * read as "a freeze" until M230's `sent` joined the union and was silently admitted: a kitchen fact
+ * about one line then erased "Couldn't start checkout — please try again." on a cart whose Pay still
+ * works.
+ */
+describe("refusalClearsPayError — only a freeze supersedes a pay error", () => {
+  it("a freeze does: the payment cannot be retried while the cart is frozen or settling", () => {
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "peer" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "self" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "frozen", freeze: "held" })).toBe(true);
+    expect(refusalClearsPayError({ cause: "settling" })).toBe(true);
+  });
+
+  it("a cause that freezes nothing does not — the kitchen fact and the hedge alike", () => {
+    expect(refusalClearsPayError({ cause: "sent" })).toBe(false);
+    expect(refusalClearsPayError({ cause: "unknown" })).toBe(false);
   });
 });

@@ -899,6 +899,128 @@ const MUTANTS = [
     replace:
       "      accepted = r.ok;\n      refused = !r.ok && false;\n    } catch {\n      refused = true;\n    }\n    if (refused) {\n      // A fired line",
   },
+  // ── M230 — a refusal the SERVER named: the line has already gone to the kitchen ─────────────────
+  {
+    id: "m230/cart/toggle-fired-line-reads-as-ownership",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "M230 at the SOURCE — `canMutateLine` answers a fired line, a comp and someone else's line alike, so `not_yours` could never be spoken: it names no single fact. Drop the pre-check and the reachable refusal (the dine-in batch fired the line between the diner's read and the tap) folds back into the ownership reason, and /cart goes silent over a pill that flipped and snapped back",
+    find: '  // batch fires the line between this diner\'s read and the tap.\n  if (lineState !== "draft") return { ok: false, reason: "not_draft" };',
+    replace: "  // batch fires the line between this diner's read and the tap.",
+  },
+  {
+    id: "m230/cart/make-now-fired-line-reads-as-ownership",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "M230, the toggle's twin — a line already with the kitchen is the same fact on “Send to kitchen now”, in the word `mms_fire_line` itself answers. Pinned separately because it IS separate code: deleting only this check leaves every toggle case green",
+    find: '  // itself answers, never folded into the ownership reason.\n  if (lineState !== "draft") return { ok: false, reason: "not_draft" };',
+    replace: "  // itself answers, never folded into the ownership reason.",
+  },
+  {
+    id: "m230/freeze/server-name-unspoken",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "M230 — the arm exists only if the server's word reaches it. Answer null for `not_draft` and the refusal a re-read can never diagnose is silent again: the pill re-groups optimistically, snaps back, and nothing says the dish went to the kitchen",
+    find: '  return reason === "not_draft" ? { cause: "sent" } : null;',
+    replace: "  return null;",
+  },
+  {
+    id: "m230/freeze/any-reason-is-named",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "M230's NARROWING — the other direction, and the fabricated-diagnosis class: `not_yours` is ownership or a comp, `stale` a race whose winner (a fire OR a pay) the reason does not say, `error` a logged RPC failure. Naming any of them “already gone to the kitchen” tells the diner a cause nobody established",
+    find: '  return reason === "not_draft" ? { cause: "sent" } : null;',
+    replace: '  return reason !== "busy" ? { cause: "sent" } : null;',
+  },
+  {
+    id: "m230/freeze/sent-borrows-the-unknown-clause",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "M230 — the server named the fact; the sentence must say it. Falling to the default clause (“the order below is up to date”) speaks a reassurance over a dish the diner just tried to re-route, and drops the one reason the pill snapped back",
+    find: '    case "sent":\n      // M230 — the server\'s own fact (`not_draft`), in the vocabulary `setQty`\'s refusal already\n      // uses for the same line state. Nothing about a lock: no freeze was involved.\n      return "it’s already gone to the kitchen";\n',
+    replace: "",
+  },
+  {
+    id: "m230/freeze/sent-holds-for-a-voided-line",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "M230 — `not_draft` covers a VOIDED line too (the RPC's `v_state <> 'draft'`, and a staff void needs no fire first). “It's already gone to the kitchen” is false of a dish staff took off the order, so the fact must hold only while the line is fired, cooking or served",
+    find: '    line.lineState === "fired" || line.lineState === "in_progress" || line.lineState === "served"',
+    replace: '    line.lineState !== "draft"',
+  },
+  {
+    id: "m230/freeze/sent-clears-the-pay-error",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Blind pass on #354 — /cart's region renders `payError ?? status`, and only a freeze may take the slot from a pay error (the payment cannot be retried while frozen). The shipped `cause !== \"unknown\"` silently admitted M230's `sent`, so a kitchen fact about one line erased “Couldn’t start checkout — please try again.” on a cart whose Pay still works",
+    find: '    case "sent":\n    case "unknown":\n      return false;',
+    replace: '    case "sent":\n      return true;\n    case "unknown":\n      return false;',
+  },
+  {
+    id: "m230/toggle-named-refusal-dropped",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 AT THE WIRING — the lib names the refusal; the toggle has to ask it. Drop the read and the reachable case is the M224 silence again: the kitchen batch fired the line between the diner's read and the tap, the pill flipped, snapped back, and said nothing",
+    find: "        named = r.ok ? null : serverNamedRefusal(r.reason);",
+    replace: "        named = null;",
+  },
+  {
+    id: "m230/named-refusal-said-as-the-reads-diagnosis",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 — the re-read still runs for a server-named refusal (it re-syncs the snapped-back pill and decides the landing), but its FREEZE reading is not the reason: on an unfrozen cart it is the `unknown` hedge, “We couldn’t confirm that”, over a refusal the server stated outright. Say the read's diagnosis instead of the server's word and the fact is lost",
+    find: "      if (named) announceRefusal(named.refusal, landed, named.holds);\n      else announceRefusal(refusal, landed);",
+    replace: "      announceRefusal(refusal, landed);",
+  },
+  {
+    id: "m230/named-refusal-rederived-from-the-freeze",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 at PUBLISH — the parked sentence is re-derived so it never outlives its truth, but a server-named refusal cannot be re-derived from the freeze: the freeze never names the kitchen, so the comparison always differs and every such refusal is dropped at its own frame",
+    find: "      const fresh = pendingRefusal.holds?.(f.items)",
+    replace: "      const fresh = false",
+  },
+  {
+    id: "m230/named-refusal-outlives-its-fact",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 at PUBLISH, the other direction — the fact is re-asked of the view that WON. A send undone inside its grace puts the line back in draft before the sentence's frame; skip the question and “it's already gone to the kitchen” is printed beside a draft line the diner can re-route",
+    find: "      const fresh = pendingRefusal.holds?.(f.items)",
+    replace: "      const fresh = pendingRefusal.holds",
+  },
+  {
+    id: "m230/named-refusal-asked-at-park",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 (blind pass on #354) — the fact is asked of the view that WON at publish, not of the diagnosis read at park. The diagnosis read sees the line fired; the host's Undo inside the send's grace then wins the screen before the sentence's frame. Freeze the answer at park and “it's already gone to the kitchen” prints beside a line that reads “Not sent yet”",
+    find: "      if (named) announceRefusal(named.refusal, landed, named.holds);\n",
+    replace:
+      "      if (named) {\n        const atPark = named.holds(freezeFactsRef.current.items);\n        announceRefusal(named.refusal, landed, () => atPark);\n      }\n",
+  },
+  {
+    id: "m230/named-refusal-outlives-an-undo",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 (blind pass on #354, CRITICAL) — a send stays undoable for its grace, and the host's Undo reaches this phone as an ordinary view AFTER the sentence was said. No edit of the diner's follows and no freeze edge exists for that cause, so only the per-view re-ask retires it. Never arm it at publish and “it's already gone to the kitchen” stands beside a draft line with its ⋯ live again",
+    find: "      shownHoldsRef.current = pendingRefusal.holds ?? null;\n",
+    replace: "",
+  },
+  {
+    id: "m230/retire-clears-any-status",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 · blind pass over #354's fix commits — the per-view retire runs on EVERY applied view, so clearing `status` without asking whether it still IS the shown sentence erased whatever the region said since (the Bill's held-door reason, a send outcome, a promo answer) on a tablemate's echo",
+    find: "    shownRefusalRef.current = null;\n    setStatus((cur) => (cur === shown ? null : cur));\n",
+    replace: "    shownRefusalRef.current = null;\n    setStatus(null);\n",
+  },
+  {
+    id: "m230/named-refusal-retired-by-any-view",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 — the retire's other direction. It asks whether the fact still holds; retire on every later view instead and the kitchen sentence vanishes the moment the cook starts the dish, while it is still exactly true",
+    find: "      if (holds === null || holds(freezeFactsRef.current.items)) return;",
+    replace: "      if (holds === null) return;",
+  },
   {
     id: "m224/refusal-loses-the-settle-recovery",
     file: "apps/qr/components/Checkout.tsx",
@@ -1010,7 +1132,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The region renders `payError ?? status`, so clearing it unconditionally traded \u201cCouldn\u2019t start checkout\u201d \u2014 actionable, about money \u2014 for \u201cWe couldn\u2019t confirm that \u2014 the order below is up to date\u201d, on a screen whose checkout is broken. A FREEZE supersedes a pay error (the diner cannot retry the payment while frozen, which is the lock edge\u2019s own stated reasoning); an `unknown` hedge has no such claim",
-    find: '      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);',
+    find: "      if (refusalClearsPayError(pendingRefusal.refusal)) setPayError(null);",
     replace: "      setPayError(null);",
   },
   {
@@ -1240,7 +1362,7 @@ const MUTANTS = [
     id: "perf/memo-defeated-by-an-unstable-dep",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "M192, THE SUBTLER HALF \u2014 and the one that actually shipped alongside the memo. A `useMemo` on the context value is worth nothing if a DEPENDENCY re-mints, and this is how it happens: an object literal built in the render body. `me` was exactly that, so the memo was in place and every consumer still re-rendered. Same class as the `lastRefusalClause` inline arrow the comment above its `useCallback` warns about \u2014 a reviewer reading the memo sees a memo; only the identity assertion sees the miss",
+    why: "M192, THE SUBTLER HALF \u2014 and the one that actually shipped alongside the memo. A `useMemo` on the context value is worth nothing if a DEPENDENCY re-mints, and this is how it happens: an object literal built in the render body. `me` was exactly that, so the memo was in place and every consumer still re-rendered. Same class as the inline `lastRefusalClause` arrow the memo's docblock warned about until T42 retired it \u2014 a reviewer reading the memo sees a memo; only the identity assertion sees the miss",
     find: "  const me = useMemo(\n    () => (session ? { seat: session.seat, name } : null),\n    [session?.seat, name, session],\n  );",
     replace: "  const me = session ? { seat: session.seat, name } : null;",
   },
@@ -1347,21 +1469,23 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T32 AT THE BOUNDARY \u2014 and this is where drift can actually happen, so this is where it is mutated. Both functions take the same argument, so latching the SENTENCE typechecks perfectly and restores the exact defect: `YourUsual` appends it to a sentence that already opens with the same verdict. No matcher over `YourUsual` can see this \u2014 the consumer mocks its context, so only the provider's own boundary assertion falsifies it",
-    find: "      lastRefusalRef.current = refusedWriteClause(refusal);",
-    replace: "      lastRefusalRef.current = refusedWriteNotice(refusal);",
+    // T42 — RE-ANCHORED, same mutation: the clause no longer goes into a latch; `publishRefusal`
+    // RETURNS it and it rides `add`'s own result.
+    find: "      return refusedWriteClause(refusal);",
+    replace: "      return refusedWriteNotice(refusal);",
   },
   {
-    id: "refusal/latch-outlives-its-write",
+    // T42 RETIRED `refusal/latch-outlives-its-write` (T31's entry clear, `forgetRefusal`): the latch
+    // it cleared no longer exists, so T31's property — a cause never outlives the write it explained
+    // — is structural, and its anchor would be STALE. This pins what replaced the latch: the clause
+    // has to actually ride the result, or every consumer is back to saying no cause at all.
+    id: "t42/refusal-result-drops-its-clause",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "T31 \u2014 a cause belongs to the write that established it. The latch has ONE writer and, before this PR, ZERO clears, so a consumer reading it after an unrelated later write was handed the previous refusal's reason and announced it as this dish's. Dropping the entry clear restores exactly that",
-    // ⚠️ RE-ANCHORED BY T33, which added a comment INSIDE this function and so broke an anchor that
-    // spanned the whole body. It now names the declaration plus the live statement — unique
-    // (`lastRefusalRef.current = null` appears exactly once) and load-bearing, rather than a shape
-    // any future comment can invalidate. `verify:slice` caught the staleness, which is the rule
-    // working: a STALE mutant is a FAILURE, not a skip.
-    find: "  const forgetRefusal = useCallback(() => {\n    lastRefusalRef.current = null;",
-    replace: "  const forgetRefusal = useCallback(() => {",
+    why: "T42 — the clause rides the write that established it. It used to sit in a provider-global latch that `YourUsual` read AFTER `add` resolved, and nothing serializes writes, so an overlapping write could publish its cause in that microtask gap and dish A was announced with write B's diagnosis. Publish the toast but drop the clause from the result, and every refusal reaches the card causeless",
+    find: "          return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };",
+    replace:
+      "          return { ...result, clause: refusal ? (publishRefusal(refusal, opts?.name), null) : null };",
   },
   {
     id: "refusal/unreadable-cart-yields-a-list",
@@ -1380,6 +1504,14 @@ const MUTANTS = [
     find: "              ? `${landed}${item.name} didn\u2019t go through \u2014 ${clause}.`",
     replace:
       "              ? `${landed}${item.name} didn\u2019t go through. That didn\u2019t go through \u2014 ${clause}.`",
+  },
+  {
+    id: "t42/usual-reads-no-cause",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T42 AT THE CONSUMER — the cause is read off THIS write's own `refused` result, not a provider-global latch an overlapping write could overwrite in the microtask gap after `add` resolved. Drop the read and every refusal under a freeze falls back to the causeless “We couldn’t add X just now”, while the provider still carries the clause nobody says",
+    find: '          const clause = res.state === "refused" ? res.clause : null;',
+    replace: "          const clause = null as string | null;",
   },
   {
     id: "refusal/remint-restored-unconditionally",
@@ -1412,10 +1544,14 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 — `publishUnconfirmed` deliberately does NOT write `lastRefusalRef`, which means “a refusal the caller decided is real” and is carried into `YourUsual`'s copy. Lending an unconfirmed write a refusal's cause attaches a diagnosis to a write nobody established anything about — the fabricated-diagnosis class, arriving through the retraction built to prevent it",
-    // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the callback now takes the dish `name`.
-    find: "  const publishUnconfirmed = useCallback(\n    (name?: string) => {",
+    // T42 — RE-POINTED. It used to write the unconfirmed sentence into `lastRefusalRef`, a latch
+    // T42 retired (a refusal's clause now rides `add`'s `refused` result, and the `unconfirmed` arm
+    // has no field to carry one — so lending it a CAUSE is a compile error). The remaining way to
+    // lend an unconfirmed write a refusal's words is the retraction itself: say the `unknown`
+    // refusal's sentence, whose "the order below is up to date" asserts a currency this state lacks.
+    find: "      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {",
     replace:
-      "  const publishUnconfirmed = useCallback(\n    (name?: string) => {\n      lastRefusalRef.current = unconfirmedWriteNotice();",
+      '      flash(name ? namedRefusedWriteNotice({ cause: "unknown" }, name) : refusedWriteNotice({ cause: "unknown" }), 3000, undefined, {',
   },
   {
     id: "refusal/settle-freeze-never-classified",
@@ -1434,13 +1570,25 @@ const MUTANTS = [
     replace: "        fresh = [];",
   },
   {
-    id: "refusal/qty-refusal-goes-unpublished",
+    // T41 RETIRED `refusal/qty-refusal-goes-unpublished`, whose subject — the stepper publishing a
+    // REFUSAL — no longer exists: `setItemQty`'s recovery maps every reading but "at our target" to
+    // `unconfirmed`, so `refused` is unreachable there and the publish fork was deleted with it. Its
+    // anchor would be STALE (a failure, not a skip); this is the mutant for the rule that replaced it.
+    id: "t41/qty-non-landing-reads-as-refused",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING: its test asserted a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot. \u26a0\ufe0f THE FIND SPANS THE WHOLE if/else PAIR, and the #254 blind pass is why: the first draft cut only the `if`, leaving `});` followed by a bare `else` \u2014 a SyntaxError. `suitePasses` is an exit-code check, so a file that will not PARSE reddens the suite and scores `caught` while proving nothing. A mutation must remain valid code or it measures the parser",
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    why: "T41 \u2014 `setQty` is ABSOLUTE, so a peer can forge a NON-landing but never a landing: our set to 2 commits, an authorized host moves the line inside the round trip, and the re-read reads a number that is not ours. Mapping that reading to `false` answers `refused`, whose `mayRetry` is TRUE for a write that landed \u2014 the STATE the row filed, which #254's hedged sentence never reached. Only \u201cthe line sits at our target\u201d establishes anything; a freeze on the re-read does not either (Codex round 2 on #255)",
+    find: "          landed: atTarget ? true : null,",
+    replace: "          landed: atTarget,",
+  },
+  {
+    id: "t41/freeze-swallows-the-unconfirmed-hedge",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T41 (blind pass on #354) — under a freeze the hedge is still owed: the stepper flashed its optimistic step on tap, and the lock banner says the freeze, never that this write may not have landed. Let the freeze swallow the retraction and the final region reads exactly the same — only the sequence the region mounted shows the hedge was never said",
+    find: '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
     replace:
-      '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+      '        if (result.state === "unconfirmed" && !freezeRef.current.locked) publishUnconfirmed();\n        return result;',
   },
   {
     id: "refusal/add-refusal-goes-unpublished",
@@ -1450,16 +1598,22 @@ const MUTANTS = [
     // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the fork now carries `opts?.name` (the
     // corrections name the dish) and its interleaved comment was reworded. Still drops the refusal
     // publish and keeps the unconfirmed arm.
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal, opts?.name);\n        // The optimistic claim is still standing \u2014 ours, or the one the caller spoke at the tap;\n        // retract it rather than let an outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
-    replace: '        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
+    // T42 — RE-ANCHORED again, same mutation: the refused arm now RETURNS the clause `publishRefusal`
+    // hands back. The mutant keeps the clause (computed directly) and drops only the publish, so the
+    // toast — and T33's latch with it — are what it removes.
+    find: "          return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };",
+    replace:
+      "          return { ...result, clause: refusal ? refusedWriteClause(refusal) : null };",
   },
   {
     id: "refusal/qty-landing-becomes-a-presence-test",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 — `setQty` is absolute, which is what makes its recovery attribution exact: the line sits AT `qty`, or is gone when the tap was a remove. Weakening that to “the line exists” reports every refused decrement as a landing, so the stepper keeps a quantity the server rejected and the next queued write derives from it",
-    find: "          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,",
-    replace: "          landed: fresh === null ? null : line !== undefined,",
+    // T41 — RE-ANCHORED, same mutation: the at-target test moved into its own binding, which the
+    // landing now reads as `atTarget ? true : null`.
+    find: "        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);",
+    replace: "        const atTarget = fresh !== null && line !== undefined;",
   },
   {
     id: "usual/committed-write-retried",
@@ -2864,6 +3018,79 @@ const MUTANTS = [
     why: 'W23a — `.update()` returns no row count, so without the `.select("id")` verdict a flip that matched NOTHING answers ok: the cook is told the dish is off, diners keep ordering it, and the ledger records a decision that never landed',
     find: "  if (!written) {",
     replace: "  if (false) {",
+  },
+  // ── P2au — an unlogged sold-out still landed: its own code, and the Undo offered on it ──────────
+  {
+    id: "p2au/menu-availability/unlogged-reads-as-an-outage",
+    file: "apps/qr/lib/menu-availability.ts",
+    suite: "lib/menu-availability.test.ts",
+    why: "P2au — the ledger insert runs AFTER the flag flips, so its failure is a LANDING with no record. It used to share `sentence` with the outage, and no caller could tell “nothing changed” from “the dish is off the menu”: the KDS showed the dish sold out after its refresh and offered no 6-second Undo for an 86 that had landed",
+    find: '      code: "unlogged",\n      soldOut,\n    };',
+    replace: '      code: "sentence",\n    };',
+  },
+  {
+    id: "p2au/landing/unlogged-reads-as-unlanded",
+    file: "apps/qr/lib/sold-out-landing.ts",
+    suite: "lib/sold-out-landing.test.ts",
+    why: "P2au — “did the dish change” is not `ok`. An unlogged answer is `ok: false` so its sentence is never swallowed, but the flag DID flip; answering null for it puts every caller back on the refusal path, with no confirmed override and no Undo for a dish that is off the menu",
+    find: '  return res.code === "unlogged" ? res.soldOut : null;',
+    replace: "  return null;",
+  },
+  {
+    id: "p2au/landing/a-refusal-reads-as-landed",
+    file: "apps/qr/lib/sold-out-landing.ts",
+    suite: "lib/sold-out-landing.test.ts",
+    why: "P2au — the other direction, and the one that costs a dish: a `stale` or `gone` refusal changed NOTHING. Read as a landing, the KDS records an override the server never wrote and offers an Undo whose compare-and-swap then refuses against a state the board never made",
+    find: '  return res.code === "unlogged" ? res.soldOut : null;',
+    replace: '  return "soldOut" in res ? res.soldOut : false;',
+  },
+  {
+    id: "p2au/kds-errors/unlogged-said-as-a-generic-refusal",
+    file: "apps/qr/lib/kds-errors.ts",
+    suite: "lib/kds-errors.test.ts",
+    why: "P2au — the unlogged sentence names the dish, that it DID change, and who to tell (“…wasn’t logged — tell the owner it was you”). A keyed generic refusal in its place tells the cook the 86 failed over a dish that is off the menu, and drops the one instruction that keeps the ledger honest",
+    find: '    case "unlogged":\n      return res.error;',
+    replace: '    case "unlogged":\n      return { k: "kds.err.invalid" };',
+  },
+  {
+    id: "p2au/kds/unlogged-offers-no-undo",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2au AT THE BOARD — the row itself: an unlogged 86 took the dish off the menu, but `if (res.ok)` sent it down the refusal arm, so the cook saw it sold out after the refresh and had no 6-second Undo for a tap that landed",
+    find: "      if (res.ok || landedSoldOut(res) !== null) {",
+    replace: "      if (res.ok) {",
+  },
+  {
+    id: "p2au/kds/unlogged-landing-unsaid",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2au — landing it must not SWALLOW it. The record of who took the dish off failed, and the sentence that asks the cook to tell the owner is the only repair the ledger gets; drop it and the 86 reads as a clean success with no audit row behind it",
+    find: "        if (!res.ok) refuse(eightySixOutcome(res, dish));\n      } else {",
+    replace: "      } else {",
+  },
+  {
+    id: "p2au/kds/unlogged-putback-keeps-the-bar",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2au on the Undo — an unlogged put-back is the dish back on sale. Read as a refusal it keeps the bar up and the ⋯ hidden, and the Undo left standing then refuses against the board's own write (“someone else changed it”)",
+    find: "          if (!res.ok && landedSoldOut(res) === null) {",
+    replace: "          if (!res.ok) {",
+  },
+  {
+    id: "p2au/kds/unlogged-putback-unsaid",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2au on the Undo — the same swallow, one write later: the put-back landed and its record did not, and the “back on” notice alone reads as a clean, logged change",
+    find: "          if (!res.ok) showErr(eightySixOutcome(res, entry.label));",
+    replace: "",
+  },
+  {
+    id: "p2au/menu/unlogged-landing-not-recorded",
+    file: "apps/qr/components/staff/MenuPriceEditor.tsx",
+    suite: "components/staff/MenuPriceEditor.test.tsx",
+    why: "P2au on /staff/menu — menu-3 records what the server CONFIRMED so a second tap posts the right `expectedSoldOut`. An unlogged answer confirmed the flip too; recording only `ok` leaves the row wearing its old verb over a dish that changed, and the next tap is refused as “someone else”",
+    find: "      if (landed !== null) record(i.id, { soldOut: landed });",
+    replace: "      if (r.ok) record(i.id, { soldOut: r.soldOut });",
   },
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
@@ -5867,11 +6094,13 @@ const MUTANTS = [
   },
   {
     id: "account-upgrade/strip-discards-co-present-params",
-    file: "apps/qr/components/AccountUpgrade.tsx",
+    // M214 moved the strip into lib (`stripCallbackParams`, shared with the signed-in notice); the
+    // CARD's suite is still the one that proves a co-present `resume` survives it.
+    file: "apps/qr/lib/oauth-callback.ts",
     suite: "components/AccountUpgrade.test.tsx",
     why: "replacing with `pathname` alone discards EVERY other param, and this effect is declared before the `?resume=` one so it runs first: a lend-mode return arriving beside a bounce loses `resume` before anything can act on it, and the resume effect is then torn down mid-flight when `resumeParam` flips to null",
-    find: '    window.history.replaceState(null, "", `${url.pathname}${url.search}`);',
-    replace: '    window.history.replaceState(null, "", url.pathname);',
+    find: "  return `${url.pathname}${url.search}`;",
+    replace: "  return url.pathname;",
   },
   {
     id: "account-upgrade/redirects-past-a-blocked-carry",
@@ -5932,6 +6161,388 @@ const MUTANTS = [
     why: "Codex round 1 on #279, P1. `?resume=` is the OWNER returning after lending the device, and that path is deliberately merge-SUPPRESSED so the friend's Stars are never swept onto the owner's account. The auto-recovery is the opposite — it mints and carries whatever this device holds. Dropping the veto lets an effect registered FIRST decide whose rewards move, which is the one outcome the resume path exists to prevent",
     find: "  if (lendResumePresent) return false;",
     replace: "  void lendResumePresent;",
+  },
+  // ── uia11y · M214 — a bounce that lands on a SIGNED-IN /account ──
+  {
+    id: "uia11y/m214-upgraded-bounce-unsaid",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — a signed-in diner whose OAuth round trip bounced back to /account is TOLD they are already signed in; returning nothing leaves the raw error explained by nothing on screen",
+    find: '  return "You\u2019re already signed in \u2014 that Google step didn\u2019t finish, and it doesn\u2019t need to.";',
+    replace: "  return null;",
+  },
+  {
+    id: "uia11y/m214-says-it-on-every-visit",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — the signed-in line is for a BOUNCE only; dropping the guard says 'that Google step didn't finish' to every signed-in diner who opens /account",
+    find: '  if (!outcome) return null;\n  return "You\u2019re already signed in',
+    replace: '  return "You\u2019re already signed in',
+  },
+  {
+    id: "uia11y/m214-strip-keeps-error-code",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — the ONE strip deletes all three OAuth keys; keeping `error_code` leaves the raw error in the address bar for both the guest card and the signed-in notice",
+    find: '  url.searchParams.delete("error_code");\n',
+    replace: "",
+  },
+  {
+    id: "uia11y/m214-strip-keeps-the-fragment",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "M214 — Supabase mirrors the error into the fragment and nothing in the app reads the hash; carrying it over leaves `#error=…` in the address bar after the query is clean",
+    find: "  return `${url.pathname}${url.search}`;",
+    replace: "  return `${url.pathname}${url.search}${url.hash}`;",
+  },
+  {
+    id: "uia11y/m214-notice-not-mounted",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — THE SHIPPED DEFECT: every reader of the callback params lived in the guest card, so a signed-in diner landing with ?error_code= saw nothing and kept the raw error in the URL",
+    find: "      {signedIn && (\n        <AccountCallbackNotice",
+    replace: "      {false && (\n        <AccountCallbackNotice",
+  },
+  {
+    id: "uia11y/m214-unknown-told-signed-in",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — 'already signed in' is only ours to say when the server said so; with both reads failed `kind` is null, and treating not-anon as signed-in tells an unknown (possibly anonymous) session it is signed in",
+    find: '  const signedIn = state ? state.isUpgraded : kind === "diner" || kind === "staff";',
+    replace: '  const signedIn = state ? state.isUpgraded : kind !== "anon";',
+  },
+  {
+    id: "uia11y/m214-staff-told-nothing",
+    file: "apps/qr/app/account/page.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 · blind pass on #355 — a STAFF session on the failed-read branch is signed in too; dropped from the rule, a staff member's bounce on /account sat in the address bar with nothing on screen explaining it",
+    find: '  const signedIn = state ? state.isUpgraded : kind === "diner" || kind === "staff";',
+    replace: '  const signedIn = state ? state.isUpgraded : kind === "diner";',
+  },
+  {
+    id: "uia11y/m214-upgraded-bounce-not-stripped",
+    file: "apps/qr/components/AccountCallbackNotice.tsx",
+    suite: "app/account/page.test.tsx",
+    why: "M214 — the notice cleans the URL with the guest card's own strip; without it the raw `?error_code=` stays in the signed-in diner's address bar under a line saying all is well",
+    find: '    window.history.replaceState(null, "", stripCallbackParams(window.location.href));\n  }, [message]);',
+    replace: "    void stripCallbackParams;\n  }, [message]);",
+  },
+  {
+    id: "uia11y/m214-card-strip-dropped",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "M214 moved the guest card's strip into lib; the CARD must still call it, or a guest's bounce leaves the raw error in the URL",
+    find: '    window.history.replaceState(null, "", stripCallbackParams(window.location.href));\n  }, [callback]);',
+    replace: "    void stripCallbackParams;\n  }, [callback]);",
+  },
+  // ── uia11y · F20 — a refused address or code is tied to ITS box (AccountUpgrade) ──
+  {
+    id: "uia11y/f20-email-refusal-off-the-box",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — a refused address is drawn under the email box and ties to it (`aria-describedby`, `aria-invalid`); off the box, it is a sentence somewhere else on the card again",
+    find: '            <Field label="Email" error={emailRefusal}>',
+    replace: '            <Field label="Email" error={null}>',
+  },
+  {
+    id: "uia11y/f20-code-refusal-off-the-box",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — a code that did not match is drawn under the CODE box and ties to it; off the box, the diner hears 'invalid' about nothing they can point at",
+    find: "            <Field label={`6-digit code sent to ${email}`} error={codeRefusal}>",
+    replace: "            <Field label={`6-digit code sent to ${email}`} error={null}>",
+  },
+  {
+    id: "uia11y/f20-focus-stays-on-the-button",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — a refusal pressed from the button moves focus to the refused box (QA §A); left on the button, the box's description is never heard and the region stays quiet by design",
+    find: "    (emailRefusal !== null ? emailRef.current : codeRef.current)?.focus({ preventScroll: true });",
+    replace: "    void codeRef;",
+  },
+  {
+    id: "uia11y/f20-region-repeats-the-box",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — one voice per refusal: when focus moved to the box its description says it, so the region repeating it reads the same sentence twice",
+    find: '          ? refusalVoice === "region" && <span className="sr-only">{boxRefusal}</span>',
+    replace: '          ? <span className="sr-only">{boxRefusal}</span>',
+  },
+  {
+    id: "uia11y/f20-enter-refusal-unsaid",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — Enter in the box leaves focus where it is, so moving it says nothing; the region is the only voice left, and silencing it leaves a refusal no screen reader hears",
+    find: '          ? refusalVoice === "region" && <span className="sr-only">{boxRefusal}</span>',
+    replace: '          ? false && <span className="sr-only">{boxRefusal}</span>',
+  },
+  {
+    id: "uia11y/f20-google-door-keeps-the-binding",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — only the card's own forms refuse a box; a Google refusal that kept the email form's binding is drawn under an address it has nothing to do with",
+    find: "  async function signInGoogle() {\n    setBusy(true);\n    setError(null);\n    setFieldRefusal(null); // F20 \u2014 a Google refusal belongs to no box\n",
+    replace: "  async function signInGoogle() {\n    setBusy(true);\n    setError(null);\n",
+  },
+  // ── uia11y · F20 · Codex round 1 on #355 — only a refusal that NAMES the value is the box's ──
+  {
+    id: "uia11y/f20-binding-ahead-of-the-answer",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 1 on #355 — the binding set at the submit, before the answer, put EVERY failure of the form under the email box: OTP switched off in Auth settings marked a good address wrong, moved focus to it and silenced the card's region",
+    find: '    const voice: FieldVoice = document.activeElement === emailRef.current ? "region" : "focus";\n    setFieldRefusal(null);',
+    replace:
+      '    const voice: FieldVoice = document.activeElement === emailRef.current ? "region" : "focus";\n    setFieldRefusal({ field: "email", voice });',
+  },
+  {
+    id: "uia11y/f20-outage-bound-to-the-address",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 1 on #355 — the sign-in send binds only a refusal of the address; bound unconditionally, the reworded otp_disabled outage and a dropped request land under the box as if the address were wrong",
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))\n          setFieldRefusal(",
+    replace:
+      "        if (boxVoice && boxHolds(emailRef.current, addr))\n          setFieldRefusal(",
+  },
+  {
+    id: "uia11y/f20-sign-in-door-forgets-the-box",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — the email form's sign-in door hands its voice to the send; without it, 'no account for that email' is a sentence in the region with nothing tying it to the address that caused it",
+    find: "      await sendSignInCode(addr, true, voice);",
+    replace: "      await sendSignInCode(addr, true);",
+  },
+  {
+    id: "uia11y/f20-save-path-binds-every-failure",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 1 on #355 — the save path (updateUser) binds only GoTrue's refusal of the address; bound unconditionally, a dropped connection marks the address wrong",
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))\n        setFieldRefusal(",
+    replace: "      if (boxHolds(emailRef.current, addr))\n        setFieldRefusal(",
+  },
+  {
+    id: "uia11y/f20-save-path-refusal-unbound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — GoTrue refusing THIS address on the save path (email_address_invalid) is the box's; unbound, it is a region sentence with no box marked",
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: '      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))\n        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });\n',
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-code-step-binds-every-failure",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 1 on #355 — the code step binds only a wrong or expired code; bound unconditionally, a rate limit marks the code wrong and moves focus to it",
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n        setFieldRefusal(",
+    replace: "      if (boxHolds(codeRef.current, submitted))\n        setFieldRefusal(",
+  },
+  {
+    id: "uia11y/f20-code-refusal-unbound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 — a code that did not match is the code box's refusal; unbound, the box is never marked and focus never reaches it",
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: '      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });\n',
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-voice-fixed-at-the-press",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · blind pass on #355 — a voice fixed at the press: a diner who moved back into the box during the round trip got `.focus()` on the focused box, which fires nothing, with the region quiet by design — the refusal said zero times",
+    find: '  return box !== null && document.activeElement === box ? "region" : voice;',
+    replace: "  return voice;",
+  },
+  {
+    id: "uia11y/f20-no-account-off-the-box",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "F20 — no account holds the typed address: the one sign-in refusal the diner fixes by retyping. Dropped from the allow-list, it leaves the box it names",
+    find: "    NO_ACCOUNT_FOR_OTP.test(message) ||\n",
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-otp-code-means-no-account",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "Codex round 1 on #313, restated for the binding — GoTrue answers otp_disabled for the unknown address AND for OTP switched off; keyed on the code, an outage marks every existing diner's address wrong",
+    find: "    NO_ACCOUNT_FOR_OTP.test(message) ||",
+    replace: '    e.code === "otp_disabled" ||',
+  },
+  {
+    id: "uia11y/f20-invalid-address-off-the-box",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "F20 — email_address_invalid is GoTrue refusing the address itself; dropped from the allow-list, it is no box's refusal",
+    find: '    e.code === "email_address_invalid" ||\n',
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-unreadable-address-off-the-box",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "F20 — 'Unable to validate email address' names the typed address; dropped, the refusal leaves its box",
+    find: "    NO_ACCOUNT_FOR_OTP.test(message) ||\n    /unable to validate email address/i.test(message)",
+    replace: "    NO_ACCOUNT_FOR_OTP.test(message)",
+  },
+  {
+    id: "uia11y/f20-otp-expired-off-the-box",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "F20 — GoTrue's otp_expired is its answer for a wrong or expired code; read by message only, an answer with the code and other words leaves the code box",
+    find: '  return e.code === "otp_expired" || /token has expired or is invalid/i.test(e.message ?? "");',
+    replace: '  return /token has expired or is invalid/i.test(e.message ?? "");',
+  },
+  {
+    id: "uia11y/f20-token-message-off-the-box",
+    file: "apps/qr/lib/auth-field-refusal.ts",
+    suite: "lib/auth-field-refusal.test.ts",
+    why: "F20 — an SDK that drops the code still says 'Token has expired or is invalid'; read by code only, that refusal leaves the code box",
+    find: '  return e.code === "otp_expired" || /token has expired or is invalid/i.test(e.message ?? "");',
+    replace: '  return e.code === "otp_expired";',
+  },
+  // ── uia11y · F20 — the promo box is the @mms/ui Field (Checkout) ──
+  {
+    id: "uia11y/f20-promo-invalid-off-the-box",
+    file: "apps/qr/lib/promo-field.ts",
+    suite: "lib/promo-field.test.ts",
+    why: "F20 — 'That code isn't valid' is the CODE's refusal and belongs under the box; classed as the order's, it goes back to a sentence below the totals with nothing tying it to the box",
+    find: "  invalid: true,",
+    replace: "  invalid: false,",
+  },
+  {
+    id: "uia11y/f20-promo-lock-on-the-box",
+    file: "apps/qr/lib/promo-field.ts",
+    suite: "lib/promo-field.test.ts",
+    why: "F20 — 'someone's checking out' is the ORDER's state; drawn under the box with `aria-invalid`, it tells the diner a code that may be fine is wrong",
+    find: "  locked: false,",
+    replace: "  locked: true,",
+  },
+  {
+    id: "uia11y/f20-promo-minimum-on-the-box",
+    file: "apps/qr/lib/promo-field.ts",
+    suite: "lib/promo-field.test.ts",
+    why: "F20 · blind pass on #355 — an unmet MINIMUM is the order's: the code is good, the edits that meet it never touch the box, and a box refusal outlives a stage flip, so bound to the box it stood under a code that now applies, marked invalid",
+    find: "  min_not_met: false,",
+    replace: "  min_not_met: true,",
+  },
+  {
+    id: "uia11y/f20-promo-refusal-off-the-box",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — a refused code is drawn under the promo box and ties to it (`aria-describedby`, `aria-invalid`); off the box, the refusal is said to nobody's field",
+    find: "                  error={promoRefusal?.text ?? null}",
+    replace: "                  error={null}",
+  },
+  {
+    id: "uia11y/f20-promo-focus-stays-on-apply",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — Apply pressed and refused moves focus to the box (QA §A), whose description says why; left on Apply, the refusal is unheard (the region stays quiet by design)",
+    find: '    if (promoRefusal?.voice === "focus") promoEl.current?.focus({ preventScroll: true });',
+    replace: "    void promoRefusal;",
+  },
+  {
+    id: "uia11y/f20-promo-region-repeats-the-box",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — one voice per refusal: when focus moved to the box its description says it, so the region repeating it reads the same sentence twice",
+    // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
+    find: '          if (said === "region") {\n',
+    replace: "          {\n",
+  },
+  {
+    id: "uia11y/f20-promo-enter-refusal-unsaid",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — Enter in the box leaves focus where it is, so the region is the only voice left; silenced, the refusal reaches no screen reader at all",
+    // Blind pass on #355 — the region's voice is `status` itself now; same revert, re-aimed.
+    find: "            setStatus(text);\n            setPromoSaid(text);\n",
+    replace: "            setPromoSaid(text);\n",
+  },
+  {
+    id: "uia11y/f20-promo-tap-steals-focus",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 — only a KEYBOARD Apply moves focus into the promo box; a tap's programmatic focus raises no keyboard, yet focus in this box hides the Bill's one docked door (PD2), so the door vanished for nothing",
+    find: "      at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)",
+    replace: "      at instanceof HTMLElement && at !== promoEl.current",
+  },
+  {
+    id: "uia11y/f20-promo-region-copy-beside-status",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — the region's voice kept as a hidden copy BESIDE `status` came back whenever a handler emptied the region: Pay (create-intent in flight), a stage flip, the counter ask, a lock re-check — and the stale 'That code isn't valid' was heard as the answer to that tap",
+    find: '                  (promoRefusal?.voice === "region" && status === promoRefusal.text ? (\n                    <span className="sr-only">{status}</span>',
+    replace:
+      '                  (promoRefusal?.voice === "region" && (status === null || status === promoRefusal.text) ? (\n                    <span className="sr-only">{promoRefusal.text}</span>',
+  },
+  {
+    id: "uia11y/f20-promo-voice-fixed-at-the-press",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — a keyboard Apply chose 'focus' at the press; a diner who tabbed back into the box during the round trip got `.focus()` on the focused box, which fires nothing, and the region stayed quiet: the refusal said zero times",
+    find: '          const said = document.activeElement === promoEl.current ? "region" : voice;',
+    replace: "          const said = voice;",
+  },
+  {
+    id: "uia11y/f20-promo-retype-leaves-the-region",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass on #355 — retyping clears the box's refusal; left in `status`, the region's hidden voice of it is no longer hidden and is DRAWN under the totals as a refusal of a code nobody has applied",
+    find: "                            setStatus((cur) => (cur === said ? null : cur));\n",
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-stale-address-refusal-bound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · Codex on #355 — the address box stays editable through the round trip; bound without asking whether the box still holds the refused address, the old address's refusal is drawn under a newly typed one and marks it invalid",
+    find: "        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))\n",
+    replace: "        if (boxVoice && refusesTheAddress(e0))\n",
+  },
+  {
+    id: "uia11y/f20-stale-code-refusal-bound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · Codex on #355 — the code box stays editable through verifyOtp; the old code's refusal bound to a newly typed code marks the new code wrong",
+    find: "      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n",
+    replace: "      if (refusesTheCode(e2))\n",
+  },
+  {
+    id: "uia11y/f20-stale-promo-refusal-bound",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · Codex on #355 — the promo box stays editable while Apply is in flight; the old code's refusal drawn under a newly typed code marks it invalid",
+    find: "          promoRefusalOnField(result.reason) &&\n          promoEl.current?.value.trim() === code\n",
+    replace: "          promoRefusalOnField(result.reason)\n",
+  },
+  {
+    id: "uia11y/f31-diet-count-not-asked-again",
+    file: "apps/qr/components/menu/DietFilterButton.tsx",
+    suite: "components/menu/MenuBrowser.test.tsx",
+    why: "F31 · Codex on #355 — the diet count is a quiet claim that waits behind a visible toast; never asked again, it is said after the filters it counted were unlit",
+    find: "announce(now, () => heard.current === now)",
+    replace: "announce(now, () => true)",
+  },
+  {
+    id: "uia11y/f20-promo-said-outlives-the-order",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass over #355's fix commits — the last Apply's refusal answers the order as it stood; kept through a change to the lines, the unmet minimum's sentence stood over a pickup order an edit had brought over it, and the empty cart's region printed the code refusal raw",
+    find: "    if (promoSaid !== null) {\n      setPromoSaid(null);\n      if (status === promoSaid) setStatus(null);\n    }\n",
+    replace: "",
+  },
+  {
+    id: "uia11y/f20-promo-said-outlives-the-view",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · blind pass over #355's fix commits — the settlement board holds no promo box and its region prints `status` raw, so a change of VIEW retires the refusal as a change of lines does",
+    find: "const promoSaidOver = `${viewKey}|${viewItems",
+    replace: "const promoSaidOver = `${viewItems",
   },
   {
     id: "oauth-store/attempt-marker-reports-success-it-did-not-have",
@@ -6668,8 +7279,10 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "Phase 1c — with several rows in flight, or an item sheet that has already closed, \u201cThat didn\u2019t go through\u201d does not say WHICH dish did not, and the diner is the one who has to act on it. Dropping the name at the add fork restores the unnamed sentence everywhere the caller supplied a dish",
-    find: "publishRefusal(refusal, opts?.name);",
-    replace: "publishRefusal(refusal);",
+    // T42 — RE-ANCHORED, same mutation: the call now sits in the refused arm's RETURN (its clause
+    // rides the result), so the statement-terminating `;` became a `:`.
+    find: "publishRefusal(refusal, opts?.name) :",
+    replace: "publishRefusal(refusal) :",
   },
   {
     id: "refusal/named-opener-drops-hedge",
@@ -28442,18 +29055,19 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #313 \u2014 GoTrue answers `otp_disabled` both for the unknown-address refusal and for OTP sign-in switched off in the project's settings; keyed on the code, every EXISTING account was told 'we couldn\u2019t find you' during an outage and sent off to start a second one",
-    find: '        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");',
+    // Codex round 1 on #355 — the rule is named once in lib/auth-field-refusal.ts; same revert.
+    find: '        const noAccount = NO_ACCOUNT_FOR_OTP.test(e0.message ?? "");',
     replace:
-      '        const noAccount =\n          gotrueCode === "otp_disabled" || /signups? not allowed for otp/i.test(e0.message ?? "");',
+      '        const noAccount =\n          gotrueCode === "otp_disabled" || NO_ACCOUNT_FOR_OTP.test(e0.message ?? "");',
   },
   {
     id: "account-upgrade/bounce-strip-forgets-the-panel",
-    file: "apps/qr/components/AccountUpgrade.tsx",
+    // M214 — the strip lives in lib now (`stripCallbackParams`); the card's suite still catches it.
+    file: "apps/qr/lib/oauth-callback.ts",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Deep pass on #312 \u2014 the OAuth bounce lands on You, the strip rewrote the URL to the bare /account, and the post-sign-in router.refresh() re-requested that canonical URL: the hub flipped to Orders the moment the account confirmed",
-    find: '    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.\n    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");',
-    replace:
-      "    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.",
+    find: '  if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");\n',
+    replace: "",
   },
   {
     id: "account-upgrade/resume-strip-forgets-the-panel",
@@ -29549,6 +30163,14 @@ const MUTANTS = [
     why: "3c-ii (D27) — the `return` after the ask is dropped: the sheet opens AND the order goes to the kitchen numberless behind it, so the chip's bind-then-send fires the batch a second time against lines already fired",
     find: "      onNeedTable();\n      return;\n    }\n",
     replace: "      onNeedTable();\n    }\n",
+  },
+  {
+    id: "provider/deferred-line-never-asked-again",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "F31 · blind pass on #355 — a quiet claim waits behind a visible toast; said at its turn without asking `still`, /menu's 'Nothing matches' was spoken over a search the diner had corrected inside that window, with matching dishes on screen",
+    find: "          if (next && next.still?.() !== false) {",
+    replace: "          if (next) {",
   },
   {
     id: "provider/table-number-frozen-at-mint",

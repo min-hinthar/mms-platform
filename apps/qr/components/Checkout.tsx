@@ -32,6 +32,7 @@ import {
   EmptyState,
   Field,
   Icon,
+  matchesFocusVisible,
   NumberFlow,
   Stepper,
   useSheetSubject,
@@ -46,6 +47,7 @@ import {
   type PromoReason,
 } from "@/lib/cart";
 import { attemptReleaseBody, readPayAttempt, type PayAttempt } from "@/lib/pay-attempt";
+import { promoRefusalOnField } from "@/lib/promo-field";
 import {
   type CartFreeze,
   type PublishableRefusal,
@@ -54,8 +56,11 @@ import {
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  refusalClearsPayError,
   refusedWriteNotice,
   reopenFailureNotice,
+  sentRefusalHolds,
+  serverNamedRefusal,
   visibleFreeze,
 } from "@/lib/cart-freeze";
 import {
@@ -558,9 +563,45 @@ export function Checkout({
   // callback ref (an inline one would be detached and re-attached on every render, clearing the flag
   // while the field still has focus). Whatever path removes the field, the docked door — the Bill's
   // ONE door — cannot come back `hidden`.
+  const promoEl = useRef<HTMLInputElement | null>(null);
   const promoInputRef = useCallback((el: HTMLInputElement | null) => {
+    promoEl.current = el;
     if (el === null) setPromoFocused(false);
   }, []);
+  /**
+   * F20 — a refusal of the CODE (lib/promo-field.ts says which), drawn under the promo box by the
+   * `@mms/ui` Field and tied to it (`aria-describedby`, `aria-invalid`). It is said ONCE: when Apply
+   * was pressed from the KEYBOARD (`:focus-visible` on it), focus moves to the box and its
+   * description speaks (the region stays quiet); otherwise the view's one region speaks it —
+   * visually hidden, since the words are already under the box. That covers Enter in the box (focus
+   * is already there) and a TAP on Apply: focus in this box hides the docked door (PD2's
+   * `promoFocused`), and a tap's programmatic focus raises no keyboard to make room for, so the
+   * door would vanish for nothing. The voice is decided at the submit, in the handler, and settled
+   * at the ANSWER: focus that moved into the box during the round trip makes `.focus()` a no-op
+   * that says nothing, so the region speaks instead. The box's refusal is cleared by retyping the
+   * code or by the next Apply.
+   *
+   * ⚠️ THE REGION'S VOICE IS `status` ITSELF (blind pass on #355), drawn visually hidden while it
+   * still IS this refusal's sentence — the `outcomeMy` pattern below. A hidden copy kept BESIDE
+   * `status` came back whenever a handler emptied the region (Pay, a stage flip, the counter ask
+   * and its withdrawal, a lock re-check, a reopen, a retired edit refusal), and the refusal was
+   * heard again as the answer to that tap. In `status`, any later writer retires it by construction.
+   */
+  const [promoRefusal, setPromoRefusal] = useState<{
+    text: string;
+    voice: "region" | "focus";
+  } | null>(null);
+  useEffect(() => {
+    if (promoRefusal?.voice === "focus") promoEl.current?.focus({ preventScroll: true });
+  }, [promoRefusal]);
+  /**
+   * The sentence the last Apply's REFUSAL put in `status` — the region's voice of a code refusal,
+   * or a refusal about the order ("doesn't meet this code's minimum yet"). Either answers the order
+   * AS IT STOOD at that Apply, so a change to the order's lines or to the view retires it (the
+   * layout effect below `viewKey`). The box's own note (`promoRefusal`) stays: it is about the
+   * CODE, which no edit changes.
+   */
+  const [promoSaid, setPromoSaid] = useState<string | null>(null);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -1265,6 +1306,9 @@ export function Checkout({
   const [pendingRefusal, setPendingRefusal] = useState<{
     refusal: PublishableRefusal;
     landed: (items: CartItem[]) => boolean;
+    /** M230 — set for a refusal the SERVER named: is its fact still true of the winning view?
+     *  Absent for a diagnosed refusal, which is re-derived from the freeze instead. */
+    holds?: (items: CartItem[]) => boolean;
   } | null>(null);
 
   /**
@@ -1287,8 +1331,12 @@ export function Checkout({
    * mounts empty, then its text changes.
    */
   const announceRefusal = useCallback(
-    (refusal: PublishableRefusal, landed: (items: CartItem[]) => boolean) => {
-      setPendingRefusal({ refusal, landed });
+    (
+      refusal: PublishableRefusal,
+      landed: (items: CartItem[]) => boolean,
+      holds?: (items: CartItem[]) => boolean,
+    ) => {
+      setPendingRefusal({ refusal, landed, holds });
       // ⚠️ THE LATCH IS NOT DEFERRED WITH IT. It answers "has this diner been told", and the
       // question the banner asks a beat later is about THIS commit's freeze — deferring the latch
       // would let the banner run first and take the slot, which is the collision T33 exists for.
@@ -1308,6 +1356,16 @@ export function Checkout({
    */
   const shownRefusalRef = useRef<string | null>(null);
   /**
+   * M230 — the `holds` test of the server-named refusal now ON SCREEN, or null (none shown, or a
+   * diagnosed one, which a freeze edge retires instead).
+   *
+   * ⚠️ ASKED AGAIN ON EVERY APPLIED VIEW, not only at publish (blind pass on #354, CRITICAL). A send
+   * stays undoable for its grace, and the host's Undo — a clean fired→draft — reaches this phone as
+   * an ordinary view AFTER "it's already gone to the kitchen" was said. No edit of this diner's
+   * follows to retire it and no freeze edge exists for that cause, so the effect below re-asks it.
+   */
+  const shownHoldsRef = useRef<((items: CartItem[]) => boolean) | null>(null);
+  /**
    * Which of this diner's gestures each side of the supersession is talking about.
    *
    * ⚠️ THE ORDER THAT MATTERS IS THE ORDER THE DINER TAPPED IN, NOT THE ORDER THE SERVER ANSWERED
@@ -1326,14 +1384,19 @@ export function Checkout({
   const gestureSeq = useRef(0);
   const lastAcceptedGesture = useRef(0);
   const refusalGesture = useRef<number | null>(null);
-  const clearShownRefusal = useCallback(() => {
-    refusalGesture.current = null;
-    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
+  /** Take the SHOWN refusal down — only if the slot still holds it — and nothing parked. */
+  const retireShownRefusal = useCallback(() => {
+    shownHoldsRef.current = null;
     const shown = shownRefusalRef.current;
     if (shown === null) return;
     shownRefusalRef.current = null;
     setStatus((cur) => (cur === shown ? null : cur));
   }, []);
+  const clearShownRefusal = useCallback(() => {
+    refusalGesture.current = null;
+    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
+    retireShownRefusal();
+  }, [retireShownRefusal]);
 
   /**
    * An edit of this diner's was ACCEPTED — retire a refusal only if this gesture is newer than it.
@@ -1365,7 +1428,10 @@ export function Checkout({
    * that — the order below is up to date") is neither. Clearing unconditionally swapped a broken
    * checkout for a reassurance, reachable on a rate-limited tap after a failed create-intent. A
    * FROZEN or SETTLING refusal does supersede it: the diner cannot retry the payment while the cart
-   * is frozen, which is the same reasoning the lock-edge effect already states.
+   * is frozen, which is the same reasoning the lock-edge effect already states. M230's `sent` does
+   * not (a fact about one line; Pay still works). The rule is `refusalClearsPayError` — a switch, so
+   * a new cause cannot slip through the way `sent` slipped through `!== "unknown"` (blind pass on
+   * #354).
    */
   useEffect(() => {
     if (pendingRefusal === null) return;
@@ -1404,11 +1470,20 @@ export function Checkout({
       // the reason our write failed, which is the M116/T14 fabrication.
       const f = freezeFactsRef.current;
       const notice = refusedWriteNotice(pendingRefusal.refusal);
-      const fresh = classifyRefusedWrite({
-        ok: true,
-        freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
-        settling: f.settling,
-      });
+      // ⚠️ M230 — A REFUSAL THE SERVER NAMED IS RE-ASKED OF THE LINE, NOT RE-DERIVED FROM THE FREEZE.
+      // The freeze never names "it's already gone to the kitchen", so re-deriving that sentence
+      // from it would drop every such refusal. Its own `holds` asks whether the fact is still true
+      // of the view that WON (a send undone in its grace puts the line back in draft); while it is,
+      // the sentence re-derives to itself, and once it is not, this falls to the freeze reading —
+      // which can never equal it — so the publish drops. Still one-directional: silence, never a
+      // claim nobody made.
+      const fresh = pendingRefusal.holds?.(f.items)
+        ? pendingRefusal.refusal
+        : classifyRefusedWrite({
+            ok: true,
+            freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
+            settling: f.settling,
+          });
       if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {
         // ⚠️ THE LATCH GOES WITH IT (Codex round 6 P2). `announceRefusal` latches at PARK time —
         // deliberately, because T33 needs it before the banner runs — so making the publish
@@ -1441,13 +1516,33 @@ export function Checkout({
         setPendingRefusal(null);
         return;
       }
-      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);
+      if (refusalClearsPayError(pendingRefusal.refusal)) setPayError(null);
       shownRefusalRef.current = notice;
+      shownHoldsRef.current = pendingRefusal.holds ?? null;
       setStatus(notice);
       setPendingRefusal(null);
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingRefusal]);
+
+  /**
+   * M230 — retire a SHOWN server-named refusal once a later view falsifies it (`shownHoldsRef`).
+   *
+   * Keyed on `viewNo`, which `applyCartView` bumps for every view it applies — a realtime echo, a
+   * foreground re-read, a mutation's own re-sync — and asked of `freezeFactsRef`, the view that WON,
+   * the same source the publish above asks. Through a frame for the reason every announcement here
+   * is. It takes down only the shown sentence, never a newer parked one (that is re-asked at its
+   * own publish), and says nothing in its place: silence, never a claim nobody made.
+   */
+  useEffect(() => {
+    if (shownHoldsRef.current === null) return;
+    const frame = requestAnimationFrame(() => {
+      const holds = shownHoldsRef.current;
+      if (holds === null || holds(freezeFactsRef.current.items)) return;
+      retireShownRefusal();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewNo, retireShownRefusal]);
 
   /**
    * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit
@@ -1463,12 +1558,21 @@ export function Checkout({
    * this answer "landed" for a write that was refused, so we say nothing about a refusal that
    * happened. The other way round — announcing "that didn't go through" over a change that DID land
    * — is the one a diner cannot recover from, and it is the one a thrown Server Action cannot rule
-   * out on its own. `refusedWriteNotice`'s own docblock files the source-level fix as T41.
+   * out on its own. (T41 removed /menu's stepper verdict built on this same comparison — it answers
+   * `unconfirmed` there now; this screen still decides its sentence from it, which is why the
+   * `unknown` cause keeps its hedge — `refusedWriteNotice`'s docblock.)
    */
   const lineIn = (items: CartItem[], id: string) => items.find((i) => i.id === id);
 
   const explainAndAnnounce = useCallback(
-    async (gesture: number, landed: (items: CartItem[]) => boolean) => {
+    async (
+      gesture: number,
+      landed: (items: CartItem[]) => boolean,
+      /** M230 — a refusal the SERVER named, with the test of whether its fact still holds. The
+       *  re-read below still runs (it re-syncs the snapped-back control, decides the landing, and
+       *  owes the settle recovery), but its freeze reading is not what is said: the server's is. */
+      named?: { refusal: PublishableRefusal; holds: (items: CartItem[]) => boolean },
+    ) => {
       // ⚠️ THE TEST IS "HAS A NEWER TAP LANDED", NOT "HAS ANYTHING LANDED" (Codex rounds 2 + 3).
       // `qtyChain` orders the WRITES for one line; it does not order this diagnosis against another
       // tap's success, which is a separate round trip running beside it. A refusal a NEWER accepted
@@ -1480,7 +1584,8 @@ export function Checkout({
       if (!refusal) return;
       if (lastAcceptedGesture.current > gesture) return;
       refusalGesture.current = gesture;
-      announceRefusal(refusal, landed);
+      if (named) announceRefusal(named.refusal, landed, named.holds);
+      else announceRefusal(refusal, landed);
     },
     [explainRefusal, announceRefusal],
   );
@@ -1519,6 +1624,25 @@ export function Checkout({
     selfServeSplitOpen: surfaceOpen("selfServeSplit"),
   });
   const viewKey = boardShown ? "settle" : onPay ? "pay" : staged ? `review-${stage}` : "review";
+  /**
+   * Retire the last Apply's refusal (`promoSaid`) when the order's lines or the view change (blind
+   * pass over #355's fix commits). Before, only a handler that wrote the region retired it, so on
+   * pickup and scan-and-go, where nothing stages, "doesn't meet this code's minimum yet" stood
+   * over an order an edit had since brought over the minimum, and the region of a screen with no
+   * promo box printed it raw: the empty cart after the last line went (this diner's removal or a
+   * tablemate's), and the settlement board. Adjusted DURING render (React's derived-state
+   * pattern, like the tip's gate edge above), so the empty cart is never committed with it and no
+   * effect cascades a second render (the Compiler lint refuses a synchronous setState in one).
+   */
+  const promoSaidOver = `${viewKey}|${viewItems.map((i) => `${i.id}:${i.qty}`).join(",")}`;
+  const [promoSaidAt, setPromoSaidAt] = useState(promoSaidOver);
+  if (promoSaidAt !== promoSaidOver) {
+    setPromoSaidAt(promoSaidOver);
+    if (promoSaid !== null) {
+      setPromoSaid(null);
+      if (status === promoSaid) setStatus(null);
+    }
+  }
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
@@ -2161,32 +2285,45 @@ export function Checkout({
     startCartTransition(async () => {
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
       // ⚠️ TWO FLAGS, NOT ONE (Codex round 3 P2). `accepted` is the server saying yes; `refused` is
-      // the narrower question of whether we may NAME a reason. A `{ ok: false }` the re-read cannot
-      // explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent (M230),
+      // the narrower question of whether a re-read may NAME a reason. A `{ ok: false }` the re-read
+      // cannot explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent,
       // and it must NOT count as an accepted edit, or a rejected toggle would retire a refusal the
       // diner is still looking at and move the watermark past a diagnosis still in flight.
+      //
+      // M230 — and a THIRD answer, which is neither of those: a reason the SERVER named
+      // (`serverNamedRefusal` — `not_draft`, the line already gone to the kitchen). It speaks for
+      // itself; the re-read only re-syncs and checks that the fact still holds.
       let accepted = false;
       let refused = false;
+      let named: PublishableRefusal | null = null;
       try {
         // ⚠️ THE RESULT IS READ. It was dropped entirely, which is why a refusal was invisible.
         const r = await setLineFulfillment(id, ful);
         // ⚠️ ONLY `busy` IS DIAGNOSED, and the narrowing is the point (the blind pass on this slice
         // caught the wider version). `busy` is the server's own "locked || settling", so a re-read
         // classifies a freeze the server actually asserted — and answers `unknown` if it has since
-        // lifted, which is honest. The other three would be FABRICATED: `not_yours` is an ownership
-        // fact this re-read never establishes, and `error` / an RPC-named code carry no freeze at
-        // all, so routing them here would name a lock as the reason a fired line could not be
-        // re-routed — the M116/T14 class, on the screen that just removed it. They stay silent for
-        // now and are filed as **M230**, which needs a refusal ARM they do not have yet.
+        // lifted, which is honest. The others would be FABRICATED by a re-read: `not_yours` is an
+        // ownership fact it never establishes, and `error` / an RPC-named code carry no freeze at
+        // all, so routing them there would name a lock as the reason a fired line could not be
+        // re-routed — the M116/T14 class, on the screen that just removed it. M230 gave the one the
+        // server NAMES its own arm (above); `not_yours` (ownership, a comp), `error` and the other
+        // RPC codes stay silent — no clause states them honestly yet.
         accepted = r.ok;
+        named = r.ok ? null : serverNamedRefusal(r.reason);
         refused = !r.ok && r.reason === "busy";
       } catch {
         // Authz / rate-limit / transport. Same standing as `changeQty`'s throw: the write did not
         // land, and the re-read is what decides whether we can name a reason for it.
         refused = true;
       }
-      if (refused) {
-        await explainAndAnnounce(gesture, (seen) => lineIn(seen, id)?.fulfillment === ful);
+      if (refused || named) {
+        await explainAndAnnounce(
+          gesture,
+          (seen) => lineIn(seen, id)?.fulfillment === ful,
+          named
+            ? { refusal: named, holds: (items) => sentRefusalHolds(lineIn(items, id)) }
+            : undefined,
+        );
         return;
       }
       if (accepted) supersedeRefusals(gesture);
@@ -2228,6 +2365,16 @@ export function Checkout({
     action: ReturnType<typeof makeItNow>,
   ): Promise<void> {
     // `accepted` and `refused` are separate for the same reason as the toggle above.
+    //
+    // M230 — the toggle's THIRD answer is deliberately NOT spoken here. `not_draft` on "Send to
+    // kitchen now" means the dish has left draft: almost always it is already with the kitchen —
+    // the outcome the diner asked for, done by a tablemate's send a beat earlier — and, rarer, staff
+    // voided it (the pre-check and the RPC both answer `not_draft` for `voided`). Either way the
+    // re-sync below closes the sheet (its subject stops being draft), focus lands on the line's name,
+    // and the line's chip says which: "Sent to kitchen", or "Removed" with "removed by our staff".
+    // "That didn't go through" over a dish that is cooking would alarm about the one result they
+    // wanted, which is the landing this path's own predicate already counts (`lineState !==
+    // "draft"`); a void reaching this screen any other way is not announced either.
     let accepted = false;
     let refused = false;
     try {
@@ -2284,12 +2431,42 @@ export function Checkout({
     // submits the form directly. The refusal has to live here, or the "disabled" promo control would
     // still fire a write the server rejects — the exact silent-refusal this slice exists to retire.
     if (editsFrozen) return;
+    const code = promo.trim();
+    const at = document.activeElement;
+    const voice =
+      at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)
+        ? "focus"
+        : "region";
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
+      setPromoRefusal(null); // the last refusal is not this Apply's answer
+      setPromoSaid(null);
       try {
-        const result = await applyPromoAction(cartId, promo.trim());
-        setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
+        const result = await applyPromoAction(cartId, code);
+        // F20 — a refusal of the CODE goes under the box; anything else is the region's, as before.
+        // Only while the box still holds THAT code (Codex on #355): it stays editable through the
+        // round trip, and a refusal of the old code drawn under a newly typed one would mark the new
+        // one invalid; the region says it instead.
+        if (
+          !result.ok &&
+          promoRefusalOnField(result.reason) &&
+          promoEl.current?.value.trim() === code
+        ) {
+          const text = PROMO_MESSAGES[result.reason];
+          // Settled at the answer: focus already in the box means moving it there says nothing.
+          const said = document.activeElement === promoEl.current ? "region" : voice;
+          setPromoRefusal({ text, voice: said });
+          // The region's voice is `status` itself — hidden by the region while it is this sentence.
+          if (said === "region") {
+            setStatus(text);
+            setPromoSaid(text);
+          }
+        } else if (result.ok) setStatus("Promo applied.");
+        else {
+          setStatus(PROMO_MESSAGES[result.reason]);
+          setPromoSaid(PROMO_MESSAGES[result.reason]);
+        }
       } catch {
         // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
         // it — ONE line in the single status region (a second setStatus would announce the same
@@ -4132,61 +4309,89 @@ export function Checkout({
             )}
 
             {showPayControls && (
-              <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-                <input
-                  value={promo}
-                  onChange={(e) => setPromo(e.target.value)}
-                  // A placeholder can't carry two lang attributes — the one-line bilingual string
-                  // is the W16b convention for plain-text slots (aria-label stays fixed EN).
-                  placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
-                  // ⚠️ THE NAME COMES FROM `freezeMessage`, NOT `lockedByName` (Codex P2 on #246).
-                  // `lockedByName` is populated for a PEER only, by design — so widening this
-                  // condition to `editsFrozen` made a screen reader announce the read-only promo
-                  // field as "Promo code — null is checking out" on every self/held freeze. The
-                  // notice already owns what each case may claim; the label reuses it rather than
-                  // re-deriving a sentence from a field that is null for two of the three states.
-                  aria-label={
-                    editsFrozen && freezeMessage
-                      ? `${T("promoCode")} — ${freezeMessage}`
-                      : T("promoCode")
-                  }
-                  readOnly={editsFrozen}
-                  autoCapitalize="characters"
-                  maxLength={40}
-                  // PD2 — the docked counter door hides while this field has focus (it would
-                  // otherwise ride the keyboard) and returns on blur.
-                  ref={promoInputRef}
-                  onFocus={() => setPromoFocused(true)}
-                  onBlur={() => setPromoFocused(false)}
-                  className="checkout-promo-input"
-                  style={{
-                    flex: 1,
-                    padding: "10px 12px",
-                    borderRadius: "var(--r-sm)",
-                    // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
-                    // --sunken well can apply; an inline background outranks the class, which is
-                    // why the well was invisible at all three of these call sites. Same reason the
-                    // border already lives in the class (so :focus-visible can recolor it).
-                    color: "var(--tx)",
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={pending || !promo.trim()}
-                  aria-disabled={editsFrozen || undefined}
-                  className="checkout-pill checkout-pill-accent"
-                  // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
-                  // and blow out the 320px promo row — column stacks it under, as intended.
-                  style={{
-                    minHeight: 44,
-                    flexDirection: "column",
-                    lineHeight: 1.15,
-                    ...(editsFrozen ? { opacity: 0.55 } : null),
-                  }}
+              <form onSubmit={onPromo} style={{ margin: "12px 0" }}>
+                {/* F20 — the `@mms/ui` Field: v7.2's "Promo code" heading as the box's own label
+                    (both tongues), the box and Apply on one row, and ONE note line under them where
+                    a refusal of the CODE is drawn and tied to the box. */}
+                <Field
+                  label={T("promoCode")}
+                  labelMy={t("my", "promoCode")}
+                  error={promoRefusal?.text ?? null}
                 >
-                  {T("applyPromo")}
-                  <My k="applyPromo" />
-                </button>
+                  {(control) => (
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <input
+                        {...control}
+                        value={promo}
+                        onChange={(e) => {
+                          setPromo(e.target.value);
+                          // A refused code is cleared by retyping it — and the region's voice of
+                          // it with it, or that sentence would be DRAWN there once unhidden.
+                          if (promoRefusal) {
+                            const said = promoRefusal.text;
+                            setPromoRefusal(null);
+                            setStatus((cur) => (cur === said ? null : cur));
+                          }
+                        }}
+                        // A placeholder can't carry two lang attributes — the one-line bilingual
+                        // string is the W16b convention for plain-text slots.
+                        placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
+                        // ⚠️ THE NAME COMES FROM `freezeMessage`, NOT `lockedByName` (Codex P2 on
+                        // #246). `lockedByName` is populated for a PEER only, by design — so
+                        // widening this condition to `editsFrozen` made a screen reader announce the
+                        // read-only promo field as "Promo code — null is checking out" on every
+                        // self/held freeze. The notice already owns what each case may claim; the
+                        // name reuses it rather than re-deriving a sentence from a field that is null
+                        // for two of the three states. Unfrozen, the Field's label names the box.
+                        aria-label={
+                          editsFrozen && freezeMessage
+                            ? `${T("promoCode")} — ${freezeMessage}`
+                            : undefined
+                        }
+                        readOnly={editsFrozen}
+                        autoCapitalize="characters"
+                        maxLength={40}
+                        // PD2 — the docked counter door hides while this field has focus (it would
+                        // otherwise ride the keyboard) and returns on blur.
+                        ref={promoInputRef}
+                        onFocus={() => setPromoFocused(true)}
+                        onBlur={() => setPromoFocused(false)}
+                        // The checkout's well (M126) over the Field's box — `.checkout-promo-input`
+                        // is declared later in the cascade, so its fill and bevel win.
+                        className={`${control.className} checkout-promo-input`}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: "10px 12px",
+                          borderRadius: "var(--r-sm)",
+                          // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
+                          // --sunken well can apply; an inline background outranks the class, which
+                          // is why the well was invisible at all three of these call sites. Same
+                          // reason the border already lives in the class (so :focus-visible can
+                          // recolor it).
+                          color: "var(--tx)",
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={pending || !promo.trim()}
+                        aria-disabled={editsFrozen || undefined}
+                        className="checkout-pill checkout-pill-accent"
+                        // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
+                        // and blow out the 320px promo row — column stacks it under, as intended.
+                        style={{
+                          minHeight: 44,
+                          flexDirection: "column",
+                          lineHeight: 1.15,
+                          ...(editsFrozen ? { opacity: 0.55 } : null),
+                        }}
+                      >
+                        {T("applyPromo")}
+                        <My k="applyPromo" />
+                      </button>
+                    </span>
+                  )}
+                </Field>
               </form>
             )}
 
@@ -5169,7 +5374,16 @@ export function Checkout({
               {/* Keyed on `statusSeq` (Phase 2c · review): a refused tap renumbers it, so a repeated
                   sentence remounts and is said again. */}
               <span key={statusSeq}>
-                {payError ?? status}
+                {/* F20 — a refusal of the promo CODE is drawn under its box; when the region is its
+                    voice (`promoRefusal`'s docblock) `status` holds the sentence and is said HIDDEN
+                    while it still is that sentence — never drawn twice, never said again once any
+                    later writer has had the region. */}
+                {payError ??
+                  (promoRefusal?.voice === "region" && status === promoRefusal.text ? (
+                    <span className="sr-only">{status}</span>
+                  ) : (
+                    status
+                  ))}
                 {/* Phase 3c-i (D15) — the owner's Burmese half of a send/undo outcome, only while the
                     region still says the EN sentence it belongs to. */}
                 {!payError && outcomeMy && status === outcomeMy.text && (

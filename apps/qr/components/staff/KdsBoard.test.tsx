@@ -40,7 +40,9 @@ const HOUR = 3_600_000;
 
 type SoldOutRes =
   | { ok: true; soldOut: boolean }
-  | { ok: false; error: string; code: "sentence" | "invalid" | "gone" | "stale" };
+  | { ok: false; error: string; code: "sentence" | "invalid" | "gone" | "stale" }
+  // P2au — the flag landed and only the ledger insert failed.
+  | { ok: false; error: string; code: "unlogged"; soldOut: boolean };
 const setItemSoldOut = vi.fn(
   (): Promise<SoldOutRes> => Promise.resolve({ ok: true as const, soldOut: true }),
 );
@@ -327,6 +329,59 @@ describe("K22 — an 86 from the ticket can be undone from the bar, like a bump"
     );
     // The put-back is confirmed: the ⋯ is offered again before any poll.
     expect(q.getByRole("button", { name: moreFor() })).toBeTruthy();
+  });
+
+  /**
+   * P2au — the ledger insert runs AFTER the flag flips, and its failure answers `ok: false`. The
+   * board read that as a refusal: the dish showed sold out once the refresh landed, with no
+   * 6-second Undo for an 86 that had landed. An UNLOGGED answer is a landing — and its sentence
+   * ("…wasn’t logged — tell the owner it was you") is still said.
+   */
+  it("P2au — an 86 that landed UNLOGGED is still a landing: its Undo is offered and the sentence said", async () => {
+    holdClock();
+    const unlogged =
+      "Mohinga is sold out, but the change wasn’t logged — tell the owner it was you.";
+    setItemSoldOut.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: unlogged, code: "unlogged", soldOut: true }),
+    );
+    const q = mount();
+    await tapEightySix(q);
+    const bar = await waitFor(() => {
+      const el = q.container.querySelector(".kds-undo");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(bar.textContent).toContain("Mohinga");
+    // The record failure is still the board's sentence — the landing does not swallow it.
+    expect(q.container.querySelector('[role="status"]')?.textContent).toContain(unlogged);
+    // ...and the Undo it offers is the ordinary compare-and-swap back.
+    clock += SAME_GESTURE_MS;
+    fireEvent.click(q.getByRole("button", { name: /^Undo/ }));
+    await waitFor(() => expect(setItemSoldOut).toHaveBeenCalledTimes(2));
+    expect(setItemSoldOut).toHaveBeenLastCalledWith({
+      menuItemId: "mi-1",
+      soldOut: false,
+      expectedSoldOut: true,
+    });
+  });
+
+  it("P2au — a put-back that landed UNLOGGED takes the bar down and re-offers the ⋯", async () => {
+    holdClock();
+    const q = mount();
+    await tapEightySix(q);
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    const unlogged =
+      "Mohinga is back on, but the change wasn’t logged — tell the owner it was you.";
+    setItemSoldOut.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: unlogged, code: "unlogged", soldOut: false }),
+    );
+    clock += SAME_GESTURE_MS;
+    fireEvent.click(q.getByRole("button", { name: /^Undo/ }));
+    // The dish IS back on: the bar leaves and the ⋯ returns before any poll — a refusal here would
+    // keep a bar whose Undo now refuses ("someone else changed it") against the board's own write.
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).toBeNull());
+    expect(q.getByRole("button", { name: moreFor() })).toBeTruthy();
+    expect(q.container.querySelector('[role="status"]')?.textContent).toContain(unlogged);
   });
 
   it("names the dish Burmese-first in the bar when the catalog has it", async () => {

@@ -31,7 +31,7 @@ import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/li
  *    control focusable and announced, which is what `AddButton` already does.
  */
 export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
-  const { add, announce, cartId, lastRefusalClause, loading } = useCart();
+  const { add, announce, cartId, loading } = useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
   /**
@@ -128,7 +128,12 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // but the first clause. The `unknown` arm was worse: a refusal followed by "We couldn't
           // confirm that", two opposite verdicts in one breath. `cart-freeze.ts` names the fragment
           // once and both callers compose from it.
-          const clause = lastRefusalClause();
+          //
+          // ⚠️ READ OFF THIS WRITE'S OWN RESULT (T42). It was read from a provider-global latch
+          // after `add` resolved, and nothing serializes writes: an overlapping write could publish
+          // its cause in that microtask gap, and this dish was then announced with another write's
+          // diagnosis. `mayRetry` is true for `refused` alone, so the narrowing below always holds.
+          const clause = res.state === "refused" ? res.clause : null;
           // ⚠️ ONLY NAME A DISH WE SAW LAND, ACROSS INVOCATIONS (Codex round 2 on #251, P2). This
           // prefix used to fire on `i > 0` alone, so it credited `items[0]` even when that dish was
           // the unconfirmed one. The first fix subtracted only THIS pass's tally — which is zero on
@@ -139,8 +144,9 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           const confirmed = i - unseenCount - unseen;
           // ⚠️ THIS SENTENCE ASSERTS THE NON-LANDING ON EVERY CAUSE, WHERE `refusedWriteNotice`
           // HEDGES ON `unknown` — and the asymmetry is load-bearing, not an oversight (blind
-          // adversarial pass on this PR). That hedge exists for `setItemQty`, whose evidence is one
-          // absolute-value comparison a concurrent host write can forge into a false negative. THIS
+          // adversarial pass on this PR). That hedge exists for an absolute-value comparison a
+          // concurrent host write can forge into a false negative (/cart's stepper; /menu's
+          // `setItemQty` no longer produces a refusal at all since T41). THIS
           // loop only ever calls `add`, and `add` reaches `refused` only through
           // `classifyAddLanding`'s `none` — nothing of the dish grew AND nothing shrank — while a
           // contested dish answers `unknown` there and routes to `unconfirmed`, which `mayRetry`
@@ -199,7 +205,6 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     dishes,
     doneCount,
     items,
-    lastRefusalClause,
     notReady,
     setProgressFor,
     unseenCount,

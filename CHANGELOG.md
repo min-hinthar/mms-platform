@@ -63,6 +63,133 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     'Ready to pay.'" check reads every text the region takes through the elapse, so it fails on its
     own.
 
+### Refusals on their own box, one voice on /menu, and the guide foot (2026-10-12)
+
+- **F20: the account card's email and code boxes and the checkout's promo box are `@mms/ui`
+  Fields.** A refusal of the typed address or code is drawn under its box, the box is `aria-invalid`
+  and described by it, and the refusal is said once: focus moves to the box after a button press, and
+  after Enter the card's one region says it, visually hidden.
+  - Only a refusal that names the value is bound (Codex round 1). `lib/auth-field-refusal.ts` lists
+    them: no account for the address, GoTrue refusing the address, a wrong or expired code. OTP
+    switched off, a rate limit or a dropped request stays the card's status line and focus stays put.
+    On the checkout, `lib/promo-field.ts` keeps the order's refusals (an unmet minimum, someone is
+    checking out, too many tries, the order is being paid) in the region, as before. A refusal the
+    region says is retired when the order's lines or the view change, so an edit that meets the
+    minimum takes its sentence with it, and the empty cart and the settlement board never show it.
+  - On the checkout, focus moves into the promo box only for a keyboard Apply. After a tap the region
+    says the refusal, because focus in that box hides PD2's docked door with no keyboard on screen.
+  - What diners see: the account labels take the Field label style; the promo gains a visible
+    "Promo code" label in both languages (the existing keys, no new Burmese); a refused code or
+    address shows under its box in `--warn` with a warn border, not in the line at the bottom.
+  - Codex's review of the fix round: the promo and account boxes stay editable while their answer
+    is in flight, so a refusal is bound to its box only while the box still holds the value it
+    refused (otherwise the region or the card says it). The diet sheet's count, a quiet claim that
+    can wait behind a visible toast, is said only while it is still the sheet's sentence.
+- **F31: /menu speaks through its one live region.** The empty-search card and the diet sheet's match
+  count lose their own `role="status"`. Each speaks once, as a quiet claim, through the cart
+  provider's Toast: the card when the list turns empty, the count when it changes while the sheet is
+  open. Opening the sheet says nothing new.
+- **M214: a signed-in diner whose Google round trip bounces back to /account is told so.** One line on
+  You ("You're already signed in — that Google step didn't finish, and it doesn't need to."), and the
+  raw error leaves the address bar through the guest card's own strip, now shared from
+  `lib/oauth-callback.ts`. It shows only when the server knows the session is signed in.
+- **K44: the four retired pre-tax keys and their plural pair are gone from the staff dictionary.**
+  Nothing had rendered them since PD6; the negative tests now assert the retired words themselves.
+- **M127: `--surface-elevated` and `--oa` are pinned by what they are, not only by a ratio.** Night's
+  six-rung ground ladder must stay evenly spaced (its first test), light's elevated surface matches
+  `--cd-raised`, light's `--oa` is the house cream, and Night's `--oa` tracks the floor.
+- **PD4 (partial): contrast rows for the paper tag and the CounterPass.** One cream for both, the tag's
+  ink and button, and the pass stub's ground in both themes. The tag's keyboard focus ring sat on the
+  live camera at 1.19:1 (Night) and 1.94:1 (light); it is now drawn inside the paper in ink. Left: the
+  device-sitting checks and the Undo home for a panel-opened sheet.
+- **PD12 (partial): the counter guide's foot no longer covers the step.** The headless measurement at
+  1366 and in the 34rem Help sheet (100 states, both languages, 100% and 200% text) found Next in view
+  everywhere, but the pane's sticky foot sat 96px too high and covered the title and sentence on every
+  counter step. It now sits at the card's end in every host. Left: kitchen step 5's "Got it" is cropped
+  out of the sheet's picture well (K48), the K15-HIGH candidates and the device sitting.
+- **New copy is English only:** M214's line and F31's spoken sentence (the empty card's own two
+  lines). No new Burmese, so nothing joins the K15 ledger.
+- **Filed:** K48 (kitchen step 5's crop) and F37 (a screen-reader device check of the one-voice
+  refusal).
+- **Blind-pass fix round (on `281e454`).**
+  - The promo box's hidden voice in the region is now `status` itself. A copy kept beside it came
+    back whenever a handler emptied the region, so "That code isn't valid." was heard again as the
+    answer to Pay.
+  - An unmet minimum is the order's refusal again: said in the region, the box left valid, cleared by
+    a stage flip.
+  - On both cards the voice is settled when the answer arrives, so focus moved into the box during
+    the round trip gets the region.
+  - A refused box keeps its `--warn` border while focused: the wells' focus accent skips an invalid
+    box (`lib/field-invalid-border.test.ts`).
+  - F31: a quiet claim waiting behind a toast is asked again before it is said (`announce`'s
+    `still`), so "Nothing matches" is never spoken over a list that has filled up.
+  - Guards: the guide-foot test now reads the logical insets too, and M214 has a staff-session case.
+
+### Cart refusals that say their own cause, an Undo for an unlogged 86, and four guard gaps (2026-10-12)
+
+- **T41: the /menu stepper no longer calls a quantity change refused when it may have landed.**
+  `setItemQty`'s recovery path counts only "the line sits at our target" (or is gone, for a remove)
+  as a landing. Every other reading answers unconfirmed, including one under a freeze, so a set that
+  may have landed is never offered as retryable.
+  - What a diner notices: a "−" refused under a lock that arrived mid-flight used to say "That didn’t
+    go through — the order’s locked while someone checks out". It now says "We couldn’t confirm that
+    — check your order below.", and the lock banner then speaks on its own.
+- **T42: each refused add carries its own cause.** `add()` returns its refusal clause with the result,
+  and the "your usual" card builds its sentence from that result. The provider-wide
+  `lastRefusalClause` latch is retired, so two overlapping writes can no longer swap their reasons.
+  `CartCtx.lastRefusalClause` is gone from the cart context; any other branch that reads it fails to
+  typecheck.
+- **M230: /cart's for-here / to-go toggle says why it was refused when the kitchen already has the
+  dish.** `setLineFulfillment` and `makeItNow` answer `not_draft` for a line that has left draft, ahead
+  of the ownership check. The toggle then says "That didn’t go through — it’s already gone to the
+  kitchen." The sentence is dropped if the line is back in draft by the time it would be said (a send
+  undone in its grace), and taken down if a later view puts it back in draft after it was said.
+  - "Send to kitchen now" stays silent on `not_draft`, because the dish is almost always already
+    where the diner asked. When staff voided it instead, the sheet closes and the line's chip says
+    "Removed". `not_yours`, `error` and the other RPC codes stay silent too.
+- **P2au: an 86 whose ledger record failed now gets its Undo.** The flag landed, so `setItemSoldOut`
+  answers with a new `unlogged` code that carries it, and the new `lib/sold-out-landing.ts` is how a
+  caller asks whether the dish changed. The KDS offers its 6-second Undo for an unlogged 86 and takes
+  the bar down for an unlogged put-back. `/staff/menu` flips the row's verb. The "wasn’t logged — tell
+  the owner it was you" sentence is still said on both.
+- **Four guards close their gaps.**
+  - `check-staff-lang` rule 4f (M220) checks each of the seven redirect-only staff pages. Its
+    destination must be a real page that is not itself a redirect, and a `#fragment` must be an id
+    that page renders.
+  - `check-child-freeze` (T28) holds its four audited components as an expected set and fails when one
+    goes missing or an extra one appears.
+  - `check-freeze-parity` (T44) now follows writes to `qr_carts` / `qr_cart_items` through any number
+    of helper hops, by import identity. `releasePayLock` is back in reach, through its exemption.
+  - `check-echo-coalesce` (M226 f and h) resolves aliases by declaration, not by name, and refuses any
+    re-export of `useCartRealtime`.
+- **The mutant battery grows from 4171 to 4196.** Two mutants retired with the code they guarded
+  (`refusal/qty-refusal-goes-unpublished` and `refusal/latch-outlives-its-write`), six were
+  re-anchored or re-pointed, and one target module was added (`sold-out-landing.ts`).
+- **The blind review's fix round.**
+  - The kitchen sentence is now re-checked on every view /cart applies, not only when it is said. When
+    the host's Undo puts the line back in draft inside the send's grace, the sentence comes down.
+    Before, it stayed beside a line that read "Not sent yet".
+  - Only a freeze clears a standing pay error. The rule is now `refusalClearsPayError`, a switch with
+    no default; the old `cause !== "unknown"` had let the kitchen sentence erase "Couldn’t start
+    checkout".
+  - The T41 freeze case now checks that the region says the hedge before the lock banner, instead of
+    reading only the final text. The M230 draft-line case now gives the diagnosis read and the
+    winning view different lines, so it can tell when the check runs.
+  - Two comments that described old behaviour are corrected: `AddButton`'s note on `unconfirmed`, and
+    the "Send to kitchen now" note, which now names the voided case. Five mutants were added and one
+    re-pointed.
+  - The capped pass over those fix commits: a test now pins that the per-view retire takes down only
+    the kitchen sentence (the Bill's held-door reason, said after it, stays through the host's Undo),
+    with its mutant; `AddButton`'s `unconfirmed` note now says what the code does (nothing is sent
+    when the re-read fails), and the draft-line case asserts the diagnosis took the fired read.
+- **Copy:** the one new sentence ("…it’s already gone to the kitchen", on /cart) is English only,
+  like every /cart refusal. The unlogged-86 sentence is unchanged and still said verbatim in English
+  on the KDS. No Burmese string was added, so nothing joins the K15 ledger.
+- **Left open:** T43, a landed add that a host restored to its pre-add quantity, is not built. It needs
+  evidence the server names and the owner's call on what "your usual" says under a visible lock. M226
+  keeps (a), (b), (d), (e) and (g) as accepted-risk shapes. T57 is new: /cart's `changeQty` still
+  decides its sentence from the comparison T41 removed on /menu.
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.

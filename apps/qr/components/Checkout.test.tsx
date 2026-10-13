@@ -183,6 +183,8 @@ vi.mock("@/lib/surfaces", async (orig) => {
 });
 
 const { Checkout } = await import("./Checkout");
+// F20 — the promo action is the mocked module's `vi.fn()`; a case sets its answer.
+const { applyPromo: applyPromoAction } = await import("@/lib/cart");
 
 const CART = "cart-1";
 /** PD1 (m1 decision 16) — the session the split context carries (the host's name ask renames
@@ -603,10 +605,165 @@ describe("M230's half — the two pills beside the stepper share the same window
     );
   });
 
+  it("M230 — speaks a refusal the SERVER named: the line has already gone to the kitchen", async () => {
+    // The reachable case: the dine-in kitchen batch fires the line between this phone's read and the
+    // tap, so the pill renders on the last view's `draft`, flips optimistically, and the server
+    // answers `not_draft`. A re-read could only have named a LOCK (or hedged); the server's own word
+    // needs neither. Before M230 this snapped back and said nothing.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s already gone to the kitchen"),
+    );
+    // Not the re-read's diagnosis of this cart (no freeze → the `unknown` hedge): the server's fact.
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("M230 — drops the kitchen sentence when a LATER view wins before its frame, showing the line back in draft", async () => {
+    // The diagnosis read sees the line FIRED, so the fact holds at PARK time. A later read — the
+    // host's Undo inside the send's grace — then wins the screen before the sentence's frame. The
+    // fact is re-asked of the view that WON, at publish: asked at park (or of the diagnosis read) the
+    // sentence would print beside a line that reads "Not sent yet". The blind pass on #354 found the
+    // earlier fixture fed both reads the same draft line, so it could not tell the two apart.
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    // ⚠️ FAKE TIMERS FROM HERE, so the park → publish gap is held open by the test, not by the
+    // machine's speed (the same reason "waits for the region to be on screen and EMPTY" uses them).
+    vi.useFakeTimers();
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValueOnce(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "To go" }));
+      });
+      // Parked on the fired read, not yet said. The positive control: the diagnosis took the FIRED
+      // read (the one read so far), so the fact held at park and only the later view can drop it.
+      expect(h.getCartView).toHaveBeenCalledTimes(1);
+      await expect(h.getCartView.mock.results[0]!.value).resolves.toMatchObject({
+        items: [{ lineState: "fired" }],
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo: back in draft
+      await syncFromServer(); // issued later, so it wins the ticket and takes the screen
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the sentence's frame
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      expect(regionText()).not.toContain("didn’t go through");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("M230 — retires the kitchen sentence once SAID, when the host's Undo puts the line back in draft", async () => {
+    // The sentence was true when it was said: the host's Send fired the line, the server refused the
+    // re-route, and the re-read showed it fired. But a send stays undoable for its grace, and the
+    // host's Undo (a clean fired→draft the kitchen never saw) reaches this phone as an ordinary view
+    // AFTER the publish, with no edit of this diner's to retire the sentence (blind pass on #354,
+    // CRITICAL). Left standing it says "already gone to the kitchen" beside a line that reads "Not
+    // sent yet", its ⋯ live again.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo, by realtime
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // The coalesced echo (≤600 ms) re-applies the line as a draft: its ⋯ is back.
+    await waitFor(() => expect(screen.getByRole("button", { name: `More for ${ITEM.name}` })), {
+      timeout: 3000,
+    });
+    await settle();
+    expect(regionText()).not.toContain("gone to the kitchen");
+  });
+
+  it("M230 — the retire takes down ONLY the kitchen sentence: a later answer in the region stays", async () => {
+    // Blind pass over #354's fix commits: the per-view retire runs on every applied view, and the
+    // only thing keeping it off other text is that it clears `status` only while `status` still IS
+    // the sentence it said. The flip to the Bill empties the region but leaves the sentence armed;
+    // the Bill's counter door then answers in the region, and the host's Undo arrives after.
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }, ITEM_B] }));
+      // A host at a numbered table, so the Bill's counter door reads the table's sends.
+      const HOST_AT_7 = {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+        tableNumber: 7,
+        qrCode: null,
+      } as unknown as Parameters<typeof Checkout>[0]["splitContext"];
+      mount({ splitContext: HOST_AT_7, initialItems: [ITEM, ITEM_B] });
+      await openLineSheet();
+      await press("To go");
+      await settle();
+      await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+      await press(/View bill/);
+      // The counter door answers in the region: why it is held while a dish is still to send, or
+      // (once the ask carries unsent dishes, PD2's lift) the ask's own sentence. Either is a later
+      // answer that is not the kitchen sentence; that is all this case needs.
+      await press(/^Pay at the counter/);
+      await waitFor(() => expect(regionText()).not.toBe(""));
+      const LATER = regionText();
+      expect(LATER).not.toContain("gone to the kitchen");
+
+      h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] })); // the host's Undo
+      const reads = h.getCartView.mock.calls.length;
+      await act(async () => {
+        h.echo.current?.();
+      });
+      await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+        timeout: 3000,
+      });
+      await settle();
+      // MUTATION m230/retire-clears-any-status: red.
+      expect(regionText()).toBe(LATER);
+    } finally {
+      flags.phonePayOpen = true;
+      flags.splitOpen = true;
+    }
+  });
+
+  it("M230 — KEEPS the kitchen sentence while a later view still has the line with the kitchen", async () => {
+    // The separating twin of the case above: a retire that fired on ANY later view would pass that
+    // case and silence a sentence that is still true here — the cook started the dish.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    const reads = h.getCartView.mock.calls.length;
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "in_progress" }] }));
+    await act(async () => {
+      h.echo.current?.();
+    });
+    await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+      timeout: 3000,
+    });
+    await waitFor(() => expect(screen.getAllByText("Cooking").length).toBeGreaterThan(0));
+    await settle();
+    expect(regionText()).toContain("it’s already gone to the kitchen");
+  });
+
   it("stays silent on a refusal the re-read cannot honestly diagnose", async () => {
-    // `not_yours` is an OWNERSHIP fact — the kitchen fired the line between this phone's read and
-    // the tap. A re-read establishes nothing about it, so naming a lock here would be the M116/T14
-    // fabrication on the screen that just removed it. Silence until M230 gives it a real arm.
+    // `not_yours` is an OWNERSHIP (or comp) fact — since M230 a line the kitchen fired answers
+    // `not_draft` instead. A re-read establishes nothing about ownership, so naming a lock here would
+    // be the M116/T14 fabrication on the screen that just removed it, and no clause names it yet.
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });
@@ -4079,5 +4236,279 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
       await waitFor(() => expect(regionText()).toContain("to finish"), { timeout: 3000 });
       expect(h.requestCounterPay).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to it", () => {
+  /**
+   * Before F20 every promo refusal was a sentence in the review step's one region, below the tip
+   * and the totals, with nothing tying it to the box. A refusal of the CODE (lib/promo-field.ts) is
+   * now drawn under the box, which is `aria-invalid` and described by it, and it is said ONCE: focus
+   * moves to the box when Apply was pressed from the KEYBOARD (the description speaks; the region
+   * stays quiet), and the region speaks it — hidden — otherwise: Enter in the box (focus is already
+   * there) and a TAP on Apply (focus in the box would hide the docked door, PD2, with no keyboard to
+   * make room for). A refusal about the ORDER stays the region's, drawn, with the box left alone.
+   */
+  // The served Bill at a table (PD2's fixture): the promo form is on screen there.
+  const FIRED: CartItem = { ...ITEM, lineState: "fired" };
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+    qrCode: null,
+  } as unknown as NonNullable<Parameters<typeof Checkout>[0]["splitContext"]>;
+  const bill = () => mount({ splitContext: HOST, initialItems: [FIRED] });
+  const box = () => screen.getByRole("textbox", { name: /promo/i }) as HTMLInputElement;
+  const described = (el: HTMLElement) =>
+    document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  /** `keyboard` — Apply focused the keyboard way; `tap` — Apply focused by a pointer; `enter` —
+   *  Enter in the box. jsdom has no input-modality heuristic (it answers `:focus-visible` like
+   *  `:focus`), so the button answers the pseudo-class the way the browser would for each. */
+  async function apply(code: string, via: "keyboard" | "tap" | "enter") {
+    fireEvent.change(box(), { target: { value: code } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    if (via !== "enter") {
+      const real = Element.prototype.matches;
+      vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+        return sel === ":focus-visible" ? via === "keyboard" : real.call(this, sel);
+      });
+    }
+    await act(async () => {
+      (via === "enter" ? box() : btn).focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    await settle();
+  }
+
+  it("Apply pressed from the keyboard: drawn under the box, the box invalid and described by it, focus moved there, the region quiet", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "keyboard");
+    // MUTATION uia11y/f20-promo-refusal-off-the-box: red.
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-focus-stays-on-apply: red.
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    // MUTATION uia11y/f20-promo-region-repeats-the-box: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    expect(screen.getAllByText("That code isn’t valid.")).toHaveLength(1);
+  });
+
+  it("a TAP on Apply: drawn under the box, focus left where it was (the docked door stays), the region says it hidden", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(described(box())).toBe("That code isn’t valid.");
+    // MUTATION uia11y/f20-promo-tap-steals-focus: a pointer Apply moved focus into the box, and the
+    // Bill's ONE docked door hid with no keyboard to make room for; red.
+    expect(document.activeElement).not.toBe(box());
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code isn’t valid.");
+  });
+
+  it("Enter in the box: focus stays, and the region SAYS it once — hidden, since the box already shows it", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "expired" });
+    bill();
+    await apply("OLD10", "enter");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-enter-refusal-unsaid: red.
+    expect(regionText()).toContain("That code has expired.");
+    const hidden = [...document.querySelectorAll('[role="status"] .sr-only')].map(
+      (n) => n.textContent,
+    );
+    expect(hidden).toContain("That code has expired.");
+  });
+
+  it("a refusal about the ORDER stays the region's, drawn, and leaves the box alone", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "locked" });
+    bill();
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain("Someone’s checking out"));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("retyping clears the refusal; an applied code is said in the region with the box valid", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    vi.mocked(applyPromoAction).mockResolvedValueOnce({ ok: true, discountCents: 100 });
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain("Promo applied."));
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("retyping after the region said it leaves the region empty — the words are never drawn there", async () => {
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    bill();
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    fireEvent.change(box(), { target: { value: "NOPE2" } });
+    // MUTATION uia11y/f20-promo-retype-leaves-the-region: the region's copy outlives the box's and
+    // is drawn, visible, under the totals; red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
+  it("a refusal the region said is never said again by the next handler that empties it — Pay's answer is never 'That code isn't valid'", async () => {
+    // Blind pass on #355: the region's copy lived BESIDE `status`, hidden while anything else
+    // spoke, so the handler that emptied the region (Pay here; a stage flip, the counter ask and
+    // its withdrawal, a lock re-check and a reopen do the same) drew it back while create-intent
+    // was in flight, and the refusal was heard as the answer to Pay. A pickup cart reaches it: the
+    // missing-name refusal is the writer in between.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    // The Apply re-reads the cart: the view says pickup too, or it would stage a table (#346 C2).
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    await press(/^Pay/);
+    await waitFor(() => expect(regionText()).toContain("Add a first name for pickup"));
+    fireEvent.change(screen.getByLabelText(/First name for pickup/), { target: { value: "Min" } });
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "5105550123" } });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    try {
+      await press(/^Pay/);
+      expect(regionText()).not.toContain("Add a first name for pickup");
+      // MUTATION uia11y/f20-promo-region-copy-beside-status: red.
+      expect(regionText()).not.toContain("That code isn’t valid.");
+      // The box still says it: the refusal is the CODE's, and the code has not changed.
+      expect(described(box())).toBe("That code isn’t valid.");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a minimum the order has not met is the ORDER's: drawn in the region, the box left valid", async () => {
+    // Blind pass on #355: classed as the code's, "doesn't meet this code's minimum" sat under a box
+    // marked invalid — through a stage flip and through the edits that met the minimum — telling
+    // the diner a code that now applies was wrong (lib/promo-field.ts).
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    bill();
+    await apply("SAVE10", "tap");
+    await waitFor(() =>
+      expect(regionText()).toContain("Your order doesn’t meet this code’s minimum yet."),
+    );
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("on pickup, where nothing stages, an edit to the order retires the minimum's sentence", async () => {
+    // Blind pass over #355's fix commits: only a stage flip retired the region's sentence, so on
+    // pickup and scan-and-go it stood over an order the next edit had brought over the minimum.
+    const MIN = "Your order doesn’t meet this code’s minimum yet.";
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "min_not_met" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("SAVE10", "tap");
+    await waitFor(() => expect(regionText()).toContain(MIN));
+    const more = { ...ITEM, qty: 2 };
+    h.setQty.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [more], mode: "pickup" }));
+    await press(`Add another ${ITEM.name}`);
+    await settle();
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red.
+    expect(regionText()).not.toContain(MIN);
+  });
+
+  it("the last line removed: the empty cart never prints the refusal, and the settlement board never does", async () => {
+    // Blind pass over #355's fix commits: the empty cart's region (and the board's) prints
+    // `status` raw — only the review step's hides the code refusal it holds — so "That code isn't
+    // valid." stood under "Your order is empty", with no box on that screen.
+    vi.mocked(applyPromoAction).mockResolvedValue({ ok: false, reason: "invalid" });
+    h.getCartView.mockResolvedValue(view({ mode: "pickup" }));
+    mount({ splitContext: PICKUP });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.setQty.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    h.getCartView.mockResolvedValue(view({ items: [], mode: "pickup" }));
+    await press(`Remove ${ITEM.name}`);
+    await settle();
+    expect(document.body.textContent).toContain("Nothing added yet");
+    // MUTATION uia11y/f20-promo-said-outlives-the-order: red here too.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+    cleanup();
+    // The board: a group's Bill, then the split's settle starts under it.
+    const GROUP_HOST = {
+      ...HOST,
+      members: [
+        { seat: MY_SEAT, name: "Me", role: "host" as const },
+        { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+      ],
+    };
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: GROUP_HOST, initialItems: [FIRED] });
+    await apply("NOPE", "tap");
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], settling: true }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByTestId("settlement-board")).not.toBeNull());
+    // MUTATION uia11y/f20-promo-said-outlives-the-view: red.
+    expect(regionText()).not.toContain("That code isn’t valid.");
+  });
+
+  it("a code retyped during the round trip: the old code's refusal is the region's, the new box left valid", async () => {
+    // Codex on #355: the box stays editable while Apply is in flight, and the old code's refusal
+    // was drawn under the new code, marking it invalid. The answer is about the code SUBMITTED.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: /^Apply/ }).closest("form")!);
+    });
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    // MUTATION uia11y/f20-stale-promo-refusal-bound: red.
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
+  it("focus moved INTO the box during the round trip: the region says it, since moving focus there says nothing", async () => {
+    // Blind pass on #355: the voice was fixed at the press. A keyboard Apply chose "focus", the
+    // diner tabbed back into the box while the server answered, and `.focus()` on the focused box
+    // fires nothing — the refusal was said zero times. The voice is settled at the ANSWER.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    const btn = screen.getByRole("button", { name: /^Apply/ });
+    const real = Element.prototype.matches;
+    vi.spyOn(btn, "matches").mockImplementation(function (this: Element, sel: string) {
+      return sel === ":focus-visible" ? true : real.call(this, sel);
+    });
+    await act(async () => {
+      btn.focus();
+      fireEvent.submit(btn.closest("form")!);
+    });
+    act(() => box().focus());
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-promo-voice-fixed-at-the-press: red.
+    expect(regionText()).toContain("That code isn’t valid.");
   });
 });
