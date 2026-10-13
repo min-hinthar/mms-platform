@@ -567,10 +567,165 @@ describe("M230's half — the two pills beside the stepper share the same window
     );
   });
 
+  it("M230 — speaks a refusal the SERVER named: the line has already gone to the kitchen", async () => {
+    // The reachable case: the dine-in kitchen batch fires the line between this phone's read and the
+    // tap, so the pill renders on the last view's `draft`, flips optimistically, and the server
+    // answers `not_draft`. A re-read could only have named a LOCK (or hedged); the server's own word
+    // needs neither. Before M230 this snapped back and said nothing.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() =>
+      expect(regionText()).toContain("That didn’t go through — it’s already gone to the kitchen"),
+    );
+    // Not the re-read's diagnosis of this cart (no freeze → the `unknown` hedge): the server's fact.
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("M230 — drops the kitchen sentence when a LATER view wins before its frame, showing the line back in draft", async () => {
+    // The diagnosis read sees the line FIRED, so the fact holds at PARK time. A later read — the
+    // host's Undo inside the send's grace — then wins the screen before the sentence's frame. The
+    // fact is re-asked of the view that WON, at publish: asked at park (or of the diagnosis read) the
+    // sentence would print beside a line that reads "Not sent yet". The blind pass on #354 found the
+    // earlier fixture fed both reads the same draft line, so it could not tell the two apart.
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    // ⚠️ FAKE TIMERS FROM HERE, so the park → publish gap is held open by the test, not by the
+    // machine's speed (the same reason "waits for the region to be on screen and EMPTY" uses them).
+    vi.useFakeTimers();
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValueOnce(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "To go" }));
+      });
+      // Parked on the fired read, not yet said. The positive control: the diagnosis took the FIRED
+      // read (the one read so far), so the fact held at park and only the later view can drop it.
+      expect(h.getCartView).toHaveBeenCalledTimes(1);
+      await expect(h.getCartView.mock.results[0]!.value).resolves.toMatchObject({
+        items: [{ lineState: "fired" }],
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo: back in draft
+      await syncFromServer(); // issued later, so it wins the ticket and takes the screen
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the sentence's frame
+      });
+      expect(regionText()).not.toContain("gone to the kitchen");
+      expect(regionText()).not.toContain("didn’t go through");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("M230 — retires the kitchen sentence once SAID, when the host's Undo puts the line back in draft", async () => {
+    // The sentence was true when it was said: the host's Send fired the line, the server refused the
+    // re-route, and the re-read showed it fired. But a send stays undoable for its grace, and the
+    // host's Undo (a clean fired→draft the kitchen never saw) reaches this phone as an ordinary view
+    // AFTER the publish, with no edit of this diner's to retire the sentence (blind pass on #354,
+    // CRITICAL). Left standing it says "already gone to the kitchen" beside a line that reads "Not
+    // sent yet", its ⋯ live again.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo, by realtime
+    await act(async () => {
+      h.echo.current?.();
+    });
+    // The coalesced echo (≤600 ms) re-applies the line as a draft: its ⋯ is back.
+    await waitFor(() => expect(screen.getByRole("button", { name: `More for ${ITEM.name}` })), {
+      timeout: 3000,
+    });
+    await settle();
+    expect(regionText()).not.toContain("gone to the kitchen");
+  });
+
+  it("M230 — the retire takes down ONLY the kitchen sentence: a later answer in the region stays", async () => {
+    // Blind pass over #354's fix commits: the per-view retire runs on every applied view, and the
+    // only thing keeping it off other text is that it clears `status` only while `status` still IS
+    // the sentence it said. The flip to the Bill empties the region but leaves the sentence armed;
+    // the Bill's counter door then answers in the region, and the host's Undo arrives after.
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+    try {
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }, ITEM_B] }));
+      // A host at a numbered table, so the Bill's counter door reads the table's sends.
+      const HOST_AT_7 = {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+        tableNumber: 7,
+        qrCode: null,
+      } as unknown as Parameters<typeof Checkout>[0]["splitContext"];
+      mount({ splitContext: HOST_AT_7, initialItems: [ITEM, ITEM_B] });
+      await openLineSheet();
+      await press("To go");
+      await settle();
+      await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+      await press(/View bill/);
+      // The counter door answers in the region: why it is held while a dish is still to send, or
+      // (once the ask carries unsent dishes, PD2's lift) the ask's own sentence. Either is a later
+      // answer that is not the kitchen sentence; that is all this case needs.
+      await press(/^Pay at the counter/);
+      await waitFor(() => expect(regionText()).not.toBe(""));
+      const LATER = regionText();
+      expect(LATER).not.toContain("gone to the kitchen");
+
+      h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] })); // the host's Undo
+      const reads = h.getCartView.mock.calls.length;
+      await act(async () => {
+        h.echo.current?.();
+      });
+      await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+        timeout: 3000,
+      });
+      await settle();
+      // MUTATION m230/retire-clears-any-status: red.
+      expect(regionText()).toBe(LATER);
+    } finally {
+      flags.phonePayOpen = true;
+      flags.splitOpen = true;
+    }
+  });
+
+  it("M230 — KEEPS the kitchen sentence while a later view still has the line with the kitchen", async () => {
+    // The separating twin of the case above: a retire that fired on ANY later view would pass that
+    // case and silence a sentence that is still true here — the cook started the dish.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    await press("To go");
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+
+    const reads = h.getCartView.mock.calls.length;
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "in_progress" }] }));
+    await act(async () => {
+      h.echo.current?.();
+    });
+    await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+      timeout: 3000,
+    });
+    await waitFor(() => expect(screen.getAllByText("Cooking").length).toBeGreaterThan(0));
+    await settle();
+    expect(regionText()).toContain("it’s already gone to the kitchen");
+  });
+
   it("stays silent on a refusal the re-read cannot honestly diagnose", async () => {
-    // `not_yours` is an OWNERSHIP fact — the kitchen fired the line between this phone's read and
-    // the tap. A re-read establishes nothing about it, so naming a lock here would be the M116/T14
-    // fabrication on the screen that just removed it. Silence until M230 gives it a real arm.
+    // `not_yours` is an OWNERSHIP (or comp) fact — since M230 a line the kitchen fired answers
+    // `not_draft` instead. A re-read establishes nothing about ownership, so naming a lock here would
+    // be the M116/T14 fabrication on the screen that just removed it, and no clause names it yet.
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });

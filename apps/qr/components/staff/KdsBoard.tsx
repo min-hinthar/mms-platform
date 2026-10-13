@@ -17,6 +17,7 @@ import {
   recallTicket,
 } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
+import { landedSoldOut } from "@/lib/sold-out-landing";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { boundWrite } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
@@ -1151,7 +1152,11 @@ export function KdsBoard({
         dishKey(entry.menuItemId),
         say,
         (res) => {
-          if (!res.ok) {
+          // P2au — LANDED, not `ok`: an unlogged put-back is the dish back on sale with only its
+          // record missing. Read as a refusal it kept the bar up, whose Undo then refused against
+          // the board's own write ("someone else changed it").
+          // (`!res.ok` narrows the type; `landedSoldOut` is never null for an `ok` answer.)
+          if (!res.ok && landedSoldOut(res) === null) {
             showErr(eightySixOutcome(res, entry.label));
             return;
           }
@@ -1160,6 +1165,8 @@ export function KdsBoard({
           // Only THIS dish's bar: a late answer must never take down a newer bump's undo.
           setUndo((u) => (u?.kind === "eighty6" && u.menuItemId === entry.menuItemId ? null : u));
           setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
+          // …and the record failure is still said: the region's error outranks the notice.
+          if (!res.ok) showErr(eightySixOutcome(res, entry.label));
           void refresh();
         },
       );
@@ -1307,7 +1314,11 @@ export function KdsBoard({
     // The answer, applied — on time, or LATE (Phase 2h · 9e: a late ok still lands, with the same
     // routing the on-time one takes, read at the moment it lands).
     const settle86 = (res: Awaited<ReturnType<typeof setItemSoldOut>>) => {
-      if (res.ok) {
+      // P2au — LANDED, not `ok`. The ledger insert runs after the flag flips, and an unlogged answer
+      // is `ok: false` so its sentence is never swallowed — but the dish IS off the menu, so it takes
+      // the landing path (override, sheet, the one Undo slot) and says its sentence after.
+      // (`res.ok ||` narrows the refusal arm below; `landedSoldOut` already answers it.)
+      if (res.ok || landedSoldOut(res) !== null) {
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
         // The newest SUCCESS owns the one Undo slot (a newer tap that failed does not count).
         const newest = seq > won86Seq.current;
@@ -1341,9 +1352,14 @@ export function KdsBoard({
           setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
           parked86.current = { menuItemId: id, label: dish, seq };
         }
+        // P2au — a landing whose ledger insert failed still SAYS so, routed like any refusal: the
+        // board's region once this line's sheet has unmounted (the ref was cleared above), or the
+        // sheet that is open — a modal makes the board behind it aria-hidden. Said after the
+        // landing so it outranks the notice in the region, never instead of it.
+        if (!res.ok) refuse(eightySixOutcome(res, dish));
       } else {
-        // After a `stale` refusal (someone else 86'd it) or the landed-but-unlogged ledger sentence,
-        // the refresh below shows the dish sold out and the sheet's body turns into the statement.
+        // After a `stale` refusal (someone else 86'd it) the refresh below shows the dish sold out
+        // and the sheet's body turns into the statement.
         refuse(eightySixOutcome(res, dish));
       }
     };
@@ -1384,8 +1400,8 @@ export function KdsBoard({
         next.delete(id);
         return next;
       });
-      // On EVERY outcome: the ledger-insert failure answers `ok:false` although the flag landed, and
-      // only a fresh snapshot can tell the cook what is true.
+      // On EVERY outcome: a refusal, a lost answer or a late one leaves the board's view behind the
+      // server's, and only a fresh snapshot can tell the cook what is true.
       void refresh();
     }
   };
