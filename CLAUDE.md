@@ -29,7 +29,8 @@ the merges went in before Codex had reviewed their head. The owner answered 2026
 instruction covered them ("Yes it covered", OWNER_RULINGS §H1), for this wave only. Neither the instruction nor that answer grants anything to a
 later session: the rules below (G3 · G4) govern every merge from here on. **2026-10-12 to 10-13:**
 every open OPEN-ITEMS row was read against the code (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`, #351),
-and a tranche was built in #352–#356. None of them is merged; each waits on the owner's bypass (G3).
+and a tranche was built in #352–#356. At the 2026-10-13 handoff none was merged; each waits on the
+owner's per-SHA line, plus the bypass (G3) wherever its head's `codex-review` is red.
 **Next:** `docs/HANDOFF.md`'s top block. It holds the merge window and its order, the buildable rows
 left, and the owner's open questions. The wave's record (merged PRs, migrations in order, the
 decisions to ratify) is the archive's 2026-10-11 block.

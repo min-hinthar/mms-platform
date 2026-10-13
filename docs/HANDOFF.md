@@ -15,7 +15,9 @@ first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 ## Where things stand (2026-10-13 — the open-items triage and its tranche)
 
 Measure first: `git log origin/main --oneline --since=2026-10-12T00:00:00Z`, the open PRs
-(`list_pull_requests`), and `git branch -r`. The path-design wave's record (what merged, the eight prod
+(`list_pull_requests`), and `git branch -r`. **Everything below about #351–#356 is a record of
+2026-10-13 ~06:22Z,** when all six were open. This handoff lands after them (the order below), so by
+the time you read it some or all have merged: read each PR's state before acting on its line. The path-design wave's record (what merged, the eight prod
 migrations in apply order, the decisions made under the 2026-10-09 delegation, and the 15 merges the
 owner ratified in OWNER_RULINGS §H1) moved verbatim to the archive's 2026-10-11 block.
 
@@ -32,15 +34,17 @@ owner ratified in OWNER_RULINGS §H1) moved verbatim to the archive's 2026-10-11
 ### What was done
 
 1. **Every open row was read against the code.** That covered every row that was open, gated, planned
-   or parked on `main` at `02bf46c`: 594 rows. The record is
-   `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351). It lists 343 rows buildable without the owner,
-   121 owner-gated, 93 to keep open, 33 closed by the sweep, and 4 done in place (as recomputed after
-   Codex's review of #351, which reopened K28). Each row has its
-   next step, and each buildable row has a size and its money and migration flags.
-2. **Six PRs, all open, none merged.** Codex was out of quota for five of them. For each, the capped
-   blind pass on the full diff stood in, then ONE more capped pass over exactly the fix commits. The
-   lead hand-read anything after that, in one comment per PR naming the final head and the commits no
-   blind reviewer read.
+   or parked on `main` at `02bf46c`. The record is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351):
+   its summary table holds the counts (recomputed after Codex's two reviews of #351, which reopened
+   K28 and moved 28 rows to the verdicts its definitions give them). It sorts every row into
+   Buildable without the owner, Owner-gated, Keep open, Closed by the sweep, or Done in place. Each
+   row has its next step, and each buildable row has a size and its money and migration flags.
+2. **Six PRs, open at 06:22Z, none merged by an agent.** Codex was out of quota when their blind
+   passes ran (its usage-limit replies from 00:31Z on), so for each the capped blind pass on the full
+   diff stood in, then ONE more capped pass over exactly the fix commits (launched before Codex's
+   04:30Z review of #356's `aadd2dd`, the first it gave that morning). The lead hand-read anything after
+   that, in one comment per PR naming the final head and the commits no blind reviewer read. Codex came
+   back intermittently from 05:40Z and reviewed some final heads (the merge window says which).
 
    | PR   | What                                                                                                   | Closes                                                                                                                                     |
    | ---- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -71,20 +75,27 @@ answered #352, #353 and #351's last head with its usage-limit message. A head wh
 green ("Codex has reviewed" that head) needs only the owner's per-SHA yes (G4). A head still red needs
 the owner's bypass (G3). Every PR below except #351 changes `CLAUDE.md` or `.claude/**`, so each needs
 the owner's per-SHA line either way. Each PR's last hand-read comment names the commits no blind
-reviewer read.
+reviewer read. **A merge-in commit is a new head:** a "per-SHA yes" line below holds only for the head
+it names, and the head that actually merges (after taking `main`) needs its own Codex review or the
+owner's bypass.
 
 - `#351 @ 750a705` · `.md` only, no rule file. `docs`, `require-docs` and `verify-slice` are green.
   `codex-review` is red (usage limit on this head), so it needs **the owner's bypass**.
 - `#352 @ 4dcef3b` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
   limit), so it needs **the owner's bypass**. One commit after the capped pass touches MONEY_PATHS
-  (`fa9b86e`, a `git revert` to bytes the first blind pass read, proved by an empty diff).
+  (`fa9b86e`, a `git revert` to bytes the first blind pass read, proved by an empty diff of those
+  files; the diff proves bytes, not how they combine with the fix commits kept, which the capped pass
+  over the fix commits read). The gaps the revert leaves are open on that head: M289 and M290.
 - `#353 @ 5653f13` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
   limit), so it needs **the owner's bypass**. The capped pass over the fix commits reviewed this exact
-  head (APPROVE).
+  head (APPROVE). **Decide J58 with it:** #353's host promotion lets an invitee who reloads a
+  staff-started (hostless) table become its host for good; J58 asks whether that is allowed.
 - `#354 @ 73ccc1d` · **every check green, `codex-review` included** (Codex: no findings).
   `mergeable_state: clean`. It needs only the owner's per-SHA yes.
-- `#355 @ 63f35fe` · `build` and Codex's review of this head were still running when measured. One
-  commit after the capped pass touches a MONEY_PATHS file, and only its comment (`promo-field.ts`).
+- `#355` · Codex's review of `63f35fe` found three races (a refusal bound to a box retyped during the
+  round trip; a deferred diet count said after its filters were unlit). The fix is a further head;
+  its own hand-read comment names it. One commit after the capped pass touches a MONEY_PATHS file, and
+  only its comment (`promo-field.ts`).
 - `#356 @ 00a768f` · **every check green, `codex-review` included** (Codex: no findings).
   `mergeable_state: clean`. It needs only the owner's per-SHA yes.
 - This handoff: `.md` and `.claude/**` only, so it needs the per-SHA line.
@@ -96,11 +107,14 @@ this order: #351 → #353 → #352 → #354 → #356 → #355 → this handoff. 
 merges `main` in (a merge commit, never a rebase), resolves conflicts as a set (LEARNINGS #61),
 re-measures the counts with `pnpm check:docs`, and waits for CI green on its new head. The merge
 commit is a new head, so its line above is void until its own hand-read comment names it: under the
-quota rule, a hand-read of the merge's conflict resolutions.
+quota rule, a hand-read of the merge's conflict resolutions. #354, #355 and #356 resolve each other's
+`Checkout.tsx` changes this way, and a component is not a MONEY_PATHS file, so the merge lines will not
+flag it: the owner may require a capped pass on those resolutions (see "For the owner").
 
 ### Next tasks
 
-1. **Land the seven PRs** above, in that order, on the owner's bypass.
+1. **Land whichever of #351–#356 are still open**, in the order above, each on the owner's per-SHA
+   line (and the bypass where its `codex-review` is red), then this handoff.
 2. **The buildable rows** (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`, "Buildable without the owner").
    These high-severity rows are still open after the tranche: F3 · F5 · S2 (no money), and M160 ·
    P3b · PD10 (money). Those with a migration, whose prod apply waits for the owner's go per file,
@@ -119,7 +133,9 @@ quota rule, a hand-read of the merge's conflict resolutions.
   under a visible lock), and K20 (the age policy for the queue).
 - **Still to ratify from the wave:** the decisions made under the 2026-10-09 delegation (the archive's
   2026-10-11 block, "Decided under the delegation"), and the P2hf tension with ruling #6.
-- **The 121 owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
+- **Whether the merge-in resolutions of `Checkout.tsx` (#354 · #355 · #356) need a capped pass,** or
+  the author's hand-read is enough.
+- **The owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
   The items below ("The owner's items") are the standing ones.
 
 ## The owner's items (not code)

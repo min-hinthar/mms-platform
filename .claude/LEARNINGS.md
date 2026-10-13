@@ -4155,8 +4155,9 @@ pending, with what it waits on.
 their own checkout of `main`, and #353 and #356 filed the same IDs as other streams. Both had to be
 renumbered after the fact, including every cross-reference. The rule: before a fan-out, reserve a
 disjoint ID range per stream (M277–M279 for one, M280–M283 for the next, …) and name it in each
-stream's prompt; a stream that needs more asks the lead. Check a range against every live worktree,
-not only `main`: `grep -h '| M29[0-9] ' .claude/worktrees/*/docs/OPEN-ITEMS.md`.
+stream's prompt; a stream that needs more asks the lead. Check a range against every live worktree
+and every open PR's head, not only `main`: `grep -h '| M29[0-9] ' .claude/worktrees/*/docs/OPEN-ITEMS.md`,
+and `git show origin/<branch>:docs/OPEN-ITEMS.md` for an open PR with no worktree here.
 
 ## #273
 
@@ -4184,8 +4185,9 @@ replaced. Naming the card-only list on the tab's off-session close turned Stripe
 an "unknown" that holds the freeze. A per-request Customer key let two concurrent saves pair one
 Customer with another's method. A third fix attempt would have needed a review the quota rule no
 longer allowed. `git revert` restored the files, and `git diff <reviewed head> <revert> -- <files>`
-came back empty, which proved the money-path code on the final head was code a blind reviewer had
-read. The original gaps were filed (M290, M289) instead. The rule: when the capped budget is spent
+came back empty, which proved those files' bytes on the final head were bytes a blind reviewer had
+read. It proves bytes, not how they combine with the fix commits that were kept, so name those
+commits and which pass read them beside the proof. The original gaps were filed (M290, M289) instead. The rule: when the capped budget is spent
 and a fix is wrong, revert to reviewed bytes, prove it with that empty diff, and file the gap; do
 not try a third fix that nobody reviews.
 

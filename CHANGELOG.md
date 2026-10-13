@@ -6,8 +6,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The session's close: the triage's handoff (2026-10-13, docs only)
 
-- **`docs/HANDOFF.md`'s top block is the triage's.** It holds the six open PRs (#351–#356), each
-  waiting on the owner's bypass, the merge order and how each later PR takes `main`, the high-severity
+- **`docs/HANDOFF.md`'s top block is the triage's.** It records the six PRs (#351–#356) as they
+  stood at 06:22Z, each waiting on the owner's per-SHA line (and the bypass where its `codex-review`
+  is red), the merge order and how each later PR takes `main`, the high-severity
   buildable rows still open, and the owner's open questions. The path-design wave's block moved
   verbatim to `docs/HANDOFF_ARCHIVE.md` (2026-10-11), and `CLAUDE.md`'s pointer says where each now
   lives.
