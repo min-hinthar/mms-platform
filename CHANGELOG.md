@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The session's close: the triage's handoff (2026-10-13, docs only)
+
+- **`docs/HANDOFF.md`'s top block is the triage's.** It holds the six open PRs (#351–#356), each
+  waiting on the owner's bypass, the merge order and how each later PR takes `main`, the high-severity
+  buildable rows still open, and the owner's open questions. The path-design wave's block moved
+  verbatim to `docs/HANDOFF_ARCHIVE.md` (2026-10-11), and `CLAUDE.md`'s pointer says where each now
+  lives.
+- **Filed from the capped passes' open questions:** J58 and J59 (the owner's calls: an invitee who
+  reloads a hostless table becoming its host; whether a dish inside the undo window is "gone to the
+  kitchen"), T59 (`totals.test.ts` answers the charged reads whatever their key), M292 (the split
+  door's release owner, guarded only by prose until it reopens) and F38 (a keyboard Apply pulls focus
+  back into the promo box).
+- **LEARNINGS #271–#275:** a PR comment states only what the session has read back; reserve an ID
+  range per parallel stream; parse every registry table with its own header and set-check the read;
+  Prettier moves `_…_` emphasis around identifiers with underscores; and a fix round that makes things
+  worse is reverted to reviewed bytes and filed, not fixed a third time.
+
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
 - **The owner ratified the wave's 15 merges made before Codex had reviewed their head** ("merge all.

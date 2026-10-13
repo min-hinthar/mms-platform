@@ -15,7 +15,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go, the staff console under `/staff` — register, kitchen and expo, tables, approvals, team, tips — the kiosk and the order-ready board) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
-## Where things stand (2026-10-12)
+## Where things stand (2026-10-13)
 
 Shipped the polish plan's Phase 0–2 and Phase 3a–3d's receipt stack (#299–#315; `ROADMAP.md`).
 3d·counter's cash-sheet re-host (K39 · K44) shipped later, in PD6 (#334); K39 stays open for the Team
@@ -27,9 +27,12 @@ built (2026-10-08 to 10-11):** PD1–PD12 merged with their follow-ups (#326–#
 2026-10-09 instruction ("I trust you to make all decisions, apply migrations, and merge all"). 15 of
 the merges went in before Codex had reviewed their head. The owner answered 2026-10-12 that the
 instruction covered them ("Yes it covered", OWNER_RULINGS §H1), for this wave only. Neither the instruction nor that answer grants anything to a
-later session: the rules below (G3 · G4) govern every merge from here on. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
-migrations in order, and the decisions and gate calls for the owner to ratify. Its next tasks include
-the PD10 flip's conditions and M276 · T55.
+later session: the rules below (G3 · G4) govern every merge from here on. **2026-10-12 to 10-13:**
+every open OPEN-ITEMS row was read against the code (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`, #351),
+and a tranche was built in #352–#356. None of them is merged; each waits on the owner's bypass (G3).
+**Next:** `docs/HANDOFF.md`'s top block. It holds the merge window and its order, the buildable rows
+left, and the owner's open questions. The wave's record (merged PRs, migrations in order, the
+decisions to ratify) is the archive's 2026-10-11 block.
 
 - **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
   with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and
