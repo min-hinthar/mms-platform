@@ -1061,6 +1061,9 @@ const EXPECTED_SUBJECTS = [
   "sendToKitchen",
   "setKioskTip",
   "setLineFulfillment",
+  // Lifecycle audit (edit-notes 3) — the diner's note edit; read: `if (locked || settling) return
+  // { ok: false, reason: "busy" }` before any write, like `setLineFulfillment`.
+  "setLineNote",
   "setPickupAsap",
   "setPickupSlot",
   "setQty",

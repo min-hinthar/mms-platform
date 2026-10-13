@@ -71,6 +71,9 @@ export function LineOptionsSheet({
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // WHICH write holds the sheet — for the labels only (the one `busy` is the guard): a note being
+  // saved must not make "Send to kitchen now" read "Sending…".
+  const [busyWith, setBusyWith] = useState<"send" | "note">("send");
   // The note as the diner is editing it — seeded from the LIVE line once per open (the parent keys
   // the sheet per open). Bounded to 160, the Zod cap and the `qr_cart_items.notes` column CHECK.
   const [note, setNote] = useState(line.notes ?? "");
@@ -78,6 +81,7 @@ export function LineOptionsSheet({
 
   async function saveNote() {
     if (busy || frozen || noteUnchanged || !onSaveNote) return;
+    setBusyWith("note");
     setBusy(true);
     try {
       // The RAW write, awaited bounded, outside any transition (9b) — the `sendNow` shape. A note is
@@ -91,6 +95,7 @@ export function LineOptionsSheet({
 
   async function sendNow() {
     if (busy || frozen) return;
+    setBusyWith("send");
     setBusy(true);
     try {
       // The RAW write, awaited bounded, outside any transition (9b). `waiting` at the bound frees
@@ -177,7 +182,9 @@ export function LineOptionsSheet({
             {/* W19 — "Send" names what the tap really is (a per-line kitchen commit, same vocabulary
                 as the batch CTA and the "Sent to kitchen" chip this line becomes); "usually" hedges
                 the config estimate. While the write is out, the shipped "Sending…". */}
-            {busy ? t("en", "sending") : `Send to kitchen now · usually ~${prepMinutes} min`}
+            {busy && busyWith === "send"
+              ? t("en", "sending")
+              : `Send to kitchen now · usually ~${prepMinutes} min`}
           </button>
         )}
         {/* Lifecycle audit (edit-notes 3) — the dish's kitchen note, editable while it is unsent (the
@@ -219,7 +226,7 @@ export function LineOptionsSheet({
                 ...(frozen || noteUnchanged ? { opacity: 0.55 } : null),
               }}
             >
-              {busy
+              {busy && busyWith === "note"
                 ? "Saving…"
                 : note.trim() === "" && line.notes
                   ? "Remove the note"

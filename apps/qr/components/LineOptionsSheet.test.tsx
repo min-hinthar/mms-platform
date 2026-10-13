@@ -231,3 +231,24 @@ describe("LineOptionsSheet — the kitchen note", () => {
     expect(within(dialog).getByLabelText("A note for the kitchen")).toBeTruthy();
   });
 });
+
+describe("LineOptionsSheet — one busy sheet, the right word on each control", () => {
+  it("a note being SAVED holds the sheet without making 'Send to kitchen now' read 'Sending…'", async () => {
+    const held = deferred<{ ok: boolean }>();
+    const { dialog } = mount({
+      line: { ...LINE, fulfillment: "togo" },
+      onSaveNote: () => held.promise,
+    });
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No egg" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(within(dialog).getByRole("button", { name: "Saving…" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /^Sending/ })).toBeNull();
+    await act(async () => {
+      held.resolve({ ok: false });
+    });
+  });
+});
