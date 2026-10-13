@@ -9,9 +9,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **M169: `/api/session` keeps one host source.** `table_sessions.host_seat` decides who hosts, and
   the route now keeps `session_members.role` in step with it. When `host_seat` names the seat and the
   member row does not say host, the row is promoted, and the write is checked by the row it returns.
-  The row is never demoted. A guest who joined a server's table by invite and later claimed it from
-  the sticker can now fire a round and open a split. Before, the phone said "host" and every server
-  gate refused it. Rows that diverged before this fix heal on that seat's next dine-in join.
+  The row is never demoted. A guest who joined a server's table by invite and later claimed it can
+  now fire a round and open a split. Before, the phone said "host" and every server gate refused it.
+  The W6a claim runs on every dine-in join but an invite code, so the claim can come from the
+  sticker or from the invitee's own reload of a table still hostless; the same code opened as `?t=`
+  always could claim. Rows that diverged before this fix heal on that seat's next dine-in join.
 - **The W6a host claim's error and the membership read's error are no longer thrown away.** A
   transport failure answers 503 and any other error answers "try again", both before any membership
   is written. A failed or empty promotion is refused the same way, never answered "host" over a
@@ -49,8 +51,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   floor. The settled list and the register's drawer both read through it, so a refund committing
   between them can no longer land in one answer and not the other. A failed read is shared too: both
   zones show the outage together. This is the codebase's first use of `cache()`.
-- **Proof:** 48 new `verify:slice` mutants (`hostsrc` 9, `j16-reason` 14, `m123` 14, `m211` 7, `m221`
-  4), every one caught. The battery is 4219 mutants over 344 modules. Red-first suites in the route,
+- **Proof:** 50 new `verify:slice` mutants (`hostsrc` 10, `j16-reason` 14, `m123` 15, `m211` 7,
+  `m221` 4, two of them from the fix round), every one caught. The battery is 4221 mutants over 344
+  modules. Red-first suites in the route,
   the hook, GuestList, `guest-list`, `session-refusal`, `totals`, `split`, `settle-stale-pin`,
   `floor-settled-detail`, FloorDetailLive, `refund-ledger-day` and `refunds`. No migration and no SQL
   change.
@@ -61,6 +64,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   pick from (J56). OPEN-ITEMS closes M169, J16, M123, M211 and M221 and files M280, K47 and J56.
 - **No new Burmese.** The one new string, the M211 note, is English only; every other sentence shown
   is an existing route string or `BIND_COPY`.
+- **Fix round after the blind pass.** Two guards it showed could not fail now can: the quote's link
+  read is pinned to the cart's own id (`totals.test.ts`'s fake answers only that key;
+  `m123/link-read-wrong-key`), and a non-transport membership-read error is pinned to "try again"
+  with nothing written (`hostsrc/member-read-error-unbound`). Both were watched surviving the old
+  suites, then red. Comments that had drifted are corrected: the split's stale-pin release keys on
+  the host's seat, not one open, which the reopen list in `lib/surfaces.ts` now names; the M169 claim
+  runs on every join but an invite code; two settle-quote notes name the `quote` call; the PD2
+  totals case is titled for what it checks. M280 now names the phone door as well as the counter.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
