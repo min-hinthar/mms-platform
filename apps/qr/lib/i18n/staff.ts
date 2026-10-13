@@ -80,6 +80,9 @@ export const STAFF = {
   "what.floor": { en: "the floor", my: "ခန်းမ" },
   "what.kitchen": { en: "the kitchen board", my: "မီးဖိုချောင် ဘုတ်" }, // glossary: မီးဖိုချောင်
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
+  // M190 — the market list on /staff/menu?shelf=market. K15 draft — grounded: what.list စာရင်း,
+  // the diner's market strings စျေး, the kiosk's ပစ္စည်း.
+  "what.market": { en: "the market list", my: "စျေး ပစ္စည်းစာရင်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
   "what.lock": { en: "the lock screen", my: "သော့ခတ် စခရင်" },
@@ -1640,6 +1643,50 @@ export const STAFF = {
     en: "New price for {x}, in dollars",
     my: "{x} အတွက် ဈေးအသစ်၊ ဒေါ်လာနဲ့",
   },
+
+  // ═══ M190 (lifecycle residuals) · /staff/menu?shelf=market ═══════════════════════════
+  // The market's out-of-stock toggle (`setGroceryAvailable`, lib/market-availability.ts) — the 86's
+  // twin for `grocery_items.available`, on the menu screen as its second list. Every MY value is a
+  // Claude-authored K15 draft, grounded: မီနူး (browse.price.title), မီးဖိုချောင် (kds.title), စျေး ·
+  // စျေးဝယ် (the diner's market strings, i18n/market.ts), ပစ္စည်း (the kiosk's scanUnavailable),
+  // ကုန်သွားပြီ · ကုန်ပြီ လို့ မှတ်မယ် (browse.price.soldOut · .verb.eightySix), ရနိုင်မှု
+  // (browse.price.titleAvail). No ledger stands behind this toggle, so no string here says "recorded
+  // with your name" (the menu's lead does — its 86 has `menu_availability_audit`).
+  // The two lists' switch: two links on the lit-gold cap (`aria-current="page"`), named as a pair.
+  "browse.shelf.a11y.switch": { en: "Menu or market", my: "မီနူး ဒါမှမဟုတ် စျေး" },
+  "browse.shelf.menu": { en: "Kitchen menu", my: "မီးဖိုချောင် မီနူး" },
+  "browse.shelf.market": { en: "Market", my: "စျေး" },
+  "browse.market.title": { en: "Market availability", my: "စျေး ပစ္စည်း ရနိုင်မှု" },
+  "browse.market.lead": {
+    en: "Mark an item sold out the moment you run out — shoppers can’t scan it or find it in the aisles until someone puts it back, and there is no timer that does it for you. Prices are set in the catalog, not here.",
+    my: "ပစ္စည်း ကုန်သွားတာနဲ့ ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းကို ဒီမှာ မပြင်ပါ။",
+  },
+  "browse.market.find": { en: "Find an item", my: "ပစ္စည်း ရှာပါ" },
+  "browse.market.noMatch": {
+    en: "No item matches “{x}”.",
+    my: "“{x}” နဲ့ ကိုက်ညီတဲ့ ပစ္စည်း မရှိပါ။",
+  },
+  // The row's flag, the chip and the two verbs are the MENU's own keys (`browse.price.soldOut`,
+  // `.soldOutOnly`, `.verb.eightySix`, `.verb.putBack`): one word for one act on one screen, and a
+  // Burmese reader keeps every distinction the English reader has.
+  "browse.market.noMatchOut": {
+    en: "No sold-out item matches “{x}”.",
+    my: "“{x}” နဲ့ ကိုက်ညီတဲ့ ကုန်သွားတဲ့ ပစ္စည်း မရှိပါ။",
+  },
+  // The view's ONE live region (sr-only), echoed aria-hidden in the row it concerns.
+  "browse.market.live.out": {
+    en: "{x} is sold out — shoppers can’t scan it or find it until you put it back.",
+    my: "{x} ကုန်သွားပြီ — ပြန်မတင်မချင်း စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။",
+  }, // K15-HIGH — read wrong, a shelf the shop cannot fill keeps selling
+  "browse.market.live.back": {
+    en: "{x} is back in the market.",
+    my: "{x} ကို စျေးမှာ ပြန်တင်ပြီးပြီ။",
+  },
+  "browse.market.err.flipUnknown": {
+    en: "Couldn’t reach the market — {x} may or may not have changed. Check the row and try again.",
+    my: "စျေးစာရင်းနဲ့ ဆက်သွယ်လို့ မရပါ — {x} ပြောင်းသွားလား မသေချာပါ။ အတန်းကို ကြည့်ပြီး ထပ်စမ်းပါ။",
+  },
+  "browse.market.a11y.list": { en: "Market availability", my: "စျေး ပစ္စည်း ရနိုင်မှု" },
 
   // ═══ P2 PR B · people ═══════════════════════════════════════════════════════════
   // ── the floor: guest feedback triage (a zone of /staff/tips since A4·5) ──
@@ -4663,6 +4710,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.price.keep",
   "browse.price.live.off",
   "browse.price.live.saved",
+  "browse.market.live.out",
   "browse.price.set",
   "browse.price.verb.confirm",
   "entry.lock.forgot",
