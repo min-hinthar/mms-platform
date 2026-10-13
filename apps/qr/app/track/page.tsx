@@ -34,6 +34,9 @@ type SearchParams = Promise<{
    * confirmed", and (once W22f wired it) the pay chime. The card is a link, not a document load, so
    * the resume was in fact the ONE path where that chime was reliably audible — a bell announcing a
    * payment that had happened long before, on a tap that moved no money at all.
+   *
+   * Lifecycle audit (2026-10-13) — the cart branch (`?cart=…&paid=1`, the counter and the split
+   * landing) honours it too: every resume link (`liveOrderTrackHref`) carries it on both branches.
    */
   resume?: string;
   /** W7a — the durable receipt bearer (`?r=<token>`): the session-less artifact view. */

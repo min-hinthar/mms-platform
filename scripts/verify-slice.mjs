@@ -34383,10 +34383,9 @@ const MUTANTS = [
     id: "lct/rail-step-constant-cooking",
     file: "apps/qr/components/OrderTracker.tsx",
     suite: "components/OrderTracker.test.tsx",
-    why: "Lifecycle audit G — the rail's step 1 sub is railKitchenSub; v7.2's constant 'Cooking' was lit at payment, before the wok was touched",
-    find: "                : i === KITCHEN_STEP\n                  ? railKitchenSub(bag)\n                  : sub;",
-    replace:
-      '                : i === KITCHEN_STEP\n                  ? "Cooking"\n                  : sub;',
+    why: "Lifecycle audit G — the CURRENT step 1's sub is railKitchenSub; v7.2's constant 'Cooking' was lit at payment, before the wok was touched",
+    find: '                : i === KITCHEN_STEP && state === "now"\n                  ? railKitchenSub(bag)\n                  : sub;',
+    replace: "                : sub;",
   },
   {
     id: "lct/pickup-not-handed-kitchen",

@@ -59,20 +59,21 @@ import { PickupPromise } from "./PickupPromise";
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
 // subscription). The pickup variant (P2.2) is chosen once the order carries a pickup_slot.
-// Lifecycle audit (2026-10-13), G — step 1's sub is NOT a constant any more: v7.2's "Cooking" was lit
-// at PAYMENT (the webhook stamps `togo_status = 'preparing'` before the wok is touched), so the rail
-// claimed a stage no data backed. It is `railKitchenSub` (lib/order-kitchen.ts), from the bag's own
-// lines: "Cooking" only after Mom's Start, "Kitchen’s done" after her Done, else "Sent to kitchen".
+// Lifecycle audit (2026-10-13), G — while step 1 is the CURRENT step its sub is a claim, so there it is
+// not v7.2's constant: "Cooking" was lit at PAYMENT (the webhook stamps `togo_status = 'preparing'`
+// before the wok is touched). The current step reads `railKitchenSub` (lib/order-kitchen.ts), from the
+// bag's own lines: "Cooking" only after Mom's Start, "Kitchen’s done" after her Done, else "Sent to
+// kitchen". A step not yet reached, or already passed, keeps v7.2's description.
 const KITCHEN_STEP = 1;
 const SCANGO_STEPS: [title: string, sub: string][] = [
   ["Order placed", "We have it"],
-  ["In the kitchen", ""],
+  ["In the kitchen", "Cooking"],
   ["Ready", "Bringing it out"],
   ["Served", "Enjoy!"], // 🍵 appended decoratively (aria-hidden) → "Enjoy! 🍵", verbatim v7.2 scango
 ];
 const PICKUP_STEPS: [title: string, sub: string][] = [
   ["Order placed", "We have it"],
-  ["In the kitchen", ""],
+  ["In the kitchen", "Cooking"],
   ["Ready for pickup", "Come on by"],
   ["Picked up", "Thank you!"],
 ];
@@ -913,7 +914,7 @@ export function OrderTracker({
                 ? processing
                   ? "Confirming payment…"
                   : "Confirming…"
-                : i === KITCHEN_STEP
+                : i === KITCHEN_STEP && state === "now"
                   ? railKitchenSub(bag)
                   : sub;
             const dotBg =
