@@ -2972,6 +2972,29 @@ html[data-fx="off"] .pa-mid {
   line-height: var(--lh-my);
   color: var(--t2);
 }
+/* PD1 (m1 decision 16) — the HOST's one-time name ask, above the waiting line and Send: an inline
+   row on the page ground (no card, no motion). The field is the spec's recessed well (--sunken,
+   52px; the primitive's --r-sm is its 12px radius and --fs-field its 16px). Save is a PAPER
+   secondary at the same 52px beside the quiet 44px "Not now", so Send stays the one filled control
+   in the state (m1 B11). */
+.checkout-name-ask {
+  display: grid;
+  gap: var(--s2);
+  margin: var(--s3) 0 0;
+}
+.checkout-name-ask .ui-field-control {
+  min-height: 52px;
+  background: var(--sunken);
+}
+.checkout-name-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.checkout-name-ask-save {
+  min-height: 52px;
+}
 /* The Send's caption: feedforward before the tap, the SAME node (same id) once Send is Undo — the
    control keeps its box, so the tap shifts nothing. */
 .checkout-send-caption {
@@ -3432,8 +3455,11 @@ html[data-fx="off"] .pa-mid {
     box-shadow var(--dur-base) var(--ease-out);
 }
 /* Keep the global :focus-visible outline (the load-bearing focus indicator) — only warm the border to
-   accent as an enhancement, so we never weaken the visible focus ring. */
-.checkout-promo-input:focus-visible {
+   accent as an enhancement, so we never weaken the visible focus ring. A REFUSED box keeps the Field's
+   --warn border (F20 · blind pass on #355): this rule ties `.ui-field-control[aria-invalid]` and comes
+   later, so without the :not() a refusal said by focus showed the accent instead
+   (lib/field-invalid-border.test.ts). */
+.checkout-promo-input:focus-visible:not([aria-invalid="true"]) {
   border-color: var(--ac);
 }
 
@@ -4884,7 +4910,8 @@ html[data-fx="off"] .pa-mid {
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
-.account-field:focus-visible {
+/* A refused box keeps the Field's --warn border — the promo well's note above (F20). */
+.account-field:focus-visible:not([aria-invalid="true"]) {
   border-color: var(--ac);
 }
 
@@ -14178,11 +14205,19 @@ a.door-sheet-row {
   filter: drop-shadow(0 1px 1.5px color-mix(in oklab, var(--ink) 7%, transparent))
     drop-shadow(0 10px 14px color-mix(in oklab, var(--ink) 30%, transparent));
 }
-/* A focus-parking target (a tag with no button): the stage's own ring when focus arrives the
-   keyboard way, nothing on a tap (blind pass on #329 — `outline: none` hid a keyboard user's place). */
+/* A focus-parking target (a tag with no button): a ring when focus arrives the keyboard way, nothing
+   on a tap (blind pass on #329 — a bare `outline: none` hid a keyboard user's place). The ring is
+   drawn ON the paper, inset, in the tag's own ink — the pair its button's ring already uses — so it
+   never meets the camera image. Outside the tag it sat on the dimmed live video, where `--ac` over a
+   white label measures 1.94:1 in light and 1.19:1 in Night (composite-contrast "the paper tag"). */
 .paper-tag:focus-visible {
-  outline: 2px solid var(--ac);
-  outline-offset: 3px;
+  outline: none;
+}
+.paper-tag:focus-visible > .paper-tag-paper {
+  outline-width: var(--focus-w);
+  outline-style: solid;
+  outline-color: var(--ink);
+  outline-offset: -4px;
 }
 .paper-tag-paper {
   position: relative;
@@ -17688,11 +17723,16 @@ html[data-reloading] body::after {
   font-size: var(--fs-lead);
 }
 /* The foot — the dots, the pager, the footer — STICKS to the bottom of its scroller, so Next never
-   scrolls away under a large Burmese title (m12 risk 9). Opaque card ground, a hairline on top. In
-   the counter's pane it sits above the pane's own reserve for the lane's thumb-zone pill. */
+   scrolls away under a large Burmese title (m12 risk 9). Opaque card ground, a hairline on top.
+   ⚠️ `bottom: 0` in EVERY host, the counter's pane included. A sticky box's limit is its scroller's
+   CONTENT edge — the pane's own bottom padding (the reserve for the lane's thumb-zone pill) is
+   already outside it — so the 96px inset the pane used to add counted that reserve twice: measured
+   headless at 1366×1024 (PD12, 2026-10-12), the foot rode 96px above the card's own end and covered
+   the title and sentence on every counter step, unreachable even at the pane's scroll end
+   (lib/staff-guide-foot.test.ts). */
 .staff-guide-foot {
   position: sticky;
-  bottom: var(--guide-foot-bottom, 0px);
+  bottom: 0;
   display: grid;
   justify-items: center;
   gap: var(--s2);
@@ -17705,9 +17745,6 @@ html[data-reloading] body::after {
 .staff-guide[data-host="sheet"] .staff-guide-foot {
   margin: 0 calc(-1 * var(--s4)) calc(-1 * var(--s4));
   padding: var(--s3) var(--s4) var(--s4);
-}
-.staff-split-pane .staff-guide {
-  --guide-foot-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
 }
 /* The ONE pager of dots both guides draw (`GuideDots` — the staff guides here, PD11's diner guide). */
 .guide-dots {

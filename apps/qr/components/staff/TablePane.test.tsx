@@ -137,6 +137,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    settledLinesTruncated: false,
     paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,

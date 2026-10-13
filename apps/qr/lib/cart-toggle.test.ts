@@ -31,6 +31,8 @@ vi.mock("@mms/db/schemas", () => {
   };
 });
 
+// M230 — the line's state as `assertCartItemMember` read it, mutable per test (a draft by default).
+const member = vi.hoisted(() => ({ lineState: "draft" }));
 vi.mock("./authz", () => ({
   assertCartItemMember: () =>
     Promise.resolve({
@@ -38,7 +40,7 @@ vi.mock("./authz", () => ({
       settling: false,
       role: "host",
       lineSeat: "u-1",
-      lineState: "draft",
+      lineState: member.lineState,
       comped: false,
       uid: "u-1",
       sessionId: "s-1",
@@ -106,6 +108,7 @@ beforeEach(() => {
   priceItemCalls.length = 0;
   rpcCalls.length = 0;
   rpcVerdict = { data: "ok", error: null };
+  member.lineState = "draft";
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -152,6 +155,22 @@ describe("setLineFulfillment — tax-only (W17a: a flip never re-prices)", () =>
     rpcVerdict = { data: null, error: null };
     expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: "error" });
   });
+
+  /**
+   * M230 — a line that has LEFT DRAFT is named as such, not folded into `not_yours`. The kitchen
+   * batch firing the line between the diner's read and the tap is the reachable case, and
+   * `canMutateLine` answered it with the ownership reason, so /cart could only stay silent (a
+   * re-read cannot diagnose a kitchen fact, and naming a lock would be fabricated). The RPC already
+   * answers `not_draft` for its own re-check; the pre-check now says the same fact in the same word.
+   */
+  it.each(["fired", "in_progress", "served"])(
+    "M230 — a %s line is refused as `not_draft`, before any RPC",
+    async (state) => {
+      member.lineState = state;
+      expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: "not_draft" });
+      expect(rpcCalls).toEqual([]);
+    },
+  );
 });
 
 /**
@@ -182,5 +201,12 @@ describe("makeItNow — the SQL owns the verdict", () => {
   it("a null verdict with no error still refuses (never a truthy-ok fallthrough)", async () => {
     rpcVerdict = { data: null, error: null };
     expect(await makeItNow(LINE)).toEqual({ ok: false, reason: "error" });
+  });
+
+  it("M230 — a line already with the kitchen is refused as `not_draft`, before any RPC", async () => {
+    // The same fact as the toggle's, in the same word the RPC itself uses — never `not_yours`.
+    member.lineState = "fired";
+    expect(await makeItNow(LINE)).toEqual({ ok: false, reason: "not_draft" });
+    expect(rpcCalls).toEqual([]);
   });
 });

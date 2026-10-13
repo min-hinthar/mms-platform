@@ -141,6 +141,27 @@ const unwrapTypeOnly = (e) => {
 
 // ── 1. DERIVE the mutation set from every lib module, not from a list ───────────────────────────
 const AUTHZ_CALLS = new Set(["assertCartMember", "assertCartItemMember"]);
+/**
+ * ⚠️ THE FREEZE HAS A SECOND SERVER FACE (T9's truth pass, 2026-09-08; closed 2026-10-12). Every
+ * mutation above refuses on the `locked` it binds out of the authorization call — but `openSettlement`
+ * refuses through the settlement ACQUIRE instead (`if (acq !== "acquired") throw …`): the freeze IS
+ * the mutex it takes, so it cannot be an `if (locked)` (check-freeze-parity's exemption says why).
+ * A derivation that only knew the first face never put it in the subject set, so `SplitSection`'s
+ * "Split & pay separately" took a frozen tap with this guard green — the one ungated control T9 named.
+ *
+ * So a member-authorized function that REFUSES on a binding of one of these acquires is a mutation
+ * too. MEMBER-authorized, because that is what a Checkout child can fire: the staff settle doors take
+ * the same acquire behind `staffGate`, refuse into the register's own in-flight copy, and are never
+ * rendered by Checkout. The callee is matched as a parsed call (an identifier callee, through `await`),
+ * never as text — a comment naming `acquireSettlement` acquires nothing.
+ */
+const SETTLE_ACQUIRES = new Set(["acquireSettlement", "acquireSettlementSuperseding"]);
+/** `await acquireSettlement(…)` / `acquireSettlement(…)` — a CALL of one of `names`, parsed. */
+const callsOneOf = (e, names) => {
+  let x = unwrapTypeOnly(e);
+  if (ts.isAwaitExpression(x)) x = unwrapTypeOnly(x.expression);
+  return ts.isCallExpression(x) && ts.isIdentifier(x.expression) && names.has(x.expression.text);
+};
 const mutations = new Map(); // exported name -> { rel, kinds: Set<"throw"|"return"> }
 
 /** Every `.ts` under `apps/qr/lib`, RECURSIVELY — same reason the component walk is recursive. */
@@ -153,8 +174,27 @@ const tsTree = (rel) => {
   return out.sort();
 };
 
+/**
+ * The LOCAL names `names` go by in `sf`: each name itself, plus every alias an import gives it
+ * (`import { acquireSettlement as take }`). The component walk below learned this the hard way —
+ * `ImportSpecifier.name` is the local binding — so the second face resolves it from the start.
+ */
+const localNames = (sf, names) => {
+  const out = new Set(names);
+  walk(sf, (n) => {
+    if (!ts.isImportDeclaration(n) || !n.importClause?.namedBindings) return;
+    const nb = n.importClause.namedBindings;
+    if (!ts.isNamedImports(nb)) return;
+    for (const el of nb.elements)
+      if (names.has((el.propertyName ?? el.name).text)) out.add(el.name.text);
+  });
+  return out;
+};
+
 for (const rel of tsTree(LIB)) {
   const sf = parse(rel);
+  const authzNames = localNames(sf, AUTHZ_CALLS);
+  const settleNames = localNames(sf, SETTLE_ACQUIRES);
   for (const { fn, name } of namedFunctions(sf)) {
     let bindsLocked = false;
     /** HOW it refuses, not merely THAT it refuses — rule 3 asks a different question of each. */
@@ -165,6 +205,34 @@ for (const rel of tsTree(LIB)) {
     const authzVars = new Set();
     /** Locals bound from the authz result's `locked` PROPERTY — under any local name. */
     const lockedIdents = new Set(["locked"]);
+    /** The second face: does this function authorize as a cart MEMBER, and which locals hold a
+     *  settlement acquire's answer (declared or assigned)? */
+    let memberAuthz = false;
+    const settleVars = new Set();
+    walk(fn, (n) => {
+      if (ts.isCallExpression(n) && callsOneOf(n, authzNames)) memberAuthz = true;
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        callsOneOf(n.initializer, settleNames)
+      )
+        settleVars.add(n.name.text);
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        callsOneOf(n.right, settleNames)
+      )
+        settleVars.add(n.left.text);
+    });
+    const mentionsSettle = (expr) => {
+      let hit = false;
+      walk(expr, (x) => {
+        if (ts.isIdentifier(x) && settleVars.has(x.text)) hit = true;
+      });
+      return hit;
+    };
     walk(fn, (n) => {
       if (
         ts.isVariableDeclaration(n) &&
@@ -246,7 +314,12 @@ for (const rel of tsTree(LIB)) {
         })
       )
         bindsLocked = true;
-      if (ts.isIfStatement(n) && mentionsLocked(n.expression)) {
+      // The refusal's condition names the lock (the first face) or, in a member-authorized function,
+      // a settlement acquire's answer (the second).
+      if (
+        ts.isIfStatement(n) &&
+        (mentionsLocked(n.expression) || (memberAuthz && mentionsSettle(n.expression)))
+      ) {
         const t = n.thenStatement;
         for (const st of ts.isBlock(t) ? t.statements : [t]) {
           if (ts.isThrowStatement(st)) kinds.add("throw");
@@ -254,7 +327,8 @@ for (const rel of tsTree(LIB)) {
         }
       }
     });
-    if (bindsLocked && kinds.size) mutations.set(name, { rel, kinds });
+    if ((bindsLocked || (memberAuthz && settleVars.size > 0)) && kinds.size)
+      mutations.set(name, { rel, kinds });
   }
 }
 
@@ -658,6 +732,61 @@ if (deadExemptions.length)
       "  Either the file was renamed/removed, or it stopped importing a derived mutation. A\n" +
       "  documented exemption that matches nothing excuses nothing — delete it or fix the path.",
   );
+
+// THE EXPECTED COMPONENT SET, with BOTH directions (OPEN-ITEMS T28). The sibling
+// `check-freeze-parity.mjs` has carried `EXPECTED_SUBJECTS` since Codex P2 on #246; the
+// countermeasure never crossed to this file, so an audited component could LEAVE the subject set
+// silently: point `RewardField` at a hook or the cart CONTEXT instead of `@/lib/cart` and the
+// `localToExported.size === 0` skip above drops it before the exemption check, rules 1-3 never run,
+// rule 4 stops owing its wiring (its owed set is DERIVED from `audited`), and the summary prints one
+// fewer with exit 0. That is the identical escape the whole /menu tap surface took (T18). The
+// exempt set needs no list of its own: the dead-exemption rule above already fails when an EXEMPT
+// entry stops firing.
+//
+// MEASURED, never transcribed: produced by instrumenting this file to print `audited.sort()` and
+// pasting the output. A component joining the set fails here once, on purpose — read its gate,
+// then add the path.
+const EXPECTED_COMPONENTS = [
+  "apps/qr/components/PickupWhenChoice.tsx",
+  "apps/qr/components/RewardField.tsx",
+  "apps/qr/components/SendToKitchenButton.tsx",
+  "apps/qr/components/SplitSection.tsx",
+];
+{
+  const found = [...audited].sort();
+  const missing = EXPECTED_COMPONENTS.filter((r) => !found.includes(r));
+  const extra = found.filter((r) => !EXPECTED_COMPONENTS.includes(r));
+  if (missing.length)
+    fail(
+      `these components left the audited set: ${missing
+        .map((r) => {
+          let exists = true;
+          try {
+            readFileSync(path.join(ROOT, r));
+          } catch {
+            exists = false;
+          }
+          return !exists
+            ? `${r} (no longer on disk — renamed or removed)`
+            : r === SOURCE || EXEMPT.has(r)
+              ? `${r} (now exempt, or now the freeze SOURCE)`
+              : `${r} (on disk, but it no longer imports a derived mutation BY NAME from apps/qr/lib)`;
+        })
+        .join(", ")}.\n` +
+        "  A component drops out when it reaches a mutation some other way — a hook, the cart context,\n" +
+        "  a wrapper — and then NOTHING here checks that it receives the freeze fact, refuses the tap\n" +
+        "  or tells the diner. That is the exact escape the /menu tap surface took (T18). Restore the\n" +
+        "  direct import, teach the derivation the new shape, or — if the component truly no longer\n" +
+        "  fires a cart write — delete its entry here deliberately, with the reason in the commit.",
+    );
+  if (extra.length)
+    fail(
+      `new components joined the audited set: ${extra.join(", ")}.\n` +
+        "  Each one fires a lock-refusing mutation and IS being held to rules 1-4 — this is a deliberate\n" +
+        "  speed bump so a new firing component cannot join (or a renamed one swap in) unnoticed. Read\n" +
+        "  its gate, then add the path to EXPECTED_COMPONENTS.",
+    );
+}
 
 // ── 3. Rule 4 — Checkout must hand each child the RAW edit-freeze binding ───────────────────────
 //

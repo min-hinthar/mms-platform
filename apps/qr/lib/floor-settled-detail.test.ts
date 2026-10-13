@@ -269,6 +269,61 @@ beforeEach(() => {
   sessionStatus = "active";
 });
 
+describe("M211 — a settled order longer than the line read's bound SAYS so", () => {
+  // `ORDER_LINE_CAP` in lib/floor.ts. A "use server" module cannot export a constant, so the value is
+  // written here — and BOTH sides of the boundary are asserted, so a cap that moves reddens one of
+  // them instead of passing quietly.
+  const CAP = 500;
+  /** `n` settled lines, ids zero-padded so the read's `order("id")` sorts them as written. */
+  const soldLines = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `oi-${String(i).padStart(4, "0")}`,
+      order_id: "o-1",
+      name: `Dish ${i}`,
+      qty: 1,
+      unit_price_cents: 100,
+      notes: null,
+      modifiers: [],
+      refunded_cents: 0,
+      added_by: null,
+    }));
+  const detail = async () => {
+    const r = await getTableDetail(SESSION);
+    if (r.kind !== "detail") throw new Error(`expected a detail, got ${r.kind}`);
+    return r.detail;
+  };
+
+  it("an order of EXACTLY the cap is the whole record — every line, and no flag", async () => {
+    // The safe-direction boundary: flagging here would tell staff lines are missing from an order
+    // that has none missing. MUTATION (m211/flag-at-the-cap): red.
+    orderItemRows = soldLines(CAP);
+    const d = await detail();
+    expect(d.lines).toHaveLength(CAP);
+    expect(d.settledLinesTruncated).toBe(false);
+  });
+
+  it("one line past the cap: the record shows the first CAP lines and SAYS the order has more", async () => {
+    // Before M211 the read stopped at the cap and the surface rendered what it got as the complete
+    // record — items seen before payment vanished from the staff view after it, silently.
+    // MUTATION (m211/read-stops-at-the-cap): the cap+1 probe dropped — truncation unobservable; red.
+    // MUTATION (m211/flag-dropped): the flag never set; red.
+    orderItemRows = soldLines(CAP + 1);
+    const d = await detail();
+    expect(d.settledLinesTruncated).toBe(true);
+    // Unlike M212's settled-ORDER read (its extra row is never rendered — only `[0]` is read), these
+    // rows ARE the list, so the probe row is DROPPED: the first CAP lines, in the read's order.
+    // MUTATION (m211/probe-row-rendered): the 501st line on screen; red.
+    expect(d.lines).toHaveLength(CAP);
+    expect(d.lines.at(-1)?.name).toBe(`Dish ${CAP - 1}`);
+  });
+
+  it("the ordinary settled order is not flagged", async () => {
+    const d = await detail();
+    expect(d.lines).toHaveLength(2);
+    expect(d.settledLinesTruncated).toBe(false);
+  });
+});
+
 describe("K33 — a settled table still shows what it ordered", () => {
   it("reads the paid order's lines instead of printing an empty cart", async () => {
     const r = await getTableDetail(SESSION);

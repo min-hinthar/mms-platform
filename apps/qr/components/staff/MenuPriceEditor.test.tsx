@@ -155,6 +155,27 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
     expect(pill(`${EIGHTY_SIX} — Mohinga`)).toBeTruthy();
   });
 
+  it("P2au — an UNLOGGED answer LANDED: the row reads `Put back`, and the record failure is said", async () => {
+    // The ledger insert runs after the flag flips, and its failure answers `ok: false`. Read as a
+    // refusal, the row kept its 86 verb over a dish that was already off the menu, and the next tap
+    // posted `expectedSoldOut: false` against a server holding `true` — refused as "someone else".
+    const unlogged =
+      "Mohinga is sold out, but the change wasn’t logged — tell the owner it was you.";
+    setItemSoldOut.mockResolvedValue({
+      ok: false,
+      error: unlogged,
+      code: "unlogged",
+      soldOut: true,
+    });
+    mount([item()]);
+    await act(async () => {
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
+    });
+    expect(pill("Put back — Mohinga")).toBeTruthy();
+    expect(status().textContent).toContain(unlogged);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("a refusal changes nothing on the row — the prop is the truth, and the refresh is asked for", async () => {
     setItemSoldOut.mockResolvedValue({
       ok: false,

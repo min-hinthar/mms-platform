@@ -70,7 +70,8 @@ export function ShowServerPass({
   hostName: string | null;
   /** `passDishes(view, listed)` — the rows the pass prints. */
   dishes: CartItem[];
-  /** `showServerStatus(dishes, serverNow)`; "none" never reaches here (the pass closes itself). */
+  /** `showServerStatus(dishes, dbNowMs)` — the view's DB clock since PD1's tail; "none" never
+   *  reaches here (the pass closes itself). */
   status: Exclude<ShowServerStatus, "none">;
 }) {
   const identity = passIdentity(tableNumber, hostName);

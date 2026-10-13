@@ -46,7 +46,9 @@ export type AddLanding = {
    * ⚠️ `none` MEANS "THE NET DELTA WAS ZERO", NOT "NOTHING ARRIVED" — this docblock said the latter,
    * and every copy of the claim downstream came from here (Codex rounds 3-4 on #255). Three
    * different things produce it and the outcome cannot tell them apart: the line is at
-   * `LINE_QTY_MAX`; the add matched a COMPED sibling and succeeded as a no-op (OPEN-ITEMS T25); or a
+   * `LINE_QTY_MAX`; a comp landed on the merge target between `insertOrIncLine`'s sibling read and
+   * its bump, which then succeeded as a no-op (T25 took comped rows out of that read, so only this
+   * race window is left — closing it needs the RPC's applied delta, T27); or a
    * write we cannot see RESTORED the line to its pre-add quantity, so `dishDeltas` — which tests
    * `d > 0` and `d < 0` and does nothing at `d === 0` — sees our landed add cancel out (OPEN-ITEMS
    * T43). `addShortfallNotice` has always been honest about this ("WHY is not knowable here"); the
@@ -142,10 +144,11 @@ export function addShortfallNotice(outcome: AddLanding["outcome"]): string | nul
   // At the cap, and we KNOW it: the resulting quantity is server truth, so naming the maximum is a
   // fact rather than an inference.
   if (outcome === "partial") return "Some of that couldn’t be added — that line is at our 99 max";
-  // Nothing landed. WHY is not knowable here: the line may be at the maximum, or the add may have
-  // matched a comped sibling (`insertOrIncLine` does not filter `comped`; `mms_cart_item_inc_qty`
-  // excludes comped rows and still answers success — OPEN-ITEMS T25). So the sentence states the
-  // outcome and stops, which is the one thing that is true in both cases.
+  // Nothing landed. WHY is not knowable here: the line may be at the maximum, or a comp may have
+  // landed on the merge target between `insertOrIncLine`'s sibling read and its bump
+  // (`mms_cart_item_inc_qty` skips comped rows and still answers success; the read itself skips
+  // them since T25, so only that window is left). So the sentence states the outcome and stops,
+  // which is the one thing that is true in both cases.
   if (outcome === "none") return "Nothing was added — your order below is up to date";
   // `full` needs no correction, and `unknown` has nothing honest to say.
   return null;

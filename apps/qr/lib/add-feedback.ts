@@ -87,7 +87,8 @@ export function sheetAddClaim(name: string, qty: number): CartClaim {
  * Only for a DEFINITE non-landing:
  *   • `refused` — the cart was read and this write is not in it;
  *   • `applied` whose CURRENT view shows no own line — a write that committed and moved nothing of
- *     ours (the T25 comped-sibling no-op, where the provider also says "Nothing was added").
+ *     ours (a comp racing the merge bump — the window T25 left — where the provider also says
+ *     "Nothing was added").
  *
  * Never for `unconfirmed` — the write may well be on the bill, and a cue that reads "it didn't land"
  * over a dish that did is the fabricated-diagnosis class. Never for `lineVisible: null` — the seat

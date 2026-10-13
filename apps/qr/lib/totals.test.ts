@@ -21,22 +21,53 @@ vi.mock("server-only", () => ({}));
 
 type Res = { data: unknown; error: { message: string } | null };
 
-// Mutable per-test script for the three reads getCartTotals performs, in order.
-const script: { items: Res; promo: Res; reward: Res } = {
+// Mutable per-test script for the reads getCartTotals performs. `promo` is what
+// `mms_promo_discount` answers (the pin when one is set, m70); `live` is `mms_promo_discount_live`
+// (the code's worth on today's basket); `link` is the cart's `live_payment_intent_id` read, which
+// only the QUOTE basis makes (M123 b).
+const script: { items: Res; promo: Res; live: Res; reward: Res; link: Res } = {
   items: { data: [], error: null },
   promo: { data: 0, error: null },
+  live: { data: 0, error: null },
   reward: { data: 0, error: null },
+  link: { data: { live_payment_intent_id: null }, error: null },
 };
+/** Every `qr_carts` read this run made — the charge basis must make none. */
+let linkReads = 0;
+/** The one cart every case prices. The link read answers `script.link` only when keyed on it. */
+const CART = "cart-1";
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => Promise.resolve(script.items),
-      }),
-    }),
+    from: (table: string) =>
+      table === "qr_carts"
+        ? {
+            select: () => ({
+              // The FILTER is part of the read (the blind pass on #353): keyed on any other column or
+              // value, postgrest answers no row and no error, so a mis-keyed read reads as unlinked.
+              eq: (col: string, val: unknown) => ({
+                maybeSingle: () => {
+                  linkReads += 1;
+                  return Promise.resolve(
+                    col === "id" && val === CART ? script.link : { data: null, error: null },
+                  );
+                },
+              }),
+            }),
+          }
+        : {
+            select: () => ({
+              eq: () => Promise.resolve(script.items),
+            }),
+          },
     rpc: (name: string) =>
-      Promise.resolve(name === "mms_promo_discount" ? script.promo : script.reward),
+      Promise.resolve(
+        name === "mms_promo_discount"
+          ? script.promo
+          : name === "mms_promo_discount_live"
+            ? script.live
+            : script.reward,
+      ),
   }),
 }));
 
@@ -54,7 +85,10 @@ const LINE = {
 beforeEach(() => {
   script.items = { data: [LINE], error: null };
   script.promo = { data: 0, error: null };
+  script.live = { data: 0, error: null };
   script.reward = { data: 0, error: null };
+  script.link = { data: { live_payment_intent_id: null }, error: null };
+  linkReads = 0;
 });
 
 describe("getCartTotals — never returns a total it isn't sure of (M30)", () => {
@@ -110,26 +144,82 @@ describe("getCartTotals — never returns a total it isn't sure of (M30)", () =>
   });
 });
 
-describe("PD2 (PATH_DESIGN moment 2) — two reads, ONE derivation: the guest's pass and Dad's pane agree", () => {
-  // The guest's pass shows `totals.totalCents` from `getCartTotals(id)` (the view read, default tip);
-  // Dad's pane reads `getCartTotals(cart.id, 0)` (lib/floor.ts). The same promo'd cart must answer
-  // the same figure from both calls, with the promo actually IN it — otherwise the family holds up
-  // a phone that says one total while the register names another.
+describe("PD2 (PATH_DESIGN moment 2) — the DEFAULT tip is zero: the split's grand total is the explicit tip-0 figure", () => {
+  // What this case does NOT pin, said so the title cannot claim it (the blind pass on #353): the
+  // guest's pass and Dad's pane agree because both sites make ONE call, `getCartTotals(id, 0,
+  // "quote")`, and that is pinned where each site calls it — cart-view-read.test.ts and
+  // floor-detail-promo.test.ts (`m123/view-quotes-the-charge-basis`,
+  // `m123/floor-quotes-the-charge-basis`). What is left here is the default: the split's grand
+  // total (`getCartTotals(id)`) prices every share off it, so a promo'd cart must answer the same
+  // figure from the default call as from the explicit tip-0 call, with the promo actually IN it.
   it("a promo'd cart answers the same total from the default call and the explicit tip-0 call", async () => {
     const PROMO = 450;
     script.promo = { data: PROMO, error: null };
-    const guest = await getCartTotals("cart-1");
-    const pane = await getCartTotals("cart-1", 0);
-    // MUTATION (totals/default-tip-not-zero): the default tip rate drifts off 0 — the guest's
-    // figure grows by a tip no one chose while Dad's stays; red.
-    expect(guest).toEqual(pane);
-    expect(guest.promoCents).toBe(PROMO);
-    expect(guest.tipCents).toBe(0);
+    const byDefault = await getCartTotals("cart-1");
+    const explicit = await getCartTotals("cart-1", 0);
+    // MUTATION (totals/default-tip-not-zero): the default tip rate drifts off 0 — the default
+    // call's figure grows by a tip no one chose while the explicit call's stays; red.
+    expect(byDefault).toEqual(explicit);
+    expect(byDefault.promoCents).toBe(PROMO);
+    expect(byDefault.tipCents).toBe(0);
     // …and the figure is the DISCOUNTED one, measured against the undiscounted run of the same cart
     // (never a transcribed total: tax follows the discounted base, so only the direction is pinned).
     script.promo = { data: 0, error: null };
     const undiscounted = await getCartTotals("cart-1", 0);
     expect(undiscounted.promoCents).toBe(0);
-    expect(guest.totalCents).toBeLessThan(undiscounted.totalCents);
+    expect(byDefault.totalCents).toBeLessThan(undiscounted.totalCents);
+  });
+});
+
+describe("M123 (b) — the QUOTE basis: the pin only while an intent is live, the live figure otherwise", () => {
+  // The two figures DIFFER on purpose, and neither is a transcribed total: a stale pin worth more
+  // than the code is worth on today's basket (the registry's own case — a code applied at $60, the
+  // basket edited down, a declined attempt, the basket edited back). Each assertion names which RPC
+  // the discount came from by its value.
+  const PIN = 1000; // `mms_promo_discount` — the pin wins outright when set (m70)
+  const LIVE = 400; // `mms_promo_discount_live` — the code's worth on the basket as it stands
+  beforeEach(() => {
+    script.promo = { data: PIN, error: null };
+    script.live = { data: LIVE, error: null };
+  });
+
+  it("quotes an UNLINKED cart live — a pin no intent names is a discount no door will charge", async () => {
+    // MUTATION (m123/quote-reads-the-pin-unlinked): the quote ignores the link and reads the pin —
+    // the review step shows $10 off while create-intent (which releases the pin first) and the
+    // counter (M268's release) both charge the $4 the basket actually earns; red.
+    const quoted = await getCartTotals("cart-1", 0, "quote");
+    expect(quoted.promoCents).toBe(LIVE);
+    expect(linkReads).toBe(1);
+  });
+
+  it("quotes a LINKED cart at its pin — the amount the live intent was minted at", async () => {
+    // A declined card is retried inline against the SAME PaymentIntent, at its original,
+    // pin-inclusive amount (lib/lock.ts `releasePromoGrantFor`, point 1), so the screen beside that
+    // prompt must quote the same discount. MUTATION (m123/quote-always-live): red. MUTATION
+    // (m123/link-read-wrong-key): the link read keyed on another column finds no row, and the
+    // linked cart is quoted live beside the intent that charges the pin; red.
+    script.link = { data: { live_payment_intent_id: "pi_live" }, error: null };
+    const quoted = await getCartTotals("cart-1", 0, "quote");
+    expect(quoted.promoCents).toBe(PIN);
+  });
+
+  it("the CHARGE basis never moves: the pin, whatever the link says, and no link read at all", async () => {
+    // create-intent mints from this, the webhook reconciles a captured amount against it, and the
+    // counter reads it only after M268's release. A charge that followed the quote rule would read
+    // live in the window between `mms_pin_promo_grant` and `linkPaymentIntent` — a minted amount
+    // and a reconcile that could disagree. MUTATION (m123/charge-follows-the-link,
+    // m123/default-basis-is-the-quote): red.
+    const byDefault = await getCartTotals("cart-1", 0);
+    const explicit = await getCartTotals("cart-1", 0, "charge");
+    expect(byDefault.promoCents).toBe(PIN);
+    expect(explicit.promoCents).toBe(PIN);
+    expect(linkReads).toBe(0);
+  });
+
+  it("THROWS when the link is unreadable — never a guess at which figure to quote", async () => {
+    // A failed read resolves `{ data: null, error }`; read as "unlinked" it would quote live beside
+    // a live intent that charges the pin. MUTATION (m123/unreadable-link-reads-as-unlinked): red.
+    script.link = { data: null, error: { message: "fetch failed" } };
+    await expect(getCartTotals("cart-1", 0, "quote")).rejects.toThrow(/payment link unreadable/);
   });
 });

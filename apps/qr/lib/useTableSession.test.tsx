@@ -166,3 +166,58 @@ describe("useTableSession — a solo key the server re-minted is adopted (PD3 fo
     expect(window.localStorage.getItem("mms.qr.pickup")).toBe("pickup-mine");
   });
 });
+
+// J16 — a refusal's machine word reaches the caller beside its sentence; GuestList recovers by the
+// word (`joinFailureArm`), never by grepping the sentence.
+function ReasonProbe() {
+  const { error, errorReason, revalidate } = useTableSession("dinein", {
+    door: "dinein",
+    tableNumber: 7,
+  });
+  return (
+    <>
+      <p data-testid="reason">{`${errorReason ?? "none"}|${error ?? "none"}`}</p>
+      <button type="button" onClick={revalidate}>
+        retry
+      </button>
+    </>
+  );
+}
+const refusal = (status: number, body: Record<string, unknown>) =>
+  fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
+  });
+
+describe("useTableSession — a refusal carries its `reason` (J16)", () => {
+  it("the seated race's word and sentence both reach the caller", async () => {
+    // MUTATION (j16-reason/hook-drops-the-word): the hook keeps only the sentence — GuestList
+    // is back to grepping English, and the seated race is a futile retry again.
+    refusal(409, { error: "That table was just seated.", reason: "seated" });
+    const { getByTestId } = render(<ReasonProbe />);
+    await waitFor(() =>
+      expect(getByTestId("reason").textContent).toBe("seated|That table was just seated."),
+    );
+  });
+
+  it("a word this build does not know, or none at all, is null — the generic retryable failure, never a verdict", async () => {
+    refusal(409, { error: "Something new.", reason: "some_future_word" });
+    const { getByTestId, getByRole } = render(<ReasonProbe />);
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|Something new."));
+    refusal(500, {});
+    getByRole("button", { name: "retry" }).click();
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|HTTP 500"));
+  });
+
+  it("a retry clears the word with the sentence, and a success leaves neither", async () => {
+    refusal(400, { error: "That table isn’t available.", reason: "table_not_registered" });
+    const { getByTestId, getByRole } = render(<ReasonProbe />);
+    await waitFor(() =>
+      expect(getByTestId("reason").textContent).toBe(
+        "table_not_registered|That table isn’t available.",
+      ),
+    );
+    getByRole("button", { name: "retry" }).click();
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|none"));
+  });
+});

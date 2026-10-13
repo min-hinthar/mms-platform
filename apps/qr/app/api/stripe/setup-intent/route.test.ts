@@ -83,10 +83,22 @@ vi.mock("@mms/db/schemas", () => ({
   secureTabInput: { parse: (v: { cartId: string }) => ({ cartId: v.cartId }) },
 }));
 
+/** M155 · M72c — what each Stripe create was sent: the params and the request options. */
+const stripeCalls: { op: string; params: Record<string, unknown>; opts: unknown }[] = [];
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({
-    customers: { create: () => Promise.resolve({ id: "cus_test116" }) },
-    setupIntents: { create: () => Promise.resolve({ client_secret: "seti_test116_secret" }) },
+    customers: {
+      create: (params: Record<string, unknown>, opts?: unknown) => {
+        stripeCalls.push({ op: "customers.create", params, opts });
+        return Promise.resolve({ id: "cus_test116" });
+      },
+    },
+    setupIntents: {
+      create: (params: Record<string, unknown>, opts?: unknown) => {
+        stripeCalls.push({ op: "setupIntents.create", params, opts });
+        return Promise.resolve({ client_secret: "seti_test116_secret" });
+      },
+    },
   }),
 }));
 
@@ -106,6 +118,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
+import { MEAL_PAYMENT_METHOD_TYPES } from "@/lib/payment-methods";
 import { POST } from "./route";
 
 function req(cartId = CART) {
@@ -116,6 +129,7 @@ beforeEach(() => {
   tabsOpen = true;
   authzThrows = null;
   tablesRead = [];
+  stripeCalls.length = 0;
   authzResult = { sessionId: SESSION, uid: "seat-1", mode: "dinein" };
 });
 
@@ -163,6 +177,31 @@ describe("M116 — setup-intent refuses without fabricating a diagnosis", () => 
     expect(tablesRead).not.toContain("table_sessions");
     // and it does still reach its own sidecar, so case 5 is not passing because nothing ran
     expect(tablesRead).toContain("mms_tab_secure");
+  });
+});
+
+describe("M155 · M72c — what the route asks Stripe for", () => {
+  it("saves a CARD for the tab — the one named list, never the Dashboard's automatic methods", async () => {
+    // A tab settles off-session at close; a bank debit saved here would charge into `processing`
+    // for days. Owner ruling #7: meals are card only, through one named constant.
+    // MUTATION (stripecfg/setup-intent-automatic-methods): swapped back; red.
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    const setup = stripeCalls.filter((c) => c.op === "setupIntents.create");
+    expect(setup).toHaveLength(1);
+    expect(setup[0]!.params.payment_method_types).toEqual([...MEAL_PAYMENT_METHOD_TYPES]);
+    expect(setup[0]!.params).not.toHaveProperty("automatic_payment_methods");
+  });
+
+  it("keys the Customer create on the cart, so a retried save converges on ONE Customer", async () => {
+    // The one create in this route that carried no key: a retried request (the SDK's, or the
+    // diner's re-tap after a lost response) minted a second Customer for the same tab. Keyed on the
+    // cart, a replay returns the first Customer instead (one Customer per tab, T10).
+    // MUTATION (stripecfg/customer-create-unkeyed): the key dropped; red.
+    await POST(req());
+    const customer = stripeCalls.filter((c) => c.op === "customers.create");
+    expect(customer).toHaveLength(1);
+    expect(customer[0]!.opts).toEqual({ idempotencyKey: `cus_${CART}` });
   });
 });
 
