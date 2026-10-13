@@ -2316,6 +2316,7 @@ export function Checkout({
     // submits the form directly. The refusal has to live here, or the "disabled" promo control would
     // still fire a write the server rejects — the exact silent-refusal this slice exists to retire.
     if (editsFrozen) return;
+    const code = promo.trim();
     const at = document.activeElement;
     const voice =
       at instanceof HTMLElement && at !== promoEl.current && matchesFocusVisible(at)
@@ -2327,9 +2328,16 @@ export function Checkout({
       setPromoRefusal(null); // the last refusal is not this Apply's answer
       setPromoSaid(null);
       try {
-        const result = await applyPromoAction(cartId, promo.trim());
+        const result = await applyPromoAction(cartId, code);
         // F20 — a refusal of the CODE goes under the box; anything else is the region's, as before.
-        if (!result.ok && promoRefusalOnField(result.reason)) {
+        // Only while the box still holds THAT code (Codex on #355): it stays editable through the
+        // round trip, and a refusal of the old code drawn under a newly typed one would mark the new
+        // one invalid; the region says it instead.
+        if (
+          !result.ok &&
+          promoRefusalOnField(result.reason) &&
+          promoEl.current?.value.trim() === code
+        ) {
           const text = PROMO_MESSAGES[result.reason];
           // Settled at the answer: focus already in the box means moving it there says nothing.
           const said = document.activeElement === promoEl.current ? "region" : voice;

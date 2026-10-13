@@ -22,6 +22,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - What diners see: the account labels take the Field label style; the promo gains a visible
     "Promo code" label in both languages (the existing keys, no new Burmese); a refused code or
     address shows under its box in `--warn` with a warn border, not in the line at the bottom.
+  - Codex's review of the fix round: the promo and account boxes stay editable while their answer
+    is in flight, so a refusal is bound to its box only while the box still holds the value it
+    refused (otherwise the region or the card says it). The diet sheet's count, a quiet claim that
+    can wait behind a visible toast, is said only while it is still the sheet's sentence.
 - **F31: /menu speaks through its one live region.** The empty-search card and the diet sheet's match
   count lose their own `role="status"`. Each speaks once, as a quiet claim, through the cart
   provider's Toast: the card when the list turns empty, the count when it changes while the sheet is

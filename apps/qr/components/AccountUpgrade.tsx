@@ -55,6 +55,14 @@ function settledVoice(voice: FieldVoice, box: HTMLElement | null): FieldVoice {
   return box !== null && document.activeElement === box ? "region" : voice;
 }
 
+/** F20 (Codex on #355) — a refusal is bound to its box only while the box still holds the value it
+ *  refused. The box stays editable through the round trip, so a diner who typed a new address or
+ *  code meanwhile would otherwise see the old value's refusal drawn under the new one, the new one
+ *  marked invalid, and focus pulled there; the card's status line says it instead. */
+function boxHolds(box: HTMLInputElement | null, submitted: string): boolean {
+  return box !== null && box.value.trim() === submitted;
+}
+
 /**
  * Anon → durable account (M4 P4.1). Upgrades the SAME anonymous uid in place (email OTP / Google), so the
  * diner's past paid orders + earned Stars carry over with no migration (docs/M4_DESIGN R3). Honest: we only
@@ -238,7 +246,7 @@ export function AccountUpgrade({
               : e0.message || "Couldn’t send the sign-in code — try again.",
         );
         // F20 — the address's own refusal goes under its box; an outage or a dropped request does not.
-        if (boxVoice && refusesTheAddress(e0))
+        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))
           setFieldRefusal({ field: "email", voice: settledVoice(boxVoice, emailRef.current) });
         signInStarting.current = false;
         return false;
@@ -603,7 +611,7 @@ export function AccountUpgrade({
         return;
       }
       setError(e1.message || "Couldn’t send the code — try again.");
-      if (refusesTheAddress(e1))
+      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))
         setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });
       setBusy(false);
       return;
@@ -619,20 +627,21 @@ export function AccountUpgrade({
     setBusy(true);
     setError(null);
     const voice: FieldVoice = document.activeElement === codeRef.current ? "region" : "focus";
+    const submitted = code.trim();
     setFieldRefusal(null);
     const supa = browserClient();
     // `email_change` finalizes the anon→account UPGRADE (keeps the uid + Stars); `email` completes the
     // SIGN-IN to the pre-existing account (recovery). The verify token/flow is otherwise identical.
     const { error: e2 } = await supa.auth.verifyOtp({
       email: email.trim(),
-      token: code.trim(),
+      token: submitted,
       type: codeMode,
     });
     if (e2) {
       setError(e2.message || "That code didn’t match. Check your email and try again.");
       // F20 — a wrong or expired code goes under the code box; a rate limit or a dropped request
       // is the card's.
-      if (refusesTheCode(e2))
+      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))
         setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });
       setBusy(false);
       return;

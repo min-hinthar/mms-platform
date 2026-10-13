@@ -162,6 +162,21 @@ describe("F31 — /menu speaks through ONE region", () => {
     expect(opts!.still!()).toBe(false);
   });
 
+  it("the diet count that waits is asked again: unlit filters make it false", async () => {
+    // Codex on #355: the count is a quiet claim too, so it waits behind a visible toast; filters
+    // unlit (or Clear) inside that window left the provider saying a count nobody now sees.
+    render(<Page />);
+    await act(() => void fireEvent.click(screen.getByRole("button", { name: "Dietary needs" })));
+    const veg = screen.getByRole("button", { name: /^Vegetarian/ });
+    await act(() => void fireEvent.click(veg));
+    const opts = announce.mock.calls[0]?.[3] as { still?: () => boolean } | undefined;
+    expect(announce.mock.calls[0]?.[0]).toBe("1 dish fits.");
+    // MUTATION uia11y/f31-diet-count-not-asked-again: red.
+    expect(opts!.still!()).toBe(true);
+    await act(() => void fireEvent.click(screen.getByRole("button", { name: /^Vegetarian/ })));
+    expect(opts!.still!()).toBe(false);
+  });
+
   it("a catalog that changes UNDER an empty search says nothing new (the refresh speaks for itself)", async () => {
     const r = render(<Page />);
     await type("q");

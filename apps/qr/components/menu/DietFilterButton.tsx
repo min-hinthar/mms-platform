@@ -46,7 +46,7 @@ export function DietFilterButton({
   onClear: () => void;
   /** F31 — /menu's ONE live region (the cart provider's Toast, `announce` as a QUIET claim: the
    *  sentence is already drawn inside this sheet). This component mints no region of its own. */
-  announce: (sentence: string) => void;
+  announce: (sentence: string, still: () => boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const n = diets.length;
@@ -74,7 +74,9 @@ export function DietFilterButton({
     const now = matchSentence ?? "";
     const before = heard.current;
     heard.current = now;
-    if (before !== null && now !== "" && now !== before) announce(now);
+    // `still`: a count that waits behind a visible toast is said only while it is still the sheet's
+    // sentence — a later toggle, or Clear, or closing the sheet, makes it false (Codex on #355).
+    if (before !== null && now !== "" && now !== before) announce(now, () => heard.current === now);
   }, [open, matchSentence, announce]);
 
   return (

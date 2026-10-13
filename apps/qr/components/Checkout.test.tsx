@@ -4060,6 +4060,30 @@ describe("F20 — the promo box is the @mms/ui Field; a refused CODE is tied to 
     expect(regionText()).not.toContain("That code isn’t valid.");
   });
 
+  it("a code retyped during the round trip: the old code's refusal is the region's, the new box left valid", async () => {
+    // Codex on #355: the box stays editable while Apply is in flight, and the old code's refusal
+    // was drawn under the new code, marking it invalid. The answer is about the code SUBMITTED.
+    let answer: (r: Awaited<ReturnType<typeof applyPromoAction>>) => void = () => {};
+    vi.mocked(applyPromoAction).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    bill();
+    fireEvent.change(box(), { target: { value: "NOPE" } });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: /^Apply/ }).closest("form")!);
+    });
+    fireEvent.change(box(), { target: { value: "SAVE10" } });
+    await act(async () => answer({ ok: false, reason: "invalid" }));
+    await settle();
+    await waitFor(() => expect(regionText()).toContain("That code isn’t valid."));
+    // MUTATION uia11y/f20-stale-promo-refusal-bound: red.
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+    expect(described(box())).toBe("");
+  });
+
   it("focus moved INTO the box during the round trip: the region says it, since moving focus there says nothing", async () => {
     // Blind pass on #355: the voice was fixed at the press. A keyboard Apply chose "focus", the
     // diner tabbed back into the box while the server answered, and `.focus()` on the focused box

@@ -611,9 +611,12 @@ export function MenuBrowser({
       still: () => wasEmpty.current,
     });
   }, [empty, items.length, announce]);
-  // The diet sheet's count sentence, through the same region and on the same terms (DietFilterButton).
+  // The diet sheet's count sentence, through the same region and on the same terms (DietFilterButton),
+  // and asked again the same way: a count deferred behind a visible toast is said only while it is
+  // still the sheet's sentence (Codex on #355 — filters cleared inside that window made it false).
   const announceDietMatches = useCallback(
-    (sentence: string) => announce(sentence, undefined, undefined, { quiet: true, kind: "claim" }),
+    (sentence: string, still: () => boolean) =>
+      announce(sentence, undefined, undefined, { quiet: true, kind: "claim", still }),
     [announce],
   );
 

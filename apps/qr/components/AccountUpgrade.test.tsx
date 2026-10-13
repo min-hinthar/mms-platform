@@ -1130,4 +1130,58 @@ describe("F20 · blind pass on #355 — the voice is settled at the ANSWER, not 
       "Token has expired or is invalid",
     );
   });
+
+  /** Codex on #355 — the boxes stay editable through the round trip, so the answer is about the
+   *  value SUBMITTED; a box retyped meanwhile is not marked by the old value's refusal, and the card
+   *  says it instead. */
+  it("the address retyped during the round trip: the old address's refusal is the card's, the new box left valid", async () => {
+    let answer: (v: { error: { message: string; code: string } }) => void = () => {};
+    auth.signInWithOtp.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "nobody@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalled());
+    fireEvent.change(box(), { target: { value: "me@example.com" } });
+    await act(async () =>
+      answer({ error: { message: "Signups not allowed for otp", code: "otp_disabled" } }),
+    );
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(NO_ACCOUNT));
+    // MUTATION uia11y/f20-stale-address-refusal-bound: red.
+    expect(box().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("the code retyped during the round trip: the old code's refusal is the card's, the new box left valid", async () => {
+    let answer: (v: { error: { message: string } }) => void = () => {};
+    auth.verifyOtp.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    const code = (await screen.findByLabelText(
+      /6-digit code sent to me@example.com/i,
+    )) as HTMLInputElement;
+    fireEvent.change(code, { target: { value: "000000" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Confirm & sign in/i }).closest("form")!);
+    await waitFor(() => expect(auth.verifyOtp).toHaveBeenCalled());
+    fireEvent.change(code, { target: { value: "111111" } });
+    await act(async () => answer({ error: { message: "Token has expired or is invalid" } }));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("Token has expired or is invalid"),
+    );
+    // MUTATION uia11y/f20-stale-code-refusal-bound: red.
+    expect(code.getAttribute("aria-invalid")).toBeNull();
+  });
 });

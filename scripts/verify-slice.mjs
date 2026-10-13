@@ -6073,8 +6073,9 @@ const MUTANTS = [
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the sign-in send binds only a refusal of the address; bound unconditionally, the reworded otp_disabled outage and a dropped request land under the box as if the address were wrong",
     // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
-    find: "        if (boxVoice && refusesTheAddress(e0))\n          setFieldRefusal(",
-    replace: "        if (boxVoice)\n          setFieldRefusal(",
+    find: "        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))\n          setFieldRefusal(",
+    replace:
+      "        if (boxVoice && boxHolds(emailRef.current, addr))\n          setFieldRefusal(",
   },
   {
     id: "uia11y/f20-sign-in-door-forgets-the-box",
@@ -6090,8 +6091,8 @@ const MUTANTS = [
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the save path (updateUser) binds only GoTrue's refusal of the address; bound unconditionally, a dropped connection marks the address wrong",
     // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
-    find: "      if (refusesTheAddress(e1))\n        setFieldRefusal(",
-    replace: "      if (true)\n        setFieldRefusal(",
+    find: "      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))\n        setFieldRefusal(",
+    replace: "      if (boxHolds(emailRef.current, addr))\n        setFieldRefusal(",
   },
   {
     id: "uia11y/f20-save-path-refusal-unbound",
@@ -6099,7 +6100,7 @@ const MUTANTS = [
     suite: "components/AccountUpgrade.test.tsx",
     why: "F20 — GoTrue refusing THIS address on the save path (email_address_invalid) is the box's; unbound, it is a region sentence with no box marked",
     // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
-    find: '      if (refusesTheAddress(e1))\n        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });\n',
+    find: '      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))\n        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });\n',
     replace: "",
   },
   {
@@ -6108,8 +6109,8 @@ const MUTANTS = [
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the code step binds only a wrong or expired code; bound unconditionally, a rate limit marks the code wrong and moves focus to it",
     // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
-    find: "      if (refusesTheCode(e2))\n        setFieldRefusal(",
-    replace: "      if (true)\n        setFieldRefusal(",
+    find: "      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n        setFieldRefusal(",
+    replace: "      if (boxHolds(codeRef.current, submitted))\n        setFieldRefusal(",
   },
   {
     id: "uia11y/f20-code-refusal-unbound",
@@ -6117,7 +6118,7 @@ const MUTANTS = [
     suite: "components/AccountUpgrade.test.tsx",
     why: "F20 — a code that did not match is the code box's refusal; unbound, the box is never marked and focus never reaches it",
     // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
-    find: '      if (refusesTheCode(e2))\n        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });\n',
+    find: '      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });\n',
     replace: "",
   },
   {
@@ -6267,6 +6268,38 @@ const MUTANTS = [
     why: "F20 · blind pass on #355 — retyping clears the box's refusal; left in `status`, the region's hidden voice of it is no longer hidden and is DRAWN under the totals as a refusal of a code nobody has applied",
     find: "                            setStatus((cur) => (cur === said ? null : cur));\n",
     replace: "",
+  },
+  {
+    id: "uia11y/f20-stale-address-refusal-bound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · Codex on #355 — the address box stays editable through the round trip; bound without asking whether the box still holds the refused address, the old address's refusal is drawn under a newly typed one and marks it invalid",
+    find: "        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))\n",
+    replace: "        if (boxVoice && refusesTheAddress(e0))\n",
+  },
+  {
+    id: "uia11y/f20-stale-code-refusal-bound",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · Codex on #355 — the code box stays editable through verifyOtp; the old code's refusal bound to a newly typed code marks the new code wrong",
+    find: "      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))\n",
+    replace: "      if (refusesTheCode(e2))\n",
+  },
+  {
+    id: "uia11y/f20-stale-promo-refusal-bound",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "F20 · Codex on #355 — the promo box stays editable while Apply is in flight; the old code's refusal drawn under a newly typed code marks it invalid",
+    find: "          promoRefusalOnField(result.reason) &&\n          promoEl.current?.value.trim() === code\n",
+    replace: "          promoRefusalOnField(result.reason)\n",
+  },
+  {
+    id: "uia11y/f31-diet-count-not-asked-again",
+    file: "apps/qr/components/menu/DietFilterButton.tsx",
+    suite: "components/menu/MenuBrowser.test.tsx",
+    why: "F31 · Codex on #355 — the diet count is a quiet claim that waits behind a visible toast; never asked again, it is said after the filters it counted were unlit",
+    find: "announce(now, () => heard.current === now)",
+    replace: "announce(now, () => true)",
   },
   {
     id: "uia11y/f20-promo-said-outlives-the-order",
