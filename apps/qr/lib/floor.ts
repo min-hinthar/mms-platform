@@ -54,7 +54,7 @@ import { surfaceOpen } from "./surfaces";
 import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
 import { foldFloorKitchen, servedUnsettled, type FloorKitchenRow } from "./floor-kitchen";
-import { settleLeftMs } from "./bump-settle";
+import { settleLeftMs, soonerMs } from "./bump-settle";
 import { PAID_KITCHEN_CAP, paidRoundKitchen } from "./paid-round";
 import { trackStage } from "./kitchen-track";
 import { queueEmptiness } from "./queue-window";
@@ -263,6 +263,10 @@ export async function getFloorView(): Promise<FloorPoll> {
   // the query above admits dine-in only, so a kiosk pickup can no longer reach this list at all.
   const floorSessions = sessions ?? [];
   const sessionIds = floorSessions.map((s) => s.id);
+  // #360 (Codex P2) — a COUNTER-ONLY floor (no table open) still schedules the settle re-read for a
+  // counter order's bump inside Mom's undo window: the early return below used to skip it, so the
+  // floor lagged the expo lane by up to a poll. The tables' rows join this below when there are any.
+  const counterSettleInMs = settleLeftMs([...counter.lines.values()].flat(), serverNow);
   if (sessionIds.length === 0)
     return {
       ok: true,
@@ -274,6 +278,7 @@ export async function getFloorView(): Promise<FloorPoll> {
         registry,
         thresholds,
         kitchenUnknown: false,
+        settleInMs: counterSettleInMs,
       },
     };
 
@@ -621,9 +626,9 @@ export async function getFloorView(): Promise<FloorPoll> {
   // The lifecycle audit — "ready to serve" waits out Mom's undo window (`foldFloorKitchen`), and the
   // database says nothing when it closes: ONE re-read is scheduled for the earliest bump on the floor
   // (the tables' kitchen rows and the counter orders' lines alike), on the DB clock.
-  const settleInMs = settleLeftMs(
-    [...[...kitchenRowsBySession.values()].flat(), ...[...counter.lines.values()].flat()],
-    serverNow,
+  const settleInMs = soonerMs(
+    settleLeftMs([...kitchenRowsBySession.values()].flat(), serverNow),
+    counterSettleInMs,
   );
   return {
     ok: true,
