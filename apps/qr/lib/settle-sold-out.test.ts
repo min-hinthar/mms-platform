@@ -1,16 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UNSENT_UNREADABLE_REFUSAL, soldOutRefusal } from "./settle-refusal";
+import { soldOutUnreadableRefusal, soldOutUnseenRefusal } from "./settle-sold-out";
 
 /**
- * The lifecycle audit (2026-10-13) — the staff settle doors refuse a DRAFT dish that is sold out.
- *
- * The staff unsent gate counts only dine-in drafts, so a to-go draft at a table, or a counter order's
- * draft, went through cash or a card-on-file close: the guest was charged for the 86'd dish and
- * settlement then FIRED it to the kitchen (`mms_fire_pending_food`) — a paid cart cannot be voided,
- * so the only way back was a manager's refund. The diner's own door refuses the same basket. The read
- * runs UNDER the freeze, BEFORE the unsent read and the totals; a refusal releases its own freeze;
- * an unreadable catalog refuses (the staff doors fail CLOSED); and a clean basket still settles.
- * (The reader's door, `settleCard`, is pinned in terminal.test.ts.)
+ * The lifecycle audit (2026-10-13), as reworked on #360 — a SOLD-OUT draft at a staff door is a
+ * RE-WARNING, never a block (PD8's acknowledged-ids pattern, PATH_DESIGN decision 4). The server
+ * refuses `sold_out_unseen` only when a sold-out draft exists that the tap did NOT display, so staff
+ * always see it before money moves; an acknowledged one settles (and settlement still fires it — the
+ * KDS line wears its sold-out tag). The read runs UNDER the freeze, BEFORE the unsent read and the
+ * totals; every refusal releases its own freeze; an unreadable read follows PD8's
+ * `approval_unreadable` (fail closed, retry). (The reader's door is pinned in terminal.test.ts.)
  */
 
 vi.mock("server-only", () => ({}));
@@ -181,68 +179,80 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-const MOHINGA = { id: "m-1", name: "Mohinga" };
+const MOHINGA = { id: "11111111-1111-4111-8111-111111111111", name: "Mohinga" };
+const TEA = { id: "22222222-2222-4222-8222-222222222222", name: "Tea leaf salad" };
+const cash = (ack: string[] = []) =>
+  settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368, acknowledgedSoldOutIds: ack });
+const tabClose = (ack: string[] = []) =>
+  closeSecureTab({ sessionId: SESSION, quotedCents: 4368, acknowledgedSoldOutIds: ack });
 
-describe("settleCash — a sold-out draft is never charged and then fired", () => {
-  it("refuses naming the dish, records nothing, reads no totals, and releases its own freeze", async () => {
-    // lck/staff-cart/cash-charges-a-sold-out-draft — the counter took cash for the 86'd dish and the
-    // after() fire sent it to a kitchen that could not make it.
+describe("settleCash — a sold-out draft is SEEN before money moves, never blocked", () => {
+  it("an UNSEEN sold-out draft refuses naming it, records nothing, reads no totals, releases its freeze", async () => {
+    // lck/staff-cart/cash-charges-an-unseen-sold-out-draft — the counter took cash for the 86'd dish
+    // nobody had been shown, and the after() fire sent it to a kitchen that could not make it.
     session = { id: SESSION, mode: "pickup", qr_code: "reg-7K2Q" };
     rows = [{ state: "draft", fulfillment: "togo", qty: 1 }];
     availability = { ok: true, lines: [MOHINGA] };
-    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
-    expect(r).toEqual(soldOutRefusal(["Mohinga"]));
+    expect(await cash()).toEqual(soldOutUnseenRefusal([MOHINGA]));
     expect(cashRecorded()).toBe(false);
     expect(ops).toEqual(["acquire", "sold-out-read", "release"]);
     releasedOwnFreeze();
   });
 
-  it("an unreadable catalog refuses, typed `unreadable` — never 'nothing is sold out'", async () => {
+  it("an ACKNOWLEDGED sold-out draft settles — a re-warning, never a block", async () => {
+    // lck/settle-sold-out/acknowledgement-ignored — the tap displayed it and was refused anyway; red.
+    session = { id: SESSION, mode: "pickup", qr_code: "reg-7K2Q" };
+    availability = { ok: true, lines: [MOHINGA] };
+    expect(await cash([MOHINGA.id])).toMatchObject({ ok: true, orderId: "order-1" });
+    expect(cashRecorded()).toBe(true);
+  });
+
+  it("one dish acknowledged and a NEW one not: refused, naming every sold-out dish for the next tap", async () => {
+    availability = { ok: true, lines: [MOHINGA, TEA] };
+    expect(await cash([MOHINGA.id])).toEqual(soldOutUnseenRefusal([MOHINGA, TEA]));
+    expect(cashRecorded()).toBe(false);
+    releasedOwnFreeze();
+  });
+
+  it("an unreadable read follows PD8's unreadable rule: refused with a retry, freeze released", async () => {
     // lck/staff-cart/cash-sold-out-read-fails-open
     availability = { ok: false };
-    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
-    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
+    expect(await cash([MOHINGA.id])).toEqual(soldOutUnreadableRefusal());
     expect(cashRecorded()).toBe(false);
     releasedOwnFreeze();
   });
 
   it("a basket with nothing sold out settles exactly as before", async () => {
     rows = [{ state: "draft", fulfillment: "togo", qty: 1 }];
-    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
-    expect(r).toMatchObject({ ok: true, orderId: "order-1" });
+    expect(await cash()).toMatchObject({ ok: true, orderId: "order-1" });
     expect(ops.slice(0, 3)).toEqual(["acquire", "sold-out-read", "unsent-read"]);
   });
 });
 
-describe("closeSecureTab — a sold-out draft never rides an off-session charge", () => {
-  it("refuses naming the dish, mints NO PaymentIntent, and releases the freeze it took", async () => {
-    // lck/staff-cart/tab-close-charges-a-sold-out-draft
+describe("closeSecureTab — an unseen sold-out draft never rides an off-session charge", () => {
+  it("refuses an UNSEEN one naming it, mints NO PaymentIntent, and releases the freeze it took", async () => {
+    // lck/staff-cart/tab-close-charges-an-unseen-sold-out-draft · tab-close-sold-out-freeze-kept
     tabType = "secure";
     rows = [{ state: "draft", fulfillment: "togo", qty: 1 }];
-    availability = { ok: true, lines: [MOHINGA, { id: "t-1", name: "Tea leaf salad" }] };
-    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 });
-    expect(r).toEqual(soldOutRefusal(["Mohinga", "Tea leaf salad"]));
+    availability = { ok: true, lines: [MOHINGA, TEA] };
+    expect(await tabClose()).toEqual(soldOutUnseenRefusal([MOHINGA, TEA]));
     expect(charged()).toBe(false);
     expect(ops).toEqual(["acquire", "sold-out-read", "release"]);
     releasedOwnFreeze();
   });
 
-  it("an unreadable catalog refuses and releases; a clean bill charges the server's total", async () => {
+  it("an unreadable read refuses and releases; an ACKNOWLEDGED one charges the server's total", async () => {
     // lck/staff-cart/tab-close-sold-out-read-fails-open
     tabType = "secure";
     availability = { ok: false };
-    expect(await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 })).toEqual({
-      ok: false,
-      code: "unreadable",
-      error: UNSENT_UNREADABLE_REFUSAL,
-    });
+    expect(await tabClose()).toEqual(soldOutUnreadableRefusal());
     expect(charged()).toBe(false);
     releasedOwnFreeze();
     ops = [];
     owners = [];
-    availability = { ok: true, lines: [] };
+    availability = { ok: true, lines: [MOHINGA] };
     rows = [{ state: "fired", fulfillment: "dinein", qty: 3 }];
-    expect(await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 })).toEqual({ ok: true });
+    expect(await tabClose([MOHINGA.id])).toEqual({ ok: true });
     expect(ops).toContain("pi.create:4368");
   });
 });

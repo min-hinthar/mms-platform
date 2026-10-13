@@ -22,14 +22,18 @@ import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import {
   settleRefusal,
-  soldOutRefusal,
-  staffSettleSoldOutVerdict,
   unreadableRefusal,
   unsentRefusal,
   type UnreadableRefusal,
-  type SoldOutRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
+import {
+  soldOutUnreadableRefusal,
+  soldOutUnseenRefusal,
+  staffSettleSoldOutVerdict,
+  type SoldOutUnreadableRefusal,
+  type SoldOutUnseenRefusal,
+} from "./settle-sold-out";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
@@ -109,8 +113,10 @@ export type SettleCashRefusal =
   | InFlightRefusal
   | UnsentRefusal
   | UnreadableRefusal
-  // The lifecycle audit — a draft dish that is sold out (named); the door fails closed.
-  | SoldOutRefusal
+  // The lifecycle audit — a sold-out draft THIS tap did not display (a re-warning, never a block),
+  // or the availability read could not be made (the door fails closed; the same tap retries).
+  | SoldOutUnseenRefusal
+  | SoldOutUnreadableRefusal
   // PD8 — a request waits that THIS tap did not display (a re-warning, never a block), or the
   // pending read could not be made (the door fails closed; the same tap retries).
   | ApprovalPendingRefusal
@@ -406,7 +412,8 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents, quotedCents, acknowledgedApprovalIds } = parsed.data;
+  const { sessionId, tipCents, quotedCents, acknowledgedApprovalIds, acknowledgedSoldOutIds } =
+    parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -471,12 +478,17 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
     // P2dc (owner decision 5a) — an UNREADABLE count refuses here: the staff doors fail CLOSED (this
     // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
-    // The lifecycle audit — a DRAFT dish sold out since it was added (the diner's create-intent
-    // refuses the same basket): never charged, and never fired to a kitchen that cannot make it.
-    // First, because "send it" is the wrong fix for a dish the kitchen does not have. Fails CLOSED.
-    const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
-    if (soldOut === "unreadable") return unreadableRefusal();
-    if (soldOut !== null) return soldOutRefusal(soldOut);
+    // The lifecycle audit — a DRAFT dish sold out since it was added: PD8's acknowledgement
+    // (`settle-sold-out.ts`) — refused only when the tap did not DISPLAY it (the door names it and
+    // the next tap passes: a re-warning, never a block); an unreadable read refuses with a retry
+    // (P2dc). First, because "send it" is the wrong fix for a dish the kitchen does not have.
+    // Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    const soldOut = staffSettleSoldOutVerdict(
+      await unavailableLines(cart.id),
+      acknowledgedSoldOutIds,
+    );
+    if (soldOut === "unreadable") return soldOutUnreadableRefusal();
+    if (soldOut !== null) return soldOutUnseenRefusal(soldOut.all);
     const unsentUnits = await readKitchenDraftUnits(cart.id);
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
     if (unsent === "unreadable") return unreadableRefusal();
@@ -745,7 +757,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // tab-close tips were supported and merely forgotten.
   // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
   // `acknowledgedApprovalIds` is COMPARE-ONLY too (PD8): the pending request ids THIS door displayed.
-  const { sessionId, quotedCents, acknowledgedApprovalIds } = parsed.data;
+  const { sessionId, quotedCents, acknowledgedApprovalIds, acknowledgedSoldOutIds } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -798,12 +810,18 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
   // (P2cy: no add lands after the acquire — see settleCash. P2dc: an unreadable count refuses.)
-  // The lifecycle audit — a sold-out DRAFT dish never rides an off-session charge (settleCash's
-  // gate; fails closed), and this refusal releases its own attempt like the unsent one below.
-  const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
+  // The lifecycle audit — a sold-out DRAFT dish the tap did not display never rides an off-session
+  // charge (settleCash's acknowledgement, PD8's pattern); an unreadable read refuses with a retry.
+  // Either refusal releases its own attempt, like the unsent one below.
+  const soldOut = staffSettleSoldOutVerdict(
+    await unavailableLines(cart.id),
+    acknowledgedSoldOutIds,
+  );
   if (soldOut !== null) {
     await releaseSettlementFor(cart.id, attempt);
-    return soldOut === "unreadable" ? unreadableRefusal() : soldOutRefusal(soldOut);
+    return soldOut === "unreadable"
+      ? soldOutUnreadableRefusal()
+      : soldOutUnseenRefusal(soldOut.all);
   }
   const unsentUnits = await readKitchenDraftUnits(cart.id);
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);

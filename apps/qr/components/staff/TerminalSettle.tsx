@@ -12,6 +12,7 @@ import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
 import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
+import { soldOutWarned } from "@/lib/settle-sold-out";
 // ── Phase 2g · reader ──
 import {
   readerAlertKey,
@@ -49,8 +50,10 @@ type SettleError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
   | { kind: "unreadable" }
-  // The lifecycle audit — a draft dish sold out (named); the reader was never asked.
-  | { kind: "soldOut"; dishes: string[] }
+  // #360 — a sold-out draft this tap did not display (PD8's re-warning, never a block): named; the
+  // next tap passes. Or the availability read failed (the same tap retries). The reader was never asked.
+  | { kind: "soldOut"; dishes: string }
+  | { kind: "soldOutUnreadable" }
   // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
   | { kind: "approvalPending"; dish: string }
   // PD8 — the pending read failed; the reader was never asked, the same tap retries.
@@ -104,6 +107,7 @@ export function TerminalSettleButton({
   blockedNoteId,
   onBlockedTap,
   acknowledgedApprovalIds,
+  acknowledgedSoldOutIds,
   onApprovalPending,
   running = false,
   gateLive,
@@ -131,6 +135,9 @@ export function TerminalSettleButton({
   /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS tap as the
    *  acknowledgement (never read into an amount). */
   acknowledgedApprovalIds?: readonly string[];
+  /** #360 — the SOLD-OUT draft dishes (menu ids) THIS door displays: sent at ITS tap, PD8's
+   *  acknowledgement for a dish 86'd since it was added. */
+  acknowledgedSoldOutIds?: readonly string[];
   /** PD8 — the server re-warned: the page re-draws the flag card with the server's list and says
    *  `dishes`, the ones this tap did NOT acknowledge (`reWarning`). */
   onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
@@ -195,6 +202,9 @@ export function TerminalSettleButton({
   const warned = useRef<string[]>([]);
   // What the last start SENT as its acknowledgement — the re-warning names what it did not cover.
   const sentAck = useRef<string[]>([]);
+  // #360 — the sold-out halves: what this door's last re-warning named, and what the last start SENT.
+  const soldOutWarnedIds = useRef<string[]>([]);
+  const sentSoldOutAck = useRef<string[]>([]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -219,16 +229,18 @@ export function TerminalSettleButton({
             ? { kind: "unsent", units: res.units }
             : res.code === "unreadable"
               ? { kind: "unreadable" }
-              : res.code === "sold_out"
-                ? { kind: "soldOut", dishes: res.dishes }
-                : res.code === "approval_pending"
-                  ? {
-                      kind: "approvalPending",
-                      dish: reWarning(res.pending, sentAck.current).dishes,
-                    }
-                  : res.code === "approval_unreadable"
-                    ? { kind: "approvalUnreadable" }
-                    : { kind: "server", text: res.error },
+              : res.code === "sold_out_unseen"
+                ? { kind: "soldOut", dishes: soldOutWarned(res.dishes, sentSoldOutAck.current) }
+                : res.code === "sold_out_unreadable"
+                  ? { kind: "soldOutUnreadable" }
+                  : res.code === "approval_pending"
+                    ? {
+                        kind: "approvalPending",
+                        dish: reWarning(res.pending, sentAck.current).dishes,
+                      }
+                    : res.code === "approval_unreadable"
+                      ? { kind: "approvalUnreadable" }
+                      : { kind: "server", text: res.error },
       );
       // PD8 — a request this tap did not display: the page re-draws the flag card naming it and
       // says so in its one region; the next tap acknowledges what it shows.
@@ -242,8 +254,12 @@ export function TerminalSettleButton({
         onChanged?.();
         onBlockedTap?.(res.units);
       }
-      // The lifecycle audit — the page re-reads so the sold-out lines wear their tag.
-      if (res.code === "sold_out") onChanged?.();
+      // #360 — the next tap acknowledges everything the refusal carried; the page re-reads so its
+      // warning names the dish too.
+      if (res.code === "sold_out_unseen") {
+        soldOutWarnedIds.current = res.dishes.map((d) => d.id);
+        onChanged?.();
+      }
       return;
     }
     // The collect starts in the PROVIDER, with the tap's facts — never through a closure of the
@@ -314,11 +330,16 @@ export function TerminalSettleButton({
       // PaymentIntent carries it, so a reloaded tablet resumes THIS start and no other tablet's.
       // PD8 — the ids this door displays at ITS tap ride the start as the acknowledgement.
       sentAck.current = ackForTap(acknowledgedApprovalIds ?? [], warned.current);
+      sentSoldOutAck.current = ackForTap(acknowledgedSoldOutIds ?? [], soldOutWarnedIds.current);
       const out = await boundWrite(
         settleCard({
           sessionId,
           startId: pending,
           acknowledgedApprovalIds: sentAck.current,
+          // #360 — omitted when empty (the schema defaults it).
+          ...(sentSoldOutAck.current.length > 0
+            ? { acknowledgedSoldOutIds: sentSoldOutAck.current }
+            : {}),
         }),
       );
       if (out.kind === "answer") {
@@ -428,10 +449,12 @@ export function TerminalSettleButton({
             ) : error.kind === "soldOut" ? (
               <Chrome
                 lang={lang}
-                k="settle.soldOut"
-                vars={{ x: error.dishes.join(", ") }}
+                k="settle.soldOut.warned"
+                vars={{ x: error.dishes }}
                 echo={false}
               />
+            ) : error.kind === "soldOutUnreadable" ? (
+              <Chrome lang={lang} k="settle.soldOut.unreadable" echo={false} />
             ) : error.kind === "approvalPending" ? (
               <Chrome
                 lang={lang}

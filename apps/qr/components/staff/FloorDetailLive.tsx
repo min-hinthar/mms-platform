@@ -31,6 +31,8 @@ import { ReceiptStack } from "./ReceiptStack";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { PaidRoundKitchen } from "./PaidRoundKitchen";
+import { SoldOutDraftsWarning } from "./SoldOutDraftsWarning";
+import { displayedSoldOut } from "@/lib/settle-sold-out";
 import { CashSettleButton } from "./CashSettleButton";
 import { TerminalSettleButton, TerminalCollectPanel } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
@@ -632,6 +634,12 @@ export function FloorDetailLive({
     [lang, onChange],
   );
   const acknowledgedApprovalIds = detail.pendingRequests.map((r) => r.id);
+  // #360 — the SOLD-OUT drafts the page names above the doors (PD8's pattern for an 86'd dish): the
+  // doors acknowledge exactly these dishes at their tap; the warning offers Remove first.
+  const acknowledgedSoldOutIds = displayedSoldOut(detail.lines);
+  const soldOutDrafts = detail.lines.filter(
+    (l) => l.state === "draft" && l.soldOut && l.menuItemId !== null,
+  );
 
   useEffect(() => {
     alive.current = true;
@@ -1270,7 +1278,11 @@ export function FloorDetailLive({
               (or just out): the floor card counts it, so the page names it, dish by dish, with its
               stage. Read-only; above the open round or the settled record. */}
           {detail.paidKitchen && detail.paidKitchen.length > 0 && (
-            <PaidRoundKitchen lang={lang} lines={detail.paidKitchen} />
+            <PaidRoundKitchen
+              lang={lang}
+              lines={detail.paidKitchen}
+              capped={detail.paidKitchenCapped === true}
+            />
           )}
           {detail.lines.length === 0 ? (
             <p style={muted}>
@@ -1640,6 +1652,17 @@ export function FloorDetailLive({
                 focusAfterDecision={focusSettleHeading}
               />
             )}
+            {/* #360 — a sold-out DRAFT: named above the doors, Remove first; the doors stay live and
+                tapping one acknowledges exactly these dishes (a re-warning, never a block). */}
+            {soldOutDrafts.length > 0 && canWrite && (
+              <SoldOutDraftsWarning
+                lang={lang}
+                sessionId={sessionId}
+                lines={soldOutDrafts}
+                onError={onWriteError}
+                onChanged={onChange}
+              />
+            )}
             {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
@@ -1650,6 +1673,7 @@ export function FloorDetailLive({
                 variant="primary"
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
@@ -1690,6 +1714,7 @@ export function FloorDetailLive({
               // PD8 — tapping Take cash with a flag up IS the acknowledgement: exactly these ids.
               // The trigger is never dimmed; it is described by the consequence sentence first.
               acknowledgedApprovalIds={acknowledgedApprovalIds}
+              acknowledgedSoldOutIds={acknowledgedSoldOutIds}
               onApprovalPending={onApprovalPending}
               totalPending={totalPending}
               describedBy={detail.pendingRequests.length > 0 ? FLAG_CONSEQUENCE_ID : undefined}
@@ -1744,6 +1769,7 @@ export function FloorDetailLive({
                 gateLive={settleGate !== null}
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 onSettleOutcome={onSettleOutcome}
               />

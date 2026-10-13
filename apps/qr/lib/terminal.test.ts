@@ -1024,13 +1024,13 @@ describe("settleCard — refused mid-payment, TRUTHFULLY and as a typed code (P2
   });
 });
 
-describe("settleCard — the lifecycle audit: a sold-out draft is never charged on the reader", () => {
-  it("refuses naming the dish BEFORE any PaymentIntent, and releases THIS attempt's freeze", async () => {
-    // lck/terminal/card-charges-a-sold-out-draft — the reader charged the 86'd dish and the
-    // webhook's fire sent it to a kitchen that could not make it.
-    availability = { ok: true, lines: [{ id: "m-1", name: "Mohinga" }] };
+describe("settleCard — the lifecycle audit: an UNSEEN sold-out draft is never charged on the reader", () => {
+  const MOHINGA = { id: "11111111-1111-4111-8111-111111111111", name: "Mohinga" };
+  it("refuses one the tap did not display BEFORE any PaymentIntent, and releases THIS attempt's freeze", async () => {
+    // lck/terminal/card-charges-an-unseen-sold-out-draft · card-sold-out-freeze-kept
+    availability = { ok: true, lines: [MOHINGA] };
     const r = await settleCard({ sessionId: SESSION });
-    expect(r).toMatchObject({ ok: false, code: "sold_out", dishes: ["Mohinga"] });
+    expect(r).toMatchObject({ ok: false, code: "sold_out_unseen", dishes: [MOHINGA] });
     expect(calls.map((c) => c.op)).toEqual(["acquire", "sold-out-read", "releaseFor"]);
     const acq = calls.find((c) => c.op === "acquire")?.args as { uid: string };
     expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
@@ -1039,18 +1039,23 @@ describe("settleCard — the lifecycle audit: a sold-out draft is never charged 
     });
   });
 
-  it("an unreadable catalog refuses before any PaymentIntent; a clean basket starts the reader", async () => {
+  it("an ACKNOWLEDGED one starts the reader — a re-warning, never a block", async () => {
+    availability = { ok: true, lines: [MOHINGA] };
+    expect(
+      (await settleCard({ sessionId: SESSION, acknowledgedSoldOutIds: [MOHINGA.id] })).ok,
+    ).toBe(true);
+    expect(calls.map((c) => c.op)).toContain("pi.create");
+  });
+
+  it("an unreadable read refuses before any PaymentIntent (PD8's unreadable rule) and releases", async () => {
     // lck/terminal/card-sold-out-read-fails-open
     availability = { ok: false };
     expect(await settleCard({ sessionId: SESSION })).toMatchObject({
       ok: false,
-      code: "unreadable",
+      code: "sold_out_unreadable",
     });
     expect(calls.map((c) => c.op)).not.toContain("pi.create");
-    calls = [];
-    availability = { ok: true, lines: [] };
-    expect((await settleCard({ sessionId: SESSION })).ok).toBe(true);
-    expect(calls.map((c) => c.op)).toContain("pi.create");
+    expect(calls.map((c) => c.op)).toContain("releaseFor");
   });
 });
 

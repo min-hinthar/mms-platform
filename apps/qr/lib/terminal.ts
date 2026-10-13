@@ -19,14 +19,18 @@ import {
 import { acquireSettlementSuperseding } from "./supersede";
 import {
   settleRefusal,
-  soldOutRefusal,
-  staffSettleSoldOutVerdict,
   unreadableRefusal,
   unsentRefusal,
   type UnreadableRefusal,
-  type SoldOutRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
+import {
+  soldOutUnreadableRefusal,
+  soldOutUnseenRefusal,
+  staffSettleSoldOutVerdict,
+  type SoldOutUnreadableRefusal,
+  type SoldOutUnseenRefusal,
+} from "./settle-sold-out";
 import type Stripe from "stripe";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
@@ -103,8 +107,10 @@ export type SettleCardResult =
   // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
   | UnsentRefusal
   | UnreadableRefusal
-  // The lifecycle audit — a draft dish that is sold out (named); nothing was minted.
-  | SoldOutRefusal
+  // The lifecycle audit — a sold-out draft this tap did not display (a re-warning, never a block),
+  // or the availability read failed; nothing was minted either way.
+  | SoldOutUnseenRefusal
+  | SoldOutUnreadableRefusal
   // PD8 — a request waits that this tap did not display (a re-warning), or the pending read failed.
   | ApprovalPendingRefusal
   | ApprovalsUnreadableRefusal;
@@ -122,7 +128,7 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   const parsed = terminalStartInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   // `acknowledgedApprovalIds` is COMPARE-ONLY (PD8): the pending request ids THIS door displayed.
-  const { sessionId, startId, acknowledgedApprovalIds } = parsed.data;
+  const { sessionId, startId, acknowledgedApprovalIds, acknowledgedSoldOutIds } = parsed.data;
 
   // Feature-off when the reader env is unset (the /board opt-in pattern): refuse before any money
   // work — the UI also hides the Card option, but the action is the gate.
@@ -176,12 +182,18 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   // so no dish can land after the acquire above and ride the PaymentIntent below (this path has no
   // compare-and-swap; the lock is what closes the race). P2dc (owner decision 5a) — an UNREADABLE
   // count refuses: no PaymentIntent is minted over a gate nobody could check.
-  // The lifecycle audit — a sold-out DRAFT dish is never charged on the reader and then fired to a
-  // kitchen that cannot make it (settleCash's gate; fails closed). Released like the unsent refusal.
-  const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
+  // The lifecycle audit — a sold-out DRAFT dish the tap did not display is never charged on the
+  // reader (settleCash's acknowledgement, PD8's pattern: a re-warning, never a block); an unreadable
+  // read refuses with a retry. Either refusal releases this attempt, like the unsent one below.
+  const soldOut = staffSettleSoldOutVerdict(
+    await unavailableLines(cart.id),
+    acknowledgedSoldOutIds,
+  );
   if (soldOut !== null) {
     await releaseSettlementFor(cart.id, attemptId);
-    return soldOut === "unreadable" ? unreadableRefusal() : soldOutRefusal(soldOut);
+    return soldOut === "unreadable"
+      ? soldOutUnreadableRefusal()
+      : soldOutUnseenRefusal(soldOut.all);
   }
   const unsentUnits = await readKitchenDraftUnits(cart.id);
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);

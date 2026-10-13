@@ -989,13 +989,17 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     expect(take().getAttribute("aria-disabled")).toBeNull();
   });
 
-  it("a server `sold_out` refusal names the dishes in the device language, and the page re-reads", async () => {
+  it("an UNSEEN sold-out refusal re-warns in the device language, and the NEXT Take acknowledges it — never a block (#360)", async () => {
     // lck/cash-settle/sold-out-said-as-server — the server's English through <OutageText> on a
-    // Burmese console; the page never re-read, so the line did not show its Sold out tag.
+    // Burmese console; the page never re-read, so its warning did not name the dish.
+    // lck/cash-settle/sold-out-warning-unacknowledged — the next Take sent nothing it was shown,
+    // and was refused again: a block, not a re-warning.
+    const M = { id: "11111111-1111-4111-8111-111111111111", name: "Mohinga" };
+    const T = { id: "22222222-2222-4222-8222-222222222222", name: "Tea" };
     settleCash.mockResolvedValueOnce({
       ok: false,
-      code: "sold_out",
-      dishes: ["Mohinga", "Tea"],
+      code: "sold_out_unseen",
+      dishes: [M, T],
       error: "english",
     });
     const onChanged = vi.fn();
@@ -1006,7 +1010,43 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
           totalCents={4210}
           tipBaseCents={4000}
           onChanged={onChanged}
+          acknowledgedSoldOutIds={[M.id]}
         />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    const take = () =>
+      within(dialog)
+        .getAllByRole("button")
+        .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take());
+    });
+    // the page displayed Mohinga, so the refusal names only the dish this tap had NOT seen
+    expect(settleCash.mock.calls[0]![0]).toMatchObject({ acknowledgedSoldOutIds: [M.id] });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      tf("my", "settle.soldOut.warned", { x: "Tea" }),
+    );
+    expect(onChanged).toHaveBeenCalled();
+    // the next Take carries everything the re-warning named
+    settleCash.mockResolvedValueOnce({ ok: false, code: "sold_out_unreadable", error: "x" });
+    await act(async () => {
+      fireEvent.click(take());
+    });
+    expect(
+      [
+        ...(settleCash.mock.calls[1]![0] as { acknowledgedSoldOutIds: string[] })
+          .acknowledgedSoldOutIds,
+      ].sort(),
+    ).toEqual([M.id, T.id].sort());
+  });
+
+  it("an unreadable sold-out read says PD8's retry sentence, and Take stays armed", async () => {
+    settleCash.mockResolvedValueOnce({ ok: false, code: "sold_out_unreadable", error: "english" });
+    render(
+      <StaffLangProvider lang="en">
+        <CashSettleButton sessionId="s1" totalCents={4210} tipBaseCents={4000} />
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getAllByRole("button")[0]!);
@@ -1019,9 +1059,8 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
       );
     });
     expect(within(dialog).getByRole("alert").textContent).toBe(
-      tf("my", "settle.soldOut", { x: "Mohinga, Tea" }),
+      tf("en", "settle.soldOut.unreadable", {}),
     );
-    expect(onChanged).toHaveBeenCalled();
   });
 
   it("a server `unsent` refusal is said in the sheet in the device language, with ITS count — and the close hands the cashier to the fix, not back to the trigger", async () => {
