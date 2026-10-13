@@ -13,8 +13,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Only a refusal that names the value is bound (Codex round 1). `lib/auth-field-refusal.ts` lists
     them: no account for the address, GoTrue refusing the address, a wrong or expired code. OTP
     switched off, a rate limit or a dropped request stays the card's status line and focus stays put.
-    On the checkout, `lib/promo-field.ts` keeps the order's refusals (someone is checking out, too
-    many tries, the order is being paid) in the region, as before.
+    On the checkout, `lib/promo-field.ts` keeps the order's refusals (an unmet minimum, someone is
+    checking out, too many tries, the order is being paid) in the region, as before.
   - On the checkout, focus moves into the promo box only for a keyboard Apply. After a tap the region
     says the refusal, because focus in that box hides PD2's docked door with no keyboard on screen.
   - What diners see: the account labels take the Field label style; the promo gains a visible
@@ -46,6 +46,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   lines). No new Burmese, so nothing joins the K15 ledger.
 - **Filed:** K48 (kitchen step 5's crop) and F37 (a screen-reader device check of the one-voice
   refusal).
+- **Blind-pass fix round (on `281e454`).**
+  - The promo box's hidden voice in the region is now `status` itself. A copy kept beside it came
+    back whenever a handler emptied the region, so "That code isn't valid." was heard again as the
+    answer to Pay.
+  - An unmet minimum is the order's refusal again: said in the region, the box left valid, cleared by
+    a stage flip.
+  - On both cards the voice is settled when the answer arrives, so focus moved into the box during
+    the round trip gets the region.
+  - A refused box keeps its `--warn` border while focused: the wells' focus accent skips an invalid
+    box (`lib/field-invalid-border.test.ts`).
+  - F31: a quiet claim waiting behind a toast is asked again before it is said (`announce`'s
+    `still`), so "Nothing matches" is never spoken over a list that has filled up.
+  - Guards: the guide-foot test now reads the logical insets too, and M214 has a staff-session case.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
