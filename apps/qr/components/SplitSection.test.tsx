@@ -22,7 +22,9 @@ vi.mock("@/lib/cart", () => ({ assignLine: h.assignLine }));
 
 const { SplitSection } = await import("./SplitSection");
 
-const CTX: SplitContext = {
+// Cast, not annotated: the context's shape moves (PD1's remainder drops `qrCode` and adds
+// `sessionId`), and this suite reads neither.
+const CTX = {
   mode: "dinein",
   mySeat: "seat-a",
   myRole: "host",
@@ -32,7 +34,7 @@ const CTX: SplitContext = {
   ],
   tableNumber: 4,
   qrCode: "t-4",
-};
+} as unknown as SplitContext;
 const ITEMS: CartItem[] = [
   {
     id: "line-1",
