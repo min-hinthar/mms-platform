@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
 import { SAME_GESTURE_MS } from "@mms/ui";
 import type { getCartView } from "@/lib/cart";
+import { t } from "@/lib/i18n";
+import { COUNTER_ASK_CARRIES_UNSENT } from "@/lib/counter-pay-state";
 
 /**
  * Phase 3c-i (D13 · D15 · D16) — the send's undo window, lifted into Checkout, with the REAL
@@ -449,6 +451,32 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     );
   });
 
+  it("the shipped (PARKED) Bill's one door is HELD inside the undo window — the bilingual undo line in its slot, every tap re-says it, nothing is asked", async () => {
+    // PD2's lift left the counter two holds: a tablemate's lock and this window. On the parked Bill
+    // the counter is the ONLY door, so this is the hold that stops a family asking the register for
+    // dishes an Undo can still pull back (the blind pass on #356, guard integrity).
+    flags.phonePayOpen = false;
+    mount();
+    await sendAndOpenGrace();
+    await press("Total · $12.00 — View bill");
+    const door = screen.getByRole("button", { name: /^Pay at the counter/ });
+    // MUTATION (pdrem/checkout-parked-grace-not-held): the parked dock's grace arm drawn as no
+    // reason — the door is live inside the window; red.
+    expect(door.getAttribute("aria-disabled")).toBe("true");
+    expect(door.getAttribute("aria-describedby")).toBe("counter-door-line");
+    const line = document.getElementById("counter-door-line")!;
+    expect(line.firstChild?.textContent).toBe(t("en", "payOpensAfterUndo"));
+    expect(line.querySelector('[lang="my"]')?.textContent).toBe(t("my", "payOpensAfterUndo"));
+    await act(async () => {
+      fireEvent.click(door);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50)); // the refusal's frame
+    });
+    expect(regionText()).toContain(t("en", "payOpensAfterUndo"));
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+  });
+
   it('"Ready to pay." is said once when the window ELAPSES on the counter-only Bill with nothing else holding its door', async () => {
     // The shipped (PARKED) Bill: its one door is the counter, which the grace holds and the kitchen
     // never does — so the elapse is the moment its door comes alive.
@@ -460,6 +488,32 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     expect(
       screen.getByRole("button", { name: /^Pay at the counter/ }).getAttribute("aria-disabled"),
     ).toBeNull();
+  });
+
+  it("a tablemate's dish landing inside the window: the PARKED door still comes alive at the elapse, and says so in the slot's own words — never silently, never 'Ready to pay.'", async () => {
+    // PD2's lift: unsent dishes hold Pay but never the counter, so on the counter-only Bill the
+    // door that lights at the elapse is the counter's, whatever Pay's block says (the blind pass on
+    // #356, open question 2).
+    flags.phonePayOpen = false;
+    const GUEST_DRAFT: CartItem = { ...DRAFT, id: "line-guest", bySeat: "seat-peer" };
+    mount();
+    h.sendToKitchen.mockResolvedValue(SHORT_GRACE);
+    // The send's re-sync shows the host's dish fired and a tablemate's new draft beside it.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED, GUEST_DRAFT] }));
+    await press(/^Send to kitchen(?! now)/);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
+    await press("Total · $12.00 — View bill");
+    const door = () => screen.getByRole("button", { name: /^Pay at the counter/ });
+    expect(door().getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (pdrem/checkout-parked-edge-reads-pays-block): the edge keyed on Pay's block, which
+    // the tablemate's draft holds — the door lights with nothing said; red.
+    await waitFor(() => expect(regionText()).toContain(COUNTER_ASK_CARRIES_UNSENT), {
+      timeout: 3000,
+    });
+    expect(door().getAttribute("aria-disabled")).toBeNull();
+    // MUTATION (pdrem/checkout-parked-edge-says-ready-over-unsent): "Ready to pay." over dishes the
+    // counter must still check with the table; red.
+    expect(regionText()).not.toContain("Ready to pay.");
   });
 
   it("PD10 · D5 — after the flip the elapse opens NOTHING: the sent dish still holds Pay, and 'Ready to pay.' waits for the food", async () => {

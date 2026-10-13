@@ -17,7 +17,12 @@ import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
-import { counterTakesCard, sameAsk, splitBoardShown } from "@/lib/counter-pay-state";
+import {
+  COUNTER_ASK_CARRIES_UNSENT,
+  counterTakesCard,
+  sameAsk,
+  splitBoardShown,
+} from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -455,7 +460,8 @@ export function Checkout({
   const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
   // PD10 (Codex round 2 on #346) — the SERVED GATE's host: UNKNOWN when the split context missed (or
   // its member read came back empty), never the guessed `false` above. That guess would call a
-  // hosted table hostless and promise a counter its own server read refuses (`servedGateHost`).
+  // hosted table hostless and tell it a server will send its dishes, when its host does
+  // (`servedGateHost`).
   const gateHost = servedGateHost(splitContext);
   // PD1 (m1 graft 3) — the name the table CHOSE, never the default "Guest" read as a person
   // (`chosenName`): an unnamed host gets the role sentence everywhere this name is spoken.
@@ -2399,16 +2405,6 @@ export function Checkout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counterAt]);
   /**
-   * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
-   * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
-   * value the server returned — ITS seat, never this phone's (the blind pass on #335) — after the
-   * M225 barrier (a read issued before the tap must not land after it and erase the stamp); the
-   * confirmation is said once through the view's region. A tablemate's standing stamp (`taken`) is
-   * recorded too and named as theirs: never "{host} can see you're waiting" for a nudge that is not
-   * this guest's. A refusal says the action's own sentence; one that means this view is stale (the
-   * dishes went, the cart closed, a payment holds it) re-reads, so the wait block follows the truth.
-   */
-  /**
    * PD1 (m1 decision 16) — the name ask's Save: the host renames THEIR OWN seat (`setDisplayName`,
    * lib/members — member-authorized, scoped to the caller's seat in the SQL), and the device keeps
    * it as its one identity (`DEVICE_NAME_KEY`: the menu's guest list and the pickup name read it).
@@ -2462,6 +2458,16 @@ export function Checkout({
     sendHandle.current?.focus();
   }
 
+  /**
+   * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
+   * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
+   * value the server returned — ITS seat, never this phone's (the blind pass on #335) — after the
+   * M225 barrier (a read issued before the tap must not land after it and erase the stamp); the
+   * confirmation is said once through the view's region. A tablemate's standing stamp (`taken`) is
+   * recorded too and named as theirs: never "{host} can see you're waiting" for a nudge that is not
+   * this guest's. A refusal says the action's own sentence; one that means this view is stale (the
+   * dishes went, the cart closed, a payment holds it) re-reads, so the wait block follows the truth.
+   */
   async function nudge() {
     if (nudgeBusy || !hostName) return;
     const copy = nudgeCopy(hostName);
@@ -3033,10 +3039,11 @@ export function Checkout({
   // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
   // kitchenDraftQty (see lib/checkout-stage).
   const unsentQty = unsentFoodQty(viewItems);
-  // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
-  // (`payBlockedByUnsent`, the SAME binding the counter ask refuses on — this is the courtesy, that
-  // is the gate). Only dine-in has a send step. PD10 — create-intent's gate is D5's served gate now,
-  // which every unsent dine-in line also holds; this rule stays the COUNTER's (`counterBlock`).
+  // Phase 1b — "Everything sent": Pay is held until every sendable dish has gone
+  // (`payBlockedByUnsent` — this is the courtesy; the charge boundary is create-intent's own gate,
+  // D5's served gate since PD10, which every unsent dine-in line also holds). Only dine-in has a send
+  // step. It is PAY's rule alone: PD2's lift (m2 decision 12) took it off the counter, so neither the
+  // ask (`requestCounterPay`) nor the counter door's hold (`counterDoorBlock`) reads it.
   // Phase 3c-i — ONE binding of the rule's inputs: the render reads it on `viewItems`; the drain in
   // `continueToPayment` re-asks it on the view that WON after an undo's re-sync (`freezeFactsRef`).
   const unsentBlocksFor = (items: CartItem[]) =>
@@ -3157,6 +3164,12 @@ export function Checkout({
    * drafts, a tablemate's lock, a standing counter ask): the sentence is a claim the next tap must
    * keep. The same edge is where the Undo unmounts, so it also puts lost focus back on the <h1>.
    *
+   * On the PARKED Bill the door that lights is the counter, and its hold is its own (`counterBlock`):
+   * since PD2's lift unsent dishes hold Pay but never the counter, so a tablemate's draft landing
+   * inside the window must not silence the door coming alive. Over those dishes it says the slot's
+   * own words for that state (m2's line), never "Ready to pay." — the counter still checks them with
+   * the table (the blind pass on #356).
+   *
    * It may retire a standing pay error (`sayRefusal` clears it), and that is honest (J34): with the
    * window open, Pay and the counter ask are refused (`block === "grace"`) and a Send's own outcome
    * clears the error, so one stands here only when a write that STARTED BEFORE the Send (a
@@ -3173,17 +3186,19 @@ export function Checkout({
     // one focus home (B4), and only when focus was in fact lost: never stolen from a control the
     // diner moved to (blind pass · a11y).
     if (focusWasLost()) headingRef.current?.focus();
-    if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || block !== null) return;
+    const doorHeld = phonePayOff ? counterBlock !== null : block !== null;
+    if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || doorHeld) return;
     // A standing counter ask is the Bill's hero already (`counterAsk` hides Pay): "Ready to pay." over
     // it says the opposite of what the screen shows (blind pass · product truth).
     if (counterAt != null) return;
     // Through a frame, like every other announcement on this screen: a synchronous `setState` in an
     // effect body is a cascading render the React Compiler lint rejects, and the region must be on
     // screen before its text changes.
-    const frame = requestAnimationFrame(() => sayRefusal("Ready to pay."));
+    const ready = phonePayOff && kitchenDraftQty > 0 ? COUNTER_ASK_CARRIES_UNSENT : "Ready to pay.";
+    const frame = requestAnimationFrame(() => sayRefusal(ready));
     return () => cancelAnimationFrame(frame);
-    // `sayRefusal`, `block`, `stage`, `onPay` and `counterAt` are this render's; the edge is keyed on
-    // the window.
+    // `sayRefusal`, `block`, `counterBlock`, `stage`, `onPay`, `counterAt` and `kitchenDraftQty` are
+    // this render's; the edge is keyed on the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graceOpen]);
 
