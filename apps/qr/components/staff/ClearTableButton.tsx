@@ -30,7 +30,6 @@ import {
   type ClearWatch,
 } from "@/lib/clear-window";
 import { capRelease, holdCapPhase, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
-import { clearAsksFirst } from "@/lib/clear-drafts";
 import type { StaffKeyMsg } from "@/lib/staff-send-view";
 import type { ClearTableResult } from "@/lib/floor-types";
 import { useOptionalCounterMint, type MintReservation } from "./CounterMintContext";
@@ -149,8 +148,6 @@ export function ClearTableButton({
     | { k: "rest" }
     | { k: "checking" }
     | { k: "slip"; look: ClearPreview; walkout: boolean; at: number }
-    // The lifecycle audit — a FREE clear that would drop the guests' unsent dishes asks first.
-    | { k: "drafts"; look: ClearPreview; at: number }
     | { k: "window"; look: ClearPreview; startedAt: number; watchAtOpen: ClearWatch | null }
     | { k: "committing" };
   const [phase, setPhase] = useState<TablePhase>({ k: "rest" });
@@ -335,12 +332,6 @@ export function ClearTableButton({
       setPhase({ k: "slip", look: r.preview, walkout: false, at: Date.now() });
       return;
     }
-    // The lifecycle audit — the guests' unsent dishes go with the table: say so, and wait for a tap
-    // before the window opens (it never commits itself over a party's order nobody mentioned).
-    if (clearAsksFirst(r.preview)) {
-      setPhase({ k: "drafts", look: r.preview, at: Date.now() });
-      return;
-    }
     openWindow(r.preview);
   }
 
@@ -441,15 +432,14 @@ export function ClearTableButton({
   }
 
   // The slip is armed: the page demotes its settle trigger (one hero verb per state — m7 B12).
-  const slipArmed = phase.k === "slip" || phase.k === "drafts";
+  const slipArmed = phase.k === "slip";
   useEffect(() => {
     onSlip?.(slipArmed);
   }, [slipArmed, onSlip]);
   useEffect(() => () => onSlip?.(false), [onSlip]);
   // Focus follows the step: the slip's heading when it opens, Undo when the window opens.
   useEffect(() => {
-    if ((phase.k === "slip" && !phase.walkout) || phase.k === "drafts")
-      slipHeadRef.current?.focus();
+    if (phase.k === "slip" && !phase.walkout) slipHeadRef.current?.focus();
   }, [phase.k]); // eslint-disable-line react-hooks/exhaustive-deps -- the step, not its fields
   useEffect(() => {
     if (phase.k !== "window") return;
@@ -559,16 +549,10 @@ export function ClearTableButton({
     return () => clearTimeout(id);
   }, [slip?.walkout, slip?.at]);
   const commitArmed = slip !== null && slip.walkout && nowMs - slip.at >= CLEAR_ARM_MS;
-  // The drafts question's Clear arms after the lane's 400 ms too (a double tap of the trigger never
-  // answers it).
-  const drafts = phase.k === "drafts" ? phase : null;
-  useEffect(() => {
-    if (!drafts) return;
-    const id = setTimeout(() => setNowMs(Date.now()), CLEAR_ARM_MS);
-    return () => clearTimeout(id);
-  }, [drafts]);
-  const draftsArmed = drafts !== null && nowMs - drafts.at >= CLEAR_ARM_MS;
-  /** "N more not sent — they're dropped, not counted as a loss" (the no-show's own words). */
+  /** The lifecycle audit — "N more not sent — they're dropped, not counted as a loss" (the no-show's
+   *  own words): a free clear's window says what it takes with it while Undo is still live. Never a
+   *  question before it — "clearing a table never waits" (OWNER_RULINGS_2026-10-07 #6); whether to
+   *  ask is the owner's (OPEN-ITEMS K51). */
   const draftsLine = (units: number) => (
     <Chrome
       lang={lang}
@@ -708,36 +692,13 @@ export function ClearTableButton({
         </div>
       )}
     </section>
-  ) : drafts ? (
-    // ── The lifecycle audit — the guests' unsent dishes go with the table: asked, never assumed ──
-    <section className="clear-slip" aria-labelledby={slipHeadId}>
-      <SlipH id={slipHeadId} ref={slipHeadRef} tabIndex={-1} className="clear-slip-h">
-        <Chrome lang={lang} k="settle.clear.question" vars={{ id: label }} echo={false} />
-      </SlipH>
-      <p className="clear-slip-drafts" id={slipBodyId}>
-        {draftsLine(drafts.look.droppedUnits)}
-      </p>
-      <div className="clear-slip-doors">
-        <Button
-          variant="danger"
-          disabled={!draftsArmed}
-          aria-describedby={slipBodyId}
-          onClick={() => openWindow(drafts.look)}
-        >
-          <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
-        </Button>
-        <Button variant="quiet" onClick={() => backToRest()}>
-          <Chrome lang={lang} k="settle.cancel" echo={false} />
-        </Button>
-      </div>
-    </section>
   ) : win || committing ? (
     // ── the WINDOW (m7 screen 1): nothing is written until it closes ──
     <div role="group" aria-labelledby={windowId} className="clear-window">
       <p id={windowId} className="clear-chip">
         <Chrome lang={lang} k="settle.clear.window" vars={{ id: label }} echo="inline" />
       </p>
-      {/* The lifecycle audit — what the window takes with it, said while Undo still can. */}
+      {/* The lifecycle audit — what the window takes with it, said while Undo is still live. */}
       {win && win.look.droppedUnits > 0 && (
         <p className="clear-slip-drafts">{draftsLine(win.look.droppedUnits)}</p>
       )}
