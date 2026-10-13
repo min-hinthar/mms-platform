@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Lifecycle audit — the diner side of sold out, removals and edits (2026-10-13, `claude/fix/lifecycle-diner-sold-out-edits`)
+
+- **Every change to a diner's order is shown and said, live.** A sold-out add is refused by name
+  ("Mohinga didn’t go through — it’s sold out now.", `addItemOutcome`) and flips the card at once;
+  /menu's sold-out fact is the freshest of the render, the cart view and that refusal. The Send and
+  "Send to kitchen now" refuse sold-out dishes by name, an unsent sold-out dish wears a bilingual
+  "Sold out — remove it" mark, and /cart re-reads after create-intent's 409. A "−" or a /cart step
+  on a dish already sent says "it’s already gone to the kitchen" (`setQty` answers `not_draft` as a
+  value — M230's server-named arm from #354, extended with `sold_out`; T41's rule holds: only a
+  server-named refusal reads as `refused`). Staff removing a dish ("We ran out of Mohinga — it’s off
+  your order."), someone else changing the diner's own unsent dish or its note, and a server's
+  addition are said once through the view's one region; removed units leave the order bar's count
+  but not the bar; the card chip reads the one kitchen track (a comp keeps its stage); the /menu
+  stepper never counts a noted (allergy) line, and a reverted "−" under a freeze keeps focus (F30
+  closed); the diner can edit their own unsent dish's kitchen note (`setLineNote`). 53 `lcb/`
+  mutants, no migration — M298–M301, F39–F41, J63–J64 and K15 · diner-changes filed; P2ad keeps
+  only its staff-console half.
+
 ### The open-items registry, read against the code (2026-10-12, docs only)
 
 - **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
