@@ -24,6 +24,7 @@ import {
   type UnreadableRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
+import type Stripe from "stripe";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 // ── Phase 2c · gate ──
@@ -326,6 +327,8 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
   if (intent.metadata?.kind !== "terminal" || !cartId || !attempt)
     return { ok: false, error: "Invalid request." };
 
+  const dead = await releaseDeadAttempt(cartId, attempt, intent);
+  if (dead !== null) return dead;
   if (intent.status === "succeeded") {
     // Fulfillment is the webhook's; report the order once it lands (idempotent PI-id lookup).
     const db = serviceClient();
@@ -363,29 +366,6 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
         error: extErr?.message ?? null,
       });
     return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
-  }
-  if (intent.status === "canceled") {
-    // A canceled intent is a dead attempt, so release ITS freeze here, scoped (Codex round 3 on A3,
-    // P2): a poll can retrieve the intent BEFORE `cancelTerminal` cancels it, meet the freeze that
-    // cancel released, and re-acquire it under this attempt off that stale snapshot — the next
-    // tick lands here, and without this release the successfully cancelled table stayed frozen
-    // until the TTL or the webhook's canceled arm. Zero rows (nothing of ours held) is the common
-    // case and harms nothing; a stale panel polling an OLD attempt matches zero rows too.
-    const { error: relErr } = await releaseSettlementFor(cartId, attempt);
-    if (relErr)
-      console.error("[terminal] canceled-poll release failed", { cartId, message: relErr.message });
-    return { ok: true, state: "canceled" };
-  }
-  if (intent.status === "requires_payment_method" && intent.last_payment_error) {
-    // The reader collected and the charge DECLINED (a fresh mint has no last_payment_error). The
-    // attempt is dead — no live authorization — so release ITS freeze here and now, scoped to the
-    // attempt: "try another card or cash" must be true the moment we say it, not after a webhook
-    // lands (review finding: the pre-check refuses every retry while the dead freeze is fresh).
-    // A stale panel polling an OLD attempt matches zero rows and harms nothing.
-    const { error: relErr } = await releaseSettlementFor(cartId, attempt);
-    if (relErr)
-      console.error("[terminal] decline release failed", { cartId, message: relErr.message });
-    return { ok: true, state: "failed", error: declineCopy(intent.last_payment_error.code) };
   }
   // requires_payment_method (fresh) / processing — the customer is mid-interaction: keep the
   // freeze alive so the collect can outlast the 10-min TTL without the cart being taken over.
@@ -438,6 +418,30 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
       paymentIntent: intent.id,
       attempt,
     });
+    // ⚠️ THE SNAPSHOT ABOVE MAY PREDATE THE ATTEMPT'S DEATH (M216, Codex round 4 on #280). This poll
+    // retrieved a live intent, then met a null row: staff Cancel (or the webhook's canceled / decline
+    // arm, or a sibling poll's decline release) can have killed the attempt and released its freeze
+    // in between — and a null row is free, so the acquire above just froze the table again under a
+    // dead attempt. A panel that already showed `canceled` / `failed` never polls again, so nothing
+    // would release it before the TTL. Every one of those releases runs only AFTER the intent reached
+    // its dead state, so a read made after this acquire cannot miss it: re-read, and when the attempt
+    // is dead, release the freeze we just took (scoped to the attempt) and answer that state.
+    let now;
+    try {
+      now = await getStripe().paymentIntents.retrieve(intent.id);
+    } catch (e) {
+      // Live or dead, we cannot tell — so we keep the freeze (a live tap must never lose it) and say
+      // the poll missed. A live panel asks again; a stopped one heals at the TTL, as before.
+      console.error("[terminal] re-read after a mid-collect re-acquire failed", {
+        cartId,
+        paymentIntent: intent.id,
+        attempt,
+        code: (e as { code?: string }).code,
+      });
+      return { ok: false, error: POLL_MISS_COPY };
+    }
+    const deadNow = await releaseDeadAttempt(cartId, attempt, now);
+    if (deadNow !== null) return deadNow;
     return { ok: true, state: "collecting" };
   }
   // ⚠️ A REFUSAL IS NOT YET "ANOTHER OWNER" (Codex round 1 on A3, P2). Two polls of THIS attempt
@@ -488,6 +492,42 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
 /** The poll's transient-miss answer — the panel counts it and keeps Cancel available; the next
  *  tick asks again. Named ONCE because three arms now return it and they must read as one thing. */
 const POLL_MISS_COPY = "Couldn’t check the reader just now — still trying.";
+
+/**
+ * A DEAD attempt — its intent canceled, or declined on the reader — releases ITS freeze, scoped, and
+ * the poll answers that state; `null` while the intent is still live. Named once (M216): the poll's
+ * own snapshot and the re-read after a mid-collect re-acquire must reach the same verdict.
+ */
+async function releaseDeadAttempt(
+  cartId: string,
+  attempt: string,
+  intent: Pick<Stripe.PaymentIntent, "status" | "last_payment_error">,
+): Promise<TerminalPollResult | null> {
+  if (intent.status === "canceled") {
+    // A canceled intent is a dead attempt, so release ITS freeze here, scoped (Codex round 3 on A3,
+    // P2): a poll can retrieve the intent BEFORE `cancelTerminal` cancels it, meet the freeze that
+    // cancel released, and re-acquire it under this attempt off that stale snapshot — the next
+    // tick lands here, and without this release the successfully cancelled table stayed frozen
+    // until the TTL or the webhook's canceled arm. Zero rows (nothing of ours held) is the common
+    // case and harms nothing; a stale panel polling an OLD attempt matches zero rows too.
+    const { error: relErr } = await releaseSettlementFor(cartId, attempt);
+    if (relErr)
+      console.error("[terminal] canceled-poll release failed", { cartId, message: relErr.message });
+    return { ok: true, state: "canceled" };
+  }
+  if (intent.status === "requires_payment_method" && intent.last_payment_error) {
+    // The reader collected and the charge DECLINED (a fresh mint has no last_payment_error). The
+    // attempt is dead — no live authorization — so release ITS freeze here and now, scoped to the
+    // attempt: "try another card or cash" must be true the moment we say it, not after a webhook
+    // lands (review finding: the pre-check refuses every retry while the dead freeze is fresh).
+    // A stale panel polling an OLD attempt matches zero rows and harms nothing.
+    const { error: relErr } = await releaseSettlementFor(cartId, attempt);
+    if (relErr)
+      console.error("[terminal] decline release failed", { cartId, message: relErr.message });
+    return { ok: true, state: "failed", error: declineCopy(intent.last_payment_error.code) };
+  }
+  return null;
+}
 
 /**
  * Codex r2 on #310 (A3) — what a RELOADED register can learn about a reader start whose answer it

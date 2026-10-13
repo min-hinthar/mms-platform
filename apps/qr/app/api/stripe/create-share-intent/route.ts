@@ -3,6 +3,7 @@ import { surfaceOpen } from "@/lib/surfaces";
 import { serviceClient } from "@mms/db/server";
 import { shareIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
+import { MEAL_PAYMENT_METHOD_TYPES } from "@/lib/payment-methods";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { extendSettlementFor } from "@/lib/lock";
@@ -236,10 +237,11 @@ export async function POST(req: NextRequest) {
         amount,
         currency: "usd",
         capture_method: "manual", // authorize now; capture-all when the table is fully covered
-        // `allow_redirects: "never"` keeps the share to inline methods (card / Apple Pay / Google Pay /
-        // Link) so confirmPayment never navigates away — the payer stays on the live board (a
-        // redirect-based method would return to /cart with no result handler and re-mint a fresh PI).
-        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+        // M155 (owner ruling #7) — card only, the wallets riding it. That also keeps the share to
+        // INLINE methods, the job `allow_redirects: "never"` used to do: confirmPayment never
+        // navigates away, so the payer stays on the live board (a redirect-based method would return
+        // to /cart with no result handler and re-mint a fresh PI). `lib/payment-methods.ts` says why.
+        payment_method_types: [...MEAL_PAYMENT_METHOD_TYPES],
         // `settleOwner` is the freeze owner this share rides, so the authorization webhook can extend
         // under it rather than under whatever the row holds by then (A3 · M203).
         metadata: {

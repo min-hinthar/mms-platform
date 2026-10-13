@@ -202,6 +202,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
+import { MEAL_PAYMENT_METHOD_TYPES } from "@/lib/payment-methods";
 import { POST } from "./route";
 
 function req(cartId = CART) {
@@ -426,5 +427,22 @@ describe("PD10 · D5 — the served gate, answered at create-intent behind the o
     const res = await POST(req());
     expect(res.status).toBe(200);
     expect(h.gateRead).not.toHaveBeenCalled();
+  });
+});
+
+describe("M155 — a meal is paid by card (owner ruling #7)", () => {
+  it("mints with the ONE named card-only list, never the Dashboard's automatic methods", async () => {
+    // The current API version turns automatic methods ON when a create names no list, and a bank
+    // debit sits in `processing` for days — every re-checkout "already going through", every promo
+    // refused as locked, the cart editable under a charge. So the create must NAME the list.
+    // MUTATION (stripecfg/create-intent-automatic-methods): the list swapped back to
+    // `automatic_payment_methods`; red.
+    sessionRow = { mode: "pickup", host_seat: null };
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    expect(h.create).toHaveBeenCalledTimes(1);
+    const [params] = h.create.mock.calls[0] as [Record<string, unknown>];
+    expect(params.payment_method_types).toEqual([...MEAL_PAYMENT_METHOD_TYPES]);
+    expect(params).not.toHaveProperty("automatic_payment_methods");
   });
 });
