@@ -34,6 +34,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   class: the mode follows the secret key and never the publishable one, `_TEST` wins when both
   secret names are set, and a mode mismatch throws before the client is built. The webhook route's
   signing-secret order is pinned by parsing its array literal.
+- **A failed reader start whose cancel also fails holds the table (M287, Codex on #352).** `settleCard` used to free the
+  settlement freeze after any `processPaymentIntent` throw, cancel or not. A throw can be a false negative and the
+  client now gives up after 20 s, so a failed cancel is an unknown outcome: the freeze is held and staff are told the
+  reader may still be taking the card. No reader is connected yet (ruling #26).
 - **A Terminal poll that re-takes the freeze re-reads the intent (M216).** After a mid-collect
   re-acquire the poll retrieves the PaymentIntent again. When staff Cancel or a decline killed the
   attempt in between, it releases the freeze it just took, scoped to the attempt, and answers
