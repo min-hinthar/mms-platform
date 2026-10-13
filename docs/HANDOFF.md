@@ -34,7 +34,7 @@ owner ratified in OWNER_RULINGS §H1) moved verbatim to the archive's 2026-10-11
 1. **Every open row was read against the code.** That covered every row that was open, gated, planned
    or parked on `main` at `02bf46c`: 594 rows. The record is
    `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351). It lists 343 rows buildable without the owner,
-   117 owner-gated, 97 to keep open, 33 closed by the sweep, and 4 done in place (as recomputed after
+   121 owner-gated, 93 to keep open, 33 closed by the sweep, and 4 done in place (as recomputed after
    Codex's review of #351, which reopened K28). Each row has its
    next step, and each buildable row has a size and its money and migration flags.
 2. **Six PRs, all open, none merged.** Codex was out of quota for five of them. For each, the capped
@@ -118,7 +118,7 @@ quota rule, a hand-read of the merge's conflict resolutions.
   under a visible lock), and K20 (the age policy for the queue).
 - **Still to ratify from the wave:** the decisions made under the 2026-10-09 delegation (the archive's
   2026-10-11 block, "Decided under the delegation"), and the P2hf tension with ruling #6.
-- **The 117 owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
+- **The 121 owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
   The items below ("The owner's items") are the standing ones.
 
 ## The owner's items (not code)
