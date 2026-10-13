@@ -36619,7 +36619,7 @@ const MUTANTS = [
     suite: "lib/refunded-cart.test.ts",
     why: "#360 — a cart refunded in full is never tagged on any surface",
     find: "    if (full) refunded.add(o.cart_id);\n",
-    replace: "",
+    replace: "    if (false) refunded.add(o.cart_id);\n",
   },
   {
     id: "lck/refunded-cart/paid-beside-refund-tagged",
