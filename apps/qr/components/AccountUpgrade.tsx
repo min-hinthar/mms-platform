@@ -46,6 +46,16 @@ import { Card, Field } from "@mms/ui";
 type FieldVoice = "region" | "focus";
 
 /**
+ * F20 · blind pass on #355 — the voice chosen at the press, SETTLED at the answer. The box stays
+ * enabled through the round trip, so a diner can move back into it before the server answers; then
+ * `.focus()` on the focused box fires nothing and the region was quiet by design — the refusal said
+ * zero times. Focus already in the box at the answer means the region speaks, as for Enter.
+ */
+function settledVoice(voice: FieldVoice, box: HTMLElement | null): FieldVoice {
+  return box !== null && document.activeElement === box ? "region" : voice;
+}
+
+/**
  * Anon → durable account (M4 P4.1). Upgrades the SAME anonymous uid in place (email OTP / Google), so the
  * diner's past paid orders + earned Stars carry over with no migration (docs/M4_DESIGN R3). Honest: we only
  * report the account once the gateway CONFIRMS it (verifyOtp / the Google redirect) — never eagerly.
@@ -91,7 +101,8 @@ export function AccountUpgrade({
    * description is what a screen reader hears; if it was already in the field (Enter), moving it
    * says nothing, so the card's one region speaks it instead — visually hidden, since the same
    * words are already under the box. The voice is read at the submit, in the handler (where focus
-   * was when the diner pressed), and the binding is set with the refusal it describes.
+   * was when the diner pressed), settled at the answer (`settledVoice`: focus that moved into the box
+   * meanwhile makes moving it a no-op), and the binding is set with the refusal it describes.
    */
   const [fieldRefusal, setFieldRefusal] = useState<{
     field: "email" | "code";
@@ -227,7 +238,8 @@ export function AccountUpgrade({
               : e0.message || "Couldn’t send the sign-in code — try again.",
         );
         // F20 — the address's own refusal goes under its box; an outage or a dropped request does not.
-        if (boxVoice && refusesTheAddress(e0)) setFieldRefusal({ field: "email", voice: boxVoice });
+        if (boxVoice && refusesTheAddress(e0))
+          setFieldRefusal({ field: "email", voice: settledVoice(boxVoice, emailRef.current) });
         signInStarting.current = false;
         return false;
       }
@@ -591,7 +603,8 @@ export function AccountUpgrade({
         return;
       }
       setError(e1.message || "Couldn’t send the code — try again.");
-      if (refusesTheAddress(e1)) setFieldRefusal({ field: "email", voice });
+      if (refusesTheAddress(e1))
+        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });
       setBusy(false);
       return;
     }
@@ -619,7 +632,8 @@ export function AccountUpgrade({
       setError(e2.message || "That code didn’t match. Check your email and try again.");
       // F20 — a wrong or expired code goes under the code box; a rate limit or a dropped request
       // is the card's.
-      if (refusesTheCode(e2)) setFieldRefusal({ field: "code", voice });
+      if (refusesTheCode(e2))
+        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });
       setBusy(false);
       return;
     }

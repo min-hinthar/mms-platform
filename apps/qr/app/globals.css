@@ -3432,8 +3432,11 @@ html[data-fx="off"] .pa-mid {
     box-shadow var(--dur-base) var(--ease-out);
 }
 /* Keep the global :focus-visible outline (the load-bearing focus indicator) — only warm the border to
-   accent as an enhancement, so we never weaken the visible focus ring. */
-.checkout-promo-input:focus-visible {
+   accent as an enhancement, so we never weaken the visible focus ring. A REFUSED box keeps the Field's
+   --warn border (F20 · blind pass on #355): this rule ties `.ui-field-control[aria-invalid]` and comes
+   later, so without the :not() a refusal said by focus showed the accent instead
+   (lib/field-invalid-border.test.ts). */
+.checkout-promo-input:focus-visible:not([aria-invalid="true"]) {
   border-color: var(--ac);
 }
 
@@ -4884,7 +4887,8 @@ html[data-fx="off"] .pa-mid {
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
-.account-field:focus-visible {
+/* A refused box keeps the Field's --warn border — the promo well's note above (F20). */
+.account-field:focus-visible:not([aria-invalid="true"]) {
   border-color: var(--ac);
 }
 

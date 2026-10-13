@@ -1064,3 +1064,70 @@ describe("F20 · Codex round 1 on #355 — only a refusal that NAMES the value i
     expectCardLevel(code, /Request rate limit reached/);
   });
 });
+
+describe("F20 · blind pass on #355 — the voice is settled at the ANSWER, not only at the press", () => {
+  /**
+   * The voice was fixed at the press: a press from the button chose "focus", and a diner who moved
+   * back into the box while the server answered (the box stays enabled; only the button is busy)
+   * got `.focus()` on the focused box — which fires nothing — with the region quiet by design. The
+   * refusal was said zero times. Focus in the box at the answer means the region speaks.
+   */
+  const box = () => screen.getByLabelText(/^email$/i) as HTMLInputElement;
+  const NO_ACCOUNT = /couldn’t find a Morning Star account for that email/i;
+
+  it("the address: focus moved into the box during the round trip — the region says it", async () => {
+    let answer: (v: { error: { message: string; code: string } }) => void = () => {};
+    auth.signInWithOtp.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "nobody@example.com" } });
+    const send = screen.getByRole("button", { name: /Send sign-in code/i });
+    send.focus();
+    fireEvent.submit(send.closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalled());
+    act(() => box().focus());
+    await act(async () =>
+      answer({ error: { message: "Signups not allowed for otp", code: "otp_disabled" } }),
+    );
+    await waitFor(() => expect(box().getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(box());
+    // MUTATION uia11y/f20-voice-fixed-at-the-press: the region stays quiet; red.
+    expect(screen.getByRole("status").querySelector(".sr-only")?.textContent).toMatch(NO_ACCOUNT);
+  });
+
+  it("the code: focus moved into the code box during the round trip — the region says it", async () => {
+    let answer: (v: { error: { message: string } }) => void = () => {};
+    auth.verifyOtp.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(box(), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    const code = (await screen.findByLabelText(
+      /6-digit code sent to me@example.com/i,
+    )) as HTMLInputElement;
+    fireEvent.change(code, { target: { value: "000000" } });
+    const confirm = screen.getByRole("button", { name: /Confirm & sign in/i });
+    confirm.focus();
+    fireEvent.submit(confirm.closest("form")!);
+    await waitFor(() => expect(auth.verifyOtp).toHaveBeenCalled());
+    act(() => code.focus());
+    await act(async () => answer({ error: { message: "Token has expired or is invalid" } }));
+    await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
+    expect(document.activeElement).toBe(code);
+    expect(screen.getByRole("status").querySelector(".sr-only")?.textContent).toBe(
+      "Token has expired or is invalid",
+    );
+  });
+});

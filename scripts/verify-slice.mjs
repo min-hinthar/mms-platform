@@ -6064,8 +6064,9 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the sign-in send binds only a refusal of the address; bound unconditionally, the reworded otp_disabled outage and a dropped request land under the box as if the address were wrong",
-    find: '        if (boxVoice && refusesTheAddress(e0)) setFieldRefusal({ field: "email", voice: boxVoice });',
-    replace: '        if (boxVoice) setFieldRefusal({ field: "email", voice: boxVoice });',
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "        if (boxVoice && refusesTheAddress(e0))\n          setFieldRefusal(",
+    replace: "        if (boxVoice)\n          setFieldRefusal(",
   },
   {
     id: "uia11y/f20-sign-in-door-forgets-the-box",
@@ -6080,15 +6081,17 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the save path (updateUser) binds only GoTrue's refusal of the address; bound unconditionally, a dropped connection marks the address wrong",
-    find: '      if (refusesTheAddress(e1)) setFieldRefusal({ field: "email", voice });',
-    replace: '      setFieldRefusal({ field: "email", voice });',
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "      if (refusesTheAddress(e1))\n        setFieldRefusal(",
+    replace: "      if (true)\n        setFieldRefusal(",
   },
   {
     id: "uia11y/f20-save-path-refusal-unbound",
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "F20 — GoTrue refusing THIS address on the save path (email_address_invalid) is the box's; unbound, it is a region sentence with no box marked",
-    find: '      if (refusesTheAddress(e1)) setFieldRefusal({ field: "email", voice });\n',
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: '      if (refusesTheAddress(e1))\n        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });\n',
     replace: "",
   },
   {
@@ -6096,16 +6099,26 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Codex round 1 on #355 — the code step binds only a wrong or expired code; bound unconditionally, a rate limit marks the code wrong and moves focus to it",
-    find: '      if (refusesTheCode(e2)) setFieldRefusal({ field: "code", voice });',
-    replace: '      setFieldRefusal({ field: "code", voice });',
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: "      if (refusesTheCode(e2))\n        setFieldRefusal(",
+    replace: "      if (true)\n        setFieldRefusal(",
   },
   {
     id: "uia11y/f20-code-refusal-unbound",
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "F20 — a code that did not match is the code box's refusal; unbound, the box is never marked and focus never reaches it",
-    find: '      if (refusesTheCode(e2)) setFieldRefusal({ field: "code", voice });\n',
+    // Blind pass on #355 — the voice is settled at the answer (`settledVoice`); same revert, re-aimed.
+    find: '      if (refusesTheCode(e2))\n        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });\n',
     replace: "",
+  },
+  {
+    id: "uia11y/f20-voice-fixed-at-the-press",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "F20 · blind pass on #355 — a voice fixed at the press: a diner who moved back into the box during the round trip got `.focus()` on the focused box, which fires nothing, with the region quiet by design — the refusal said zero times",
+    find: '  return box !== null && document.activeElement === box ? "region" : voice;',
+    replace: "  return voice;",
   },
   {
     id: "uia11y/f20-no-account-off-the-box",
