@@ -337,9 +337,15 @@ export type RefusedWrite =
   | { cause: "settling" }
   /** M230 — server-NAMED, never diagnosed: the line has already gone to the kitchen. */
   | { cause: "sent" }
-  /** Lifecycle audit (out-of-stock 0) — server-NAMED like `sent`: the dish can't be ordered now
-   *  (`priceItem`'s `ItemUnsellableError`, or `setQty` growing a line whose dish is unsellable). */
+  /** Lifecycle audit (out-of-stock 0) — server-NAMED like `sent`: the dish is 86'd today
+   *  (`priceItem`'s `ItemUnsellableError`, or `setQty` growing a line whose dish is 86'd). */
   | { cause: "sold_out" }
+  /** #362 (Codex round 1) — server-NAMED: the dish is no longer on the menu (delisted, or gone from
+   *  the catalog). Not an 86, and never said as one (`dishUnavailable`'s kind). */
+  | { cause: "gone" }
+  /** #362 (blind pass 8) — server-NAMED: staff REMOVED the line (`voided`). Never "gone to the
+   *  kitchen", which `not_draft` used to say about it. */
+  | { cause: "removed" }
   | { cause: "unreachable" }
   | { cause: "unknown" };
 
@@ -428,14 +434,23 @@ export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
  * already classifies honestly. Naming any of those would be a guess at a cause, which is the class
  * this module exists to remove.
  */
-export function serverNamedRefusal(
-  reason: string,
-): { cause: "sent" } | { cause: "sold_out" } | null {
+export type NamedRefusal =
+  | { cause: "sent" }
+  | { cause: "removed" }
+  | { cause: "sold_out" }
+  | { cause: "gone" };
+export function serverNamedRefusal(reason: string): NamedRefusal | null {
   if (reason === "not_draft") return { cause: "sent" };
+  // #362 (blind pass 8) — `setQty` and `setLineNote` name a line staff removed apart from one the
+  // kitchen has; both used to answer `not_draft`, and the provider said "already gone to the
+  // kitchen" about a removed dish whenever its re-read failed.
+  if (reason === "voided") return { cause: "removed" };
   // Lifecycle audit (out-of-stock 0/1) — the dish cannot be ordered now: `addItemOutcome` and
   // `setQty` answer it when `priceItem` / the line's own dish read says so, and `makeItNow` /
   // `sendToKitchen` when their availability pre-read does. A refusal NOTHING was written under.
+  // #362 (Codex round 1) — WHICH kind travels: an 86, or a dish no longer on the menu.
   if (reason === "sold_out") return { cause: "sold_out" };
+  if (reason === "gone") return { cause: "gone" };
   return null;
 }
 
@@ -447,11 +462,19 @@ export function serverNamedRefusal(
  * reached the browser: the provider re-read, found no lock, and hedged ("We couldn’t confirm
  * Mohinga"). These two are DEFINITE non-writes — the sold-out refusal is decided before the insert,
  * and the sent one is the RPC's own raise or the pre-check above it — so they travel as a value the
- * client can name, the M230 pattern (`setLineFulfillment`'s `not_draft`). `at` is the SERVER's clock
- * as it refused (ISO), so a sold-out mark can be weighed against the catalog's render stamp and the
- * cart view's DB clock without trusting this phone's clock.
+ * client can name, the M230 pattern (`setLineFulfillment`'s `not_draft`). `at` is when it refused
+ * (ISO) — for an unavailable dish the DATABASE clock (`dbClockIso`, #362), so a sold-out mark is
+ * weighed against the catalog's render stamp and the cart view's `dbNow` on one clock, never this
+ * phone's. #362 adds `voided` (staff removed the line) and `gone` (no longer on the menu).
  */
-export type ServerRefusal = { refused: "not_draft" | "sold_out"; at: string };
+export type ServerRefusal = { refused: "not_draft" | "voided" | "sold_out" | "gone"; at: string };
+
+const SERVER_REFUSALS = new Set<ServerRefusal["refused"]>([
+  "not_draft",
+  "voided",
+  "sold_out",
+  "gone",
+]);
 
 /** Is a write's answer a server-named refusal rather than a view (or the written-unreadable null)? */
 export function isServerRefusal(v: unknown): v is ServerRefusal {
@@ -459,22 +482,25 @@ export function isServerRefusal(v: unknown): v is ServerRefusal {
     typeof v === "object" &&
     v !== null &&
     "refused" in v &&
-    ((v as { refused: unknown }).refused === "not_draft" ||
-      (v as { refused: unknown }).refused === "sold_out")
+    SERVER_REFUSALS.has((v as { refused: unknown }).refused as ServerRefusal["refused"])
   );
 }
 
 /**
  * Does a server-named refusal still describe this line in the view that won the screen? The
- * `sent` arm is `sentRefusalHolds`; a `sold_out` one holds while the line is still a draft the view
- * flags sold out — a manager putting the dish back on retires it, and so does the line leaving draft.
+ * `sent` arm is `sentRefusalHolds`; `removed` holds while the line is still voided; `sold_out` and
+ * `gone` each hold while the line is still a draft the view marks with THAT kind (`unavailable`,
+ * `dishUnavailable`'s — #362) — a manager putting the dish back on retires it, so does the line
+ * leaving draft, and so does the other kind: "no longer on the menu" is false of a dish the view
+ * says is merely 86'd.
  */
 export function namedRefusalHolds(
-  refusal: { cause: "sent" } | { cause: "sold_out" },
-  line: { lineState: string; soldOut?: boolean } | undefined,
+  refusal: NamedRefusal,
+  line: { lineState: string; unavailable?: "sold_out" | "gone" | null } | undefined,
 ): boolean {
   if (refusal.cause === "sent") return sentRefusalHolds(line);
-  return !!line && line.lineState === "draft" && line.soldOut === true;
+  if (refusal.cause === "removed") return line?.lineState === "voided";
+  return !!line && line.lineState === "draft" && line.unavailable === refusal.cause;
 }
 
 /**
@@ -548,6 +574,12 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
       // Lifecycle audit — the server's own fact. "now", never "just": recency is not a fact this
       // refusal carries (`catalog-freshness.ts`'s rule for the same word).
       return "it’s sold out now";
+    case "gone":
+      // #362 — a delisting, in the words the staff side already uses for it (`kds.err.86.gone`).
+      return "it’s no longer on the menu";
+    case "removed":
+      // #362 — staff took it off; the change-notice's own words ("it’s off your order").
+      return "it’s already off your order";
     default:
       // The write did not land as far as we can tell, and the view beside this sentence is server
       // truth (the caller applied the same re-read). Nothing about a lock, a table, or a session.
@@ -627,6 +659,8 @@ export function refusalClearsPayError(refusal: PublishableRefusal): boolean {
       return false;
     // Lifecycle audit — one dish is off; Pay still works for everything else.
     case "sold_out":
+    case "gone":
+    case "removed":
       return false;
   }
 }

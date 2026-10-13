@@ -8,6 +8,7 @@ import {
   lineChipWord,
   removedReasons,
   removedWord,
+  unavailableMarkKey,
 } from "./line-state-copy";
 
 /**
@@ -89,5 +90,22 @@ describe("removedReasons — an INCLUSION list: only 'we ran out' is told", () =
     expect(out.get("b")).toBeNull();
     expect(out.get("c")).toBe("sold_out");
     expect(out.size).toBe(3);
+  });
+});
+
+/**
+ * #362 — the mark on an unsent dish the kitchen can no longer make: WHICH fact (blind pass 6 / Codex
+ * round 1 — sold out, or no longer on the menu) and whether "remove it" is something THIS phone can do
+ * (blind pass 2a — a guest looking at a tablemate's line, or a comp, cannot).
+ */
+describe("unavailableMarkKey — the words of the mark", () => {
+  it("names the kind, and the way through only to a phone that can take it", () => {
+    // MUTATION (lcb/mark/remove-it-to-everyone): ignore `mayRemove` — "remove it" on a tablemate's
+    // dish the guest cannot touch, and on a comp; red.
+    expect(unavailableMarkKey("sold_out", true)).toBe("soldOutRemoveIt");
+    expect(unavailableMarkKey("sold_out", false)).toBe("soldOutMark");
+    // MUTATION (lcb/mark/gone-reads-sold-out): one word for both kinds; red.
+    expect(unavailableMarkKey("gone", true)).toBe("goneRemoveIt");
+    expect(unavailableMarkKey("gone", false)).toBe("goneMark");
   });
 });

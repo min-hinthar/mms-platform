@@ -83,9 +83,18 @@ describe("priceItem — the add-time availability refusal", () => {
     await expect(priceItem(BASE.id, [])).rejects.toThrow(/Mohinga just sold out/);
   });
 
-  it("refuses a DELISTED dish — a stale phone can still hold one", async () => {
+  it("refuses a DELISTED dish — a stale phone can still hold one — as `gone`, never as an 86", async () => {
+    // #362 (Codex round 1, cart.ts:190) — a delisting is not a temporary shortage, and the reason
+    // travels to the diner's words ("No longer on the menu"); "just sold out" said it was.
+    // MUTATION (lcb/price/delisted-reads-sold-out): restore `is_sold_out ? "sold_out" : "gone"`'s
+    // reverse reading for an inactive dish; red.
     ITEM = { ...BASE, is_active: false };
-    await expect(priceItem(BASE.id, [])).rejects.toThrow(/Mohinga just sold out/);
+    await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ reason: "gone" });
+    await expect(priceItem(BASE.id, [])).rejects.toThrow(/Mohinga is no longer on the menu/);
+    ITEM = { ...BASE, is_active: false, is_sold_out: true };
+    await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ reason: "gone" });
+    ITEM = { ...BASE, is_sold_out: true };
+    await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ reason: "sold_out" });
   });
 
   it("refuses BEFORE it prices — a refused add mints no amount at all", async () => {

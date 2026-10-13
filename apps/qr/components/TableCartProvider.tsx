@@ -32,6 +32,7 @@ import {
   type RefusedWrite,
 } from "@/lib/cart-freeze";
 import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
+import { heldKeys, newOwnHolds, openHold, releaseHolds, settleHold } from "@/lib/own-write-hold";
 import { orderUnitCount } from "@/lib/cart-bar-state";
 import { freshnessDurationMs } from "@/lib/catalog-freshness";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
@@ -65,10 +66,6 @@ import {
 } from "@/lib/realtime";
 
 const NAME_KEY = "mms.name";
-/** How long after one of this phone's writes settles its line/dish stays out of the order-change
- *  diff — past `ECHO_MAX_WAIT_MS` (600) plus a read, so the realtime echo of our own write is not
- *  announced to us as someone else's change. */
-const OWN_WRITE_HOLD_MS = 2000;
 
 /**
  * T42 — `add`'s outcome, with a refusal's CLAUSE bound to the write that established it.
@@ -387,23 +384,22 @@ export function TableCartProvider({
 
   /**
    * Lifecycle audit (out-of-stock 2 · diner-live-status 3 · edit-notes 7) — the lines and dishes
-   * THIS phone has a write in flight on, so the view diff below never reads a diner's own tap back
-   * to them ("Mohinga is now 2" right after their "+"). Counted (two queued taps on one line), and
-   * released a beat AFTER the write settles (`OWN_WRITE_HOLD_MS`): a write whose own view could not
-   * be read lands on screen through the realtime echo instead, up to `ECHO_MAX_WAIT_MS` later.
+   * THIS phone has a write on, so the view diff below never reads a diner's own tap back to them
+   * ("Mohinga is now 2" right after their "+"). #362 (blind pass 3): a hold ends only once a view
+   * whose READ STARTED after the write settled has been diffed with it held (`lib/own-write-hold.ts`)
+   * — never on a timer, which a slow re-read, or a failed one followed by the realtime echo, outran.
+   * `holdPending` returns the SETTLE: call it the moment the write answers, before any recovery read
+   * is issued, so that read can be the one that ends it. Idempotent.
    */
-  const pendingLinesRef = useRef(new Map<string, number>());
-  const pendingDishesRef = useRef(new Map<string, number>());
+  const ownLinesRef = useRef(newOwnHolds());
+  const ownDishesRef = useRef(newOwnHolds());
   const holdPending = useCallback((which: "line" | "dish", key: string): (() => void) => {
-    const map = which === "line" ? pendingLinesRef.current : pendingDishesRef.current;
-    map.set(key, (map.get(key) ?? 0) + 1);
-    return () => {
-      window.setTimeout(() => {
-        const n = (map.get(key) ?? 1) - 1;
-        if (n <= 0) map.delete(key);
-        else map.set(key, n);
-      }, OWN_WRITE_HOLD_MS);
-    };
+    const hold = openHold(
+      which === "line" ? ownLinesRef.current : ownDishesRef.current,
+      key,
+      Date.now(),
+    );
+    return () => settleHold(hold, viewSeqRef.current.issued);
   }, []);
   /** The view diff — assigned below, once `flash` exists; `applyView` calls it for every view it
    *  accepts, with the previous confirmed lines. `diffCartRef` is the cart the baseline belongs to:
@@ -533,6 +529,10 @@ export function TableCartProvider({
       if (diffCartRef.current === diffCart)
         viewDiffRef.current?.(itemsRef.current, v.items, v.mySeat);
       else diffCartRef.current = diffCart;
+      // #362 — and only THEN may a hold end: this view was diffed with every held key excluded, so if
+      // its read started after a write settled, the baseline now includes that write.
+      releaseHolds(ownLinesRef.current, seq, viewSeqRef.current.issued, Date.now());
+      releaseHolds(ownDishesRef.current, seq, viewSeqRef.current.issued, Date.now());
       itemsRef.current = v.items;
       if (prevSettling.current === null) prevSettling.current = v.settling;
       return true;
@@ -789,8 +789,8 @@ export function TableCartProvider({
     (prev: CartItem[], next: CartItem[], seat: string) => {
       const notice = orderChangeNotice(
         orderChanges(prev, next, seat, {
-          lineIds: new Set(pendingLinesRef.current.keys()),
-          dishes: new Set(pendingDishesRef.current.keys()),
+          lineIds: heldKeys(ownLinesRef.current),
+          dishes: heldKeys(ownDishesRef.current),
         }),
       );
       if (notice) flash(notice, freshnessDurationMs(notice));
@@ -1262,13 +1262,18 @@ export function TableCartProvider({
       // recovery path below compare against this one snapshot through `classifyAddLanding`, so they
       // cannot disagree about how many units landed — the "name it ONCE" rule applied to a count.
       const itemsBefore = itemsRef.current;
-      // Lifecycle audit — this dish's change is OURS until the write settles (the view diff skips it).
-      const release = holdPending("dish", menuItemId);
+      // Lifecycle audit — this dish's change is OURS until a view read after the write has shown it
+      // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
+      const settleOwn = holdPending("dish", menuItemId);
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
-        const out = await addItemOutcome(cartId, menuItemId, modifierIds, notes, qty);
+        // Settled the moment the write answers, BEFORE any recovery read below is issued, so that
+        // read is one that can end the hold.
+        const out = await addItemOutcome(cartId, menuItemId, modifierIds, notes, qty).finally(
+          settleOwn,
+        );
         if (!out.ok) {
           // Lifecycle audit (out-of-stock 0) — a refusal the SERVER NAMED (`priceItem`: the dish is
           // sold out or off the menu), answered as a value because a thrown message is redacted in
@@ -1276,7 +1281,8 @@ export function TableCartProvider({
           // carries the view on screen (nothing changed). It used to reach this phone as a throw,
           // re-read, find no lock and hedge "We couldn’t confirm Mohinga" over a card that stayed
           // live. The MARK flips the menu's card to "Sold out" now; a fresher catalog clears it.
-          if (out.refused === "sold_out") {
+          // #362 — either kind flips the card (the kitchen cannot make it); the SENTENCE says which.
+          if (out.refused === "sold_out" || out.refused === "gone") {
             const at = Date.parse(out.at);
             setSoldOutMarks((prev) =>
               new Map(prev).set(menuItemId, Number.isFinite(at) ? at : Date.now()),
@@ -1434,7 +1440,7 @@ export function TableCartProvider({
         return result;
       } finally {
         setPendingDelta((n) => n - qty);
-        release();
+        settleOwn(); // idempotent — every path above already settled it
       }
     },
     [
@@ -1476,12 +1482,14 @@ export function TableCartProvider({
       const line = itemsRef.current.find((i) => i.id === cartItemId);
       const delta = line ? Math.max(0, qty) - line.qty : 0;
       setPendingDelta((d) => d + delta);
-      // Lifecycle audit — this line's change is OURS until the write settles (the view diff skips it).
-      const release = holdPending("line", cartItemId);
+      // Lifecycle audit — this line's change is OURS until a view read after the write has shown it
+      // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
+      const settleOwn = holdPending("line", cartItemId);
       try {
         // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
         // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
-        const view = await setQtyAction(cartItemId, qty);
+        // Settled the moment the write answers, before the recovery reads below are issued.
+        const view = await setQtyAction(cartItemId, qty).finally(settleOwn);
         if (isServerRefusal(view)) {
           // Lifecycle audit (edit-notes 6) — a refusal the SERVER NAMED, as a value: the line had
           // already gone to the kitchen (a tablemate's Send landed inside the echo window), or the
@@ -1558,8 +1566,8 @@ export function TableCartProvider({
         // : null)`, so an `unconfirmed` op (no view) makes the NEXT op re-read, and sends nothing when
         // that read fails too (Codex round 6 on #251). And no consumer re-sends a `setItemQty` — the
         // stepper is the only caller — so `refused` bought nothing here that `unconfirmed` loses.
-        const line = fresh?.find((i) => i.id === cartItemId);
-        const atTarget = fresh !== null && (qty <= 0 ? line === undefined : line?.qty === qty);
+        const now = fresh?.find((i) => i.id === cartItemId);
+        const atTarget = fresh !== null && (qty <= 0 ? now === undefined : now?.qty === qty);
         const result = recoveredWrite({
           reread: fresh,
           landed: atTarget ? true : null,
@@ -1568,12 +1576,14 @@ export function TableCartProvider({
         // `refused` is unreachable on this path by construction (the landing is `true` or `null`),
         // so a write that is not confirmed is retracted — never explained as a refusal.
         // F30 (lifecycle audit) — the retraction NAMES the dish, as `add`'s does: with rows in flight a
-        // bare "We couldn’t confirm that" does not say which "−" it is about.
-        if (result.state === "unconfirmed") publishUnconfirmed(line?.name);
+        // bare "We couldn’t confirm that" does not say which "−" it is about. Codex A (#362): from
+        // the re-read when it has the line, else from the rows held when the tap was made (`line`,
+        // captured before the write) — a FAILED re-read is exactly the case F30 exists for.
+        if (result.state === "unconfirmed") publishUnconfirmed(now?.name ?? line?.name);
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
-        release();
+        settleOwn(); // idempotent — every path above already settled it
       }
     },
     [

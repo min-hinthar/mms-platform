@@ -1,9 +1,10 @@
 import { serviceClient } from "@mms/db/server";
 import {
+  dishUnavailable,
   foodMenuIds,
-  itemSellable,
   pickUnavailable,
   sendBlockingDishes,
+  type Unavailable,
   type UnavailableLine,
 } from "./availability";
 
@@ -66,17 +67,19 @@ export async function unavailableLines(cartId: string): Promise<AvailabilityRead
 
 /**
  * Lifecycle audit (out-of-stock 1) — the dine-in drafts a Send would fire whose dish the kitchen can
- * no longer make (`sendBlockingDishes`), named. FAIL-OPEN like `unavailableLineNames`: this is a
+ * no longer make (`sendBlockingDishes`: never a comp — #362 blind pass 2b), named with WHY (#362 Codex
+ * round 1 — sold out, or no longer on the menu). FAIL-OPEN like `unavailableLineNames`: this is a
  * secondary check in front of `mms_fire_cart`, and an unreadable catalog must not stop a table's
  * Send — the KDS still shows a sold-out dish's mark, which is where the 86 was before this gate.
  */
-export async function sendBlockingNames(cartId: string): Promise<string[]> {
+export async function sendBlockers(cartId: string): Promise<UnavailableLine[]> {
   const db = serviceClient();
   const { data: lines, error: linesErr } = await db
     .from("qr_cart_items")
-    .select("menu_item_id,name,state,fulfillment")
+    .select("menu_item_id,name,state,fulfillment,comped")
     .eq("cart_id", cartId)
     .eq("state", "draft")
+    // `mms_fire_cart`'s own filter (see `sendBlockingDishes` for why exactly this one).
     .eq("fulfillment", "dinein");
   if (linesErr || !lines) {
     console.error("[availability] send pre-read: cart unreadable", linesErr?.message);
@@ -92,16 +95,19 @@ export async function sendBlockingNames(cartId: string): Promise<string[]> {
     console.error("[availability] send pre-read: catalog unreadable", itemsErr?.message);
     return [];
   }
-  return sendBlockingDishes(lines, items).map((u) => u.name);
+  return sendBlockingDishes(lines, items);
 }
 
 /**
- * Lifecycle audit (out-of-stock 1 · edit-notes 6) — can the kitchen still make this one dish? For a
- * write that only ever touches one line (`makeItNow`, `setQty` growing a line). `null` = unknowable
- * (a failed read, or a soft ref that is not a menu uuid — a grocery barcode is never gated); the
- * caller treats that as FAIL-OPEN, the posture of every availability pre-read here.
+ * Lifecycle audit (out-of-stock 1 · edit-notes 6) — can the kitchen still make this one dish, and if
+ * not, WHY (`dishUnavailable`'s kind)? For a write that only ever touches one line (`makeItNow`,
+ * `setQty` growing a line). `null` = unknowable (a failed read, or a soft ref that is not a menu uuid
+ * — a grocery barcode is never gated); the caller treats that as FAIL-OPEN, the posture of every
+ * availability pre-read here.
  */
-export async function dishSellable(menuItemId: string | null | undefined): Promise<boolean | null> {
+export async function dishAvailability(
+  menuItemId: string | null | undefined,
+): Promise<Unavailable | "available" | null> {
   if (!menuItemId || !/^[0-9a-f-]{36}$/i.test(menuItemId)) return null;
   const { data, error } = await serviceClient()
     .from("menu_items")
@@ -112,6 +118,6 @@ export async function dishSellable(menuItemId: string | null | undefined): Promi
     console.error("[availability] dish pre-read failed", error.message);
     return null;
   }
-  // A dish with no catalog row cannot be made either (`pickUnavailable`'s dangling-ref rule).
-  return data ? itemSellable(data) : false;
+  // A dish with no catalog row cannot be made either (`pickUnavailable`'s dangling-ref rule): `gone`.
+  return dishUnavailable(data) ?? "available";
 }

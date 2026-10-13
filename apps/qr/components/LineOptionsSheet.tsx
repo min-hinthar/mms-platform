@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CartItem } from "@mms/db";
 import { Sheet } from "@mms/ui";
 import { boundWrite } from "@/lib/bounded-write";
 import { t } from "@/lib/i18n";
+import { noteAfterChanged, noteOnLiveChange, noteSaveState, type NoteDraft } from "@/lib/note-edit";
 
 /**
  * Phase 3c-i (D17) — the dish's ⋯ sheet: where the line goes (For here / To go) and, for a to-go
@@ -66,28 +67,69 @@ export function LineOptionsSheet({
   onMakeNow: () => Promise<unknown>;
   /** Lifecycle audit (edit-notes 3) — the RAW `setLineNote` write for this line, as the parent runs
    *  it (the follow-through — the re-sync and any refusal's sentence — rides beside it, the
-   *  `makeNow` shape). Awaited BOUNDED here; an answered `ok` closes the sheet. Omitted = no field. */
-  onSaveNote?: (notes: string) => Promise<{ ok: boolean }>;
+   *  `makeNow` shape). Awaited BOUNDED here; an answered `ok` closes the sheet. Omitted = no field.
+   *  #362 — `seen` is the stored note the field was seeded from (the write's compare-and-swap); a
+   *  `changed` answer carries the note now on the order, and the field re-seeds from it. */
+  onSaveNote?: (
+    notes: string,
+    seen: string,
+  ) => Promise<{ ok: boolean; reason?: string; notes?: string | null }>;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const [busy, setBusy] = useState(false);
   // WHICH write holds the sheet — for the labels only (the one `busy` is the guard): a note being
   // saved must not make "Send to kitchen now" read "Sending…".
   const [busyWith, setBusyWith] = useState<"send" | "note">("send");
-  // The note as the diner is editing it — seeded from the LIVE line once per open (the parent keys
-  // the sheet per open). Bounded to 160, the Zod cap and the `qr_cart_items.notes` column CHECK.
-  const [note, setNote] = useState(line.notes ?? "");
-  const noteUnchanged = note.trim() === (line.notes ?? "").trim();
+  // The note as the diner is editing it, against the note on the ORDER (#362 blind pass 1 —
+  // `lib/note-edit.ts`): `seen` is what the field was seeded from and the write's compare-and-swap;
+  // an untouched field FOLLOWS the order, a touched one keeps the diner's words and SHOWS the change
+  // (`underneath`). Bounded to 160, the Zod cap and the `qr_cart_items.notes` column CHECK.
+  const live = line.notes ?? "";
+  const [draft, setDraft] = useState<NoteDraft>({ note: live, seen: live, underneath: null });
+  const [liveSeen, setLiveSeen] = useState(live);
+  // The order's note moved under the open sheet — the render-time adjust (the parent re-renders this
+  // sheet with the LIVE line on every applied view).
+  if (live !== liveSeen) {
+    setLiveSeen(live);
+    setDraft((d) => noteOnLiveChange(d, live));
+  }
+  const note = draft.note;
+  const { unchanged: noteUnchanged, removes: noteRemoves } = noteSaveState(draft);
+  // The field's CURRENT value for the post-await check below (state is a render behind there),
+  // mirrored after every commit.
+  const noteNowRef = useRef(note);
+  useLayoutEffect(() => {
+    noteNowRef.current = note;
+  });
+  // Codex D — an edit that slipped in while the save was out (`readOnly` stops a keyboard, not every
+  // input path): the sheet stays open and says the newer words are not saved.
+  const [newerUnsaved, setNewerUnsaved] = useState(false);
 
   async function saveNote() {
     if (busy || frozen || noteUnchanged || !onSaveNote) return;
+    const submitted = note.trim();
+    setNewerUnsaved(false);
     setBusyWith("note");
     setBusy(true);
     try {
       // The RAW write, awaited bounded, outside any transition (9b) — the `sendNow` shape. A note is
       // the allergy channel, so the sheet holds for the answer rather than closing on a hope.
-      const out = await boundWrite(onSaveNote(note.trim()));
-      if (out.kind === "answer" && out.value.ok) onOpenChange(false);
+      const out = await boundWrite(onSaveNote(submitted, draft.seen));
+      if (out.kind === "answer") {
+        if (out.value.ok) {
+          // Saved: the order now holds `submitted`. Close only if that is still what the field
+          // says — otherwise the newer words would vanish with the sheet (Codex D).
+          if (noteNowRef.current.trim() === submitted) onOpenChange(false);
+          else {
+            setDraft((d) => ({ ...d, seen: submitted, underneath: null }));
+            setNewerUnsaved(true);
+          }
+        } else if (out.value.reason === "changed") {
+          // Someone else's note is on the order now: show it, and save against it next time. The
+          // view's one region says so (the parent's `settleNote`).
+          setDraft(noteAfterChanged(out.value.notes ?? null));
+        }
+      }
     } finally {
       setBusy(false); // frees AT THE BOUND on every path — the M82 guard parses for it
     }
@@ -203,9 +245,30 @@ export function LineOptionsSheet({
               maxLength={160}
               rows={2}
               placeholder="e.g. No peanuts — allergy"
-              onChange={(e) => setNote(e.target.value)}
+              // Codex D — READ-ONLY while its save is out (never `disabled`: focus stays put), so the
+              // words that are saving are the words on screen.
+              readOnly={busy && busyWith === "note"}
+              aria-busy={(busy && busyWith === "note") || undefined}
+              onChange={(e) => {
+                const value = e.target.value;
+                setDraft((d) => ({ ...d, note: value }));
+                setNewerUnsaved(false);
+              }}
               aria-describedby={note.length >= 120 ? `line-note-count-${line.id}` : undefined}
             />
+            {/* #362 — the order's note moved while the diner was typing: SHOWN, never adopted over
+                their words (a save is then refused as `changed`, and the field re-seeds). Plain
+                text, not a second live region — the view's region says the change. */}
+            {draft.underneath !== null && (
+              <p className="item-note-count">
+                {draft.underneath
+                  ? `Changed on the order while you were typing: “${draft.underneath}”`
+                  : "The note on the order was removed while you were typing."}
+              </p>
+            )}
+            {newerUnsaved && (
+              <p className="item-note-count">Your newer change isn’t saved yet — tap Save note.</p>
+            )}
             {note.length >= 120 && (
               <p id={`line-note-count-${line.id}`} className="item-note-count">
                 {160 - note.length} characters left
@@ -228,7 +291,7 @@ export function LineOptionsSheet({
             >
               {busy && busyWith === "note"
                 ? "Saving…"
-                : note.trim() === "" && line.notes
+                : noteRemoves
                   ? "Remove the note"
                   : "Save note"}
             </button>

@@ -29,6 +29,8 @@ export type CartLineish = {
   name: string;
   state: string;
   fulfillment: string;
+  /** Read only by the SEND's gate (`sendBlockingDishes`): a comp no diner can remove. */
+  comped?: boolean;
 };
 
 export type CatalogItemish = {
@@ -38,13 +40,33 @@ export type CatalogItemish = {
   is_active: boolean;
 };
 
+/** Why a dish cannot be made now: 86'd today (`sold_out`), or delisted / gone from the catalog. */
+export type Unavailable = "sold_out" | "gone";
+
 /**
- * The ONE sellability predicate — read by the add-time refusal in `priceItem` and by the charge-time
- * re-read below. Two spellings of "can we still make this?" would drift the day a third availability
- * flag lands, and the two answers would disagree at exactly the moment a diner is holding a phone.
+ * The ONE availability predicate, and it returns the KIND — read by the add-time refusal in
+ * `priceItem`, the charge-time re-read below, the Send's gate, the single-dish pre-read and the cart
+ * view's per-line mark. Two spellings of "can we still make this?" would drift the day a third
+ * availability flag lands, and the answers would disagree at exactly the moment a diner is holding a
+ * phone.
+ *
+ * #362 (Codex round 1) — the KIND travels because the two are different facts with different words:
+ * an 86 is today's ("Sold out"), a delisting is not coming back ("No longer on the menu"). Folding
+ * them into one "sold out" told a diner a dish they will never see again was a temporary shortage.
+ * A missing row is `gone` too (`menu_item_id` is a SOFT ref: a deleted dish leaves a dangling line,
+ * and a dish with no catalog row cannot be made). A delisted dish that was also 86'd is `gone`: the
+ * delisting is the fact that outlives the 86.
  */
+export function dishUnavailable(
+  i: { is_sold_out: boolean; is_active: boolean } | null | undefined,
+): Unavailable | null {
+  if (!i || !i.is_active) return "gone";
+  return i.is_sold_out ? "sold_out" : null;
+}
+
+/** Can the kitchen make it now — `dishUnavailable`'s projection, never a second spelling. */
 export function itemSellable(i: { is_sold_out: boolean; is_active: boolean }): boolean {
-  return !i.is_sold_out && i.is_active;
+  return dishUnavailable(i) === null;
 }
 
 /**
@@ -82,8 +104,9 @@ export function pickUnavailableNames(lines: CartLineish[], items: CatalogItemish
   return pickUnavailable(lines, items).map((u) => u.name);
 }
 
-/** One dish that can no longer be made: the catalog id the cart line points at, and what to call it. */
-export type UnavailableLine = { id: string; name: string };
+/** One dish that can no longer be made: the catalog id the cart line points at, what to call it, and
+ *  why (`dishUnavailable`'s kind — the sentence differs). */
+export type UnavailableLine = { id: string; name: string; why: Unavailable };
 
 /**
  * W23c — the same verdict as `pickUnavailableNames`, keeping the ID alongside the name.
@@ -101,15 +124,17 @@ export function pickUnavailable(lines: CartLineish[], items: CatalogItemish[]): 
   // Name from the CATALOG, not the line's stamped `name`: the line carries a snapshot that may
   // predate a rename, and the diner is about to go looking for this dish on the menu in front of
   // them. Fall back to the line's name when the catalog has no row at all.
-  const sellable = new Set(items.filter(itemSellable).map((i) => i.id));
-  const catalogName = new Map(items.map((i) => [i.id, i.name_en]));
+  const catalog = new Map(items.map((i) => [i.id, i]));
   const seen = new Set<string>();
   const out: UnavailableLine[] = [];
   for (const l of live) {
     const id = l.menu_item_id as string;
-    if (sellable.has(id) || seen.has(id)) continue;
+    if (seen.has(id)) continue;
+    const row = catalog.get(id);
+    const why = dishUnavailable(row);
+    if (why === null) continue;
     seen.add(id);
-    out.push({ id, name: catalogName.get(id) ?? l.name });
+    out.push({ id, name: row?.name_en ?? l.name, why });
   }
   return out;
 }
@@ -130,16 +155,27 @@ export function foodMenuIds(lines: CartLineish[]): string[] {
  * them. ONLY `dinein` drafts: those are exactly what the Send fires — a to-go draft waits for the
  * payment (and its own charge-boundary gate), so it must not hold the table's Send.
  *
- * The same sellability rule as every other gate (`pickUnavailable` → `itemSellable`). Read-then-fire
- * leaves a race window (an 86 landing between this read and the RPC); closing it needs the RPC to
- * skip sold-out drafts in SQL, which is a migration — filed, not guessed at here.
+ * The same sellability rule as every other gate (`pickUnavailable` → `dishUnavailable`). Read-then-
+ * fire leaves a race window (an 86 landing between this read and the RPC); closing it needs the RPC
+ * to skip sold-out drafts in SQL, which is a migration — filed (M298), not guessed at here.
+ *
+ * ⚠️ `dinein` IS EXACTLY THE FIRE'S OWN FILTER, not a guess at it (#362 blind pass 2c): the live
+ * `mms_fire_cart` (20261008123000_pd1_send_nudge.sql) updates `ci.state = 'draft' and ci.fulfillment
+ * = 'dinein'` — a to-go line at the table never rides the Send; it fires at the pay (behind
+ * create-intent's own availability gate) or through "Send to kitchen now" (behind `makeItNow`'s).
+ *
+ * ⚠️ A COMPED draft never blocks (#362 blind pass 2b). No diner can remove a comp (`canMutateLine`),
+ * so a sold-out comp held the whole table's Send with no way through — where, before this gate, the
+ * Send fired it. Staff comped it, so staff own it: it fires as it always did, and the kitchen's board
+ * shows the 86. (The CHARGE boundary keeps blocking it — `blockableLines`'s rule — because there the
+ * remedy is staff's void, and the comp is still a dish the kitchen would be asked to make.)
  */
 export function sendBlockingDishes(
   lines: CartLineish[],
   items: CatalogItemish[],
 ): UnavailableLine[] {
   return pickUnavailable(
-    lines.filter((l) => l.fulfillment === "dinein"),
+    lines.filter((l) => l.fulfillment === "dinein" && !l.comped),
     items,
   );
 }

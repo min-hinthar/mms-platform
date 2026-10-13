@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cartSoldOutReading, freshestSoldOut, soldOutSendNotice } from "./dish-sold-out";
+import { cartSoldOutReading, freshestSoldOut, unavailableSendNotice } from "./dish-sold-out";
 
 /**
  * Lifecycle audit (out-of-stock 0 · 5) — the menu's sold-out fact is the FRESHEST reading this phone
@@ -84,16 +84,36 @@ describe("cartSoldOutReading — the cart view's line flag, stamped with its DB 
   });
 });
 
-describe("soldOutSendNotice — a refused Send names the dishes and the way through", () => {
+describe("unavailableSendNotice — a refused Send names the dishes, why, and the way through", () => {
+  const sold = (name: string) => ({ name, why: "sold_out" as const });
+  const gone = (name: string) => ({ name, why: "gone" as const });
+
   it("one dish, two, and more (the list caps at two names, read aloud)", () => {
-    expect(soldOutSendNotice(["Mohinga"])).toBe(
+    expect(unavailableSendNotice([sold("Mohinga")])).toBe(
       "Mohinga is sold out now — remove it to send the rest.",
     );
-    expect(soldOutSendNotice(["Mohinga", "Tea Leaf Salad"])).toBe(
+    expect(unavailableSendNotice([sold("Mohinga"), sold("Tea Leaf Salad")])).toBe(
       "Mohinga and Tea Leaf Salad are sold out now — remove them to send the rest.",
     );
-    expect(soldOutSendNotice(["A", "B", "C"])).toBe(
+    expect(unavailableSendNotice([sold("A"), sold("B"), sold("C")])).toBe(
       "A, B and 1 more are sold out now — remove them to send the rest.",
+    );
+  });
+
+  it("a dish no longer on the menu says so — never 'sold out' (#362 Codex round 1)", () => {
+    // MUTATION (lcb/send-notice/gone-reads-sold-out): one sentence for both kinds; red.
+    expect(unavailableSendNotice([gone("Shan Noodles")])).toBe(
+      "Shan Noodles is no longer on the menu — remove it to send the rest.",
+    );
+    // Mixed kinds: the honest common fact, not one kind's word stretched over both.
+    expect(unavailableSendNotice([sold("Mohinga"), gone("Shan Noodles")])).toBe(
+      "Mohinga and Shan Noodles can’t be made now — remove them to send the rest.",
+    );
+  });
+
+  it("an empty list still says something the diner can act on", () => {
+    expect(unavailableSendNotice([])).toBe(
+      "Something in your order just sold out — check your order below.",
     );
   });
 });

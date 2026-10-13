@@ -38,9 +38,15 @@ export type CartItem = {
   unitPriceCents: number;
   taxCents: number;
   bySeat?: string;
-  /** The item has since been 86'd (menu_items.is_sold_out) — the cart can't increment it (QA §D
-   *  sold-out trap), only decrement/remove. Server-derived in getCartView; grocery lines stay false. */
+  /** The kitchen can no longer make this dish — 86'd OR no longer on the menu (`unavailable` says
+   *  which). The GATE: the cart can't increment it (QA §D sold-out trap), only decrement/remove.
+   *  Server-derived in getCartView; grocery lines stay false. */
   soldOut?: boolean;
+  /** #362 — WHY the dish can't be made, for the words: `sold_out` (86'd today — "Sold out") or
+   *  `gone` (delisted, or gone from the catalog — "No longer on the menu"). null when it can be, for
+   *  a grocery line, or when the catalog read failed (advisory, like `soldOut`). One predicate
+   *  (`dishUnavailable`) decides it and `soldOut`, so the two never disagree. */
+  unavailable?: "sold_out" | "gone" | null;
   /** Where the line is in its kitchen life (S2.2). 'draft' = still editable by the diner; once
    *  'fired'/'in_progress'/'served' the diner can't edit it (the UI shows its state + "Ask a server",
    *  the server enforces via canMutateLine). Defaults 'draft' for any line that predates S2. */
@@ -72,9 +78,10 @@ export type CartItem = {
   /** W13 — the line's Burmese name (menu/grocery name_my), joined alongside imageUrl. The post-add
    *  path speaks both tongues; render with lang="my" + the --font-my stack. Display-only. */
   nameMy?: string | null;
-  /** Lifecycle audit (out-of-stock 2) — WHY staff removed a voided line, when the reason is one a
-   *  guest may be told: `sold_out` ("We ran out", `mms_approvals.reason_code`). null for every other
-   *  reason, a line that is not voided, or an unreadable audit (advisory, like `soldOut`). */
+  /** Lifecycle audit (out-of-stock 2) — WHY a voided line was removed, when the reason is one a
+   *  guest may be told: `sold_out` ("We ran out") — staff's (`mms_approvals.reason_code`) or the
+   *  settlement's own void of a dish it could not make (`qr_dropped_lines`, #362 blind pass 7). null
+   *  for every other reason, a line that is not voided, or an unreadable audit (advisory). */
   removedReason?: "sold_out" | null;
 };
 

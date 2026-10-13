@@ -181,7 +181,8 @@ describe("LineOptionsSheet — the kitchen note", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
     });
-    expect(onSaveNote).toHaveBeenCalledWith("No peanuts — allergy");
+    // #362 — with the note it was seeded from: the write is a compare-and-swap on it.
+    expect(onSaveNote).toHaveBeenCalledWith("No peanuts — allergy", "No egg");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -250,5 +251,124 @@ describe("LineOptionsSheet — one busy sheet, the right word on each control", 
     await act(async () => {
       held.resolve({ ok: false });
     });
+  });
+});
+
+/**
+ * #362 (blind pass 1, CRITICAL · Codex D) — the field against the note on the ORDER. The sheet
+ * seeded once and never compared: a staff allergy note written while it was open was overwritten on
+ * Save — or, with the field untouched, the button became "Remove the note" and erased it.
+ */
+describe("LineOptionsSheet — the note on the order moves while the sheet is open", () => {
+  const field = (dialog: HTMLElement) =>
+    within(dialog).getByLabelText("A note for the kitchen") as HTMLTextAreaElement;
+
+  it("an UNTOUCHED field follows the order — Save never turns into 'Remove the note'", () => {
+    // MUTATION (lcb/line-sheet/untouched-field-frozen): never re-seed — the button offers to erase
+    // the allergy note staff just wrote; red.
+    const onSaveNote = vi.fn(() => Promise.resolve({ ok: true }));
+    const { rerender } = render(
+      <LineOptionsSheet
+        line={LINE}
+        open
+        frozen={false}
+        prepMinutes={12}
+        notice={null}
+        onOpenChange={vi.fn()}
+        onChoose={vi.fn()}
+        onMakeNow={vi.fn(() => Promise.resolve())}
+        onSaveNote={onSaveNote}
+      />,
+    );
+    rerender(
+      <LineOptionsSheet
+        line={{ ...LINE, notes: "No peanuts — allergy" }}
+        open
+        frozen={false}
+        prepMinutes={12}
+        notice={null}
+        onOpenChange={vi.fn()}
+        onChoose={vi.fn()}
+        onMakeNow={vi.fn(() => Promise.resolve())}
+        onSaveNote={onSaveNote}
+      />,
+    );
+    const d = screen.getByRole("dialog");
+    expect(field(d).value).toBe("No peanuts — allergy");
+    expect(within(d).queryByRole("button", { name: "Remove the note" })).toBeNull();
+    expect(within(d).getByRole("button", { name: "Save note" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+  });
+
+  it("a TOUCHED field keeps the diner's words, SHOWS the change, and still saves against what it saw", async () => {
+    const onSaveNote = vi.fn(() => Promise.resolve({ ok: true }));
+    const props = {
+      open: true,
+      frozen: false,
+      prepMinutes: 12,
+      notice: null,
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onMakeNow: vi.fn(() => Promise.resolve()),
+      onSaveNote,
+    };
+    const { rerender } = render(<LineOptionsSheet line={LINE} {...props} />);
+    fireEvent.change(field(screen.getByRole("dialog")), { target: { value: "Extra spicy" } });
+    rerender(<LineOptionsSheet line={{ ...LINE, notes: "No peanuts" }} {...props} />);
+    const d = screen.getByRole("dialog");
+    expect(field(d).value).toBe("Extra spicy");
+    expect(d.textContent).toContain("No peanuts");
+    await act(async () => {
+      fireEvent.click(within(d).getByRole("button", { name: "Save note" }));
+    });
+    // The seed it was typed against — "" — so the server refuses it as `changed`, never overwrites.
+    expect(onSaveNote).toHaveBeenCalledWith("Extra spicy", "");
+  });
+
+  it("a save refused as `changed` re-seeds the field from the note now on the order, and stays open", async () => {
+    // MUTATION (lcb/line-sheet/changed-not-reseeded): keep the stale seed — every retry is refused
+    // again, and the diner never sees the note they would be replacing; red.
+    const onSaveNote = vi.fn(() =>
+      Promise.resolve({ ok: false, reason: "changed", notes: "No peanuts — allergy" }),
+    );
+    const { onOpenChange, dialog } = mount({ onSaveNote });
+    fireEvent.change(field(dialog), { target: { value: "Extra spicy" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(field(dialog).value).toBe("No peanuts — allergy");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // The next save is against the note it now shows.
+    fireEvent.change(field(dialog), { target: { value: "No peanuts — allergy, extra spicy" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(onSaveNote).toHaveBeenLastCalledWith(
+      "No peanuts — allergy, extra spicy",
+      "No peanuts — allergy",
+    );
+  });
+
+  it("Codex D — the field is read-only while its save is out, and an edit that slips in keeps the sheet open", async () => {
+    // MUTATION (lcb/line-sheet/draft-editable-mid-save): leave the field editable while saving; red.
+    // MUTATION (lcb/line-sheet/closes-over-newer-text): close on ok regardless — the newer words
+    // vanish with the sheet; red.
+    const held = deferred<{ ok: boolean }>();
+    const { onOpenChange, dialog } = mount({ onSaveNote: () => held.promise });
+    fireEvent.change(field(dialog), { target: { value: "No egg" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    expect(field(dialog).readOnly).toBe(true);
+    expect(field(dialog).getAttribute("aria-busy")).toBe("true");
+    // (`readOnly` stops a keyboard; a programmatic change still slips in — the close must ask.)
+    fireEvent.change(field(dialog), { target: { value: "No egg, no peanuts" } });
+    await act(async () => {
+      held.resolve({ ok: true });
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(dialog.textContent).toContain("isn’t saved yet");
+    expect(field(dialog).readOnly).toBe(false);
   });
 });

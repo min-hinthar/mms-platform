@@ -400,7 +400,11 @@ describe("a Send refused for sold-out dishes", () => {
   it("names them, fires nothing, opens no window, and re-reads so each dish shows its mark", async () => {
     // MUTATION (lcb/send-button/sold-out-unnamed): say the generic failure — "Couldn’t send that just
     // now — please try again." over a cart a retry can never send; red.
-    h.sendToKitchen.mockResolvedValue({ ok: false, reason: "sold_out", names: ["Mohinga"] });
+    h.sendToKitchen.mockResolvedValue({
+      ok: false,
+      reason: "unavailable",
+      dishes: [{ name: "Mohinga", why: "sold_out" }],
+    });
     const onChanged = vi.fn();
     const onMessage = vi.fn();
     const g = grace();

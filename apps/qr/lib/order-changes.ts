@@ -58,8 +58,11 @@ export function orderChanges(
     const p = before.get(n.id);
     if (p === undefined) {
       // A server's addition. A diner's add carries their seat (and a tablemate's is announced by
-      // realtime with their name); only a seatless line is "our staff".
-      if (!n.bySeat && n.lineState !== "voided" && !ours(n, pending))
+      // realtime with their name); only a seatless line is "our staff". #362 (Codex round 1): only
+      // the LINE hold applies to it, never the dish hold — every diner add path writes the verified
+      // seat (only `staffAddItem` passes null), so a seatless line can never be this phone's own
+      // add, and a dish hold matching it swallowed a server's addition of the same dish.
+      if (!n.bySeat && n.lineState !== "voided" && !pending.lineIds.has(n.id))
         added.push({ kind: "staff_added", name: n.name });
       continue;
     }

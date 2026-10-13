@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
+import { effectiveFreeze } from "./lock-ttl";
 import type { LineState } from "./permissions";
 import { REG_PREFIX } from "./register-queue";
 import {
@@ -182,14 +182,10 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   // Effective lock: held AND fresh. A stale lock (a diner closed the pay tab) is ignored, so the
   // cart frees itself after the TTL — the next acquire takes it over. Same cutoff as lib/lock.ts.
-  const lockedFresh =
-    cart.locked &&
-    cart.locked_at !== null &&
-    new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
   // Effective settlement freeze (split-tender): a fresh settle_at means the table is paying — the
-  // whole cart is read-only until fulfillment or the TTL frees an abandoned settlement.
-  const settlingFresh =
-    cart.settle_at !== null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  // whole cart is read-only until fulfillment or the TTL frees an abandoned settlement. ONE rule for
+  // both (`effectiveFreeze`), shared with `setLineNote`'s pre-write re-read of the same row.
+  const { locked: lockedFresh, settling: settlingFresh } = effectiveFreeze(cart, Date.now());
 
   const { data: sess, error: sessErr } = await db
     .from("table_sessions")

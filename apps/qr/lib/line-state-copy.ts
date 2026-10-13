@@ -100,3 +100,18 @@ export function removedReasons(
   for (const [id, { code }] of newest) out.set(id, code === "sold_out" ? "sold_out" : null);
   return out;
 }
+
+/**
+ * #362 — the mark on an UNSENT dish the kitchen can no longer make, as a `CART` dictionary key (both
+ * tongues). WHICH fact (Codex round 1): an 86 is "Sold out", a delisting is "No longer on the menu" —
+ * never one word stretched over both. And the way through — "remove it" — only on a phone that can
+ * take it (blind pass 2a): a guest looking at a tablemate's dish, or any comp (staff own those), sees
+ * the plain fact. `mayRemove` is the stepper's own permission (`canMutateLine`) and not comped.
+ */
+export function unavailableMarkKey(
+  kind: "sold_out" | "gone",
+  mayRemove: boolean,
+): "soldOutRemoveIt" | "soldOutMark" | "goneRemoveIt" | "goneMark" {
+  if (kind === "gone") return mayRemove ? "goneRemoveIt" : "goneMark";
+  return mayRemove ? "soldOutRemoveIt" : "soldOutMark";
+}

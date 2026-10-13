@@ -1635,6 +1635,35 @@ describe("Lifecycle audit — named refusals and what changed", () => {
     expect(h.addItem).not.toHaveBeenCalled();
   });
 
+  it("an add refused as GONE says 'no longer on the menu' — never 'sold out' — and still flips the card", async () => {
+    // MUTATION (lcb/provider/gone-add-unmarked): mark only a sold-out refusal — the card for a dish
+    // no longer on the menu stays live under every retry; red.
+    mount();
+    await drainDeferredAnnounces();
+    const AT = "2026-10-08T10:00:05.000Z";
+    h.addItemOutcome.mockResolvedValue({ ok: false, refused: "gone", at: AT });
+    const r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "gone" }, "Mohinga"));
+    await waitFor(() => expect(ctl.soldOutMarks.get(ITEM)).toBe(Date.parse(AT)));
+  });
+
+  it("a '−' on a dish staff REMOVED says so, even when the re-read fails — never 'gone to the kitchen'", async () => {
+    // #362 blind pass 8 — `setQty` answered `not_draft` for a voided line too, and with the re-read
+    // unreadable the provider spoke the server's word: "already gone to the kitchen", about a dish
+    // that had been taken off.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockResolvedValue({ refused: "voided", at: "2026-10-08T10:00:05.000Z" });
+    h.getCartView.mockRejectedValue(new Error("offline"));
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("refused");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice({ cause: "removed" }, "Mohinga"));
+  });
+
   it("a '−' on a dish already SENT names it — 'it’s already gone to the kitchen'", async () => {
     // MUTATION (lcb/provider/sent-minus-hedged): speak the re-read's own reading instead of the
     // server's word — "We couldn’t confirm Mohinga" while the dish is cooking; red.
@@ -1703,6 +1732,75 @@ describe("Lifecycle audit — named refusals and what changed", () => {
     });
     await drainDeferredAnnounces();
     expect(spoken()).not.toContain("is now");
+  });
+
+  it("Codex A — the '−' retraction keeps the dish's NAME when the recovery re-read fails", async () => {
+    // F30 exists for exactly the unreadable cart: with no re-read, the line can only come from the
+    // rows this phone held when the tap was made.
+    // MUTATION (lcb/provider/qty-hedge-loses-the-pre-write-name): name from the re-read alone — the
+    // bare "We couldn’t confirm that" in the one case F30 is for; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.setQty.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockRejectedValue(new Error("offline"));
+    const r = await ctl.setItemQty("line-1", 0);
+    expect(r.state).toBe("unconfirmed");
+    await waitFor(() => expect(spoken()).toContain(namedUnconfirmedWriteNotice("Mohinga")));
+  });
+
+  it("an ADD of a dish already on MY order is never read back to me (the dish hold)", async () => {
+    // MUTATION (lcb/provider/add-dish-hold-dropped): drop `holdPending("dish", …)` — the add's own
+    // merged view reads "Mohinga on your order is now 2" right after the diner's "+"; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.addItem.mockResolvedValue(view({ items: [mine({ qty: 2 })] }));
+    await act(async () => {
+      await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+  });
+
+  it("#362 — a write whose re-read FAILED is not read back when the echo lands long after", async () => {
+    // The hold used to end on a 2 s timer after the write settled; the view that finally showed the
+    // edit — a realtime echo, a foreground read — arrived later and was diffed with the line free.
+    // MUTATION (lcb/provider/hold-released-on-a-clock): release the hold on any applied view —
+    // the echo's diff reads "Mohinga on your order is now 2." to the diner who tapped it; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 1 })] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine({ qty: 1 })]));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      h.setQty.mockResolvedValue(null); // written, view unreadable…
+      h.getCartView.mockRejectedValueOnce(new Error("offline")); // …and the recovery read fails too
+      await act(async () => {
+        await ctl.setItemQty("line-1", 2);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      // The echo, long after: a read issued now sees the diner's own write.
+      h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 2 })] }));
+      await act(async () => {
+        await ctl.refresh();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+    // …and the hold ENDED with that view: a later change by someone else is news again.
+    h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 3 })] }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("Mohinga on your order is now 3.");
   });
 
   it("the FIRST view of a cart is a situation, never news", async () => {

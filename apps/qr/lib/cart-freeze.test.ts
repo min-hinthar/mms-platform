@@ -745,12 +745,54 @@ describe("server-named refusals — sold_out joins sent", () => {
     // MUTATION (lcb/freeze/sold-out-holds-after-restock): hold regardless — "it's sold out now"
     // printed beside a dish a manager has just put back on; red.
     const sold = { cause: "sold_out" } as const;
-    expect(namedRefusalHolds(sold, { lineState: "draft", soldOut: true })).toBe(true);
-    expect(namedRefusalHolds(sold, { lineState: "draft", soldOut: false })).toBe(false);
-    expect(namedRefusalHolds(sold, { lineState: "fired", soldOut: true })).toBe(false);
+    expect(namedRefusalHolds(sold, { lineState: "draft", unavailable: "sold_out" })).toBe(true);
+    expect(namedRefusalHolds(sold, { lineState: "draft", unavailable: null })).toBe(false);
+    expect(namedRefusalHolds(sold, { lineState: "fired", unavailable: "sold_out" })).toBe(false);
     expect(namedRefusalHolds(sold, undefined)).toBe(false);
     // The `sent` arm is M230's own test.
     expect(namedRefusalHolds({ cause: "sent" }, { lineState: "fired" })).toBe(true);
     expect(namedRefusalHolds({ cause: "sent" }, { lineState: "voided" })).toBe(false);
+  });
+});
+
+/**
+ * #362 — the two kinds of "can't be made now" (Codex round 1, cart.ts:190) and a removed line
+ * (blind pass 8) each have their own named arm, in their own words.
+ */
+describe("server-named refusals — gone and removed join sold_out and sent", () => {
+  it("`gone` is named as no longer on the menu — never as an 86", () => {
+    // MUTATION (lcb/freeze/gone-reads-sold-out): map `gone` to the sold-out arm; red.
+    expect(serverNamedRefusal("gone")).toEqual({ cause: "gone" });
+    expect(namedRefusedWriteNotice({ cause: "gone" }, "Mohinga")).toBe(
+      "Mohinga didn’t go through — it’s no longer on the menu.",
+    );
+    expect(refusalClearsPayError({ cause: "gone" })).toBe(false);
+    expect(isServerRefusal({ refused: "gone", at: "2026-10-13T00:00:00Z" })).toBe(true);
+  });
+
+  it("a line staff REMOVED is named as off the order — never 'already gone to the kitchen'", () => {
+    // MUTATION (lcb/freeze/voided-reads-sent): map `voided` to the kitchen arm — a removed dish is
+    // described as cooking; red.
+    expect(serverNamedRefusal("voided")).toEqual({ cause: "removed" });
+    expect(namedRefusedWriteNotice({ cause: "removed" }, "Mohinga")).toBe(
+      "Mohinga didn’t go through — it’s already off your order.",
+    );
+    expect(refusalClearsPayError({ cause: "removed" })).toBe(false);
+    expect(isServerRefusal({ refused: "voided", at: "2026-10-13T00:00:00Z" })).toBe(true);
+  });
+
+  it("each holds only while the view still says its own fact", () => {
+    // MUTATION (lcb/freeze/kinds-hold-for-each-other): hold a `gone` refusal on any unavailable
+    // line — "no longer on the menu" beside a dish the view says is merely 86'd; red.
+    const gone = { cause: "gone" } as const;
+    expect(namedRefusalHolds(gone, { lineState: "draft", unavailable: "gone" })).toBe(true);
+    expect(namedRefusalHolds(gone, { lineState: "draft", unavailable: "sold_out" })).toBe(false);
+    expect(
+      namedRefusalHolds({ cause: "sold_out" }, { lineState: "draft", unavailable: "gone" }),
+    ).toBe(false);
+    const removed = { cause: "removed" } as const;
+    expect(namedRefusalHolds(removed, { lineState: "voided" })).toBe(true);
+    expect(namedRefusalHolds(removed, { lineState: "draft" })).toBe(false);
+    expect(namedRefusalHolds(removed, undefined)).toBe(false);
   });
 });

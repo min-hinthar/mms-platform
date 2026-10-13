@@ -56,14 +56,17 @@ vi.mock("./authz", () => ({
 }));
 // Lifecycle audit — the line the authz read returns, steered per case (state · qty · dish).
 const member = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
-// The dish availability pre-read (`dishSellable`) — steered per case; `null` is "unknowable".
-const sellable = vi.hoisted(() => ({ current: true as boolean | null, asked: [] as unknown[] }));
+// The dish availability pre-read (`dishAvailability`) — steered per case; `null` is "unknowable".
+const sellable = vi.hoisted(() => ({
+  current: "available" as "available" | "sold_out" | "gone" | null,
+  asked: [] as unknown[],
+}));
 vi.mock("./availability-read", () => ({
-  dishSellable: (id: unknown) => {
+  dishAvailability: (id: unknown) => {
     sellable.asked.push(id);
     return Promise.resolve(sellable.current);
   },
-  sendBlockingNames: () => Promise.resolve([]),
+  sendBlockers: () => Promise.resolve([]),
 }));
 vi.mock("./rate", () => ({
   assertMutationRate: () => Promise.resolve(),
@@ -109,7 +112,7 @@ const { setQty } = await import("./cart");
 beforeEach(() => {
   rpcAnswer = { data: 1, error: null };
   member.current = {};
-  sellable.current = true;
+  sellable.current = "available";
   sellable.asked = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -156,14 +159,25 @@ describe("setQty — named refusals (lifecycle audit)", () => {
     // MUTATION (lcb/setqty-grows-a-sold-out-line): drop the growth gate — the "+" lands on a dish the
     // kitchen cannot make, and the cart charges for it until someone removes it; red.
     member.current = { lineQty: 1, menuItemId: "11111111-1111-1111-1111-111111111111" };
-    sellable.current = false;
+    sellable.current = "sold_out";
     await expect(setQty("line-1", 2)).resolves.toMatchObject({ refused: "sold_out" });
+    // #362 (Codex round 1) — a dish no longer on the menu is refused as `gone`, never as an 86.
+    // MUTATION (lcb/setqty-gone-reads-sold-out): answer `sold_out` for any unavailable dish; red.
+    sellable.current = "gone";
+    await expect(setQty("line-1", 2)).resolves.toMatchObject({ refused: "gone" });
+  });
+
+  it("a line staff REMOVED is refused as `voided`, never as 'gone to the kitchen' (#362 blind pass 8)", async () => {
+    // MUTATION (lcb/setqty-voided-reads-sent): fold `voided` back into `not_draft`; red.
+    member.current = { lineState: "voided" };
+    rpcAnswer = { data: 1, error: null };
+    await expect(setQty("line-1", 0)).resolves.toMatchObject({ refused: "voided" });
   });
 
   it("SHRINKING a sold-out line is always allowed — it is the way out — and never asks", async () => {
     // MUTATION (lcb/setqty-gate-blocks-the-way-out): gate every write, not only a growth; red.
     member.current = { lineQty: 2, menuItemId: "11111111-1111-1111-1111-111111111111" };
-    sellable.current = false;
+    sellable.current = "sold_out";
     const v = await setQty("line-1", 1);
     expect(v && "refused" in v ? v.refused : "landed").toBe("landed");
     expect(sellable.asked).toEqual([]);

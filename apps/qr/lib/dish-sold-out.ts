@@ -7,12 +7,17 @@ import { nameList } from "./catalog-freshness";
  *
  * /menu holds three readings of the same fact, each read at a different moment:
  *
- *   • the CATALOG the page rendered (`is_sold_out`), stamped `catalogStamp` — the app server's clock
- *     at RSC render. It moves only when the route re-renders (a pull, a wake, the ambient interval);
+ *   • the CATALOG the page rendered (`is_sold_out`), stamped `catalogStamp`. It moves only when the
+ *     route re-renders (a pull, a wake, the Refresh button);
  *   • the CART view, whose every line carries its dish's live `soldOut` (`getCartView` reads
- *     `menu_items` on every view), stamped `dbNow` — the DB clock read before the lines;
- *   • a REFUSAL this phone just met (`addItemOutcome`'s `sold_out`), stamped with the server's
- *     clock as it refused.
+ *     `menu_items` on every view — 86'd or no longer on the menu), stamped `dbNow`, read before
+ *     the lines;
+ *   • a REFUSAL this phone just met (`addItemOutcome`'s `sold_out` / `gone`), stamped as it refused.
+ *
+ * ⚠️ ONE CLOCK (#362 blind pass 9). All three are the DATABASE clock (`mms_now()`): the cart view's
+ * own read, and `dbClockIso` for the render and the refusal. Their first version stamped the render
+ * and the refusal with the APP server's `Date.now()` — another machine's clock, a different instance
+ * per request on serverless — so two readings close together were ordered by skew, not by time.
  *
  * The shipped rule ORed the catalog with the cart (`liveSoldOut = soldOut || myLines.some(...)`),
  * which is fresh in ONE direction only: a dish put back on the menu stayed dead on /menu — the
@@ -63,13 +68,23 @@ export function cartSoldOutReading(
 }
 
 /**
- * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — the sentence a Send refused for
- * sold-out drafts says, naming the dishes (the refusal is a dead end without them). Read aloud, so
- * the list caps at two names (`nameList`).
+ * Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — the sentence a Send refused for dishes
+ * the kitchen can no longer make says, naming the dishes (the refusal is a dead end without them)
+ * and WHY (#362 Codex round 1): "sold out now" for an 86, "no longer on the menu" for a delisting,
+ * and — when the batch holds both — the fact they share, "can’t be made now", rather than one kind's
+ * word stretched over the other. Read aloud, so the list caps at two names (`nameList`).
  */
-export function soldOutSendNotice(names: ReadonlyArray<string>): string {
-  if (names.length === 0) return "Something in your order just sold out — check your order below.";
-  const verb = names.length === 1 ? "is" : "are";
-  const it = names.length === 1 ? "it" : "them";
-  return `${nameList([...names])} ${verb} sold out now — remove ${it} to send the rest.`;
+export function unavailableSendNotice(
+  dishes: ReadonlyArray<{ name: string; why: "sold_out" | "gone" }>,
+): string {
+  if (dishes.length === 0) return "Something in your order just sold out — check your order below.";
+  const one = dishes.length === 1;
+  const kinds = new Set(dishes.map((d) => d.why));
+  const state =
+    kinds.size > 1
+      ? "can’t be made now"
+      : kinds.has("gone")
+        ? `${one ? "is" : "are"} no longer on the menu`
+        : `${one ? "is" : "are"} sold out now`;
+  return `${nameList(dishes.map((d) => d.name))} ${state} — remove ${one ? "it" : "them"} to send the rest.`;
 }

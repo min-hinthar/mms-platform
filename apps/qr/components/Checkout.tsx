@@ -65,6 +65,7 @@ import {
   sentRefusalHolds,
   serverNamedRefusal,
   visibleFreeze,
+  type NamedRefusal,
 } from "@/lib/cart-freeze";
 import {
   type ExplainedFreeze,
@@ -85,9 +86,11 @@ import { taxRate } from "@/lib/tax";
 import { rewardShortfallCents } from "@/lib/totals-math";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { pickupContactMissing } from "@/lib/pickup-contact";
-import { DINER_STATE_COPY, lineChipWord } from "@/lib/line-state-copy";
+import { DINER_STATE_COPY, lineChipWord, unavailableMarkKey } from "@/lib/line-state-copy";
 import { passRowStage } from "@/lib/live-pass";
 import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
+import { heldKeys, newOwnHolds, openHold, releaseHolds, settleHold } from "@/lib/own-write-hold";
+import { noteChangedNotice } from "@/lib/note-edit";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
 import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
@@ -480,6 +483,19 @@ export function Checkout({
   const hostNote = hostSendsCopy(hostName);
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  /**
+   * #362 (Codex round 1, B) — what the region's slot held at the last commit, and how many times a
+   * sentence has been SAID into it (`sayRefusal` — the re-say of an identical refusal changes no
+   * text). The order-change news rides a frame; an answer given between its scheduling and that frame
+   * was overwritten by it. The news frame compares both and stands down when either moved.
+   */
+  const statusNowRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    statusNowRef.current = status;
+  });
+  const saidCountRef = useRef(0);
+  /** The edit refusal on screen (see `retireShownRefusal`, below, for its rules), or null. */
+  const shownRefusalRef = useRef<string | null>(null);
   const [pending, startTransition] = useTransition();
   // Cart edits (qty / fulfillment / make-now) ride their OWN transition so their pending doesn't disable
   // the promo "Apply" button; its pending is intentionally unread (the controls stay live optimistically).
@@ -492,22 +508,18 @@ export function Checkout({
   // `true` = the server accepted it; `false` = it refused, and something has to say so.
   const qtyChain = useRef<Map<string, Promise<boolean>>>(new Map());
   /**
-   * Lifecycle audit (edit-notes 7) — the lines THIS phone has a quantity or note write in flight on,
-   * so the order-change diff below never reads a diner's own edit back to them as someone else's.
-   * Counted, and released a beat AFTER the write settles: the re-sync that shows the edit lands
-   * after the answer.
+   * Lifecycle audit (edit-notes 7) — the lines THIS phone has a quantity or note write on, so the
+   * order-change diff below never reads a diner's own edit back to them as someone else's. #362
+   * (blind pass 3 · Codex round 1): a hold ends only once a view whose READ STARTED after the write
+   * settled has been diffed with it held (`lib/own-write-hold.ts`, released in `applyCartView`) —
+   * never on a timer: the re-sync that shows the edit can come later than any delay (a slow read; a
+   * failed one, then the realtime echo). `holdOwn` returns the SETTLE: call it the moment the write
+   * answers, before the follow-up read is issued, so that read is one that can end it.
    */
-  const ownWritesRef = useRef(new Map<string, number>());
+  const ownHoldsRef = useRef(newOwnHolds());
   const holdOwn = useCallback((id: string): (() => void) => {
-    const m = ownWritesRef.current;
-    m.set(id, (m.get(id) ?? 0) + 1);
-    return () => {
-      window.setTimeout(() => {
-        const n = (m.get(id) ?? 1) - 1;
-        if (n <= 0) m.delete(id);
-        else m.set(id, n);
-      }, 2000);
-    };
+    const hold = openHold(ownHoldsRef.current, id, Date.now());
+    return () => settleHold(hold, viewSeqRef.current.issued);
   }, []);
   /** The order-change diff's voice — assigned below, beside the region it speaks through (`status`'s
    *  renumbering lives there); `applyCartView` calls it with the previous confirmed lines. */
@@ -869,7 +881,7 @@ export function Checkout({
    * and not to the diagnosis leaves the sentence describing a cart the list beside it no longer
    * shows. `explainCaught` and `readView` share `applyView` on /menu for exactly this reason.
    */
-  const applyCartView = useCallback((v: Awaited<ReturnType<typeof getCartView>>) => {
+  const applyCartView = useCallback((v: Awaited<ReturnType<typeof getCartView>>, seq?: number) => {
     // ⚠️ THE REF IS WRITTEN FIRST, and synchronously. Everything below is a React setter whose
     // effect is a later render; the latch in `explainRefusal` runs before any of them land, so the
     // ref is the only honest answer to "what does the screen now say" at that moment.
@@ -878,6 +890,9 @@ export function Checkout({
     // screen last showed (`lib/order-changes.ts`), asked BEFORE the ref below moves on: its `items`
     // is that view (seeded from the rendered prop, so the first read diffs against what is drawn).
     orderDiffRef.current?.(freezeFactsRef.current.items, v.items, v.mySeat);
+    // #362 — only after that diff (every held line excluded) may a hold end: if this view's read
+    // started after a write settled, the baseline it becomes includes the write.
+    releaseHolds(ownHoldsRef.current, seq, viewSeqRef.current.issued, Date.now());
     // ⚠️ AND THAT MAKES THIS FUNCTION A LATCH-CURRENCY WRITER, which its name does not say (the
     // blind pass on this PR). `freezeFactsRef` is the SOLE input to `latchExplained`'s currency
     // check, so any future path that applies a view between a refusal's publish and its latch would
@@ -1205,6 +1220,7 @@ export function Checkout({
   // rule (DESIGN-LANGUAGE §7, J34): the region says the NEWEST answer to what the next tap meets.
   const [statusSeq, setStatusSeq] = useState(0);
   const sayRefusal = (text: string) => {
+    saidCountRef.current += 1; // #362 (Codex B) — a news frame scheduled before this stands down
     setPayError(null);
     setStatus(text);
     setStatusSeq((n) => n + 1);
@@ -1235,12 +1251,24 @@ export function Checkout({
     orderDiffRef.current = (prev, next, seat) => {
       const notice = orderChangeNotice(
         orderChanges(prev, next, seat, {
-          lineIds: new Set(ownWritesRef.current.keys()),
+          lineIds: heldKeys(ownHoldsRef.current),
           dishes: new Set<string>(),
         }),
       );
       if (!notice) return;
+      const slotBefore = statusNowRef.current;
+      const saidBefore = saidCountRef.current;
       requestAnimationFrame(() => {
+        // #362 (Codex B) — NEWS NEVER OVERWRITES A NEWER ANSWER (the slot moved, or a sentence was
+        // said into it, since this view was diffed), nor an edit refusal still on screen: either is
+        // what the diner's next tap meets, and this is only news. Dropped, not queued — the change
+        // itself stays visible on the order beside it.
+        if (
+          statusNowRef.current !== slotBefore ||
+          saidCountRef.current !== saidBefore ||
+          shownRefusalRef.current !== null
+        )
+          return;
         setStatus(notice);
         setStatusSeq((seq) => seq + 1);
       });
@@ -1409,8 +1437,10 @@ export function Checkout({
    * "Promo applied." A refusal that has been superseded by a demonstrably successful write is the
    * one thing here that is no longer true — an `unknown` hedge in particular ("We couldn't confirm
    * that") would otherwise sit under a cart the diner has just edited twice.
+   *
+   * (`shownRefusalRef` itself is declared beside `status`, above: the order-change news reads it too —
+   * #362, Codex B — and a ref read before its declaration is one the hooks linter cannot follow.)
    */
-  const shownRefusalRef = useRef<string | null>(null);
   /**
    * M230 — the `holds` test of the server-named refusal now ON SCREEN, or null (none shown, or a
    * diagnosed one, which a freeze edge retires instead).
@@ -2266,8 +2296,8 @@ export function Checkout({
     const outcome = await readTicketed(
       viewSeqRef.current,
       () => getCartView(cartId),
-      (v) => {
-        applyCartView(v);
+      (v, seq) => {
+        applyCartView(v, seq); // the read's ticket, so this view can end a diner's own-write hold
         setViewQuiet(true);
       },
     );
@@ -2291,7 +2321,7 @@ export function Checkout({
     const prev = qtyChain.current.get(id) ?? Promise.resolve(true);
     // Lifecycle audit (edit-notes 6 · out-of-stock 1) — a refusal the SERVER NAMED rides out of the
     // write in a HOLDER (a `let` assigned in this callback narrows back to null after the await).
-    const said: { named: { cause: "sent" } | { cause: "sold_out" } | null } = { named: null };
+    const said: { named: NamedRefusal | null } = { named: null };
     const releaseOwn = holdOwn(id); // lifecycle audit — this line's change is OURS (the diff skips it)
     const write = prev.then(async () => {
       try {
@@ -2320,6 +2350,8 @@ export function Checkout({
       }
     });
     qtyChain.current.set(id, write);
+    // Settled when THIS write answers — registered before the transition below awaits it, so the
+    // settle is recorded before the follow-up read is issued (that read can then end the hold).
     void write.then(releaseOwn);
     startCartTransition(async () => {
       applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
@@ -2443,9 +2475,10 @@ export function Checkout({
     // Lifecycle audit (out-of-stock 1) — "Send to kitchen now" on a dish the kitchen can no longer
     // make is refused as `sold_out` (`makeItNow`'s availability pre-read) and NAMED below. Read off
     // the same promise (awaiting it twice is free), so the M230 `not_draft` silence stays as is.
-    const soldOut = await action.then(
-      (r) => !r.ok && r.reason === "sold_out",
-      () => false,
+    // #362 — WHICH kind (an 86, or no longer on the menu), so the sentence says the right one.
+    const unavailable = await action.then(
+      (r) => (!r.ok && (r.reason === "sold_out" || r.reason === "gone") ? r.reason : null),
+      () => null,
     );
     // `accepted` and `refused` are separate for the same reason as the toggle above.
     //
@@ -2475,8 +2508,8 @@ export function Checkout({
       );
       return;
     }
-    if (soldOut) {
-      const named = { cause: "sold_out" } as const;
+    if (unavailable) {
+      const named = { cause: unavailable } as const;
       await explainAndAnnounce(
         gesture,
         (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
@@ -2494,11 +2527,15 @@ export function Checkout({
    * awaits it bounded and closes on an answered `ok`; the follow-through rides `settleNote` beside it.
    * Not optimistic — the allergy channel shows only what the server holds.
    */
-  function saveNote(id: string, notes: string): ReturnType<typeof setLineNote> {
+  function saveNote(id: string, notes: string, seen: string): ReturnType<typeof setLineNote> {
     const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
-    const releaseOwn = holdOwn(id); // the note change is OURS — the order-change diff skips it
-    const action = setLineNote(id, notes);
-    void settleNote(id, notes, gesture, action).finally(releaseOwn);
+    const settleOwn = holdOwn(id); // the note change is OURS — the order-change diff skips it
+    // #362 — `seen` is the note the sheet was seeded from: the write is a compare-and-swap on it.
+    const action = setLineNote(id, notes, seen);
+    // Settled when the WRITE answers — registered before `settleNote` awaits it, so the re-sync it
+    // issues is a read that can end the hold (`lib/own-write-hold.ts`).
+    void action.then(settleOwn, settleOwn);
+    void settleNote(id, notes, gesture, action);
     return action;
   }
   async function settleNote(
@@ -2518,6 +2555,15 @@ export function Checkout({
       supersedeRefusals(gesture);
       await refresh();
       sayOutcome(notes ? `Note saved for ${name}.` : `Note removed from ${name}.`);
+      return;
+    }
+    // #362 (blind pass 1) — the note on the order is no longer the one the sheet was seeded from:
+    // NOTHING was written (the compare-and-swap refused). The sheet re-seeds from `r.notes`; here the
+    // view says it, in both tongues, after the re-sync that shows it — never a silent overwrite.
+    if (r && !r.ok && r.reason === "changed") {
+      await refresh();
+      const said = noteChangedNotice(name, r.notes);
+      sayOutcome(said.en, said.my);
       return;
     }
     // A NAMED refusal (`not_draft`: the dish went to the kitchen while the sheet was open) speaks for
@@ -4218,29 +4264,38 @@ export function Checkout({
                       </div>
                       {/* Lifecycle audit (out-of-stock 1) — an UNSENT dish whose dish sold out after it
                           was added said so only by dimming its "+" (the words lived in a screen-reader
-                          label), and the Send fired it anyway. Now the mark is VISIBLE, both tongues,
-                          and names the way through — the Send refuses while it stays (`sendToKitchen`).
-                          Static text, not a live region: the view's one region says the refusal. */}
-                      {i.lineState === "draft" && i.soldOut && (
-                        <div
-                          data-line-soldout
-                          style={{
-                            display: "inline-flex",
-                            flexWrap: "wrap",
-                            alignItems: "baseline",
-                            marginTop: 6,
-                            padding: "3px 10px",
-                            borderRadius: "var(--r-full)",
-                            background: "var(--warnb)",
-                            color: "var(--warn)",
-                            fontSize: "var(--fs-sm)",
-                            fontWeight: "var(--fw-bold)",
-                          }}
-                        >
-                          {t("en", "soldOutRemoveIt")}
-                          <My k="soldOutRemoveIt" inline size="var(--fs-sm)" color="var(--warn)" />
-                        </div>
-                      )}
+                          label), and the Send fired it anyway. Now the mark is VISIBLE, both tongues.
+                          #362 — it says WHICH fact (an 86, or no longer on the menu) and names the way
+                          through — "remove it" — only to a phone that can take it: the stepper's own
+                          permission and not a comp (a guest looking at a tablemate's dish, or any
+                          comp, reads the plain fact). Static text, not a live region: the view's one
+                          region says the refusal. */}
+                      {i.lineState === "draft" &&
+                        i.unavailable &&
+                        (() => {
+                          const k = unavailableMarkKey(i.unavailable, canEdit && !i.comped);
+                          return (
+                            <div
+                              data-line-soldout
+                              data-unavailable={i.unavailable}
+                              style={{
+                                display: "inline-flex",
+                                flexWrap: "wrap",
+                                alignItems: "baseline",
+                                marginTop: 6,
+                                padding: "3px 10px",
+                                borderRadius: "var(--r-full)",
+                                background: "var(--warnb)",
+                                color: "var(--warn)",
+                                fontSize: "var(--fs-sm)",
+                                fontWeight: "var(--fw-bold)",
+                              }}
+                            >
+                              {t("en", k)}
+                              <My k={k} inline size="var(--fs-sm)" color="var(--warn)" />
+                            </div>
+                          );
+                        })()}
                       {/* Phase 3c-i (D17) — the line is a receipt row: For here / To go and "Send to
                           kitchen now" live behind this ⋯ (ONE `LineOptionsSheet`, subject-keyed), under
                           the exact gate the pills had — dine-in food, still a draft, and this diner may
@@ -5593,7 +5648,7 @@ export function Checkout({
                 }}
                 onMakeNow={() => makeNow(lineSheet.held!.id)}
                 dineIn={isDineIn}
-                onSaveNote={(notes) => saveNote(lineSheet.held!.id, notes)}
+                onSaveNote={(notes, seen) => saveNote(lineSheet.held!.id, notes, seen)}
                 onCloseAutoFocus={(e) => landAfterLineSheet(e, lineSheet.held!.id)}
               />
             )}

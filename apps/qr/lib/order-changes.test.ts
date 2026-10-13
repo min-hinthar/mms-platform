@@ -96,6 +96,34 @@ describe("orderChanges — what someone else changed", () => {
   });
 });
 
+/**
+ * #362 (Codex round 1, order-changes.ts:63) — a STAFF addition of the same dish this phone is adding
+ * was swallowed: the dish-level hold matched it, and realtime ignores seatless inserts too, so
+ * nothing ever said it. A seatless line can never be this diner's own add — every diner add path
+ * (`addItem`, `reorder`, the kiosk through `addItem`) writes the VERIFIED seat; only staff
+ * (`staffAddItem`) passes null — so the dish-level hold does not apply to it.
+ */
+describe("orderChanges — a seatless line is never this phone's own add", () => {
+  it("says a server's addition of the dish this phone is adding at the same moment", () => {
+    // MUTATION (lcb/order-changes/dish-hold-swallows-staff-add): let the dish hold cover a seatless
+    // line — the server's addition is never said; red.
+    const mine = line({ id: "a", qty: 1 });
+    const staffs = line({ id: "s", bySeat: undefined });
+    const out = orderChanges([mine], [{ ...mine, qty: 2 }, staffs], ME, {
+      lineIds: new Set(),
+      dishes: new Set(["mohinga"]),
+    });
+    expect(out).toEqual([{ kind: "staff_added", name: "Mohinga" }]);
+  });
+
+  it("…but a seatless line this phone wrote BY ID stays quiet (the line hold still applies)", () => {
+    const staffs = line({ id: "s", bySeat: undefined });
+    expect(orderChanges([], [staffs], ME, { lineIds: new Set(["s"]), dishes: new Set() })).toEqual(
+      [],
+    );
+  });
+});
+
 describe("orderChangeNotice — ONE sentence per re-read, never a toast per change", () => {
   it("two changes are both said; more say the first and count the rest", () => {
     // MUTATION (lcb/order-changes/notice-stacks-every-change): join every sentence — five changes
