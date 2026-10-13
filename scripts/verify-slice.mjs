@@ -29675,6 +29675,14 @@ const MUTANTS = [
     replace: "      onNeedTable();\n    }\n",
   },
   {
+    id: "provider/deferred-line-never-asked-again",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "F31 · blind pass on #355 — a quiet claim waits behind a visible toast; said at its turn without asking `still`, /menu's 'Nothing matches' was spoken over a search the diner had corrected inside that window, with matching dishes on screen",
+    find: "          if (next && next.still?.() !== false) {",
+    replace: "          if (next) {",
+  },
+  {
     id: "provider/table-number-frozen-at-mint",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",

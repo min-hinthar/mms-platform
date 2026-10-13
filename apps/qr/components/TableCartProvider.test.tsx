@@ -1106,6 +1106,44 @@ describe("Phase 1c — the one slot: quiet claims, named corrections, precedence
     expect(spoken()).toMatch(/Mohinga added/);
   });
 
+  it("a waiting line is asked again when its turn comes — one no longer true is never said", async () => {
+    // Blind pass on #355 (F31): /menu's "Nothing matches" waited behind a visible toast, the diner
+    // corrected the search, and the line was spoken over a list that had filled up again. `still`
+    // is the caller's truth at the moment of speaking; a deferred line it denies is dropped.
+    vi.useFakeTimers();
+    mount();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    let empty = true;
+    act(() => ctl.announce("Aung added Tea", 2600));
+    act(() =>
+      ctl.announce("Nothing matches.", undefined, undefined, {
+        quiet: true,
+        kind: "claim",
+        still: () => empty,
+      }),
+    );
+    empty = false; // the list filled up again while the line waited
+    const seen: string[] = [];
+    for (let t = 0; t < 6000; t += 100) {
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      seen.push(spoken());
+    }
+    // MUTATION provider/deferred-line-never-asked-again: red.
+    expect(seen.some((s) => s.includes("Nothing matches."))).toBe(false);
+    // …and one still true IS said, at its turn (the drop is not a blanket silence).
+    act(() => ctl.announce("Aung added Tea", 2600));
+    act(() =>
+      ctl.announce("Nothing matches.", undefined, undefined, {
+        quiet: true,
+        kind: "claim",
+        still: () => true,
+      }),
+    );
+    expect(spoken()).not.toMatch(/Nothing matches/);
+    await act(() => vi.advanceTimersByTimeAsync(2700));
+    expect(spoken()).toMatch(/Nothing matches/);
+  });
+
   it("a claim cannot erase a correction, and the correction names the dish", async () => {
     h.getCartView.mockResolvedValue(view());
     mount();

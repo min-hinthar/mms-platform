@@ -74,7 +74,12 @@ const regions = () =>
   document.querySelectorAll('[role="status"], [role="alert"], [role="log"], [aria-live]');
 const search = () => screen.getByRole("searchbox", { name: "Search the menu" });
 const type = (v: string) => act(() => void fireEvent.change(search(), { target: { value: v } }));
-const spoken = () => announce.mock.calls.map((c) => [c[0], c[3]]);
+/** What was said and on what terms (`still`, the re-ask a waiting line gets, is checked on its own). */
+const spoken = () =>
+  announce.mock.calls.map((c) => {
+    const o = c[3] as { quiet?: boolean; kind?: string } | undefined;
+    return [c[0], o && { quiet: o.quiet, kind: o.kind }];
+  });
 
 beforeEach(() => {
   announce.mockClear();
@@ -141,6 +146,20 @@ describe("F31 — /menu speaks through ONE region", () => {
       [EMPTY_SPOKEN, QUIET_CLAIM],
       [EMPTY_SPOKEN, QUIET_CLAIM],
     ]);
+  });
+
+  it("a line that waits is asked again: once the list has filled up, the empty claim is no longer true", async () => {
+    // Blind pass on #355: the quiet claim waits behind a visible toast (the freshness news, a
+    // tablemate's add). The diner corrected the search inside that window and the provider said
+    // "Nothing matches" over the dishes now on screen. `still` is what the provider re-asks.
+    render(<Page />);
+    await type("z");
+    const opts = announce.mock.calls[0]?.[3] as { still?: () => boolean } | undefined;
+    // The shipped defect — no `still` on the claim, so the provider cannot drop it: red.
+    expect(typeof opts?.still).toBe("function");
+    expect(opts!.still!()).toBe(true);
+    await type("");
+    expect(opts!.still!()).toBe(false);
   });
 
   it("a catalog that changes UNDER an empty search says nothing new (the refresh speaks for itself)", async () => {

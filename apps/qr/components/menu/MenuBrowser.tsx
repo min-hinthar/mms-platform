@@ -595,7 +595,9 @@ export function MenuBrowser({
   // "Nothing matches" card is already on screen where the diner acted. Said on the TRANSITION into
   // empty only (a fourth letter typed into an empty search says nothing new), never at arrival, and
   // not while a dialog holds focus: the diet sheet speaks that toggle's consequence itself, and one
-  // toggle is one sentence. The words are the card's own two lines.
+  // toggle is one sentence. The words are the card's own two lines. A quiet claim WAITS behind a
+  // visible toast, so it is asked again when its turn comes (`still`, blind pass on #355): a search
+  // corrected inside that window has filled the list, and "Nothing matches" would be false.
   const wasEmpty = useRef(empty);
   useEffect(() => {
     const was = wasEmpty.current;
@@ -603,7 +605,11 @@ export function MenuBrowser({
     if (!empty || was || items.length === 0) return;
     const active = document.activeElement;
     if (active instanceof Element && active.closest('[role="dialog"]')) return;
-    announce(EMPTY_MATCH_SPOKEN, undefined, undefined, { quiet: true, kind: "claim" });
+    announce(EMPTY_MATCH_SPOKEN, undefined, undefined, {
+      quiet: true,
+      kind: "claim",
+      still: () => wasEmpty.current,
+    });
   }, [empty, items.length, announce]);
   // The diet sheet's count sentence, through the same region and on the same terms (DietFilterButton).
   const announceDietMatches = useCallback(
