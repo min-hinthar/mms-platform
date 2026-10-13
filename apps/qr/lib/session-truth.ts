@@ -268,19 +268,29 @@ export function focusOrphaned(active: Element | null, body: Element | null): boo
 }
 
 /**
- * Finding 5 — does "Leave this table" take the Send from someone else? Only the host sends, so only
- * the host's leave strands a round, and only when the table's DURABLE party (`session_members`, via
+ * Finding 5 — what "Leave this table" must say about the Send. Only the host sends, so only the
+ * host's leave strands a round, and only when the table's DURABLE party (`session_members`, via
  * `getSplitContext`) holds another seat. Presence is not the party: it is empty before the first
- * sync and drops a phone that is merely face down (Codex round 1 on #361). Unknown (`null`, a read
- * that has not landed or failed) claims nothing.
+ * sync and drops a phone that is merely face down (Codex round 1 on #361).
+ *
+ *  - `sends` — another seat is in the party. Membership never shrinks (a leave is device-only, W20),
+ *    so ANY answer that saw one still holds, even while a fresher read is out.
+ *  - `null`  — nothing to say: a guest (only the host sends), or a host the CURRENT read found alone.
+ *  - `maybe` — a host whose party is not established right now: never read, the read asked when the
+ *    leave flow opened still out (Codex round 2 on #361), or failed. Saying nothing then would claim
+ *    the host is alone — the one claim no read made — so the sheet says the hedged sentence.
  */
-export function leaveTakesTheSend(s: {
+export type LeaveWarning = "sends" | "maybe" | null;
+
+export function leaveWarning(s: {
   role: "host" | "guest" | null;
   mySeat: string | null;
-  partySeats: readonly string[] | null;
-}): boolean {
-  if (s.role !== "host" || s.partySeats === null) return false;
-  return s.partySeats.some((seat) => seat !== s.mySeat);
+  /** The durable party's seats, and whether that answer is the one asked for the CURRENT epoch. */
+  party: { seats: readonly string[]; current: boolean } | null;
+}): LeaveWarning {
+  if (s.role !== "host") return null;
+  if (s.party !== null && s.party.seats.some((seat) => seat !== s.mySeat)) return "sends";
+  return s.party !== null && s.party.current ? null : "maybe";
 }
 
 /** The sentence the one live region says when a table is HELD — the card's own title. */

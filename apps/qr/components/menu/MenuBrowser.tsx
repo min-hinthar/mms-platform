@@ -18,7 +18,7 @@ import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { MenuTableEnded } from "@/components/MenuTableEnded";
 import { useDurableParty } from "@/lib/durable-party";
-import { leaveTakesTheSend } from "@/lib/session-truth";
+import { leaveWarning } from "@/lib/session-truth";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -150,6 +150,13 @@ export function MenuBrowser({
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
   // Phase 3b (D9) — the door sheet is open on ANY door now, not only at a table.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  // Session truth (Codex round 2 on #361) — how many times the leave flow has OPENED: each open is a
+  // fresh ask of the durable party (`useDurableParty`'s epoch), independent of presence.
+  const [doorOpens, setDoorOpens] = useState(0);
+  const onDoorSheet = useCallback((open: boolean) => {
+    setDoorSheetOpen(open);
+    if (open) setDoorOpens((n) => n + 1);
+  }, []);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -217,9 +224,15 @@ export function MenuBrowser({
   // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
   // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
   // before the first sync, and missing every phone that is face down (Codex round 1 on #361). Re-read
-  // when presence grows: a join shows there first.
-  const partySeats = useDurableParty(cartId, mode === "dinein" && role === "host", members.length);
-  const sendsForOthers = leaveTakesTheSend({ role, mySeat: me?.seat ?? null, partySeats });
+  // when the leave flow OPENS (Codex round 2: a tablemate who joined with their phone already face
+  // down never shows in presence) and, as an extra trigger, when the presence count moves; while the
+  // read the open asked for is out, `leaveWarning` hedges rather than claim the host is alone.
+  const party = useDurableParty(
+    cartId,
+    mode === "dinein" && role === "host",
+    `${members.length}·${doorOpens}`,
+  );
+  const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, party });
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -686,11 +699,11 @@ export function MenuBrowser({
               exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
               the sheet), so the masthead can never contradict the arrival line. */}
           <DoorSheet
-            sendsForOthers={sendsForOthers}
+            leaveWarning={leaveNote}
             mode={mode}
             tableNumber={tableNumber}
             tables={tables}
-            onOpenChange={setDoorSheetOpen}
+            onOpenChange={onDoorSheet}
           />
           <PullToRefresh
             onRefresh={onRefreshStart}

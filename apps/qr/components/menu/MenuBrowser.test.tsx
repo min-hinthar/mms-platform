@@ -16,6 +16,8 @@ import type { MenuItem } from "./MenuBrowser";
  * the spy — the region itself is the provider's, pinned by its own suite.
  */
 const announce = vi.fn();
+/** Session truth — the cart fields a case overrides (a HOST at a table, for the leave warning). */
+let cartOver: Record<string, unknown> = {};
 vi.mock("@/components/TableCartProvider", () => ({
   useCart: () => ({
     cartId: null,
@@ -26,6 +28,7 @@ vi.mock("@/components/TableCartProvider", () => ({
     members: [],
     me: null,
     ended: null,
+    ...cartOver,
   }),
 }));
 const none = () => null;
@@ -34,9 +37,24 @@ vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
 vi.mock("@/components/MenuTableEnded", () => ({ MenuTableEnded: none }));
-// Session truth — the host's durable party is read through a Server Action; nobody here is a host.
-vi.mock("@/lib/durable-party", () => ({ useDurableParty: () => null }));
-vi.mock("@/components/DoorSheet", () => ({ DoorSheet: none }));
+// Session truth — the host's durable party is read through a Server Action (stubbed: each call's
+// arguments are kept, and `partyAnswer` is what it answers), and the DoorSheet draws nothing but
+// keeps its props, so a case can open the leave flow and read the warning it was handed.
+const partyCalls: unknown[][] = [];
+let partyAnswer: { seats: string[]; current: boolean } | null = null;
+vi.mock("@/lib/durable-party", () => ({
+  useDurableParty: (...args: unknown[]) => {
+    partyCalls.push(args);
+    return partyAnswer;
+  },
+}));
+let doorProps: { leaveWarning?: unknown; onOpenChange?: (open: boolean) => void } = {};
+vi.mock("@/components/DoorSheet", () => ({
+  DoorSheet: (p: typeof doorProps) => {
+    doorProps = p;
+    return null;
+  },
+}));
 vi.mock("@/components/PullToRefresh", () => ({ PullToRefresh: none }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: none }));
 vi.mock("./BlurUpImage", () => ({ BlurUpImage: none }));
@@ -95,6 +113,10 @@ const spoken = () =>
 
 beforeEach(() => {
   announce.mockClear();
+  cartOver = {};
+  partyCalls.length = 0;
+  partyAnswer = null;
+  doorProps = {};
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -232,5 +254,48 @@ describe("F31 — /menu speaks through ONE region", () => {
     );
     expect(screen.getByText("Nothing on the menu fits these filters — ease one.")).toBeTruthy();
     expect(announce).not.toHaveBeenCalled();
+  });
+});
+
+describe("session truth (finding 5) — the host's leave warning is read when the leave flow OPENS", () => {
+  const HOST = {
+    cartId: "cart-1",
+    role: "host",
+    me: { seat: "me", name: "Me" },
+    members: [{ seat: "me", name: "Me" }],
+  };
+
+  it("Codex round 2 on #361 — opening the door sheet re-reads the durable party, whatever presence says", () => {
+    // MUTATION (lcs/leave-flow-never-re-reads): the party is re-read only when presence grows — a
+    // tablemate who joined with their phone already face down never shows in presence, and the
+    // host's leave goes out under a minutes-old "alone".
+    cartOver = HOST;
+    render(<Page />);
+    const epochs = () => partyCalls.map((c) => c[2]);
+    expect(partyCalls.at(-1)?.slice(0, 2)).toEqual(["cart-1", true]);
+    const before = new Set(epochs());
+    act(() => doorProps.onOpenChange?.(true));
+    const opened = epochs().at(-1);
+    expect(before.has(opened)).toBe(false);
+    // Closing is not a new ask; opening again is.
+    act(() => doorProps.onOpenChange?.(false));
+    expect(epochs().at(-1)).toBe(opened);
+    act(() => doorProps.onOpenChange?.(true));
+    expect(epochs().at(-1)).not.toBe(opened);
+  });
+
+  it("while that read is out the warning is HEDGED, never the silence that claims 'alone'; a current 'alone' says nothing", () => {
+    cartOver = HOST;
+    partyAnswer = { seats: ["me"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("maybe");
+    cleanup();
+    partyAnswer = { seats: ["me"], current: true };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    cleanup();
+    partyAnswer = { seats: ["me", "aye"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("sends");
   });
 });
