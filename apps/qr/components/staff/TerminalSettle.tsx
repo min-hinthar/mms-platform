@@ -49,6 +49,8 @@ type SettleError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
   | { kind: "unreadable" }
+  // The lifecycle audit — a draft dish sold out (named); the reader was never asked.
+  | { kind: "soldOut"; dishes: string[] }
   // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
   | { kind: "approvalPending"; dish: string }
   // PD8 — the pending read failed; the reader was never asked, the same tap retries.
@@ -217,11 +219,16 @@ export function TerminalSettleButton({
             ? { kind: "unsent", units: res.units }
             : res.code === "unreadable"
               ? { kind: "unreadable" }
-              : res.code === "approval_pending"
-                ? { kind: "approvalPending", dish: reWarning(res.pending, sentAck.current).dishes }
-                : res.code === "approval_unreadable"
-                  ? { kind: "approvalUnreadable" }
-                  : { kind: "server", text: res.error },
+              : res.code === "sold_out"
+                ? { kind: "soldOut", dishes: res.dishes }
+                : res.code === "approval_pending"
+                  ? {
+                      kind: "approvalPending",
+                      dish: reWarning(res.pending, sentAck.current).dishes,
+                    }
+                  : res.code === "approval_unreadable"
+                    ? { kind: "approvalUnreadable" }
+                    : { kind: "server", text: res.error },
       );
       // PD8 — a request this tap did not display: the page re-draws the flag card naming it and
       // says so in its one region; the next tap acknowledges what it shows.
@@ -235,6 +242,8 @@ export function TerminalSettleButton({
         onChanged?.();
         onBlockedTap?.(res.units);
       }
+      // The lifecycle audit — the page re-reads so the sold-out lines wear their tag.
+      if (res.code === "sold_out") onChanged?.();
       return;
     }
     // The collect starts in the PROVIDER, with the tap's facts — never through a closure of the
@@ -416,6 +425,13 @@ export function TerminalSettleButton({
               <OutageText lang={lang} error={error.text} />
             ) : error.kind === "unreadable" ? (
               <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : error.kind === "soldOut" ? (
+              <Chrome
+                lang={lang}
+                k="settle.soldOut"
+                vars={{ x: error.dishes.join(", ") }}
+                echo={false}
+              />
             ) : error.kind === "approvalPending" ? (
               <Chrome
                 lang={lang}

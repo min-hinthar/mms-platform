@@ -19,9 +19,12 @@ import {
 import { acquireSettlementSuperseding } from "./supersede";
 import {
   settleRefusal,
+  soldOutRefusal,
+  staffSettleSoldOutVerdict,
   unreadableRefusal,
   unsentRefusal,
   type UnreadableRefusal,
+  type SoldOutRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
 import type Stripe from "stripe";
@@ -30,6 +33,7 @@ import { getPostHogClient } from "./posthog-server";
 // ── Phase 2c · gate ──
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
+import { unavailableLines } from "./availability-read";
 import { readPendingApprovalFlags } from "./approvals-read";
 import {
   approvalPendingRefusal,
@@ -99,6 +103,8 @@ export type SettleCardResult =
   // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
   | UnsentRefusal
   | UnreadableRefusal
+  // The lifecycle audit — a draft dish that is sold out (named); nothing was minted.
+  | SoldOutRefusal
   // PD8 — a request waits that this tap did not display (a re-warning), or the pending read failed.
   | ApprovalPendingRefusal
   | ApprovalsUnreadableRefusal;
@@ -170,6 +176,13 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   // so no dish can land after the acquire above and ride the PaymentIntent below (this path has no
   // compare-and-swap; the lock is what closes the race). P2dc (owner decision 5a) — an UNREADABLE
   // count refuses: no PaymentIntent is minted over a gate nobody could check.
+  // The lifecycle audit — a sold-out DRAFT dish is never charged on the reader and then fired to a
+  // kitchen that cannot make it (settleCash's gate; fails closed). Released like the unsent refusal.
+  const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
+  if (soldOut !== null) {
+    await releaseSettlementFor(cart.id, attemptId);
+    return soldOut === "unreadable" ? unreadableRefusal() : soldOutRefusal(soldOut);
+  }
   const unsentUnits = await readKitchenDraftUnits(cart.id);
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
   if (unsent !== null) {

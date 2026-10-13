@@ -38,6 +38,8 @@ type CloseError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
   | { kind: "unreadable" }
+  // The lifecycle audit — a draft dish sold out (named); nothing charged, the page re-reads.
+  | { kind: "soldOut"; dishes: string[] }
   // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
   | { kind: "approvalPending"; dish: string }
   // PD8 — the pending read failed; nothing charged, the same tap retries.
@@ -218,6 +220,12 @@ export function CloseSecureTabButton({
       if (res.code === "unreadable") {
         // P2dc · P2el — nothing charged, the freeze released: the dictionary's words; retry = tap.
         setError({ kind: "unreadable" });
+        return false;
+      }
+      if (res.code === "sold_out") {
+        // The lifecycle audit — nothing charged, the freeze released; the page re-reads.
+        setError({ kind: "soldOut", dishes: res.dishes });
+        onChanged?.();
         return false;
       }
       if (res.code === "approval_pending") {
@@ -443,6 +451,13 @@ export function CloseSecureTabButton({
               <OutageText lang={lang} error={alertMsg.text} />
             ) : alertMsg.kind === "unreadable" ? (
               <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : alertMsg.kind === "soldOut" ? (
+              <Chrome
+                lang={lang}
+                k="settle.soldOut"
+                vars={{ x: alertMsg.dishes.join(", ") }}
+                echo={false}
+              />
             ) : alertMsg.kind === "approvalPending" ? (
               <Chrome
                 lang={lang}

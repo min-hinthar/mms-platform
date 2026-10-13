@@ -79,6 +79,8 @@ type SheetError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
   | { kind: "unreadable" }
+  // The lifecycle audit — a draft dish sold out (named); nothing recorded, the page re-reads.
+  | { kind: "soldOut"; dishes: string[] }
   // PD8 — a request this tap did not display (a re-warning, never a block): the page re-draws the
   // flag card naming it when it can; with no page, the sheet says it and the next tap passes.
   | { kind: "approvalPending"; dish: string }
@@ -596,6 +598,13 @@ export function CashSettleButton({
         setError({ kind: "unreadable" });
         return;
       }
+      if (res.code === "sold_out") {
+        // The lifecycle audit — nothing recorded, the freeze released: the dishes named, and the
+        // page re-reads so their lines wear the Sold out tag the cashier must clear first.
+        setError({ kind: "soldOut", dishes: res.dishes });
+        onChanged?.();
+        return;
+      }
       if (res.code === "approval_pending") {
         // PD8 — a request this tap did not display: nothing recorded. A re-warning, never a block:
         // the page re-draws the flag card naming the dish (its one region says so) and the next
@@ -829,6 +838,8 @@ export function CashSettleButton({
         vars={settleBlockedMsg(m.units, running).vars}
         echo={false}
       />
+    ) : m.kind === "soldOut" ? (
+      <Chrome lang={lang} k="settle.soldOut" vars={{ x: m.dishes.join(", ") }} echo={false} />
     ) : m.kind === "approvalPending" ? (
       <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: m.dish }} echo={false} />
     ) : m.kind === "approvalUnreadable" ? (

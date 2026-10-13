@@ -3462,6 +3462,12 @@ export const STAFF = {
   // P2el — the staff payment doors' fail-closed refusal (owner decision 5a): the unsent check could
   // not be read, so nothing was taken; the same tap retries. K15 draft; grounded: မီးဖိုချောင် (kds.title),
   // စစ် (check), ထပ်နှိပ်ကြည့်ပါ (floor.sound.refused).
+  // The lifecycle audit (2026-10-13) — a DRAFT dish sold out since it was added: the staff doors no
+  // longer charge for it (and then fire it). {x} the dishes' catalog names, joined.
+  "settle.soldOut": {
+    en: "{x} sold out — remove it from the order, then take payment.",
+    my: "{x} ကုန်သွားပြီ — အော်ဒါထဲက ဖယ်ပြီးမှ ငွေရှင်းပါ။",
+  }, // K15-HIGH draft — grounded: table.line.soldOut ကုန်သွားပြီ, entry.pin.remove ဖယ်
   "settle.unsentUnreadable": {
     en: "Couldn’t check the kitchen — try again.",
     my: "မီးဖိုချောင်ကို စစ်လို့ မရပါ — ထပ်နှိပ်ကြည့်ပါ။",
@@ -4598,6 +4604,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
  */
 export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.unsentUnreadable",
+  "settle.soldOut",
   "browse.price.confirmQ",
   "browse.price.keep",
   "browse.price.live.off",

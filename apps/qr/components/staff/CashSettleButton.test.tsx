@@ -989,6 +989,41 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     expect(take().getAttribute("aria-disabled")).toBeNull();
   });
 
+  it("a server `sold_out` refusal names the dishes in the device language, and the page re-reads", async () => {
+    // lck/cash-settle/sold-out-said-as-server — the server's English through <OutageText> on a
+    // Burmese console; the page never re-read, so the line did not show its Sold out tag.
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "sold_out",
+      dishes: ["Mohinga", "Tea"],
+      error: "english",
+    });
+    const onChanged = vi.fn();
+    render(
+      <StaffLangProvider lang="my">
+        <CashSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          tipBaseCents={4000}
+          onChanged={onChanged}
+        />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    await act(async () => {
+      fireEvent.click(
+        within(dialog)
+          .getAllByRole("button")
+          .find((b) => b.classList.contains("ui-btn-primary"))!,
+      );
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      tf("my", "settle.soldOut", { x: "Mohinga, Tea" }),
+    );
+    expect(onChanged).toHaveBeenCalled();
+  });
+
   it("a server `unsent` refusal is said in the sheet in the device language, with ITS count — and the close hands the cashier to the fix, not back to the trigger", async () => {
     const english = "Some dishes haven’t gone to the kitchen.";
     settleCash.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: english });

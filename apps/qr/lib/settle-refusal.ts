@@ -74,3 +74,37 @@ export type UnreadableRefusal = { ok: false; error: string; code: "unreadable" }
 export function unreadableRefusal(): UnreadableRefusal {
   return { ok: false, error: UNSENT_UNREADABLE_REFUSAL, code: "unreadable" };
 }
+
+// ── The lifecycle audit (2026-10-13) ──
+/**
+ * The staff settle doors' SOLD-OUT refusal (`code: "sold_out"`): a DRAFT dish on the order whose
+ * menu item is no longer sellable (sold out, delisted, gone — `pickUnavailable`, the diner's own
+ * rule). The staff unsent gate counts only dine-in drafts, so a to-go draft at a table or a counter
+ * order's draft went through cash, the reader or a card-on-file close: the guest was charged for the
+ * 86'd dish and settlement then FIRED it to the kitchen, where the only remedy left was a refund. The
+ * diner's own door (create-intent) refuses the same basket. Every current client says it through
+ * the dictionary (`settle.soldOut`, the dishes in `{x}`); this English is for an older bundle.
+ */
+export type SoldOutRefusal = { ok: false; error: string; code: "sold_out"; dishes: string[] };
+
+export function soldOutRefusal(dishes: readonly string[]): SoldOutRefusal {
+  return {
+    ok: false,
+    error: `${dishes.join(", ")} sold out — remove it from the order, then take payment.`,
+    code: "sold_out",
+    dishes: [...dishes],
+  };
+}
+
+/**
+ * The staff doors read availability FAIL-CLOSED (the unsent read's posture, P2dc): an unreadable
+ * catalog is "could not check" (the same tap retries), never "nothing is sold out". The diner's door
+ * fails OPEN for its own reason (a blip must not block every phone at Pay); a staff door has a person
+ * at it who can tap again, and a wrong answer here charges for, then cooks, a dish the kitchen lacks.
+ */
+export function staffSettleSoldOutVerdict(
+  read: { ok: true; lines: readonly { name: string }[] } | { ok: false },
+): "unreadable" | string[] | null {
+  if (!read.ok) return "unreadable";
+  return read.lines.length > 0 ? read.lines.map((l) => l.name) : null;
+}

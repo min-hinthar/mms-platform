@@ -22,9 +22,12 @@ import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import {
   settleRefusal,
+  soldOutRefusal,
+  staffSettleSoldOutVerdict,
   unreadableRefusal,
   unsentRefusal,
   type UnreadableRefusal,
+  type SoldOutRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
@@ -36,6 +39,7 @@ import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
+import { unavailableLines } from "./availability-read";
 import { lineRpcRefusal } from "./line-rpc-refusal";
 import { REROUTE_SENT, staffRerouteOutcome } from "./staff-fulfillment";
 import { readPendingApprovalFlags } from "./approvals-read";
@@ -105,6 +109,8 @@ export type SettleCashRefusal =
   | InFlightRefusal
   | UnsentRefusal
   | UnreadableRefusal
+  // The lifecycle audit — a draft dish that is sold out (named); the door fails closed.
+  | SoldOutRefusal
   // PD8 — a request waits that THIS tap did not display (a re-warning, never a block), or the
   // pending read could not be made (the door fails closed; the same tap retries).
   | ApprovalPendingRefusal
@@ -465,6 +471,12 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
     // P2dc (owner decision 5a) — an UNREADABLE count refuses here: the staff doors fail CLOSED (this
     // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
+    // The lifecycle audit — a DRAFT dish sold out since it was added (the diner's create-intent
+    // refuses the same basket): never charged, and never fired to a kitchen that cannot make it.
+    // First, because "send it" is the wrong fix for a dish the kitchen does not have. Fails CLOSED.
+    const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
+    if (soldOut === "unreadable") return unreadableRefusal();
+    if (soldOut !== null) return soldOutRefusal(soldOut);
     const unsentUnits = await readKitchenDraftUnits(cart.id);
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
     if (unsent === "unreadable") return unreadableRefusal();
@@ -786,6 +798,13 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
   // (P2cy: no add lands after the acquire — see settleCash. P2dc: an unreadable count refuses.)
+  // The lifecycle audit — a sold-out DRAFT dish never rides an off-session charge (settleCash's
+  // gate; fails closed), and this refusal releases its own attempt like the unsent one below.
+  const soldOut = staffSettleSoldOutVerdict(await unavailableLines(cart.id));
+  if (soldOut !== null) {
+    await releaseSettlementFor(cart.id, attempt);
+    return soldOut === "unreadable" ? unreadableRefusal() : soldOutRefusal(soldOut);
+  }
   const unsentUnits = await readKitchenDraftUnits(cart.id);
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
   if (unsent !== null) {
