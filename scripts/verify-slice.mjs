@@ -1006,6 +1006,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "m230/retire-clears-any-status",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "M230 · blind pass over #354's fix commits — the per-view retire runs on EVERY applied view, so clearing `status` without asking whether it still IS the shown sentence erased whatever the region said since (the Bill's held-door reason, a send outcome, a promo answer) on a tablemate's echo",
+    find: "    shownRefusalRef.current = null;\n    setStatus((cur) => (cur === shown ? null : cur));\n",
+    replace: "    shownRefusalRef.current = null;\n    setStatus(null);\n",
+  },
+  {
     id: "m230/named-refusal-retired-by-any-view",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",

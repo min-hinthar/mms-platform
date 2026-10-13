@@ -57,6 +57,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Two comments that described old behaviour are corrected: `AddButton`'s note on `unconfirmed`, and
     the "Send to kitchen now" note, which now names the voided case. Five mutants were added and one
     re-pointed.
+  - The capped pass over those fix commits: a test now pins that the per-view retire takes down only
+    the kitchen sentence (the Bill's held-door reason, said after it, stays through the host's Undo),
+    with its mutant; `AddButton`'s `unconfirmed` note now says what the code does (nothing is sent
+    when the re-read fails), and the draft-line case asserts the diagnosis took the fired read.
 - **Copy:** the one new sentence ("…it’s already gone to the kitchen", on /cart) is English only,
   like every /cart refusal. The unlogged-86 sentence is unchanged and still said verbatim in English
   on the KDS. No Burmese string was added, so nothing joins the K15 ledger.

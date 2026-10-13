@@ -345,9 +345,10 @@ export function AddButton({
           // `unconfirmed` still re-reads first: that state means we could not establish whether the
           // write landed — it may have COMMITTED unseen, or (since T41) a re-read showed the line off
           // our target, where it may never have committed at all — so the last render's list cannot
-          // be trusted either way. If the re-read also fails the fallback degrades honestly rather
-          // than corrupting — `setQty` is ABSOLUTE, so re-sending `qty - 1` against a quantity the
-          // server already has is an idempotent no-op: the tap is lost, the cart is not wrong.
+          // be trusted either way. If the re-read also fails, NOTHING is sent: with a prior op and
+          // no view, `source` below is null, so the step is reverted and the tap is lost — never a
+          // `setQty` from the stale baseline, which (`setQty` being ABSOLUTE) would write a wrong
+          // number over whatever a host set, the off-target T41 case included.
           // ⚠️ USE WHAT THE REFRESH RETURNS (Codex round 3 on #251, P2). `await refresh()` updates the
           // PROVIDER; this ref catches up a render later, so reading it here discards a perfectly
           // good recovery read: two rapid decrements from 3 lost the second tap even when the

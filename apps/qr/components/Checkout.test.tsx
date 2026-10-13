@@ -602,7 +602,12 @@ describe("M230's half — the two pills beside the stepper share the same window
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "To go" }));
       });
-      // Parked on the fired read, not yet said.
+      // Parked on the fired read, not yet said. The positive control: the diagnosis took the FIRED
+      // read (the one read so far), so the fact held at park and only the later view can drop it.
+      expect(h.getCartView).toHaveBeenCalledTimes(1);
+      await expect(h.getCartView.mock.results[0]!.value).resolves.toMatchObject({
+        items: [{ lineState: "fired" }],
+      });
       expect(regionText()).not.toContain("gone to the kitchen");
       h.getCartView.mockResolvedValue(view({ items: [ITEM] })); // the host's Undo: back in draft
       await syncFromServer(); // issued later, so it wins the ticket and takes the screen
@@ -641,6 +646,52 @@ describe("M230's half — the two pills beside the stepper share the same window
     });
     await settle();
     expect(regionText()).not.toContain("gone to the kitchen");
+  });
+
+  it("M230 — the retire takes down ONLY the kitchen sentence: a later answer in the region stays", async () => {
+    // Blind pass over #354's fix commits: the per-view retire runs on every applied view, and the
+    // only thing keeping it off other text is that it clears `status` only while `status` still IS
+    // the sentence it said. The flip to the Bill empties the region but leaves the sentence armed;
+    // the Bill's held door then says its own reason, and the host's Undo arrives after.
+    flags.phonePayOpen = false;
+    flags.splitOpen = false;
+    try {
+      const SEND_FIRST = "Send everything to the kitchen first — then pay at the counter.";
+      h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }, ITEM_B] }));
+      // A host at a numbered table, so the Bill's counter door reads the table's sends.
+      const HOST_AT_7 = {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host" as const,
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+        tableNumber: 7,
+        qrCode: null,
+      };
+      mount({ splitContext: HOST_AT_7, initialItems: [ITEM, ITEM_B] });
+      await openLineSheet();
+      await press("To go");
+      await settle();
+      await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
+      await press(/View bill/);
+      await press(/^Pay at the counter/); // held: a dish is still to send, so the tap says why
+      await waitFor(() => expect(regionText()).toContain(SEND_FIRST));
+
+      h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] })); // the host's Undo
+      const reads = h.getCartView.mock.calls.length;
+      await act(async () => {
+        h.echo.current?.();
+      });
+      await waitFor(() => expect(h.getCartView.mock.calls.length).toBeGreaterThan(reads), {
+        timeout: 3000,
+      });
+      await settle();
+      // MUTATION m230/retire-clears-any-status: red.
+      expect(regionText()).toContain(SEND_FIRST);
+    } finally {
+      flags.phonePayOpen = true;
+      flags.splitOpen = true;
+    }
   });
 
   it("M230 — KEEPS the kitchen sentence while a later view still has the line with the kitchen", async () => {
