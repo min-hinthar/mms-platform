@@ -34356,6 +34356,14 @@ const MUTANTS = [
       "            Paid in full.\n          </p>\n          {/* Deliberately does NOT say the meal is over.",
   },
   {
+    id: "lct/refunded-pickup-loses-its-region",
+    file: "apps/qr/components/OrderTracker.tsx",
+    suite: "components/OrderTracker.test.tsx",
+    why: "Lifecycle audit C — a pickup refunded in full while status still reads 'paid' takes the refund arm; left to the pickup page's flag, the view's one live region and its heading were suppressed and 'refunded' never reached a screen reader",
+    find: "    !refunded && pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });",
+    replace: "    pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });",
+  },
+  {
     id: "lct/settled-region-in-full",
     file: "apps/qr/components/OrderTracker.tsx",
     suite: "components/OrderTracker.test.tsx",

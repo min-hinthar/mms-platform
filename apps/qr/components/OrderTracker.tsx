@@ -432,7 +432,12 @@ export function OrderTracker({
   // or scan-and-go order keeps the rail and the ready card below.
   // A PAID pickup only (`pickupPageShown`, lib/pickup-view.ts): a `pending` or `failed` row keeps the
   // existing arms.
-  const pickupPromise = pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
+  // Lifecycle audit (2026-10-13), C — and never over a refund: `refunded` is keyed on the refund STATE
+  // now, which a pickup can reach while `status` still reads 'paid' (a cash refund; the in-app refund's
+  // beat before the webhook's flip). The refund arm draws the page then, so the pickup page must not
+  // take the view's live region and its heading away from it.
+  const pickupPromise =
+    !refunded && pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
 
   // Lifecycle audit (2026-10-13), A · B · G — what the KITCHEN has done, from the paid cart's own lines:
   // ONE read (`useOrderKitchen` — the diner's own `is_member` RLS, Realtime on the lines, a re-read on

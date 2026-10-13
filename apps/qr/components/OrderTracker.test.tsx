@@ -132,6 +132,24 @@ describe("C — a refunded order never reads 'Paid in full'", () => {
     expect(region(container)).toContain("handed back to you in cash");
   });
 
+  it("a PICKUP refunded in full while status still reads 'paid' gets the refund arm AND the region", () => {
+    live = dineIn({
+      hasDineInFood: false,
+      hasTogoFood: true,
+      tableNumber: null,
+      togoStatus: "preparing",
+      tender: "card",
+      pickupSlot: "2026-10-13T19:20:00.000Z",
+      refund: { state: "full", refundedCents: 4200, netPaidCents: 0 },
+    });
+    const { container } = mount();
+    expect(container.textContent).toContain("Your money is on its way back.");
+    // RED when the pickup page still claims the view: it suppresses the region and the heading, and
+    // the refund arm renders mute — "refunded" never reaches a screen reader.
+    expect(region(container)).toContain("This order was refunded");
+    expect(container.querySelector("[data-pickup]")).toBeNull();
+  });
+
   it("a PARTIAL refund keeps the settled card, which says so — card and region alike", () => {
     live = dineIn({ refund: { state: "partial", refundedCents: 1400, netPaidCents: 2800 } });
     const { container } = mount();
