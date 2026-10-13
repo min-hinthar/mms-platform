@@ -1861,6 +1861,13 @@ function ExpoLineRow({ line, noChargeTag }: { line: ExpoLine; noChargeTag: boole
           />
         )}
       </span>
+      {/* The lifecycle audit — the money for this dish went back: never bag it. A tag in the warn
+          ink beside the words (never colour alone). */}
+      {line.refunded && (
+        <span style={{ ...destTag, color: "var(--warn)" }}>
+          <Chrome lang={lang} k="expo.bag.refunded" />
+        </span>
+      )}
       {/* A tag, so no echo (the chip rule); <Chrome> marks its own Burmese span. */}
       {line.noCharge && noChargeTag && (
         <span style={destTag}>

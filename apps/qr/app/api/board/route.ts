@@ -18,6 +18,13 @@ import {
   type BoardTable,
 } from "@/lib/board-tables";
 import { readRounds, roundFor } from "@/lib/kitchen-round-read";
+import {
+  boardOrderFireOr,
+  boardOrderIsBag,
+  boardOrderLive,
+  boardOrderWindowOr,
+} from "@/lib/board-orders";
+import { paidBagCompLine } from "@/lib/expo-rules";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
@@ -84,6 +91,71 @@ const SEND_LINE_CAP = 500;
  */
 /** K32 (A4·1) — the orders scan's cap, named so the saturation guard and the read agree. */
 const BOARD_ORDER_CAP = 60;
+/** The lifecycle audit — the bag-or-basket reads' bound: the takeaway lines of at most
+ *  `BOARD_ORDER_CAP` orders (a handful each). Past it the lines are unknown, and the codes publish. */
+const BOARD_BAG_LINE_CAP = 600;
+
+type BoardDb = ReturnType<typeof serviceClient>;
+
+/** The lifecycle audit — each candidate order's bag lines (snapshot + comps), or null when either
+ *  read failed or hit its bound (unknown: the codes publish). */
+async function readBagLines(
+  db: BoardDb,
+  orders: readonly { id: string; cart_id: string | null }[],
+): Promise<Map<string, { fulfillment: string }[]> | null> {
+  if (orders.length === 0) return new Map();
+  const cartIds = [...new Set(orders.map((o) => o.cart_id).filter((c): c is string => !!c))];
+  const [itemsRes, compsRes] = await Promise.all([
+    db
+      .from("qr_order_items")
+      .select("order_id,fulfillment")
+      .in(
+        "order_id",
+        orders.map((o) => o.id),
+      )
+      .limit(BOARD_BAG_LINE_CAP),
+    cartIds.length
+      ? db
+          .from("qr_cart_items")
+          // Comped by the FILTER, never by a column the wall reads (the route fetches nothing it
+          // does not need — `comped` stays off its column lists).
+          .select("cart_id,state,fulfillment")
+          .eq("comped", true)
+          .in("cart_id", cartIds)
+          .limit(BOARD_BAG_LINE_CAP)
+      : Promise.resolve({
+          data: [] as { cart_id: string; state: string; fulfillment: string }[],
+          error: null,
+        }),
+  ]);
+  if (itemsRes.error || compsRes.error) {
+    console.error("[board] bag-line read failed — every code publishes this poll", {
+      message: (itemsRes.error ?? compsRes.error)?.message,
+    });
+    return null;
+  }
+  const items = itemsRes.data ?? [];
+  const comps = compsRes.data ?? [];
+  if (
+    queueEmptiness(items.length, BOARD_BAG_LINE_CAP) === "cannot-say" ||
+    queueEmptiness(comps.length, BOARD_BAG_LINE_CAP) === "cannot-say"
+  ) {
+    console.error("[board] bag-line read saturated — every code publishes this poll", {
+      cap: BOARD_BAG_LINE_CAP,
+    });
+    return null;
+  }
+  const out = new Map<string, { fulfillment: string }[]>();
+  const push = (orderId: string, fulfillment: string) =>
+    out.set(orderId, [...(out.get(orderId) ?? []), { fulfillment }]);
+  for (const it of items) push(it.order_id, it.fulfillment);
+  const ordersByCart = new Map<string, string[]>();
+  for (const o of orders)
+    if (o.cart_id) ordersByCart.set(o.cart_id, [...(ordersByCart.get(o.cart_id) ?? []), o.id]);
+  for (const c of comps.filter((r) => paidBagCompLine({ ...r, comped: true })))
+    for (const orderId of ordersByCart.get(c.cart_id) ?? []) push(orderId, c.fulfillment);
+  return out;
+}
 
 export async function GET(req: NextRequest) {
   const gate = await authorizeDevice("board", req.nextUrl.searchParams.get("k") ?? "");
@@ -123,34 +195,44 @@ export async function GET(req: NextRequest) {
 
   const db = serviceClient();
   const nowIso = new Date().toISOString();
+  // The DATABASE clock, for both halves: the kitchen's send-grace comparison is 10 SECONDS wide and
+  // the Served stamp waits out `KDS_UNDO_MS` (6 s) — an app-clock skew there surfaces a dish the DB
+  // still considers undoable — and (the lifecycle audit) the code column's window and fire-time gate
+  // are decided on the same clock the narrowing filters were written with. `mms_now` is the KDS's own
+  // read, with the same app-clock fallback. Read FIRST: the orders read below is cut from it.
+  const nowRes = await db.rpc("mms_now");
+  // ⚠️ VALIDATED, not merely defaulted: `dbNowMs` feeds `toISOString()` below, which THROWS on a NaN
+  // date — and would 500 the customer-facing code column over one unparseable rpc answer.
+  const dbNowMs = (() => {
+    const fromDb = nowRes.data === null ? NaN : new Date(nowRes.data).getTime();
+    return Number.isFinite(fromDb) ? fromDb : Date.parse(nowIso);
+  })();
+  const dbNowIso = new Date(dbNowMs).toISOString();
   // Bound the scan to today's service — an unbumped stray "ready" from the morning must never crowd
   // a just-ready bag off the capped read. K32 (A4·1) — the SHARED window rule the KDS and expo read.
-  const dayFloor = queueFloorIso(nowIso);
-  // The DATABASE clock, for the kitchen half: its send-grace comparison is 10 SECONDS wide and the
-  // Served stamp waits out `KDS_UNDO_MS` (6 s) — an app-clock skew there surfaces a dish the DB still
-  // considers undoable. `mms_now` is the KDS's own read, with the same app-clock fallback.
-  const [nowRes, ordersRes] = await Promise.all([
-    db.rpc("mms_now"),
-    db
-      .from("qr_orders")
-      .select("id,session_id,togo_status,togo_ready_at,created_at")
-      .is("table_number", null)
-      .gte("created_at", dayFloor)
-      .in("togo_status", ["preparing", "ready"])
-      // A HELD scheduled order (fire_at still in the future) isn't being prepared yet — keep it off
-      // the public board until the kitchen actually starts (the diner's own /track carries their
-      // status).
-      .or(`fire_at.is.null,fire_at.lte.${nowIso}`)
-      // NEWEST READINESS first, then creation (the blind pass on A4·1, CRITICAL 3; the key reshaped
-      // by Codex round 1): `picked_up` is a manual expo tap, so untapped `ready` rows accumulate all
-      // day and an oldest-first cap would drop the bag that just came up in favour of one handed over
-      // at lunch — and `created_at` is the wrong key for a cap: a scheduled pickup placed at
-      // breakfast and readied at six is the OLDEST creation on the wall. `togo_ready_at DESC NULLS
-      // LAST` keeps the newest readiness first and the still-preparing bags after it.
-      .order("togo_ready_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .limit(BOARD_ORDER_CAP),
-  ]);
+  const dayFloor = queueFloorIso(dbNowIso);
+  const ordersRes = await db
+    .from("qr_orders")
+    .select("id,session_id,togo_status,togo_ready_at,created_at,status,pickup_slot,fire_at,cart_id")
+    .is("table_number", null)
+    .in("togo_status", ["preparing", "ready"])
+    // The lifecycle audit — these filters only NARROW the read; `boardOrderLive` decides (and the
+    // wall publishes nothing it refuses). A refunded order is nobody's bag; the window is on the DUE
+    // time (a pickup booked more than a day ahead came up uncalled); and a HELD scheduled order
+    // (fire_at still ahead) stays off until the kitchen starts it — but a READY bag is on the wall
+    // whatever the schedule said (Cook now moves only the cart lines' fire time).
+    .eq("status", "paid")
+    .or(boardOrderWindowOr(dayFloor))
+    .or(boardOrderFireOr(dbNowIso))
+    // NEWEST READINESS first, then creation (the blind pass on A4·1, CRITICAL 3; the key reshaped
+    // by Codex round 1): `picked_up` is a manual expo tap, so untapped `ready` rows accumulate all
+    // day and an oldest-first cap would drop the bag that just came up in favour of one handed over
+    // at lunch — and `created_at` is the wrong key for a cap: a scheduled pickup placed at
+    // breakfast and readied at six is the OLDEST creation on the wall. `togo_ready_at DESC NULLS
+    // LAST` keeps the newest readiness first and the still-preparing bags after it.
+    .order("togo_ready_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(BOARD_ORDER_CAP);
   const { data, error } = ordersRes;
   if (error) {
     console.error("[board] read failed:", error.message);
@@ -164,14 +246,6 @@ export async function GET(req: NextRequest) {
       "[board] orders read saturated — the bags readied longest ago are off the wall; tap them picked up",
       { cap: BOARD_ORDER_CAP },
     );
-  // ⚠️ VALIDATED, not merely defaulted: `dbNowMs` feeds `toISOString()` below, which THROWS on a NaN
-  // date — and would 500 the customer-facing code column over one unparseable rpc answer.
-  const dbNowMs = (() => {
-    const fromDb = nowRes.data === null ? NaN : new Date(nowRes.data).getTime();
-    return Number.isFinite(fromDb) ? fromDb : Date.parse(nowIso);
-  })();
-  const dbNowIso = new Date(dbNowMs).toISOString();
-
   // ── PD9: the kitchen half's reads ────────────────────────────────────────────────────────────
   // Live kitchen lines and the just-bumped ones, in the KDS's own window: a stamped line inside the
   // day floor, or a fired line with NO fire time created inside it (`lib/kitchen.ts`'s M2 arm), so a
@@ -246,13 +320,21 @@ export async function GET(req: NextRequest) {
   }
   const sessionById = new Map<string, PulseSessionRow>((sessions ?? []).map((s) => [s.id, s]));
 
-  const orders = (data ?? [])
-    // ALLOWLIST, not "anything that isn't dine-in": a mode this code has never heard of is absent
-    // from the wall rather than on it. A null session_id is unknowable, not to-go.
-    .filter((o) => {
-      const mode = o.session_id ? sessionById.get(o.session_id)?.mode : undefined;
-      return mode !== undefined && BOARD_MODES.has(mode);
-    })
+  // ALLOWLIST, not "anything that isn't dine-in": a mode this code has never heard of is absent
+  // from the wall rather than on it. A null session_id is unknowable, not to-go.
+  const candidates = (data ?? []).filter((o) => {
+    if (!boardOrderLive(o, dbNowIso, dayFloor)) return false;
+    const mode = o.session_id ? sessionById.get(o.session_id)?.mode : undefined;
+    return mode !== undefined && BOARD_MODES.has(mode);
+  });
+  // The lifecycle audit — a pure scan-and-go basket is not a bag: the shopper already holds it, and
+  // the wall's Ready is the room's one CALL for food. The bag is the expo's — its takeaway snapshot
+  // plus its cart's comped takeaway lines (M250) — and one food line makes it a bag. Either read
+  // failing (or past its bound) leaves the lines UNKNOWN and every code publishes, as before: a real
+  // bag never called is worse than a basket called.
+  const linesByOrder = await readBagLines(db, candidates);
+  const orders = candidates
+    .filter((o) => boardOrderIsBag(linesByOrder?.get(o.id) ?? (linesByOrder ? [] : undefined)))
     .map((o) => ({
       code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the guest's /track + claim ticket show
       status: o.togo_status === "ready" ? ("ready" as const) : ("preparing" as const),

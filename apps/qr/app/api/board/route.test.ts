@@ -29,6 +29,11 @@ type OrderRow = {
   togo_status: string;
   togo_ready_at: string | null;
   created_at: string;
+  // The lifecycle audit — the columns `boardOrderLive` decides on.
+  status: string;
+  pickup_slot: string | null;
+  fire_at: string | null;
+  cart_id: string | null;
 };
 
 type LineRow = {
@@ -65,6 +70,15 @@ const BATCH = "eeeeeeee-eeee-4eee-8eee-eeeeeeee0005";
 let gate: { ok: boolean; reason?: string } = { ok: true };
 let orders: OrderRow[] = [];
 let ordersError: { message: string } | null = null;
+/** The lifecycle audit — each order's takeaway snapshot lines (`qr_order_items`); null = one to-go
+ *  dish per asked order (a bag). */
+let orderItems: { order_id: string; fulfillment: string }[] | null = null;
+let orderItemsError: { message: string } | null = null;
+/** The bag's comped takeaway lines (`qr_cart_items`, comped). */
+let compLines: { cart_id: string; state: string; fulfillment: string }[] = [];
+/** What the orders read was filtered with: its `.eq()`s and its `.or()` expressions. */
+let orderEqs: [string, unknown][] = [];
+let orderOrs: string[] = [];
 let sessions: SessionRow[] = [];
 let sessionsError: { message: string } | null = null;
 /** What the kitchen LINE read answers. */
@@ -145,13 +159,20 @@ vi.mock("@mms/db/server", () => ({
           },
           is: () => chain,
           gte: () => chain,
+          eq: (col: string, v: unknown) => {
+            orderEqs.push([col, v]);
+            return chain;
+          },
           in: (col: string, values: unknown[]) => {
             if (col !== "togo_status") throw new Error(`unexpected qr_orders filter ${col}`);
             statuses = values;
             orderStatuses = values;
             return chain;
           },
-          or: () => chain,
+          or: (expr: string) => {
+            orderOrs.push(expr);
+            return chain;
+          },
           order: (col: keyof OrderRow, opts?: { ascending?: boolean; nullsFirst?: boolean }) => {
             keys.push({
               col,
@@ -181,8 +202,31 @@ vi.mock("@mms/db/server", () => ({
         };
         return chain;
       }
+      if (table === "qr_order_items") {
+        let asked: unknown[] = [];
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: (col: string, ids: unknown[]) => {
+            if (col !== "order_id") throw new Error(`unexpected qr_order_items filter ${col}`);
+            asked = ids;
+            return chain;
+          },
+          limit: (n: number) => {
+            if (orderItemsError) return Promise.resolve({ data: null, error: orderItemsError });
+            const rows =
+              orderItems ?? asked.map((id) => ({ order_id: id as string, fulfillment: "togo" }));
+            return Promise.resolve({
+              data: rows.filter((r) => asked.includes(r.order_id)).slice(0, n),
+              error: null,
+            });
+          },
+        };
+        return chain;
+      }
       if (table === "qr_cart_items") {
         let batches: unknown[] | null = null;
+        /** The lifecycle audit — the bag read's comp leg (`.eq("comped", true)`). */
+        let compRead = false;
         let states: unknown[] | null = null;
         /** The ROUND read's lines leg (`in("cart_id")`): every batched line of the asked carts. */
         let roundCarts: unknown[] | null = null;
@@ -218,6 +262,12 @@ vi.mock("@mms/db/server", () => ({
             else throw new Error(`unexpected qr_cart_items filter ${col}`);
             return chain;
           },
+          eq: (col: string, v: unknown) => {
+            if (col !== "comped" || v !== true)
+              throw new Error(`unexpected qr_cart_items eq ${col}`);
+            compRead = true;
+            return chain;
+          },
           not: (col: string, op: string, v: unknown) => {
             if (col !== "fire_batch" || op !== "is" || v !== null)
               throw new Error(`unexpected qr_cart_items not(${col}, ${op})`);
@@ -225,6 +275,13 @@ vi.mock("@mms/db/server", () => ({
           },
           order: () => chain,
           limit: (n: number) => {
+            if (compRead) {
+              const asked = roundCarts ?? [];
+              return Promise.resolve({
+                data: compLines.filter((c) => asked.includes(c.cart_id)).slice(0, n),
+                error: null,
+              });
+            }
             if (roundCarts !== null) {
               const asked = roundCarts;
               const all = [
@@ -346,12 +403,18 @@ const req = () =>
     typeof GET
   >[0];
 
+// The lifecycle audit — placed an hour before the DB clock (inside the due window `boardOrderLive`
+// now applies in TS), paid, slotless, fired at settlement, on its own cart.
 const order = (id: string, sessionId: string | null, status = "ready"): OrderRow => ({
   id,
   session_id: sessionId,
   togo_status: status,
-  togo_ready_at: status === "ready" ? "2026-08-23T00:00:00.000Z" : null,
-  created_at: "2026-08-23T00:00:00.000Z",
+  togo_ready_at: status === "ready" ? new Date(NOW - 30 * MIN).toISOString() : null,
+  created_at: new Date(NOW - 60 * MIN).toISOString(),
+  status: "paid",
+  pickup_slot: null,
+  fire_at: null,
+  cart_id: `cart-${id}`,
 });
 
 const TOGO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001";
@@ -379,6 +442,11 @@ beforeEach(() => {
   gate = { ok: true };
   orders = [order(TOGO, "sess-togo"), order(DINEIN, "sess-dinein")];
   ordersError = null;
+  orderItems = null;
+  orderItemsError = null;
+  compLines = [];
+  orderEqs = [];
+  orderOrs = [];
   sessions = [
     {
       id: "sess-togo",
@@ -991,5 +1059,87 @@ describe("K32 (A4·1) — a full orders read keeps the newest readiness and publ
     const res = await GET(req());
     expect(res.status).toBe(200);
     expect(((await res.json()) as Body).orders?.length).toBe(59);
+  });
+});
+
+describe("the lifecycle audit — which codes the wall may publish", () => {
+  const PAST = new Date(NOW - 5 * MIN).toISOString();
+  const AHEAD = new Date(NOW + 30 * MIN).toISOString();
+  const pickupOnly = () => {
+    sessions = sessions.filter((x) => x.id === "sess-togo");
+  };
+
+  it("a READY bag is on the wall even before its scheduled fire time — Cook now moves only the lines", async () => {
+    // lck/board-orders/ready-gated-on-fire-at — the bag cooked early and bagged sat off the wall,
+    // uncalled, until the original fire time.
+    pickupOnly();
+    orders = [{ ...order(TOGO, "sess-togo"), fire_at: AHEAD }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([
+      { code: "AA0001", status: "ready" },
+    ]);
+    // …while a PREPARING bag still held for its schedule stays off, and one past it is on
+    orders = [{ ...order(TOGO, "sess-togo", "preparing"), fire_at: AHEAD }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
+    orders = [{ ...order(TOGO, "sess-togo", "preparing"), fire_at: PAST }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([
+      { code: "AA0001", status: "preparing" },
+    ]);
+  });
+
+  it("the window is on the DUE time: a pickup booked days ahead is called the day it comes up", async () => {
+    // lck/board-orders/window-on-creation — a `created_at` floor dropped a next-day pickup.
+    pickupOnly();
+    orders = [
+      {
+        ...order(TOGO, "sess-togo"),
+        created_at: new Date(NOW - 30 * 60 * MIN).toISOString(),
+        pickup_slot: new Date(NOW - 10 * MIN).toISOString(),
+      },
+    ];
+    expect(((await (await GET(req())).json()) as Body).orders?.map((o) => o.code)).toEqual([
+      "AA0001",
+    ]);
+    // …and an ASAP order placed before the window is not
+    orders = [
+      { ...order(TOGO, "sess-togo"), created_at: new Date(NOW - 30 * 60 * MIN).toISOString() },
+    ];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
+  });
+
+  it("a REFUNDED order is nobody's bag — never on the wall", async () => {
+    // lck/board-orders/refunded-on-the-wall — the read had no status filter.
+    pickupOnly();
+    orders = [{ ...order(TOGO, "sess-togo"), status: "refunded" }];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders).toEqual([]);
+    expect(orderEqs).toContainEqual(["status", "paid"]);
+  });
+
+  it("a pure scan-and-go basket is never called Ready — one food line makes it a bag", async () => {
+    // lck/board-orders/basket-on-the-wall — the shopper holds the goods; the wall's Ready is the
+    // room's one call for food.
+    pickupOnly();
+    orders = [order(TOGO, "sess-togo")];
+    orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
+    orderItems = [
+      { order_id: TOGO, fulfillment: "grocery" },
+      { order_id: TOGO, fulfillment: "togo" },
+    ];
+    expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
+    // a basket whose only food was comped is a bag too (the expo's own lines, M250)
+    orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
+    compLines = [{ cart_id: `cart-${TOGO}`, state: "served", fulfillment: "togo" }];
+    expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
+  });
+
+  it("an unreadable bag read publishes every code, as before — a real bag is never left uncalled", async () => {
+    pickupOnly();
+    orders = [order(TOGO, "sess-togo")];
+    orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
+    orderItemsError = { message: "down" };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
+    spy.mockRestore();
   });
 });

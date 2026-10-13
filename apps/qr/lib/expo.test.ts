@@ -810,3 +810,52 @@ describe("getExpoQueue — a bag settled between the two reads is drawn once, as
     ]);
   });
 });
+
+describe("getExpoQueue — the lifecycle audit: a refund reaches the bag", () => {
+  it("reads PAID orders only — a fully refunded order is nobody's bag", async () => {
+    // lck/expo/refunded-order-bagged — `charge.refunded` flips the status and nothing else, and the
+    // lane's read had no status filter.
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const ordersRead = recs.find((r) => r.table === "qr_orders");
+    expect(ordersRead?.eqs).toContainEqual(["status", "paid"]);
+  });
+
+  it("a line refunded after payment is drawn 'Refunded — don't bag'; the rest of the bag is not", async () => {
+    // lck/expo/refunded-line-bagged — the item read never selected `refunded_cents`, so the bagger
+    // packed a dish whose money had gone back.
+    orderItemRows = [
+      {
+        id: "li-refunded",
+        order_id: ORDER_A,
+        name: "Mohinga",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: [],
+        fulfillment: "togo",
+        notes: null,
+        menu_item_id: "dish-1",
+        refunded_cents: 1_250,
+      },
+      {
+        id: "li-kept",
+        order_id: ORDER_A,
+        name: "Tea",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: [],
+        fulfillment: "togo",
+        notes: null,
+        menu_item_id: "dish-2",
+        refunded_cents: 0,
+      },
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const bag = res.queue.tickets.find((t) => t.orderId === ORDER_A)!;
+    expect(bag.lines.map((l) => [l.id, l.refunded ?? false])).toEqual([
+      ["li-refunded", true],
+      ["li-kept", false],
+    ]);
+  });
+});

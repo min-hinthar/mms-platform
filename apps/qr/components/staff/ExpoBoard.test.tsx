@@ -2310,3 +2310,18 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     );
   });
 });
+
+describe("the lifecycle audit — a refunded line says so on the bag", () => {
+  it("only the refunded line carries 'Refunded — don't bag', in both tongues", () => {
+    // lck/expo-board/refunded-line-untagged — the bagger packed a dish whose money had gone back.
+    const mohinga = ticket().lines[0]!;
+    const refunded = { ...mohinga, id: "l-ref", name: "Shan noodles", refunded: true as const };
+    for (const lang of ["en", "my"] as const) {
+      const { container } = mount(lang, queue([ticket({ lines: [mohinga, refunded] })]));
+      const [plain, gone] = [...container.querySelector("article")!.querySelectorAll("li")];
+      expect(plain!.textContent).not.toContain(ts(lang, "expo.bag.refunded"));
+      expect(gone!.textContent).toContain(ts(lang, "expo.bag.refunded"));
+      cleanup();
+    }
+  });
+});

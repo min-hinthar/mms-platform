@@ -232,6 +232,16 @@ export function isScanGoBasket(lines: readonly { fulfillment: string }[]): boole
   return lines.every((l) => l.fulfillment === "grocery");
 }
 
+/**
+ * The lifecycle audit — a bag line whose money went back: `qr_order_items.refunded_cents` above zero
+ * (a line refund returns the whole line, `refundLine`). The lane draws it "Refunded — don't bag"; the
+ * kitchen's own line is not touched by the refund (a migration — OPEN-ITEMS), so this is the counter's
+ * only word that the dish is no longer the guest's. Absent or zero: an ordinary line.
+ */
+export function lineRefunded(refundedCents: number | null | undefined): boolean {
+  return typeof refundedCents === "number" && refundedCents > 0;
+}
+
 // ── M250 — a comped dish rides its PAID bag ──
 /** The three columns `paidBagCompLine` reads off `qr_cart_items`. */
 export type BagCompRow = { state: string; comped: boolean; fulfillment: string };

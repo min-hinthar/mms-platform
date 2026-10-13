@@ -7,6 +7,7 @@ import {
   isScanGoBasket,
   kitchenDoneAt,
   kitchenStateOf,
+  lineRefunded,
   laneRows,
   paidBagCompLine,
   PICKED_UNDO_ARM_MS,
@@ -361,5 +362,15 @@ describe("pickHoldReason — the lane's hold says whether a pick is still unsent
     // MUTATION (p2i-lane/hold-reason-always-pick): always `pick` — the lane's own hung pick write
     // refuses the stall's Reload, on a tab that could not stash it, for as long as it hangs; red.
     expect(pickHoldReason(new Map([["a", { committing: true }]]))).toBe("pickSending");
+  });
+});
+
+describe("lineRefunded — a bag line whose money went back", () => {
+  it("is any refunded amount above zero; zero, absent and null are an ordinary line", () => {
+    // lck/expo-rules/refund-reads-as-kept
+    expect(lineRefunded(1)).toBe(true);
+    expect(lineRefunded(0)).toBe(false);
+    expect(lineRefunded(undefined)).toBe(false);
+    expect(lineRefunded(null)).toBe(false);
   });
 });

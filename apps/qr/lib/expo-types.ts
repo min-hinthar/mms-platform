@@ -27,6 +27,9 @@ export type ExpoLine = {
    *  line; it carries no amount and reaches no total. ABSENT on every chargeable line — an absent
    *  field reads as chargeable, never the other way round. */
   noCharge?: true;
+  /** The lifecycle audit — refunded after payment (`lineRefunded`): drawn "Refunded — don't bag".
+   *  ABSENT on every line whose money stands. */
+  refunded?: true;
 };
 
 /** One paid order's takeaway bag — an expo ticket. `status` is the order's togo_status (preparing → ready

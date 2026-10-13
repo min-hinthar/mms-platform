@@ -20,6 +20,7 @@ import { loadLineNames } from "./line-names";
 import { readUnpaidCounterCarts } from "./register-queue";
 import { counterUncollected, unpaidBag } from "./counter-order";
 import { settleLeftMs, soonerMs } from "./bump-settle";
+import { lineRefunded } from "./expo-rules";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -116,6 +117,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
         "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
       )
       .in("togo_status", ["preparing", "ready"])
+      // The lifecycle audit — a REFUNDED order is nobody's bag: `charge.refunded` flips the status
+      // and nothing else, so the lane kept bagging a fully refunded order (OPEN-ITEMS: a cancel edge).
+      .eq("status", "paid")
       // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
       // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
       // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
@@ -182,7 +186,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   const { data: items, error: itemsError } = orderIds.length
     ? await db
         .from("qr_order_items")
-        .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
+        .select(
+          "id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id,refunded_cents",
+        )
         .in("order_id", orderIds)
         .in("fulfillment", ["togo", "grocery"])
     : { data: [], error: null };
@@ -250,6 +256,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     /** A cart line's own flag (the comp read, an unpaid bag's lines); absent on a snapshot line,
      *  which is chargeable by construction. */
     comped?: boolean;
+    /** The lifecycle audit — a SNAPSHOT line's refund (`qr_order_items.refunded_cents`); absent on
+     *  a cart line, which a refund never reaches. */
+    refunded_cents?: number;
   }): ExpoLine => {
     const modifiers = Array.isArray(it.modifiers) ? (it.modifiers as string[]) : [];
     return {
@@ -263,6 +272,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       notes: it.notes ?? null,
       // M250 — absent unless comped: an absent field reads as chargeable.
       ...(it.comped === true ? { noCharge: true as const } : {}),
+      // The lifecycle audit — a line refunded after payment (a refund is whole-line, `refundLine`)
+      // is drawn "Refunded — don't bag": the money went back, so the dish is not the guest's.
+      ...(lineRefunded(it.refunded_cents) ? { refunded: true as const } : {}),
     };
   };
   const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));

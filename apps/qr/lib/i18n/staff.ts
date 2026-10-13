@@ -3781,6 +3781,9 @@ export const STAFF = {
   // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
   // M250 — the SAME words also tag one comped LINE on a bag (a paid bag, or an unpaid one that still
   // owes), beside its destination tag; a bag that owes nothing keeps its one badge instead.
+  // The lifecycle audit (2026-10-13) — a bag line refunded after payment: the money went back, so
+  // the dish is not the guest's. K15 draft.
+  "expo.bag.refunded": { en: "Refunded — don’t bag", my: "ပြန်အမ်းပြီး — မထုပ်ပါနဲ့" }, // K15-HIGH draft — grounded: floor.status.refunded ပြန်အမ်းပြီး, kds.line.bagit ထုပ်
   "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid; on a line, a free dish is charged or left out of the bag
   "expo.a11y.cardNoCharge": {
     en: "Bag for {x}",
@@ -4733,6 +4736,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.body.comped.many",
   "table.noshow.rearm",
   "expo.bag.noCharge",
+  "expo.bag.refunded",
   // ── Phase 2g · reader ──
   "settle.reader.busyElsewhere",
   // ── Phase 2g · fix-reader ──
