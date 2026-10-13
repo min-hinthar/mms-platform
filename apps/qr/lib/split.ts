@@ -326,6 +326,8 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   // in-flight check on purpose: a refusal there keeps its freeze over live holds, and nothing here
   // should touch a pin on that path. Every answer but `acquired` has already released or
   // deliberately HELD this freeze, so this door only refuses — releasing again would undo a hold.
+  // ⚠️ `uid` is the host's seat, not this open: a stalled open of the same host passes the proof on
+  // a later open's freeze. Parked; the reopen list in lib/surfaces.ts mints a per-open owner.
   const pin = await releaseStalePinUnderFreeze(id, uid);
   if (pin !== "acquired") throw new Error(openSplitRefusal(pin));
 

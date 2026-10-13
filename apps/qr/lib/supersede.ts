@@ -627,6 +627,11 @@ async function releaseStalePin(
  * settlement rules (a manual hold or committed money refuses; `captured` answers `paying` with the
  * freeze HELD), its pin and link cleared together, the release re-proved. Every answer but
  * `acquired` has already given back or deliberately held the freeze; the caller only refuses.
+ *
+ * ⚠️ The proof is only as unique as `owner`. The split passes the host's seat uid, a PERSON: an
+ * open that stalled past the TTL proves itself on a later open's fresh freeze by the same host, and
+ * can supersede, hold or release under it. Latent while the door is parked; its reopen list
+ * (lib/surfaces.ts) requires a per-open uuid, passed here as it is to `acquireSettlement`.
  */
 export async function releaseStalePinUnderFreeze(
   cartId: string,

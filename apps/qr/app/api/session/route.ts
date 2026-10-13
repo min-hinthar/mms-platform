@@ -624,11 +624,16 @@ export async function POST(req: NextRequest) {
   // and never back, so a read naming this seat is never stale. Every server gate reads the MEMBER
   // ROW's `role` instead (`assertCartMember` → fire a round, open or cancel a split, bind the table,
   // nudge the host), and that row used to be written once, at the first join: a seat that joined a
-  // server's table by invite (a guest) and later claimed it from the sticker was answered "host"
-  // here while every gate refused it. So the row is kept in step below — PROMOTED when host_seat
-  // names this seat, never demoted: a "guest" verdict may come from a read this seat's other tab
-  // has since overtaken (it claimed after we read), and a host row is only ever written when
-  // host_seat named that seat.
+  // server's table by invite (a guest) and later claimed it was answered "host" here while every
+  // gate refused it. The W6a claim above runs on EVERY dine-in join but an invite code
+  // (`joinOnly`): the sticker, a `?t=` link, and this phone's reload of the code it kept (the
+  // reload sends no `joinOnly`) — so an invitee who reloads a table that is still hostless claims
+  // it too (the blind pass on #353). That was already one URL away (the same code as `?t=`); this
+  // keeps the row in step with the claim, it does not widen who can claim. So the row is kept in
+  // step below — PROMOTED when host_seat names this seat, never demoted: a "guest" verdict may come
+  // from a read this seat's other tab has since overtaken (it claimed after we read), and a host
+  // row is only ever written when host_seat named that seat. A host TRANSFER, if one is ever built,
+  // must demote the old row in the same step: nothing here does, and two host rows would follow.
   const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
 
   // Idempotent membership: a refresh / rejoin must not trip unique(session_id, seat_id). The read is

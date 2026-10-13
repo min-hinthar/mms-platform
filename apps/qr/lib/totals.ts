@@ -29,10 +29,12 @@ import { computeTotals } from "./totals-math";
  *   #245 tried a live display basis and was reverted because the counter then charged the PIN —
  *   there was no basis right for both doors. M268 removed that: both doors now re-derive.
  *
- *   ⚠️ What this does not make exact, said rather than hidden: a LINKED intent whose diner walked
- *   away is quoted at its pin, and the counter supersedes it and charges live. The cash sheet's
- *   compare-and-swap (`settleCash`'s `quotedCents`) refuses that as `moved` and names the server's
- *   figure — a second tap, never a wrong charge — and the next quote, with the link gone, is live.
+ *   ⚠️ What this does not make exact, said rather than hidden (OPEN-ITEMS M280): a LINKED intent
+ *   whose diner walked away is quoted at its pin, and the counter supersedes it and charges live.
+ *   The cash sheet's compare-and-swap (`settleCash`'s `quotedCents`) refuses that as `moved` and
+ *   names the server's figure — a second tap, never a wrong charge — and the next quote, with the
+ *   link gone, is live. The next phone attempt does the same, and its card step shows the new
+ *   intent's own totals, never this quote.
  *   The link and the discount are two statements, so a quote can be one poll behind a link write;
  *   a quote is never an amount, and every charge re-derives on `charge`.
  */

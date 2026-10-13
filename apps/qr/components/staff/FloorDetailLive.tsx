@@ -265,10 +265,10 @@ export function FloorDetailLive({
   // session minted with a `reg-` code), never re-derived here from the label.
   const isCounter = detail.counterOrder;
   // PD2 · PD6 — THE figure at the till on this table: the ask pass's total reads the very field Take
-  // cash's trigger reads (`detail.settleTotalCents`, `getCartTotals(cart.id, 0)` — the guest pass's
-  // own derivation), never a second computation, so the two can never show two figures. When a
-  // manager decision lands and the total re-reads (PD8's `totalPending`), the pass must say
-  // "Updating the total…" with the trigger: that flag joins this binding when PD8 merges.
+  // cash's trigger reads (`detail.settleTotalCents`, `getCartTotals(cart.id, 0, "quote")` — the
+  // guest pass's own call, M123 b), never a second computation, so the two can never show two
+  // figures. When a manager decision lands and the total re-reads (PD8's `totalPending`), the pass
+  // must say "Updating the total…" with the trigger: that flag joins this binding when PD8 merges.
   const tillDue = detail.settleTotalCents;
   // The ask is live (the same `counterRequestedAt` the floor chip reads) on an order with dishes.
   const askLive = counterAskLive(detail.counterRequestedAt) && detail.itemCount > 0;
