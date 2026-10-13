@@ -264,6 +264,11 @@ function unpaidWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "settle.unpaid", "stack", shown);
 }
 
+/** #360 — the refunded card's tag as its name speaks it: the dictionary's words, as drawn. */
+function refundedWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "kds.ticket.refunded", "stack", shown);
+}
+
 /** Phase 3d — a badge's lead word as the badge draws it and the card's name speaks it: the
  *  dictionary value with its trailing " · " separator dropped ("Later", "Late"). */
 const badgeWord = (lang: StaffLang, k: KdsBadgeLead): string =>
@@ -2468,7 +2473,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${leadWords.map((w) => `, ${w}`).join("")}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}${ticket.refunded ? `, ${chromeVisible(lang, "kds.ticket.refunded", "stack", echoes)}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${leadWords.map((w) => `, ${w}`).join("")}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}${ticket.refunded ? `, ${refundedWords(lang, echoes)}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
