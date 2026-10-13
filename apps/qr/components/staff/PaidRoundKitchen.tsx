@@ -3,7 +3,7 @@ import { useId, type CSSProperties } from "react";
 import type { PaidKitchenLine } from "@/lib/floor-types";
 import type { StaffLang } from "@/lib/staff-lang";
 import { lineTagKey } from "@/lib/staff-line-tag";
-import { PAID_KITCHEN_CAP } from "@/lib/paid-round";
+import { paidRoundCapNote } from "@/lib/paid-round";
 import { Chrome } from "./Chrome";
 
 /**
@@ -15,33 +15,33 @@ import { Chrome } from "./Chrome";
  * region, no motion — the 5 s poll brings each stage.
  *
  * #360 — a dish on a round refunded IN FULL is drawn TAGGED, as the KDS tags its card (a full refund
- * can be a goodwill comp at a table still eating — never a cancel); and past the read's cap the group
- * holds the NEWEST dishes and says so, rather than passing a partial list off as the whole.
+ * can be a goodwill comp at a table still eating — never a cancel); and past a read's cap the group
+ * holds the NEWEST dishes and says so, rather than passing a partial list off as the whole — with
+ * only a number that is true (`paidRoundCapNote`; the blind pass, CRITICAL 2).
  */
 export function PaidRoundKitchen({
   lang,
   lines,
   capped = false,
+  roundsCapped = false,
 }: {
   lang: StaffLang;
   lines: readonly PaidKitchenLine[];
-  /** The read hit `PAID_KITCHEN_CAP`: only the newest dishes are here. */
+  /** The dish read hit `PAID_KITCHEN_CAP`: only the newest dishes are here. */
   capped?: boolean;
+  /** The round read hit its cap: older rounds were not read. */
+  roundsCapped?: boolean;
 }) {
   const id = useId();
+  const capSay = paidRoundCapNote(lines.length, capped, roundsCapped);
   return (
     <div style={wrap}>
       <p id={id} style={title}>
         <Chrome lang={lang} k="table.detail.paidKitchen.title" echo="inline" />
       </p>
-      {capped && (
+      {capSay && (
         <p style={capNote}>
-          <Chrome
-            lang={lang}
-            k="table.detail.paidKitchen.capped"
-            vars={{ n: PAID_KITCHEN_CAP }}
-            echo="stack"
-          />
+          <Chrome lang={lang} k={capSay.key} vars={capSay.vars} echo="stack" />
         </p>
       )}
       <ul role="list" aria-labelledby={id} style={list}>

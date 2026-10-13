@@ -52,6 +52,9 @@ let dbNow: string | null = DB_NOW;
 /** Called after each page of the open-cart line read, with its 1-based page number. */
 let betweenPages: (page: number) => void = () => {};
 let openPages = 0;
+/** Every IN-list each read asked for, by table and column, in order (#360's blind pass: the lookup
+ *  SET is asserted, and the paid read's chunks are counted). */
+let inLog: { table: string; col: string; vals: unknown[]; select: string }[] = [];
 
 /** One PostgREST filter term — `col.op.value`, or an `and(…)` of terms. The value may be quoted. */
 type Term = { col: string; op: string; val: string } | { and: Term[] };
@@ -162,6 +165,7 @@ function tableApi(name: string) {
     },
     in(col: string, vals: unknown[]) {
       ins.push([col, vals]);
+      inLog.push({ table: name, col, vals, select });
       return api;
     },
     limit(n: number) {
@@ -243,6 +247,7 @@ beforeEach(() => {
   dbNow = DB_NOW;
   betweenPages = () => {};
   openPages = 0;
+  inLog = [];
   rows = {
     table_sessions: [
       {
@@ -601,9 +606,18 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
         menu_item_id: MENU,
       }),
     ];
+    // the LOOKUP itself: inside the window the dish is looked up…
+    const menuAsks = () =>
+      inLog.filter((r) => r.table === "menu_items" && r.col === "id").map((r) => r.vals);
+    expect(menuAsks()).toEqual([[MENU]]);
+    inLog = [];
     const after = (await table7()).t.kitchen;
     expect(after?.inKitchen).toBe(0);
     expect(after?.soldOut).toBe(0);
+    // …and once it has settled it is not looked up at all: the fold drops it from the count either
+    // way, so only the lookup set can show a filter widened to every served dish (#360's blind pass).
+    // lck/floor/sold-out-lookup-widened — red.
+    expect(menuAsks()).toEqual([]);
   });
 
   it("an unreadable menu flags nothing and never takes the room down", async () => {
@@ -636,5 +650,34 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
       line({ id: "l-out", state: "served", fire_at: ago(3), bumped_at: ago(1) }),
     ];
     expect((await table7()).snap.settleInMs).toBeNull();
+  });
+
+  it("a session past 200 rounds reads its paid carts in IN-lists of at most 50, every chunk folded (#360's blind pass, question c)", async () => {
+    // The floor's order read has no cap, so one long night puts 200+ cart uuids in one URL (~7.8 KB
+    // at 200) against an unmeasured gateway limit. lck/floor/paid-lines-one-in-list — red.
+    // lck/floor/paid-lines-chunk-dropped — red.
+    rows.qr_orders = Array.from({ length: 202 }, (_, i) => ({
+      id: `o-${i}`,
+      session_id: S7,
+      cart_id: `c-paid-${i}`,
+      total_cents: 1200,
+      created_at: ago(30 + i),
+      status: "paid",
+      refunded_cents: 0,
+    }));
+    rows.qr_cart_items = [
+      line({ id: "l-first", cart_id: "c-paid-0", state: "fired", fire_at: ago(9) }),
+      line({ id: "l-last", cart_id: "c-paid-201", state: "in_progress", fire_at: ago(8) }),
+    ];
+    const { snap, t } = await table7();
+    const paidAsks = inLog.filter(
+      (r) =>
+        r.table === "qr_cart_items" &&
+        r.col === "cart_id" &&
+        !r.select.includes("unit_price_cents"),
+    );
+    expect(paidAsks.map((r) => r.vals.length)).toEqual([50, 50, 50, 50, 2]);
+    expect(t.kitchen?.inKitchen).toBe(2);
+    expect(snap.kitchenUnknown).toBe(false);
   });
 });

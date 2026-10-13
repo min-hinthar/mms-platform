@@ -311,9 +311,13 @@ export type TableDetail = {
    *  with its stage; [] when none, null when that ADVISORY read failed (the group is not drawn), and
    *  absent on a fixture that predates it. */
   paidKitchen?: PaidKitchenLine[] | null;
-  /** #360 (CRITICAL 3) — the paid-round read hit its cap: the group shows the NEWEST dishes only and
-   *  says so ("Showing the latest 100 dishes"). Absent = not capped. */
+  /** #360 (CRITICAL 3) — the paid-round DISH read hit its cap: the group shows the NEWEST dishes only
+   *  and says so, counting the dishes it draws (`paidRoundCapNote`). Absent = not capped. */
   paidKitchenCapped?: boolean;
+  /** #360's blind pass (CRITICAL 2) — the paid round's ROUND read hit its cap (a session past
+   *  `PAID_ROUND_ORDER_CAP` settled rounds): older rounds were not read, and the group says so with no
+   *  number. Absent = not capped. */
+  paidRoundsCapped?: boolean;
   /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
    *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null

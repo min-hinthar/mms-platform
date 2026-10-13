@@ -51,6 +51,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   line recalled on another tablet stops being "this tablet's bump", so its later void is said; a
   counter-only floor schedules the settle re-read; and the paid round reads every paid cart of the
   session (past 20 rounds too), saying so when it can only show the latest.
+- **The blind pass on #360 (Codex out of quota)** — the refund tag answers the KITCHEN's question,
+  "was every dish refunded?" (`foodRefundedInFull`), not the receipt's: the order is `refunded`, or
+  every line has a line refund in the ledger, or the money back covers the goods pool
+  (`total − service − tip`). A fully refunded TIPPED cash order, the common case, was never tagged:
+  every line refund is clamped to that pool. The ledger is read once per surface, in IN-lists of 50,
+  only for a paid order with money back, and fails open. The paid round's cap notes say only true
+  numbers: the dishes it draws, or "Older rounds aren't listed here." with no number. The page's and
+  the floor's paid-cart reads go in IN-lists of 50. All done's own-bump landing has its test.
 
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 

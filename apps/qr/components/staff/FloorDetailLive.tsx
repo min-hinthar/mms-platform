@@ -1292,6 +1292,7 @@ export function FloorDetailLive({
               lang={lang}
               lines={detail.paidKitchen}
               capped={detail.paidKitchenCapped === true}
+              roundsCapped={detail.paidRoundsCapped === true}
             />
           )}
           {detail.lines.length === 0 ? (

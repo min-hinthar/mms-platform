@@ -526,7 +526,9 @@ export function KdsBoard({
   const prevTickets = useRef<readonly KitchenTicket[]>(initial.tickets);
   // #360 (Codex P2) — each own bump carries WHEN its write landed (the fetch sequence then; null while
   // it is out), so a line another tablet recalls before this one saw it leave stops being "ours"
-  // once a later snapshot shows it back (`ownBumpsAfter`): a void of the restored line is said.
+  // once a later snapshot shows it back (`ownBumpsAfter`): a void a snapshot after THAT shows is
+  // said. A recall and a void both before the first snapshot past the landing are not (the
+  // docblock's window).
   const ownBumps = useRef(new Map<string, number | null>());
   const ownBump = useCallback((ids: readonly string[], on: boolean) => {
     for (const id of ids) {

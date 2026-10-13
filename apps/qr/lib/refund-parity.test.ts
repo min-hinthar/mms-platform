@@ -42,7 +42,9 @@ vi.mock("./served-today", () => ({
   readServedToday: () => Promise.resolve(null),
   settleServedRail: () => Promise.resolve(null),
 }));
-vi.mock("./kitchen-stop-read", () => ({
+vi.mock("./kitchen-stop-read", async (importOriginal) => ({
+  // the ONE id splitter, real: the line ledger read chunks with it
+  chunkIds: (await importOriginal<typeof import("./kitchen-stop-read")>()).chunkIds,
   readKitchenStops: () => Promise.resolve(null),
   settleKitchenStops: () => Promise.resolve(null),
 }));
@@ -197,6 +199,7 @@ const { getFloorView, getTableDetail } = await import("./floor");
 
 const S7 = "77777777-7777-4777-8777-777777777777";
 const PAID = "c-paid";
+const ORDER = "order-00abcdef";
 const mainLine = (over: Row = {}): Row => ({
   id: "l-main",
   cart_id: PAID,
@@ -242,21 +245,28 @@ beforeEach(() => {
         created_at: ago(30),
       },
     ],
-    // A goodwill comp: the table's round refunded IN FULL while it is still eating.
+    // A goodwill comp: the table's round refunded IN FULL while it is still eating. $24.00 = $20.00
+    // of goods and tax (two $10.00 dishes) + a $4.00 TIP — every fixture carries one (#360's blind
+    // pass, CRITICAL 1: the refund pool is `total − service − tip`).
     qr_orders: [
       {
-        id: "order-00abcdef",
+        id: ORDER,
         session_id: S7,
         cart_id: PAID,
         total_cents: 2400,
-        tip_cents: 0,
+        service_charge_cents: 0,
+        tip_cents: 400,
         created_at: ago(9),
         status: "refunded",
         refunded_cents: 2400,
       },
     ],
     qr_cart_items: [mainLine()],
-    qr_order_items: [],
+    qr_order_items: [
+      { id: "oi-1", order_id: ORDER },
+      { id: "oi-2", order_id: ORDER },
+    ],
+    mms_refunds: [],
     session_members: [],
     mms_tab_config: [],
     mms_kds_config: [],
@@ -309,7 +319,8 @@ describe("one refunded paid cart, three surfaces, one story (#360, CRITICAL 1 + 
       session_id: S7,
       cart_id: PAID,
       total_cents: 2400,
-      tip_cents: 0,
+      service_charge_cents: 0,
+      tip_cents: 400,
       created_at: ago(8),
       status: "paid",
       refunded_cents: 0,
@@ -321,18 +332,36 @@ describe("one refunded paid cart, three surfaces, one story (#360, CRITICAL 1 + 
     expect(page?.map((l) => l.refunded)).toEqual([undefined]);
   });
 
-  it("a FULL CASH refund (the order still `paid`, refunded = total) is tagged on all three (Codex on #360, P1)", async () => {
-    // `mms_refund_cash_line` raises `refunded_cents` and leaves the order `paid` (OPEN-ITEMS M308).
-    // lck/refunded-cart/amount-arm-ignored · lck/kitchen/refund-amounts-unread — red.
-    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 2400 }];
+  it("every dish cash-refunded with the TIP kept is tagged on all three — the amounts fall short of the total", async () => {
+    // `mms_refund_cash_line` clamps each line to the pool (`total − service − tip`) and leaves the
+    // order `paid`; the two lines' shares round a cent short of it. Only the ledger's line rows say
+    // every dish went back. lck/refunded-cart/line-arm-dropped · lck/kitchen/line-refunds-unread ·
+    // lck/floor/line-refunds-unread · lck/floor/paid-round-line-refunds-unread — red.
+    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 1999 }];
+    rows.mms_refunds = [
+      { order_id: ORDER, order_item_id: "oi-1", amount_cents: 1000 },
+      { order_id: ORDER, order_item_id: "oi-2", amount_cents: 999 },
+    ];
     const { kds, floor, page } = await threeReads();
     expect(kds.map((t) => t.refunded)).toEqual([true]);
     expect(floor?.refunded).toBe(2);
     expect(page?.map((l) => l.refunded)).toEqual([true]);
   });
 
-  it("a PARTIAL cash refund leaves the order standing: untagged on all three", async () => {
-    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 1200 }];
+  it("an ORDER-LEVEL refund of the goods (no line rows, the tip kept) is tagged on all three", async () => {
+    // A dashboard refund reconciled from Stripe raises `refunded_cents` and writes no ledger row.
+    // lck/refunded-cart/pool-arm-dropped · lck/kitchen/refund-amounts-unread · lck/floor/orders-pool-unread — red.
+    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 2000 }];
+    const { kds, floor, page } = await threeReads();
+    expect(kds.map((t) => t.refunded)).toEqual([true]);
+    expect(floor?.refunded).toBe(2);
+    expect(page?.map((l) => l.refunded)).toEqual([true]);
+  });
+
+  it("ONE of two dishes refunded leaves the order standing: untagged on all three", async () => {
+    // lck/refunded-cart/one-line-is-every-line — red.
+    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 1000 }];
+    rows.mms_refunds = [{ order_id: ORDER, order_item_id: "oi-1", amount_cents: 1000 }];
     const { kds, floor, page } = await threeReads();
     expect(kds.map((t) => t.refunded)).toEqual([undefined]);
     expect(floor?.inKitchen).toBe(2);

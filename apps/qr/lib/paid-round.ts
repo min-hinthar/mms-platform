@@ -1,6 +1,7 @@
 import { PULSE_PASS_LINGER_MS } from "./board-pulse";
 import { trackStage, type KitchenStage } from "./kitchen-track";
 import type { PaidKitchenLine } from "./floor-types";
+import { plural } from "./i18n/fill";
 
 /**
  * The lifecycle audit (2026-10-13) — a table that PAID a round while its food was still cooking.
@@ -69,4 +70,53 @@ export function paidRoundKitchen(
     });
   }
   return out;
+}
+
+/** #360's blind pass (question c) — the paid read's own `.order()` (`created_at` desc, then `id` desc),
+ *  applied to its chunks' merged rows, so the newest cap + 1 across every chunk are the rows one
+ *  request would have kept. PostgREST writes every `created_at` in one format, so the strings
+ *  compare in time order. */
+export function newestFirst<T extends { created_at: string; id: string }>(a: T, b: T): number {
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/**
+ * #360 (the blind pass, CRITICAL 2) — what the group SAYS under a cap, with only a number that is
+ * true. Two reads can stop short, and each gets its own sentence:
+ *
+ *   · the DISH read hit `PAID_KITCHEN_CAP` — the count is the dishes DRAWN (`shown`), never the cap:
+ *     most of a long night's capped read is dishes served long ago, which the group does not draw,
+ *     so "Showing the latest 100 dishes" stood over two of them. The read is newest first, so the
+ *     dishes drawn ARE the latest ones on the track, and anything older is past what was read;
+ *   · only the ROUND read hit its cap (the session's settled rounds past `PAID_ROUND_ORDER_CAP`,
+ *     `lib/floor.ts`) — older rounds were not read; how many dishes they hold is unknown, so the
+ *     sentence names no number.
+ *
+ * Both: the dish sentence alone, which already says older ones are not here. Neither: no note.
+ */
+export type PaidRoundCapNote = {
+  key:
+    | "table.detail.paidKitchen.capped.one"
+    | "table.detail.paidKitchen.capped.many"
+    | "table.detail.paidKitchen.olderRounds";
+  vars?: { n: number };
+};
+
+export function paidRoundCapNote(
+  shown: number,
+  dishesCapped: boolean,
+  roundsCapped: boolean,
+): PaidRoundCapNote | null {
+  if (dishesCapped)
+    return {
+      key: plural(
+        shown,
+        "table.detail.paidKitchen.capped.one",
+        "table.detail.paidKitchen.capped.many",
+      ),
+      vars: { n: shown },
+    };
+  if (roundsCapped) return { key: "table.detail.paidKitchen.olderRounds" };
+  return null;
 }

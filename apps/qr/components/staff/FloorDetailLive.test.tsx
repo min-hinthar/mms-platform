@@ -2520,9 +2520,25 @@ describe("the lifecycle audit — the table page names a paid round's food and r
     );
     expect(items[0]!.textContent).toContain(STAFF["table.detail.paidKitchen.refunded"].en);
     expect(items[1]!.textContent).not.toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    // #360's blind pass (CRITICAL 2) — the count is the dishes DRAWN (two), never the read's cap.
+    // lck/floor-detail/paid-round-cap-unsaid — red.
     expect(container.textContent).toContain(
-      tf("en", "table.detail.paidKitchen.capped", { n: PAID_KITCHEN_CAP }),
+      tf("en", "table.detail.paidKitchen.capped.many", { n: 2 }),
     );
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
+  });
+
+  it("a capped ROUND read says older rounds aren't here — with no number", () => {
+    // #360's blind pass (CRITICAL 2). lck/floor-detail/paid-round-rounds-cap-unpassed — red.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidRoundsCapped: true,
+    });
+    expect(container.textContent).toContain(STAFF["table.detail.paidKitchen.olderRounds"].en);
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
   });
 
   it("a dine-in table's draft dish offers For here / To go", () => {

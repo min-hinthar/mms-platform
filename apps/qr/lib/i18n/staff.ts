@@ -3158,11 +3158,23 @@ export const STAFF = {
     en: "Refunded — check with the counter before it goes out",
     my: "ပြန်အမ်းပြီး — မပို့ခင် ကောင်တာကို မေးပါ",
   }, // K15 draft — grounded: kds.ticket.refunded, table.send ပို့
-  // #360 — the paid-round read hit its cap: the group holds the NEWEST {n} dishes only.
-  "table.detail.paidKitchen.capped": {
+  // #360 — the paid-round DISH read hit its cap: the group holds the NEWEST dishes only, and {n} is
+  // the count it DRAWS (`paidRoundCapNote`), never the read's cap (the blind pass, CRITICAL 2).
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.detail.paidKitchen.capped.one": {
+    en: "Showing the latest {n} dish — older ones aren’t listed here.",
+    my: "နောက်ဆုံး ဟင်း {n} ခုကိုပဲ ပြထားတယ် — အရင်ကဟာတွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: floor.kitchen.notSent {n} ခု
+  "table.detail.paidKitchen.capped.many": {
     en: "Showing the latest {n} dishes — older ones aren’t listed here.",
     my: "နောက်ဆုံး ဟင်း {n} ခုကိုပဲ ပြထားတယ် — အရင်ကဟာတွေ ဒီမှာ မပါပါ။",
   }, // K15 draft — grounded: floor.kitchen.notSent {n} ခု
+  // #360 (the blind pass, CRITICAL 2) — only the paid round's ROUND read hit its cap: older rounds
+  // were not read, so no count is known — and none is said.
+  "table.detail.paidKitchen.olderRounds": {
+    en: "Older rounds aren’t listed here.",
+    my: "အရင် အလှည့်တွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: kds.round အလှည့်, table.detail.paidKitchen.capped.many မပါပါ
   // Phase 2c · pad — the add page's interim bridge to the Send (`browse.reviewUnsent`) is retired:
   // the order pad carries the Send itself (OPEN-ITEMS P2ai).
 
@@ -4632,6 +4644,7 @@ export type StaffKey = keyof typeof STAFF;
  * `countItem`/`countItems`.
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
+  ["table.detail.paidKitchen.capped.one", "table.detail.paidKitchen.capped.many"],
   ["floor.tables.count.one", "floor.tables.count.many"],
   ["floor.counter.count.one", "floor.counter.count.many"],
   ["floor.settled.count.one", "floor.settled.count.many"],
