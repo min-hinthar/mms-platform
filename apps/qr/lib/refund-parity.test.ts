@@ -350,7 +350,7 @@ describe("one refunded paid cart, three surfaces, one story (#360, CRITICAL 1 + 
 
   it("an ORDER-LEVEL refund of the goods (no line rows, the tip kept) is tagged on all three", async () => {
     // A dashboard refund reconciled from Stripe raises `refunded_cents` and writes no ledger row.
-    // lck/refunded-cart/pool-arm-dropped · lck/kitchen/refund-pool-unread — red.
+    // lck/refunded-cart/pool-arm-dropped · lck/kitchen/refund-amounts-unread · lck/floor/orders-pool-unread — red.
     rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 2000 }];
     const { kds, floor, page } = await threeReads();
     expect(kds.map((t) => t.refunded)).toEqual([true]);

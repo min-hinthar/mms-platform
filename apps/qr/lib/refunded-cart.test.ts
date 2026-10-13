@@ -80,13 +80,13 @@ describe("foodRefundedInFull — was every DISH refunded? (the kitchen's questio
         NONE,
       ),
     ).toBe(true);
-    // lck/refunded-cart/pool-reads-the-total — the receipt's question (total, not pool): red.
-    // lck/refunded-cart/pool-keeps-the-tip — the tip left inside the pool: red.
+    // lck/refunded-cart/pool-keeps-the-tip · lck/refunded-cart/pool-keeps-the-service — the
+    // receipt's question (a part left inside the pool): red.
   });
 
   it("(c) a refund short of the pool is not the food", () => {
     expect(foodRefundedInFull(order({ refunded_cents: POOL - 1 }), NONE)).toBe(false);
-    // nothing refunded on a $0-goods order is not a refund
+    // nothing refunded on a $0-goods order is not a refund. lck/refunded-cart/nothing-back-is-full — red.
     expect(
       foodRefundedInFull(order({ total_cents: 400, tip_cents: 400, refunded_cents: 0 }), NONE),
     ).toBe(false);
@@ -110,7 +110,7 @@ describe("refundedCarts — the ONE rule the KDS, the floor and the table page t
   });
 
   it("a PARTIAL refund leaves the order standing: the cart is not tagged", () => {
-    // lck/refunded-cart/partial-tagged — red.
+    // lck/refunded-cart/one-line-is-every-line — red.
     expect(refundedCarts([order({ refunded_cents: 1000 })], lines(["i1", "i2"], ["i1"])).size).toBe(
       0,
     );

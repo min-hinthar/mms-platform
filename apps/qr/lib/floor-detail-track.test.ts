@@ -278,6 +278,7 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
   });
 
   it("no paid round reads nothing; a failed read draws no group", async () => {
+    // lck/floor/paid-round-chunk-error-swallowed — a failed chunk read as no dishes: [] for null; red.
     paidRows = [line({ id: "main", state: "in_progress" })];
     expect((await detail()).paidKitchen).toEqual([]);
     expect(paidAsked).toBeNull();
@@ -373,7 +374,7 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     expect(d.paidKitchen?.map((l) => l.id)).toEqual(["newest-main"]);
     // #360's blind pass (CRITICAL 2) — the ROUND read was capped, not the dish read: the group says
     // older rounds are not here, with no number. It said "Showing the latest 100 dishes" above this
-    // one-dish list. lck/floor/paid-round-rounds-cap-unsaid · lck/floor/paid-round-caps-merged — red.
+    // one-dish list. lck/floor/paid-round-scope-cap-unsaid · lck/floor/paid-round-caps-merged — red.
     expect(d.paidRoundsCapped).toBe(true);
     expect(d.paidKitchenCapped).toBe(false);
     const note = paidRoundCapNote(
@@ -417,6 +418,7 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     // 60 rounds: two IN-lists. 105 dishes alternate between a cart in each, oldest first; one
     // request would have kept the newest 100, and the merged chunks must keep the same 100.
     // lck/floor/paid-round-chunks-unmerged — chunk results concatenated, not re-sorted: red.
+    // lck/paid-round/merge-keeps-the-oldest — merged oldest first: red.
     orders = Array.from({ length: 60 }, (_, i) => ({
       id: `o-${i}`,
       total_cents: 1200,
