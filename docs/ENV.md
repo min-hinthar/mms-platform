@@ -158,10 +158,11 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
    - The secret key must carry a prefix `keyMode` reads (`sk_live_…`, or a restricted `rk_live_…`).
      Any other prefix reads as an unknown mode, which drops every `_TEST` signing name (M166) — fine
      once step 4 sets `STRIPE_WEBHOOK_SECRET`, and the webhook's 500 names it if not.
-   - **Meals are card only (M155, owner ruling #7).** Every meal intent names `payment_method_types`
-     from `apps/qr/lib/payment-methods.ts` (`card` — Apple Pay and Google Pay ride it), so the live
+   - **Meals are card only (M155, owner ruling #7).** Every meal intent a phone creates names
+     `payment_method_types` from `apps/qr/lib/payment-methods.ts` (`card` — Apple Pay and Google Pay ride it), so the live
      Dashboard's enabled methods never reach a meal and no bank debit can sit in `processing` on a
-     cart. Admitting another instant method is a change to that constant, never a Dashboard toggle.
+     cart. Admitting another instant method is a change to that constant, never a Dashboard toggle. The
+     tab's off-session close charges the method a tab already saved, as saved (M290); saves are card only.
 3. **Create the LIVE webhook endpoint** — Stripe → Developers → **Webhooks** (toggle **live mode**) →
    Add endpoint:
    - URL `https://<prod-domain>/api/stripe/webhook`

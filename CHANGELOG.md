@@ -18,7 +18,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   attempts). Every Stripe call takes it, the parked Terminal reader actions included. The pickup
   capture makes one attempt per webhook delivery (`maxNetworkRetries: 0` beside its key), so a
   transient capture failure waits for Stripe's redelivery, which re-derives the plan. The
-  setup-intent Customer create is keyed per request. A parse guard in `stripe.test.ts` refuses a
+  setup-intent Customer create is keyed on the cart (`cus_<cartId>`). A parse guard in `stripe.test.ts` refuses a
   per-call retry override below one that carries no `idempotencyKey`, and a Stripe client built
   outside `lib/stripe.ts`. Left: 20 s is an upper bound
   picked without a measurement. Owner ruling #23 sizes it from the Stripe round trip measured from
@@ -75,19 +75,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Filed:** M277 (a same-barcode line pair on the Browse card), M278 (no database gate on grocery
   lines), M279 (a with-tax figure on /grocery) and J55 (the split door's error echo).
 - **The blind pass's fix round (2026-10-13).**
-  - The tab's off-session close names `MEAL_PAYMENT_METHOD_TYPES` too, the fourth meal create, so a
-    method saved before the card-only SetupIntent is charged as a card or refused. Mutant
-    `stripecfg/tab-close-automatic-methods`.
   - The budget's bound counts the SDK's Retry-After sleep, which stripe@22 honours up to 60 s. A
     default-budget call is bounded under two minutes (about 100 s), not one; the zero-retry pickup
     capture stays under one minute. Both bounds are read off the SDK's own retry decision and sleep.
   - The parse guard exempts only `lib/stripe.ts`'s own client config, and refuses a Stripe client
     built anywhere else, under any binding of the `stripe` import.
-  - The Customer create's key is per request. Stripe's v1 idempotency replays a key's first response
-    even when it was an error, for at least 24 h, so a key on the cart alone would turn one 5xx into
-    a tab that cannot save a card. Mutant `stripecfg/customer-key-cart-stable`.
   - The basket parity is stated for a cart of market lines, and a test pins the boundary: a to-go
     dish on the same cart is charged and not listed.
+  - Two of the round's changes were reverted after the capped pass over the fix commits found them
+    worse than what they replaced. Both sit behind parked doors.
+    - Naming the card-only list on the tab's off-session close turned Stripe's definite refusal of
+      a non-card method into an "unknown" verdict that holds the freeze and tells staff the charge
+      may have gone through. Filed as M290.
+    - Keying the Customer create per request let two concurrent saves pair the tab's Customer with
+      another Customer's method. M289 now carries both cart-stable keys.
   - Filed M286 (a dish on a scan-and-go cart), M287 (a Terminal start that throws frees the table
     when its cancel fails), M288 (no truthful exit for a fully comped counter order whose food was
     sent) and M289 (setup-intent's cart-stable SetupIntent key).
