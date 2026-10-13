@@ -652,11 +652,10 @@ describe("M230's half — the two pills beside the stepper share the same window
     // Blind pass over #354's fix commits: the per-view retire runs on every applied view, and the
     // only thing keeping it off other text is that it clears `status` only while `status` still IS
     // the sentence it said. The flip to the Bill empties the region but leaves the sentence armed;
-    // the Bill's held door then says its own reason, and the host's Undo arrives after.
+    // the Bill's counter door then answers in the region, and the host's Undo arrives after.
     flags.phonePayOpen = false;
     flags.splitOpen = false;
     try {
-      const SEND_FIRST = "Send everything to the kitchen first — then pay at the counter.";
       h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_draft" });
       h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }, ITEM_B] }));
       // A host at a numbered table, so the Bill's counter door reads the table's sends.
@@ -667,15 +666,20 @@ describe("M230's half — the two pills beside the stepper share the same window
         members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
         tableNumber: 7,
         qrCode: null,
-      };
+      } as unknown as Parameters<typeof Checkout>[0]["splitContext"];
       mount({ splitContext: HOST_AT_7, initialItems: [ITEM, ITEM_B] });
       await openLineSheet();
       await press("To go");
       await settle();
       await waitFor(() => expect(regionText()).toContain("it’s already gone to the kitchen"));
       await press(/View bill/);
-      await press(/^Pay at the counter/); // held: a dish is still to send, so the tap says why
-      await waitFor(() => expect(regionText()).toContain(SEND_FIRST));
+      // The counter door answers in the region: why it is held while a dish is still to send, or
+      // (once the ask carries unsent dishes, PD2's lift) the ask's own sentence. Either is a later
+      // answer that is not the kitchen sentence; that is all this case needs.
+      await press(/^Pay at the counter/);
+      await waitFor(() => expect(regionText()).not.toBe(""));
+      const LATER = regionText();
+      expect(LATER).not.toContain("gone to the kitchen");
 
       h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] })); // the host's Undo
       const reads = h.getCartView.mock.calls.length;
@@ -687,7 +691,7 @@ describe("M230's half — the two pills beside the stepper share the same window
       });
       await settle();
       // MUTATION m230/retire-clears-any-status: red.
-      expect(regionText()).toContain(SEND_FIRST);
+      expect(regionText()).toBe(LATER);
     } finally {
       flags.phonePayOpen = true;
       flags.splitOpen = true;
