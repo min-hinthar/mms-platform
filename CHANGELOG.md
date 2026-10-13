@@ -56,9 +56,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   change.
 - **Left open:** a linked intent whose diner walked away is still quoted at its pin while the counter
   supersedes it and charges live; the cash sheet refuses `moved` once and the next quote is live
-  (M277, never a wrong charge). The M211 note needs a Burmese string and a native check (K47). The
+  (M280, never a wrong charge). The M211 note needs a Burmese string and a native check (K47). The
   seated and retired-table sentences say "pick another", and the dine-in menu has no table picker to
-  pick from (J55). OPEN-ITEMS closes M169, J16, M123, M211 and M221 and files M277, K47 and J55.
+  pick from (J56). OPEN-ITEMS closes M169, J16, M123, M211 and M221 and files M280, K47 and J56.
 - **No new Burmese.** The one new string, the M211 note, is English only; every other sentence shown
   is an existing route string or `BIND_COPY`.
 
