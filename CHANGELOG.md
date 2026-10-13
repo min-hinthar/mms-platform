@@ -19,8 +19,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   capture makes one attempt per webhook delivery (`maxNetworkRetries: 0` beside its key), so a
   transient capture failure waits for Stripe's redelivery, which re-derives the plan. The
   setup-intent Customer create is keyed on the cart (`cus_<cartId>`). A parse guard in `stripe.test.ts` refuses a
-  per-call retry override below one that carries no `idempotencyKey`, and a Stripe client built
-  outside `lib/stripe.ts`. Left: 20 s is an upper bound
+  per-call retry override below one that carries no `idempotencyKey`, and a `new Stripe(…)` under
+  an `import` binding of `stripe` anywhere in `lib/` or `app/` but `lib/stripe.ts` (M291 lists what it
+  cannot see). Left: 20 s is an upper bound
   picked without a measurement. Owner ruling #23 sizes it from the Stripe round trip measured from
   `pdx1`, which an agent sandbox cannot take.
 - **An unreadable Stripe key mode counts as live for the webhook secret (M166).** When the secret
@@ -78,8 +79,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - The budget's bound counts the SDK's Retry-After sleep, which stripe@22 honours up to 60 s. A
     default-budget call is bounded under two minutes (about 100 s), not one; the zero-retry pickup
     capture stays under one minute. Both bounds are read off the SDK's own retry decision and sleep.
-  - The parse guard exempts only `lib/stripe.ts`'s own client config, and refuses a Stripe client
-    built anywhere else, under any binding of the `stripe` import.
+  - The parse guard exempts only `lib/stripe.ts`'s own client config, and refuses a client built
+    elsewhere in `lib/` or `app/` under any `import` binding of `stripe`. A re-aliased binding,
+    `require`, a dynamic `import()` and the files outside those two trees are not read (M291).
   - The basket parity is stated for a cart of market lines, and a test pins the boundary: a to-go
     dish on the same cart is charged and not listed.
   - Two of the round's changes were reverted after the capped pass over the fix commits found them
@@ -91,7 +93,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
       another Customer's method. M289 now carries both cart-stable keys.
   - Filed M286 (a dish on a scan-and-go cart), M287 (a Terminal start that throws frees the table
     when its cancel fails), M288 (no truthful exit for a fully comped counter order whose food was
-    sent) and M289 (setup-intent's cart-stable SetupIntent key).
+    sent), M289 (setup-intent's cart-stable SetupIntent key) and M291 (what the client guard
+    cannot see).
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 
