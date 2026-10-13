@@ -17,11 +17,8 @@
  * another INSTANT method enabled on purpose (the ruling's examples: Cash App Pay, Klarna), it joins
  * this list — and a bank debit still never does.
  *
- * Read by every meal create: the three doors that mint a Stripe intent — `create-intent` (pay now),
- * `create-share-intent` (a split share) and `setup-intent` (a card saved for a tab) — and the tab's
- * off-session charge at close, `closeSecureTab` (`staff-cart.ts`), which pins the saved method and
- * so charges it as a card or not at all. Each suite (the three routes', `secure-close-cas.test.ts`)
- * asserts its create sends exactly this list; `payment-methods.test.ts` pins the list itself. The
- * Terminal reader's create is not a meal phone payment: it names `card_present` (`terminal.ts`).
+ * Read by the three meal doors that mint a Stripe intent: `create-intent` (pay now),
+ * `create-share-intent` (a split share) and `setup-intent` (a card saved for a tab). Each route's
+ * suite asserts its create sends exactly this list; `payment-methods.test.ts` pins the list itself.
  */
 export const MEAL_PAYMENT_METHOD_TYPES = ["card"] as const;

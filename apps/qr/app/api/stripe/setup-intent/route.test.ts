@@ -193,23 +193,15 @@ describe("M155 · M72c — what the route asks Stripe for", () => {
     expect(setup[0]!.params).not.toHaveProperty("automatic_payment_methods");
   });
 
-  it("keys the Customer create per REQUEST — a cart-stable key would replay one failure for a day", async () => {
-    // The one create in this route that carried no key. Keyed, the SDK's own retry inside this call
-    // replays it. But the key must not be the cart alone (the blind pass on #352): Stripe's v1
-    // idempotency returns a key's first response "even if it was an error", and keeps the key for at
-    // least 24 h, so one transient 5xx on `cus_<cart>` would answer every later save on that tab
-    // with the same error for the rest of its life. Two saves (a re-tap after a failure) therefore
-    // send two keys; the tab still converges on ONE Customer through the upsert (T10).
+  it("keys the Customer create on the cart, so a retried save converges on ONE Customer", async () => {
+    // The one create in this route that carried no key: a retried request (the SDK's, or the
+    // diner's re-tap after a lost response) minted a second Customer for the same tab. Keyed on the
+    // cart, a replay returns the first Customer instead (one Customer per tab, T10).
     // MUTATION (stripecfg/customer-create-unkeyed): the key dropped; red.
-    // MUTATION (stripecfg/customer-key-cart-stable): back to `cus_${cartId}`; red.
     await POST(req());
-    await POST(req());
-    const keys = stripeCalls
-      .filter((c) => c.op === "customers.create")
-      .map((c) => (c.opts as { idempotencyKey?: string } | undefined)?.idempotencyKey);
-    expect(keys).toHaveLength(2);
-    for (const key of keys) expect(key).toMatch(new RegExp(`^cus_${CART}_[0-9a-f-]{36}$`));
-    expect(new Set(keys).size).toBe(2);
+    const customer = stripeCalls.filter((c) => c.op === "customers.create");
+    expect(customer).toHaveLength(1);
+    expect(customer[0]!.opts).toEqual({ idempotencyKey: `cus_${CART}` });
   });
 });
 

@@ -64,15 +64,12 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     let customerId = existing?.stripe_customer_id ?? null;
     if (!customerId) {
-      // M72c — keyed per REQUEST, the one create in this route that carried no key: the SDK's own
-      // retry inside this call replays it. Never on the cart alone (the blind pass on #352): Stripe's
-      // v1 idempotency replays a key's first response even when it was an error, for at least 24 h,
-      // so one transient 5xx on a cart-stable key would refuse every later save on this tab. A
-      // re-tap after a lost response may mint a second Customer; the upsert below converges the tab
-      // on ONE (the loser is an empty orphan, harmless).
+      // M72c — keyed on the CART, the one create in this route that carried no key. A retried
+      // request (the SDK's own, or a re-tap after a lost response) replays the first Customer
+      // instead of minting a second one for the same tab.
       const customer = await getStripe().customers.create(
         { metadata: { cartId, sessionId }, description: `MMS tab ${cartId}` },
-        { idempotencyKey: `cus_${cartId}_${crypto.randomUUID()}` },
+        { idempotencyKey: `cus_${cartId}` },
       );
       customerId = customer.id;
       // ignoreDuplicates: if two saves raced, the first row wins and this one is a no-op — re-read it so

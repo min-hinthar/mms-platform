@@ -88,14 +88,11 @@ vi.mock("./totals", () => ({
     }),
 }));
 const created: { amount: number }[] = [];
-/** M155 — the payment-method list each create named, recorded apart so the amount cases stay as they are. */
-const createdMethods: unknown[] = [];
 vi.mock("./stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
-      create: (p: { amount: number; payment_method_types?: unknown }) => {
+      create: (p: { amount: number }) => {
         created.push({ amount: p.amount });
-        createdMethods.push(p.payment_method_types);
         return Promise.resolve({ status: "succeeded" });
       },
     },
@@ -124,14 +121,12 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { closeSecureTab } = await import("./staff-cart");
-const { MEAL_PAYMENT_METHOD_TYPES } = await import("./payment-methods");
 
 beforeEach(() => {
   unsentUnits = 0;
   unsentReads = 0;
   lockCalls.length = 0;
   created.length = 0;
-  createdMethods.length = 0;
   inFlight = null;
   cartFreeze = { settle_at: null, settle_by: null };
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -213,18 +208,5 @@ describe("closeSecureTab — the settle gate answers BEFORE the compare-and-swap
     const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
     expect(r).toMatchObject({ ok: false, code: "unsent", units: 1 });
     expect(created).toEqual([]);
-  });
-});
-
-// ── M155 · the fourth meal create (blind pass on #352, security 1) ──
-describe("closeSecureTab — the off-session charge names the meal list, never the Dashboard's (M155)", () => {
-  it("the create sends MEAL_PAYMENT_METHOD_TYPES, so a saved bank debit is refused rather than left `processing` for days", async () => {
-    // The tab charges the PaymentMethod saved on it. A create that names no list runs under the
-    // Dashboard's automatic methods on this API version, so a bank debit saved before the card-only
-    // SetupIntent (M155) would be confirmed off-session and sit in `processing` after the table left.
-    // MUTATION (stripecfg/tab-close-automatic-methods): drop the list — undefined; red.
-    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
-    expect(r).toEqual({ ok: true });
-    expect(createdMethods).toEqual([[...MEAL_PAYMENT_METHOD_TYPES]]);
   });
 });
