@@ -627,9 +627,73 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
   }
   if (!fired) return { ok: false, error: "That ticket is already live.", code: "already-live" };
 
+  // Lifecycle residuals (Theme 5) — the ORDER follows its lines. The RPC moves only the cart lines'
+  // fire time, while `qr_orders.fire_at` (snapshotted at fulfil) is what /track's guide, the tray,
+  // the pill, /account and the wall read as "has the kitchen got it?" — so a held pickup Mom was
+  // already cooking read "You’re booked … closer to your time" and "Scheduled" to its guest, and
+  // stayed off the wall. Awaited (it is one guarded UPDATE), never surfaced: the kitchen cooks either
+  // way, and a refused or failed write is logged for the residual reader to catch.
+  await fireHeldOrderNow(cartId);
+
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
   return { ok: true };
+}
+
+/**
+ * Lifecycle residuals (Theme 5) — Cook now's ORDER half: `qr_orders.fire_at = <DB now>` for the cart's
+ * PAID order whose fire time is still ahead. The DB clock (`mms_now`, the queue's own read; the app
+ * clock only when it fails, logged), because the stamp is compared against that clock by every reader.
+ *
+ * The guard is IN the statement: `status = 'paid'` (a refunded order is nobody's bag — the wall and
+ * the tray drop it, and nothing may revive it) and `fire_at > now` (only ever EARLIER: an
+ * as-soon-as-possible order's null stamp and an already-reached one are left exactly as they are).
+ * `.update()` reports no row count, so `.select("id")` makes a write the guard blocked visible — a
+ * paid cart with held lines and no held order is an anomaly worth a log line, never a silent
+ * success. Nothing here is surfaced to the cook: the tickets are already live.
+ */
+async function fireHeldOrderNow(cartId: string): Promise<void> {
+  // A THROW is caught too, not only a returned `{ error }`: the lines are already live, so the cook
+  // must never read "Couldn’t fire that ticket" (and tap again) over an order write that broke.
+  try {
+    await moveHeldOrder(cartId);
+  } catch (e) {
+    console.error("[kitchen] Cook now fired the lines; the order write threw", {
+      cartId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+async function moveHeldOrder(cartId: string): Promise<void> {
+  const db = serviceClient();
+  const clock = await db.rpc("mms_now");
+  const nowIso =
+    !clock.error && typeof clock.data === "string" && Number.isFinite(Date.parse(clock.data))
+      ? clock.data
+      : (() => {
+          console.error("[kitchen] mms_now unreadable — the held order moves on the app clock", {
+            cartId,
+            message: clock.error?.message,
+          });
+          return new Date().toISOString();
+        })();
+  const { data: moved, error } = await db
+    .from("qr_orders")
+    .update({ fire_at: nowIso })
+    .eq("cart_id", cartId)
+    .eq("status", "paid")
+    .gt("fire_at", nowIso)
+    .select("id");
+  if (error) {
+    console.error("[kitchen] Cook now fired the lines but not the order", {
+      cartId,
+      message: error.message,
+    });
+    return;
+  }
+  if ((moved ?? []).length === 0)
+    console.warn("[kitchen] Cook now fired the lines; no held paid order moved", { cartId });
 }
 
 /** M270 (1) — "Got it" answered: the RPC's own word, read (`stopAckStatusOf`), never cast. */

@@ -10,6 +10,10 @@ import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { MenuPriceEditor, type PricedItem } from "@/components/staff/MenuPriceEditor";
+import { MarketShelfEditor, type ShelfItem } from "@/components/staff/MarketShelfEditor";
+import { aisleBySlug } from "@/lib/grocery-aisles";
+import { sx } from "@/lib/staff-labels";
+import type { StaffLang } from "@/lib/staff-lang";
 
 export const metadata = { title: "Menu — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -41,8 +45,18 @@ export const dynamic = "force-dynamic";
  * is an ACTION of this screen now, a print circle in the bar, rather than a tile on the doors: it
  * is the menu's paperwork. The sheet itself is unchanged, and stays its own route because it is a
  * printable document with its own layout.
+ *
+ * M190 (lifecycle residuals) — the screen's SECOND list: the market (`?shelf=market`), where a server
+ * marks a grocery item sold out (`setGroceryAvailable`, the 86's twin for `grocery_items.available`,
+ * which had no writer). A view, not a section: each list keeps the ONE live region its editor mounts,
+ * and the switch is two links on the lit-gold cap (`aria-current="page"`). Same gate as the 86 —
+ * server-and-up, re-checked by the action.
  */
-export default async function StaffMenuPrices() {
+export default async function StaffMenuPrices({
+  searchParams,
+}: {
+  searchParams: Promise<{ shelf?: string | string[] }>;
+}) {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect
   // that destroys where you were mid-service.
@@ -52,7 +66,9 @@ export default async function StaffMenuPrices() {
   const canEditPrice = caller.role !== "server";
   // Read AFTER the gate: the unknowable-gate branch above renders `StaffOutageShell`, which carries
   // its own control, so the cookie is only needed on the path that renders this page's chrome.
-  const [lang, door] = await Promise.all([readStaffLang(), readStaffDoor()]);
+  const [lang, door, sp] = await Promise.all([readStaffLang(), readStaffDoor(), searchParams]);
+  const market = sp.shelf === "market";
+  if (market) return <MarketShelf lang={lang} door={door} hasPin={hasPin} />;
 
   const db = publicClient();
   const { data, error } = await db
@@ -101,7 +117,8 @@ export default async function StaffMenuPrices() {
         lock={hasPin}
       />
       <div className="staff-col" style={wrap}>
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
+        <ShelfSwitch lang={lang} market={false} />
+        <p style={lead}>
           <Chrome
             lang={lang}
             k={canEditPrice ? "browse.price.leadManager" : "browse.price.leadServer"}
@@ -120,4 +137,103 @@ export default async function StaffMenuPrices() {
   );
 }
 
+/**
+ * M190 — the market list. Read through the same public-RLS catalog the aisle grid uses, but EVERY
+ * item (the grid shows only `available`, unweighed ones): a sold-out jar must stay findable here to be
+ * put back. A failed read is the outage shell, never an empty market (W10a).
+ */
+async function MarketShelf({
+  lang,
+  door,
+  hasPin,
+}: {
+  lang: StaffLang;
+  door: Awaited<ReturnType<typeof readStaffDoor>>;
+  hasPin: boolean;
+}) {
+  const { data, error } = await publicClient()
+    .from("grocery_items")
+    .select("barcode,name,name_my,category,available")
+    .order("category", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
+  if (error) return <StaffOutageShell what="what.market" />;
+  const items: ShelfItem[] = (data ?? []).map((i) => {
+    const aisle = i.category ? aisleBySlug.get(i.category) : undefined;
+    return {
+      barcode: i.barcode,
+      nameEn: i.name,
+      nameMy: i.name_my,
+      aisleEn: aisle?.en ?? i.category ?? "",
+      aisleMy: aisle?.my ?? null,
+      available: i.available,
+    };
+  });
+  return (
+    <main className="staff-main">
+      <StaffBar
+        lang={lang}
+        title="browse.market.title"
+        leading={
+          door === "counter"
+            ? { kind: "back", href: "/staff?floor=1", k: "floor.back" }
+            : { kind: "screens" }
+        }
+        trailing={
+          <Link href="/staff/glossary" className="staff-circ staff-press">
+            <Icon name="print" size={20} />
+            <span className="sr-only">
+              <Chrome lang={lang} k="browse.price.wordCheck" />
+            </span>
+          </Link>
+        }
+        lock={hasPin}
+      />
+      <div className="staff-col" style={wrap}>
+        <ShelfSwitch lang={lang} market />
+        <p style={lead}>
+          <Chrome lang={lang} k="browse.market.lead" echo="stack" />
+        </p>
+        <MarketShelfEditor items={items} />
+      </div>
+    </main>
+  );
+}
+
+/** The two lists' switch: real links (they work with JavaScript off), the current one on the
+ *  lit-gold cap through `aria-current="page"`, 44px chips, named as a pair. */
+function ShelfSwitch({ lang, market }: { lang: StaffLang; market: boolean }) {
+  return (
+    <nav aria-label={sx(lang, "browse.shelf.a11y.switch")} style={shelfRow}>
+      <Link
+        href="/staff/menu"
+        className="staff-chip staff-press"
+        aria-current={market ? undefined : "page"}
+        style={shelfChip}
+      >
+        <Chrome lang={lang} k="browse.shelf.menu" />
+      </Link>
+      <Link
+        href="/staff/menu?shelf=market"
+        className="staff-chip staff-press"
+        aria-current={market ? "page" : undefined}
+        style={shelfChip}
+      >
+        <Chrome lang={lang} k="browse.shelf.market" />
+      </Link>
+    </nav>
+  );
+}
+
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
+const lead: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "0 0 var(--s6)",
+};
+const shelfRow: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "var(--s2)",
+  margin: "0 0 var(--s4)",
+};
+const shelfChip: CSSProperties = { textDecoration: "none" };
