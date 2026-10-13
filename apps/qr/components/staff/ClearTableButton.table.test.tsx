@@ -682,3 +682,46 @@ describe("Seat next party — under the screen's ONE mint lock (Codex correction
     expect(within(windowGroup()!).getAllByRole("button")).toHaveLength(1);
   });
 });
+
+describe("the lifecycle audit — a free clear over the guests' unsent dishes asks first", () => {
+  const DRAFTS: ClearPreview = { ...FREE, droppedUnits: 2, lines: ["d1:2:dinein:draft"] };
+  const draftsSaid = tf("en", "table.noshow.body.drafts.many", { n: 2 });
+
+  it("names the dishes it drops and waits for a tap — no window, nothing sent, until Clear", async () => {
+    // lck/clear-ui/drafts-auto-commit — "Clearing Table 5" committed itself over a party's whole
+    // order and never said the unsent dishes went with it.
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: DRAFTS });
+    clearTable.mockResolvedValue({ ok: true });
+    mount();
+    await tap(trigger());
+    expect(windowGroup()).toBeNull();
+    const heading = screen.getByRole("heading", {
+      name: tf("en", "settle.clear.question", { id: "4" }),
+    });
+    expect(document.activeElement).toBe(heading);
+    expect(document.body.textContent).toContain(draftsSaid);
+    await walk(CLEAR_UNDO_MS + 1_000);
+    expect(clearTable).not.toHaveBeenCalled();
+    // the question's Clear arms after the lane's 400 ms, then opens the window — which says it too
+    const clear = within(heading.closest("section")!).getByRole("button", {
+      name: ts("en", "settle.clear.btn"),
+    });
+    await tap(clear);
+    expect(windowGroup()).not.toBeNull();
+    // lck/clear-ui/window-hides-the-drafts
+    expect(windowGroup()!.textContent).toContain(draftsSaid);
+    await walk(CLEAR_UNDO_MS + 500);
+    expect(clearTable).toHaveBeenCalledTimes(1);
+  });
+
+  it("Cancel writes nothing and hands focus back to the trigger", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: DRAFTS });
+    mount();
+    await tap(trigger());
+    await tap(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    await flush(0);
+    expect(document.activeElement).toBe(trigger());
+    await walk(CLEAR_UNDO_MS + 1_000);
+    expect(clearTable).not.toHaveBeenCalled();
+  });
+});

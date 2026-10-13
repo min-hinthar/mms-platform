@@ -1,5 +1,6 @@
 "use client";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { closedFloorHref } from "@/lib/floor-closed-note";
 import {
   useCallback,
   useEffect,
@@ -573,7 +574,9 @@ export function FloorDetailLive({
                   markHandoffFocus(sessionId, Date.now());
                 router.refresh();
               } else {
-                router.replace(STAFF_DOOR_TARGET.counter);
+                // The lifecycle audit — the floor BY NAME, carrying the table's own name: the
+                // floor's region says it closed (`closedFloorHref`), never a silent bounce.
+                router.replace(closedFloorHref(res));
                 router.refresh();
               }
             }

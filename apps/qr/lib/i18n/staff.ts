@@ -442,6 +442,17 @@ export const STAFF = {
   "floor.status.ordering": { en: "Ordering", my: "မှာနေဆဲ" },
   "floor.status.paying": { en: "Paying", my: "ငွေရှင်းနေဆဲ" },
   "floor.status.settling": { en: "Splitting", my: "ခွဲရှင်းနေဆဲ" },
+  // The lifecycle audit (2026-10-13) — `settling` while the self-serve split is PARKED: only the
+  // register takes the settlement freeze then, so the table is not splitting — the counter is
+  // taking its payment (the diner's own Bill says the same, `registerSettling`).
+  "floor.status.takingPayment": { en: "Taking payment", my: "ကောင်တာမှာ ရှင်းနေဆဲ" }, // K15 draft — grounded: floor.status.counter ကောင်တာမှာ ရှင်း, floor.status.paying …နေဆဲ
+  // The lifecycle audit — a table that closed under this device's page or pad, said on the floor the
+  // bounce landed on (`floor-closed-note.ts`). Every way a table closes, and nobody blamed: this
+  // device's own clear can race its own poll.
+  "floor.tableClosed": {
+    en: "Table {id} closed — cleared, merged or timed out. You’re back on the floor.",
+    my: "စားပွဲ {id} ပိတ်သွားပြီ — ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် အချိန်ကုန်သွားတာ။ ခန်းမကို ပြန်ရောက်ပါပြီ။",
+  }, // K15 draft — grounded: table.detail.closed.title ပိတ်, table.detail.closed.body ရှင်းလိုက် · အချိန်ကုန်သွား · ခန်းမ, settle.merge ပေါင်း
   "floor.status.paid": { en: "Paid", my: "ငွေရှင်းပြီး" },
   // A1 — the table ASKED for the register. "Pay at counter" (not "Paying"): nobody is paying yet,
   // the table is waiting for a person, and the chip is the register's queue.
@@ -2030,6 +2041,13 @@ export const STAFF = {
     my: "စားပွဲ {id} က ပစ္စည်း {n} ခုကို စားပွဲ {into} ထဲ ရွှေ့မလား?",
   },
   "settle.merge.closes": { en: "This closes Table {id}.", my: "စားပွဲ {id} ကို ပိတ်လိုက်ပါမယ်။" },
+  // The lifecycle audit (2026-10-13) — the merge moves the ORDER, never the phones: a guest still on
+  // the source table is not a member of the target (`merged_into` + membership is a migration —
+  // OPEN-ITEMS). The staff member is told, so they can send those guests to the target's code.
+  "settle.merge.phones": {
+    en: "Phones still on Table {id} don’t move with it — ask those guests to scan Table {into}’s code.",
+    my: "စားပွဲ {id} က ဖုန်းတွေ အတူ မပါသွားပါ — အဲဒီ ဧည့်သည်တွေကို စားပွဲ {into} ရဲ့ ကုဒ်ကို ဖတ်ခိုင်းပါ။",
+  }, // K15-HIGH draft — grounded: settle.merge.closes စားပွဲ {id}, floor.tips.phone ဖုန်း; read wrong, a guest keeps ordering onto a closed table
   "settle.merge.merging": { en: "Merging…", my: "ပေါင်းနေပါတယ်…" },
   // {into}, not {id}: every other key here uses {id} for the SOURCE table. Rendered the same today,
   // but the slot name is what the next editor and the printed K15 glossary read.
@@ -4856,6 +4874,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── PD7 · counter-floor (m7 B15: every new money key, so its English survives) ──
   "settle.clear.checkFailed",
   "settle.clear.window",
+  "settle.merge.phones",
   "settle.clear.holdWarn",
   "settle.clear.freeLoss.one",
   "settle.clear.freeLoss.many",

@@ -2855,3 +2855,14 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     expect(logged).toHaveBeenCalled();
   });
 });
+
+describe("the lifecycle audit — a table closed under the pad is named on the floor it lands on", () => {
+  it("a colleague's clear (or merge, or the idle sweep) sends the pad to the floor WITH the table's name", async () => {
+    mount();
+    getTableDetail.mockResolvedValue({ kind: "closed", label: "T5", tableNumber: 5 });
+    await flush(6000);
+    // lck/pad-live/closed-bounce-unnamed — the server is dropped on the floor with no word of why;
+    // the floor says "Table 5 closed" only when the bounce carries it. Red.
+    expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=5");
+  });
+});

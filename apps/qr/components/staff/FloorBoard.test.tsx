@@ -110,12 +110,12 @@ const snap = (tables: FloorTable[], over: Partial<FloorSnapshot> = {}): FloorSna
 });
 const ok = (s: FloorSnapshot) => () => Promise.resolve({ ok: true, snapshot: s });
 
-function mount(initial: FloorSnapshot, withStart = false) {
+function mount(initial: FloorSnapshot, withStart = false, closedTable: string | null = null) {
   const utils = render(
     <StaffLangProvider lang="en">
       <CounterMintProvider>
         {withStart ? <RegisterStart /> : null}
-        <FloorBoard initial={initial} />
+        <FloorBoard initial={initial} closedTable={closedTable} />
       </CounterMintProvider>
     </StaffLangProvider>,
   );
@@ -543,6 +543,28 @@ describe("the ONE region", () => {
     // The refusal's dwell is the kitchen's (a refused action outlives the poll that follows it).
     await tick(ERR_DWELL_MS - POLL_MS);
     expect(region().textContent).toContain(ts("en", "out.head.cant"));
+  });
+
+  it("a table closed under this device's page or pad is SAID where the bounce landed, once", async () => {
+    // The lifecycle audit — a colleague cleared Table 6 while a server stood on its page; the page
+    // jumped to the floor with no word. lck/floor-board/closed-table-unsaid — red.
+    window.history.replaceState(null, "", "/staff?floor=1&closed=6#floor-h");
+    const { region } = mount(snap([table(3)]), false, "6");
+    await tick(0);
+    expect(region().textContent).toBe(tf("en", "floor.tableClosed", { id: "6" }));
+    // lck/floor-board/closed-param-kept — a reload would say it again; red.
+    expect(window.location.search).toBe("?floor=1");
+    expect(window.location.hash).toBe("#floor-h");
+    // It dwells like any strip notice, then the counts return.
+    await tick(ERR_DWELL_MS);
+    expect(region().textContent).toBe("1 active table");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("no closed table, no line", async () => {
+    const { region } = mount(snap([table(3)]));
+    await tick(0);
+    expect(region().textContent).toBe("1 active table");
   });
 
   it("(h) a first sight of food already up never rings — only a RISE between polls does", async () => {

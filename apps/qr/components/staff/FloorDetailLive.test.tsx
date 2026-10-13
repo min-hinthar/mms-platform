@@ -371,6 +371,16 @@ describe("FloorDetailLive — a closed table", () => {
     expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
   });
 
+  it("a TABLE cleared, merged or swept under the page goes to the floor WITH its name, said there", async () => {
+    // The lifecycle audit — a server on Table 6's page while a colleague clears it was dropped on the
+    // floor with no word. lck/floor-detail/closed-bounce-unnamed — the plain floor target; red.
+    answer = () => Promise.resolve({ kind: "closed", label: "T6", tableNumber: 6 });
+    mount();
+    await tick(5000);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=6");
+  });
+
   it("a closed counter order with NO card it can read (unreadable) still returns to the counter", async () => {
     answer = () =>
       Promise.resolve({
