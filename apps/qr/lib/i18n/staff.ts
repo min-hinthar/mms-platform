@@ -3061,6 +3061,18 @@ export const STAFF = {
     en: "One moment — a change is still saving.",
     my: "ခဏ — ပြင်ထားတာ သိမ်းနေတုန်းပါ။",
   },
+  // P2ad (lifecycle residuals) — the Send names a sold-out dish it would fire, BEFORE the tap: a
+  // re-warning, never a block (PD8 / decision 4). {x} the dishes in the console's tongue, joined; the
+  // plural is by DISH count. K15 drafts — grounded: table.line.soldOut ကုန်သွားပြီ, settle.soldOut.remove
+  // ဖယ်, table.send.cta ပို့, settle.soldOut.warn စားဖိုမှူးကို ပြောပါ.
+  "table.send.soldOut.one": {
+    en: "{x} is sold out — remove it, or send it and tell the cook.",
+    my: "{x} ကုန်သွားပြီ — ဖယ်ပါ၊ ဒါမှမဟုတ် ပို့ပြီး စားဖိုမှူးကို ပြောပါ။",
+  }, // K15-HIGH — read wrong, a dish the kitchen has run out of is fired unseen
+  "table.send.soldOut.many": {
+    en: "{x} are sold out — remove them, or send them and tell the cook.",
+    my: "{x} ကုန်သွားပြီ — ဖယ်ပါ၊ ဒါမှမဟုတ် ပို့ပြီး စားဖိုမှူးကို ပြောပါ။",
+  }, // K15-HIGH — read wrong, dishes the kitchen has run out of are fired unseen
   "table.send.togoAtPay.one": {
     en: "{n} to-go item — the kitchen starts it when the table pays.",
     my: "ပါဆယ် {n} ခု — ငွေရှင်းတာနဲ့ မီးဖိုချောင်က စချက်ပါမယ်။",
@@ -4626,6 +4638,8 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.send.cta.one", "table.send.cta.many"],
   ["table.send.sent.one", "table.send.sent.many"],
   ["table.send.togoAtPay.one", "table.send.togoAtPay.many"],
+  // ── P2ad (lifecycle residuals) ──
+  ["table.send.soldOut.one", "table.send.soldOut.many"],
   // ── Phase 2c · pad ──
   ["pad.bar.order.one", "pad.bar.order.many"],
   // ── Phase 2c · gate ──
@@ -4711,6 +4725,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.price.live.off",
   "browse.price.live.saved",
   "browse.market.live.out",
+  "table.send.soldOut.one",
+  "table.send.soldOut.many",
   "browse.price.set",
   "browse.price.verb.confirm",
   "entry.lock.forgot",

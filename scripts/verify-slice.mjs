@@ -37704,6 +37704,47 @@ const MUTANTS = [
     find: "    if (flippingRef.current.has(i.id)) return; // §17 — the second tap of a bounce, refused here\n",
     replace: "",
   },
+  // Theme 9B · P2ad — the console's Send names a sold-out dish it would fire, BEFORE the tap.
+  {
+    id: "lcr/staff-send-view/sold-out-counts-unsent-dishes",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "P2ad — a sold-out to-go draft the Send does NOT fire is counted: the Send warns about a dish it never sends",
+    find: "    if (!(l.sendable && l.soldOut)) continue;",
+    replace: "    if (!l.soldOut) continue;",
+  },
+  {
+    id: "lcr/staff-send-view/sold-out-counts-every-sendable",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "P2ad — the count drops its sold-out term: every dish on the Send is called sold out",
+    find: "    if (!(l.sendable && l.soldOut)) continue;",
+    replace: "    if (!l.sendable) continue;",
+  },
+  {
+    id: "lcr/staff-send-view/table-send-never-warns",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "P2ad — the table's Send carries no sold-out count: it fires an 86'd dish with no word",
+    find: "      counter: false,\n      soldOut: sendSoldOut(i.lines),",
+    replace: "      counter: false,\n      soldOut: null,",
+  },
+  {
+    id: "lcr/send-button/sold-out-unsaid",
+    file: "apps/qr/components/staff/StaffSendButton.tsx",
+    suite: "components/staff/StaffSendButton.test.tsx",
+    why: "P2ad — the view counts the sold-out dish and the button never names it before the tap",
+    find: "  const soldOutMsg = live && view.soldOut ? sendSoldOutMsg(lang, view.soldOut) : null;",
+    replace: "  const soldOutMsg: StaffKeyMsg | null = null;",
+  },
+  {
+    id: "lcr/send-button/sold-out-blocks-the-send",
+    file: "apps/qr/components/staff/StaffSendButton.tsx",
+    suite: "components/staff/StaffSendButton.test.tsx",
+    why: "P2ad — the re-warning becomes a block (owner pattern PD8 / decision 4: a re-warning, never a block)",
+    find: '        {...(blocked || held ? { "aria-disabled": true } : {})}',
+    replace: '        {...(blocked || held || soldOutMsg ? { "aria-disabled": true } : {})}',
+  },
   // ── lcr: end ──
 ];
 

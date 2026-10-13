@@ -671,6 +671,8 @@ export function FloorDetailLive({
     counterArm: detail.counterArm,
     hasName: (detail.customerName ?? "").trim() !== "",
     payAtPickup: detail.payAtPickup,
+    // P2ad — the lines, so the Send names a sold-out dish it would fire BEFORE the tap.
+    lines: detail.lines,
   });
   // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
   // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must

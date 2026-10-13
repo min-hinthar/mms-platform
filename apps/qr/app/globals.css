@@ -14884,6 +14884,12 @@ a.aisle-tile {
   color: var(--t2);
   font-size: var(--fs-sm);
 }
+/* P2ad — the Send's sold-out re-warning: the warn ink the line's own "Not sent" tag wears (the
+   MARK tier staff act on), never a fill — the Send above it stays the one hero, and live. */
+.staff-send-hint-warn {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
+}
 /* The Undo's verb and its countdown on one row; the digits are tabular so the label does not jitter
    as the seconds fall. */
 .staff-send-undo {
