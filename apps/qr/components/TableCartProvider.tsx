@@ -55,10 +55,12 @@ import { counterPayOutcome } from "@/lib/counter-pay";
 import {
   afterFailedRead,
   CLOSED_ORDER_CLAUSE,
+  endComplete,
   endedNewsKey,
   endedWriteNotice,
   endPollDelayMs,
   focusOrphaned,
+  heldEndUpgrade,
   mintNotice,
   settleEdgeNotice,
   tableEnded,
@@ -504,6 +506,12 @@ export function TableCartProvider({
       // on the new cart's state with the old table, rows and totals. Every caller names the cart it
       // asked for; a view for a cart that is no longer this provider's is refused outright.
       if (forCart !== undefined && forCart !== cartIdRef.current) return false;
+      // Session truth (Codex round 2 on #361) — a HELD cart takes no view at all. `holdEnd` retired
+      // its freeze silently, but a read (or a mutation's own view) already in flight when the end was
+      // held still resolves afterwards, and applying it put `locked`/`settling` back — the settle
+      // edge then announced the register over a card that says the bill is paid. Refused HERE, not by
+      // advancing the ticket in `holdEnd`: a mutation's view carries no ticket and would outrank it.
+      if (endedRef.current !== null && endedRef.current.cartId === cartIdRef.current) return false;
       // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
       // read still in flight. A ticket that is no longer current = a read another view has overtaken.
       if (!acceptView(viewSeqRef.current, seq)) return false;
@@ -863,7 +871,17 @@ export function TableCartProvider({
   const holdEnd = useCallback(
     (id: string, end: TableEnd) => {
       if (id !== cartIdRef.current) return; // an answer about a cart this provider has left
-      if (endedRef.current?.cartId === id) return; // already held — said once
+      if (endedRef.current?.cartId === id) {
+        // Already held — said once. But an INCOMPLETE paid end (a read behind its tender or its
+        // order failed) takes what a later answer resolved, SILENTLY: the card gains its receipt
+        // link or its tender when the read does (Codex round 2 on #361, `heldEndUpgrade`).
+        const next = heldEndUpgrade(endedRef.current.end, end);
+        if (next !== null) {
+          endedRef.current = { cartId: id, end: next };
+          setEnded({ cartId: id, end: next });
+        }
+        return;
+      }
       endedRef.current = { cartId: id, end };
       prevLocked.current = false;
       prevSettling.current = false;
@@ -1019,11 +1037,18 @@ export function TableCartProvider({
    * is live, ask once a minute, and only while the page is visible (the visibility re-read above
    * covers the return). The ask is `counterPayOutcome` itself, not a full view read: an open cart
    * answers in three indexed reads and changes nothing on screen. The poll stops the moment the
-   * table is held (`endPollDelayMs`). It renews nothing — an abandoned tab never keeps a table alive.
+   * table is held with a COMPLETE answer (`endPollDelayMs`, `endComplete`). It renews nothing — an
+   * abandoned tab never keeps a table alive.
    * The interval and its visibility rule are `useEndPoll` (lib/end-poll), shared with /cart.
    */
   // The cadence (`endPollDelayMs`) and the visible-only tick (`useEndPoll`) are shared with the Bill.
-  const endPollMs = endPollDelayMs({ isGroup, hasCart: cartId !== null, ended: endedNow !== null });
+  // An INCOMPLETE paid end keeps the poll (Codex round 2 on #361): its next tick re-asks, and
+  // `holdEnd` folds in what that answer resolved.
+  const endPollMs = endPollDelayMs({
+    isGroup,
+    hasCart: cartId !== null,
+    ended: endedNow !== null && endComplete(endedNow),
+  });
   const endPollTick = useCallback(() => {
     const id = cartIdRef.current;
     if (!id) return;

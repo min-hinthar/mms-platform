@@ -51,8 +51,12 @@ vi.mock("./authz", () => ({
     return Promise.resolve(authz);
   },
 }));
-let cartOrder: string | null = null;
-vi.mock("./order", () => ({ getCartOrderId: () => Promise.resolve(cartOrder) }));
+/** What `getCartOrderId` answers — an Error is THROWN (a 403 verdict, or an outage). */
+let cartOrder: string | null | Error = null;
+vi.mock("./order", () => ({
+  getCartOrderId: () =>
+    cartOrder instanceof Error ? Promise.reject(cartOrder) : Promise.resolve(cartOrder),
+}));
 
 type Row = Record<string, unknown>;
 let cart: Row | null = null;
@@ -419,6 +423,7 @@ describe("counterPayOutcome", () => {
       tender: "counter",
       orderId: null,
       sessionLive: true,
+      complete: true,
     });
     cartOrder = "o-9";
     expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
@@ -426,6 +431,7 @@ describe("counterPayOutcome", () => {
       tender: "counter",
       orderId: "o-9",
       sessionLive: true,
+      complete: true,
     });
     orders = [{ cart_id: "c-1", status: "paid", tender: "terminal" }];
     expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "counter" });
@@ -438,6 +444,7 @@ describe("counterPayOutcome", () => {
       tender: "card",
       orderId: null,
       sessionLive: true,
+      complete: true,
     });
   });
   it("a paid cart whose order row is not readable yet reports tender unknown", async () => {
@@ -447,6 +454,48 @@ describe("counterPayOutcome", () => {
       tender: "unknown",
       orderId: null,
       sessionLive: true,
+      complete: true,
+    });
+  });
+  it("Codex round 2 on #361 — a FAILED order read is an incomplete answer, never 'no order'", async () => {
+    // MUTATION (lcs/outcome-failed-tender-read-is-complete): the failed read is cached as the
+    // end — tender unknown and no receipt link, with the poll stopped, for as long as the card is
+    // open. An unknowable read establishes nothing (M116).
+    cart!.status = "paid";
+    orders = [{ cart_id: "c-1", status: "paid", tender: "cash" }];
+    failTable = "qr_orders";
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "unknown",
+      orderId: null,
+      sessionLive: true,
+      complete: false,
+    });
+  });
+  it("Codex round 2 on #361 — an OUTAGE on the visibility read is incomplete; the gate's own 403 is a verdict", async () => {
+    // MUTATION (lcs/outcome-failed-order-id-is-complete): every throw reads as "no order this
+    // seat may see" — an outage drops the receipt link for good.
+    // MUTATION (lcs/outcome-refusal-is-incomplete): a 403 reads as an outage too — a tablemate's
+    // card order on a table staff then cleared (`assertSessionMember` refuses a closed session by
+    // design) is asked about once a minute for as long as the card is open, and never resolves.
+    cart!.status = "paid";
+    orders = [{ cart_id: "c-1", status: "paid", tender: "card" }];
+    cartOrder = new AuthzError("We’re having trouble on our end", 503, "unavailable");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({
+      tender: "card",
+      orderId: null,
+      complete: false,
+    });
+    cartOrder = new Error("fetch failed");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ complete: false });
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    cartOrder = new AuthzError("Session is no longer active", 403, "session_expired");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "card",
+      orderId: null,
+      sessionLive: false,
+      complete: true,
     });
   });
   it("session truth — a paid table staff then closed says so: `sessionLive` false, so the menu's new order never stays at it", async () => {

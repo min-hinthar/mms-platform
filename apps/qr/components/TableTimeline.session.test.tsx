@@ -78,7 +78,7 @@ describe("MenuTimeline — session truth", () => {
     // MUTATION (lcs/strip-caption-ignores-the-read): caption without the read's clock.
     ctx.current = {
       ...LIVE,
-      ended: { kind: "paid", tender: "counter", orderId: "o-1", sessionLive: true },
+      ended: { kind: "paid", tender: "counter", orderId: "o-1", sessionLive: true, complete: true },
     };
     render(<MenuTimeline />);
     const strip = screen.getByRole("region", { name: "Kitchen status" }).textContent ?? "";

@@ -1811,6 +1811,7 @@ describe("session truth — a table that ended is held, named and never silently
       tender: "counter",
       orderId: "o-1",
       sessionLive: true,
+      complete: true,
     });
     await act(async () => {
       await ctl.refresh();
@@ -1935,6 +1936,95 @@ describe("session truth — a table that ended is held, named and never silently
         await vi.advanceTimersByTimeAsync(60_000);
       });
       await waitFor(() => expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" }));
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 — a view IN FLIGHT when the end is held never lands: no freeze put back, nothing announced", async () => {
+    // The interleaving: a read is out, the table's end is held (here by a second read that failed
+    // and was explained), and the first read resolves AFTER the hold carrying the settle freeze it
+    // saw. `holdEnd` retired the freeze silently; applying that view put `settling`/`locked` back and
+    // the settle edge announced the register over a card that says the bill is paid.
+    // MUTATION (lcs/held-cart-takes-a-late-view): `applyView` takes views for a held cart again.
+    h.getCartView.mockResolvedValueOnce(view({ items: [COOKING] }));
+    mountAt("dinein");
+    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await drainDeferredAnnounces();
+    const late = deferred<CartView>();
+    h.getCartView.mockReturnValueOnce(late.promise);
+    let inFlight: Promise<unknown> = Promise.resolve();
+    act(() => {
+      inFlight = ctl.refresh();
+    });
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      tender: "counter",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: true,
+    });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended?.kind).toBe("paid"));
+    await drainDeferredAnnounces();
+    const said = spoken();
+    expect(said).toContain("All paid — thank you!");
+    await act(async () => {
+      late.resolve(view({ items: [COOKING], locked: true, lockedBy: PEER_SEAT, settling: true }));
+      await inFlight;
+    });
+    await drainDeferredAnnounces();
+    expect(ctl.settling).toBe(false);
+    expect(ctl.locked).toBe(false);
+    expect(spoken()).toBe(said);
+  });
+
+  it("Codex round 2 on #361 — an INCOMPLETE paid answer is held AND still asked about: the poll goes on, the card gains its receipt link, nothing is said twice", async () => {
+    // `counterPayOutcome` turned a failed read into `orderId: null`, and the hold cached it: no
+    // receipt link and the poll stopped, for as long as the card was open.
+    // MUTATION (lcs/provider-stops-polling-an-incomplete-end): the poll stops on ANY held end.
+    // MUTATION (lcs/held-end-never-upgrades): `holdEnd` ignores every answer after the first.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      await drainDeferredAnnounces();
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: null,
+        sessionLive: true,
+        complete: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(ctl.ended).toMatchObject({ kind: "paid", orderId: null }));
+      await drainDeferredAnnounces();
+      expect(spoken()).toContain("All paid — thank you!");
+      // The hold's sentence has had its window; the read that failed comes back on the next tick.
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: true,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(ctl.ended).toMatchObject({ orderId: "o-1", complete: true }));
+      await drainDeferredAnnounces();
+      expect(spoken()).not.toContain("All paid");
+      // Whole now: the poll stops.
       const asked = h.counterPayOutcome.mock.calls.length;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(180_000);

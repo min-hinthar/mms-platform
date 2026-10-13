@@ -13,7 +13,13 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterDock, PayAtCounterPass } from "./PayAtCounter";
 import { TableEndedCard } from "./TableEnded";
-import { endedNewsKey, endPollDelayMs, type TableEndReason } from "@/lib/session-truth";
+import {
+  endComplete,
+  endedNewsKey,
+  endPollDelayMs,
+  tableEnded,
+  type TableEndReason,
+} from "@/lib/session-truth";
 import { useEndPoll } from "@/lib/end-poll";
 import { LivePass } from "./LivePass";
 import { PayDock } from "./PayDock";
@@ -553,6 +559,10 @@ export function Checkout({
   // PD10 — ONE binding for that authoritative mode: the parked door, the served gate and the pay
   // flow's post-drain re-ask all read it, so the three can never ask different modes.
   const gateMode = doorMode(viewMode, sessionMode);
+  // Session truth (Codex round 2 on #361) — the terminal-state probe (`onReadFailed`, its poll) asks
+  // only at a TABLE, and reads the same authoritative mode: a dine-in Bill rendered without its split
+  // context is still a table a clear can end.
+  const tableProbe = gateMode === "dinein";
   const phonePayOff = phonePayParked(gateMode, surfaceOpen("dineInPhonePay"));
   // PD2 (m2 decision 7) — the tender truth, DERIVED: the counter is cash-only unless a reader is
   // configured (or the owner names a card taken outside the app — a parked constant).
@@ -771,7 +781,22 @@ export function Checkout({
   const [settledClose, setSettledClose] = useState<"counter" | "card" | TableEndReason | null>(
     null,
   );
+  // Codex round 2 on #361 — the close on screen came from a COMPLETE answer (`endComplete`). A paid
+  // answer whose tender or order read FAILED is drawn as far as it is known and the probe keeps
+  // asking, so the receipt arrives with the read that failed (M116: unknowable ≠ "no order").
+  const [closeComplete, setCloseComplete] = useState(true);
   const settleCheckRef = useRef(false);
+  // Codex round 2 on #361 — the cart this Bill is probing FOR, nulled on unmount (the provider's
+  // `cartIdRef` rule): `useEndPoll` clears its interval, but an ask already out still resolves, and
+  // its `paid` arm pushed /track over whatever page the diner had moved to. A continuation acts only
+  // while the Bill that asked is still on screen, for the same cart.
+  const probeCartRef = useRef<string | null>(null);
+  useEffect(() => {
+    probeCartRef.current = cartId;
+    return () => {
+      probeCartRef.current = null;
+    };
+  }, [cartId]);
   // Refs, not deps: `useJourneyRouter` returns a fresh object per render and `step` changes on
   // every view flip — either in `refresh`'s deps would recreate it each render and re-register the
   // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
@@ -790,7 +815,8 @@ export function Checkout({
    * pending read with nothing armed in its place. `check:echo-coalesce` finding #18 does NOT enforce
    * that: `isStableReader` ends in `isUseCallback(init, ctx.react)`, which matches the CALL SHAPE,
    * and nothing in that guard reads `arguments[1]`. Adding a per-render value to this dep array
-   * would keep the guard green while re-breaking the coalescer. Keep it `[cartId, isDineIn]`. Per-instance by construction: `view-seq.ts` holds
+   * would keep the guard green while re-breaking the coalescer. Keep `onReadFailed`'s deps at
+   * `[cartId, tableProbe]` (a boolean, stable across views). Per-instance by construction: `view-seq.ts` holds
    * no module state, so /cart and /menu get their own counters and a remount gets a fresh one.
    */
   const viewSeqRef = useRef<ViewSeq>(newViewSeq());
@@ -994,10 +1020,14 @@ export function Checkout({
     // gets the settled close; anything else keeps the last good bill (the swallow below).
     // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
     // and the Payment Element's return_url is the right exit for the payer, not a close card.
-    if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
+    if (tableProbe && stepRef.current !== "pay" && !settleCheckRef.current) {
       settleCheckRef.current = true;
       void counterPayOutcome({ cartId })
         .then((o) => {
+          // The Bill that asked has gone (or moved to another cart): the answer is not its to act on.
+          if (probeCartRef.current !== cartId) return;
+          if (!tableEnded(o)) return;
+          setCloseComplete(endComplete(o));
           // Session truth (finding 3) — `ended` is member-proven (no oracle): the close card names
           // the cause and takes the editing surface's place; the one region says its title.
           if (o.kind === "ended") {
@@ -1005,14 +1035,14 @@ export function Checkout({
             setStatus(T(endedNewsKey(o)));
             return;
           }
-          if (o.kind !== "paid") return;
           if (o.orderId) {
             journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
             return;
           }
-          // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
-          // says "paid on a phone at your table" — never "at the counter"; an unknown tender
-          // (the order row not yet readable) keeps the last good bill rather than guessing.
+          // No order this seat may see — or none KNOWN yet (an incomplete answer, which the probe
+          // asks again). A COUNTER settle says so honestly; a tablemate's CARD says "paid on a
+          // phone at your table" — never "at the counter"; an unknown tender (the order row not
+          // yet readable) keeps the last good bill rather than guessing.
           if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
         })
         .catch(() => {
@@ -1033,7 +1063,7 @@ export function Checkout({
     // whole job is to re-read on demand ("Check again") must be able to tell "the server says
     // still locked" from "we never heard back", or it silently repeats the defect it was added to
     // fix.
-  }, [cartId, isDineIn]);
+  }, [cartId, tableProbe]);
 
   const refresh = useCallback(async () => {
     const outcome = await readTicketed(
@@ -1051,8 +1081,16 @@ export function Checkout({
   // open. So a dine-in Bill asks the failed read's own question (`onReadFailed`: the pay step is
   // skipped, one ask at a time) once a minute while visible — the menu's cadence and tick, shared
   // (`endPollDelayMs`, `useEndPoll`), never copied — and stops once a close is drawn.
+  // Codex round 2 on #361 — gated on the AUTHORITATIVE mode (`gateMode`, the cart view's), never the
+  // split's best-effort one: `cart/page.tsx` nulls the split context on any read failure, and a
+  // degraded Bill at a table then never learned of a clear. A close drawn from an INCOMPLETE answer
+  // keeps the probe (`closeComplete`).
   useEndPoll(
-    endPollDelayMs({ isGroup: isDineIn, hasCart: true, ended: settledClose !== null }),
+    endPollDelayMs({
+      isGroup: tableProbe,
+      hasCart: true,
+      ended: settledClose !== null && closeComplete,
+    }),
     onReadFailed,
   );
 

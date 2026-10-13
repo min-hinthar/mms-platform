@@ -6,10 +6,12 @@ import {
   dineinMintEntry,
   endCardWords,
   endedNewsKey,
+  endComplete,
   endedWriteNotice,
   endPollDelayMs,
   END_POLL_MS,
   endTrackHref,
+  heldEndUpgrade,
   leaveTakesTheSend,
   mintNotice,
   sessionLive,
@@ -114,6 +116,7 @@ const PAID: TableEnd = {
   tender: "counter",
   orderId: "o-1",
   sessionLive: true,
+  complete: true,
 };
 const CLEARED: TableEnd = { kind: "ended", why: "cleared" };
 const EXPIRED: TableEnd = { kind: "ended", why: "expired" };
@@ -161,6 +164,57 @@ describe("endPollDelayMs — the close no event carries", () => {
     expect(endPollDelayMs({ isGroup: false, hasCart: true, ended: false })).toBeNull();
     expect(endPollDelayMs({ isGroup: true, hasCart: false, ended: false })).toBeNull();
     expect(END_POLL_MS).toBe(60_000);
+  });
+});
+
+describe("an INCOMPLETE paid answer is not a final one (Codex round 2 on #361)", () => {
+  // The cart's `paid` is established, but a read behind its details failed: `counterPayOutcome`
+  // turned a failed order read into `tender: "unknown"` and a failed visibility read into
+  // `orderId: null`, and the menu and the Bill cached that as the end — no receipt link, the poll
+  // stopped, for as long as the card was open. An unknowable read establishes nothing (M116).
+  const PENDING: TableEnd = {
+    kind: "paid",
+    tender: "unknown",
+    orderId: null,
+    sessionLive: true,
+    complete: false,
+  };
+
+  it("an ended table is always complete; a paid one only when its answer is whole", () => {
+    // MUTATION (lcs/incomplete-paid-is-final): every paid end reads complete — the poll stops on a
+    // failed read and the card never gains its receipt link.
+    expect(endComplete(CLEARED)).toBe(true);
+    expect(endComplete(CLOSED)).toBe(true);
+    expect(endComplete(PAID)).toBe(true);
+    expect(endComplete(PENDING)).toBe(false);
+  });
+
+  it("a held incomplete end takes the later answer's resolved fields, and never forgets a known one", () => {
+    // MUTATION (lcs/held-end-forgets-the-order): the later answer's `orderId` replaces a known one
+    // with an unknown null — the receipt link the card already drew disappears.
+    expect(heldEndUpgrade(PENDING, PAID)).toEqual(PAID);
+    const half = { ...PENDING, orderId: "o-1" };
+    const tenderOnly: TableEnd = { ...PENDING, tender: "card" };
+    expect(heldEndUpgrade(half, tenderOnly)).toEqual({
+      kind: "paid",
+      tender: "card",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: false,
+    });
+    // A failed tender read never un-learns a tender an earlier answer read.
+    // MUTATION (lcs/held-end-forgets-the-tender): take the later tender whatever it says.
+    expect(heldEndUpgrade({ ...PENDING, tender: "counter" }, PENDING)).toMatchObject({
+      tender: "counter",
+    });
+  });
+
+  it("a complete end is final, and only a paid answer can fill a paid end", () => {
+    // MUTATION (lcs/complete-end-reopens): a final end is replaced by a later answer — a table held
+    // with its receipt link flips back to an incomplete one on the next blip.
+    expect(heldEndUpgrade(PAID, PENDING)).toBeNull();
+    expect(heldEndUpgrade(CLEARED, PAID)).toBeNull();
+    expect(heldEndUpgrade(PENDING, CLEARED)).toBeNull();
   });
 });
 

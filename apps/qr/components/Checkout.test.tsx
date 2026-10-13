@@ -797,7 +797,13 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     // whose failed arm asks the one question that separates a settled cart from a blip.
     h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
     h.getCartView.mockRejectedValue(new Error("cart_closed"));
-    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: "order-1", tender: "counter" });
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: "order-1",
+      tender: "counter",
+      sessionLive: true,
+      complete: true,
+    });
     mount({ splitContext: DINE_IN });
     await addOne();
     await settle();
@@ -813,7 +819,13 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     // (and is an explicit `role="list"` — WebKit drops the implicit role under `list-style: none`).
     h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
     h.getCartView.mockRejectedValue(new Error("cart_closed"));
-    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: null, tender: "counter" });
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: null,
+      tender: "counter",
+      sessionLive: true,
+      complete: true,
+    });
     mount({ splitContext: DINE_IN });
     const rail = screen.getByRole("list", { name: "Checkout steps" });
     expect(rail.getAttribute("role")).toBe("list");
@@ -911,6 +923,133 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("Codex round 2 on #361 (1) — a probe answer that lands after the Bill UNMOUNTED goes nowhere: no /track push from a page the diner left", async () => {
+    // `useEndPoll` clears its interval on unmount, but an ask already out still resolves, and its
+    // `paid` + `orderId` arm pushed /track over whatever page the diner had moved to.
+    // MUTATION (lcs/bill-probe-acts-after-unmount): the continuation acts whether or not the Bill
+    // that asked is still on screen.
+    const late = deferred<unknown>();
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockReturnValueOnce(late.promise);
+    const { unmount } = mount({ splitContext: DINE_IN });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    unmount();
+    await act(async () => {
+      late.resolve({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: true,
+        complete: true,
+      });
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("Codex round 2 on #361 (3) — an INCOMPLETE paid answer draws its close but keeps asking: the receipt comes with the read that failed", async () => {
+    // `counterPayOutcome` turned a failed read into `orderId: null`, and the Bill drew the close
+    // and stopped probing: no way to the receipt for as long as the page stayed open.
+    // MUTATION (lcs/bill-stops-at-an-incomplete-close): the probe stops on any drawn close.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: null,
+        sessionLive: false,
+        complete: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      expect(h.push).not.toHaveBeenCalled();
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: false,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(h.push).toHaveBeenCalledWith(`/track?cart=${encodeURIComponent(CART)}&paid=1`),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (3) — a COMPLETE close with nothing more to learn stops the probe", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "card",
+        orderId: null,
+        sessionLive: false,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (4) — a DEGRADED render (no split context) at a dine-in table still probes, on the cart view's own mode", async () => {
+    // `cart/page.tsx` nulls the split context on ANY read failure, and the probe and its poll were
+    // gated on that best-effort mode — so a degraded Bill at a table never learned of a clear.
+    // MUTATION (lcs/bill-probe-reads-the-split-mode): gate on the split context's mode again.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: null, initialViewMode: "dinein" });
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /Our staff closed this table/ })).toBeTruthy(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 (4) — a degraded render's FAILED read asks too, and a solo cart's never does", async () => {
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+    mount({ splitContext: null, initialViewMode: "dinein" });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    cleanup();
+    h.counterPayOutcome.mockClear();
+    mount({ splitContext: null, initialViewMode: "pickup" });
+    await syncFromServer();
+    await settle();
+    expect(h.counterPayOutcome).not.toHaveBeenCalled();
   });
 
   it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {

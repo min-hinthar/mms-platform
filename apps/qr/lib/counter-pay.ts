@@ -169,6 +169,8 @@ export async function withdrawCounterPay(raw: unknown): Promise<CounterPayResult
  * tenders; the payer's own proofs for a card); a paid cart with no visible order carries null and
  * the caller shows the tender's close rather than a tracker it cannot load. `sessionLive` says
  * whether the table is still seated — the menu's "Start a new order" stays at it only then.
+ * `complete` is false when a read behind `tender` or `orderId` FAILED (Codex round 2 on #361): those
+ * fields then mean "not known yet", and the caller keeps asking (`endComplete`, lib/session-truth).
  *
  * `ended.why` separates the closes the rows CAN separate: `cleared` (a `qr_table_clears` row names
  * the session), `expired` (the session's clock ran out) and `closed` (anything else — a merge,
@@ -233,6 +235,24 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
       : (COUNTER_TENDERS as readonly string[]).includes(order.tender)
         ? "counter"
         : "card";
-  const orderId = await getCartOrderId(cartId).catch(() => null);
-  return { kind: "paid", tender, orderId, sessionLive: fate.sessionLive };
+  // Codex round 2 on #361 — a FAILED read is not an answer (M116). `tender: "unknown"` from a read
+  // that errored and `orderId: null` from a visibility read that threw are "not known yet", so the
+  // answer says it is INCOMPLETE and its holder asks again on the poll's cadence. The one throw that
+  // IS an answer is the gate's own 403: `getSplitOrderId`'s `assertSessionMember` refuses a closed
+  // session (or a seat not in it) by design, so this seat cannot see the order through the table —
+  // a fact that no retry changes, and asking it once a minute forever would be the poll's only work.
+  let orderId: string | null = null;
+  let orderKnown = true;
+  try {
+    orderId = await getCartOrderId(cartId);
+  } catch (e) {
+    orderKnown = e instanceof AuthzError && e.status === 403;
+  }
+  return {
+    kind: "paid",
+    tender,
+    orderId,
+    sessionLive: fate.sessionLive,
+    complete: !orderError && orderKnown,
+  };
 }

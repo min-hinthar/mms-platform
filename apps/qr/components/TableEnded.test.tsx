@@ -21,7 +21,13 @@ const { TableEndedCard } = await import("./TableEnded");
 const { MenuTableEnded } = await import("./MenuTableEnded");
 
 const CLEARED: TableEnd = { kind: "ended", why: "cleared" };
-const PAID: TableEnd = { kind: "paid", tender: "counter", orderId: "o-1", sessionLive: true };
+const PAID: TableEnd = {
+  kind: "paid",
+  tender: "counter",
+  orderId: "o-1",
+  sessionLive: true,
+  complete: true,
+};
 const mint = (over: Partial<{ busy: boolean; failed: boolean; onStart: () => void }> = {}) => ({
   kind: "mint" as const,
   onStart: vi.fn(),

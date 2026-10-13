@@ -43,10 +43,22 @@ export type PaidTender = "counter" | "card" | "unknown";
 /**
  * What became of a cart, answered to a PROVEN MEMBER only (lib/counter-pay `counterPayOutcome`).
  * `unknown` is every answer that establishes nothing: a non-member, a missing cart, a failed read.
+ *
+ * A `paid` answer can be INCOMPLETE (`complete: false`, Codex round 2 on #361): the cart's `paid` is
+ * established, but a read the details needed FAILED — the order row's tender, or whether this seat
+ * may see the order. Its `tender: "unknown"` / `orderId: null` then mean "not known yet", never
+ * "none" (the M116 rule: an unknowable read establishes nothing), and whoever holds it asks again on
+ * the poll's cadence until the answer is whole (`endComplete`, `heldEndUpgrade`).
  */
 export type CartOutcome =
   | { kind: "open" }
-  | { kind: "paid"; tender: PaidTender; orderId: string | null; sessionLive: boolean }
+  | {
+      kind: "paid";
+      tender: PaidTender;
+      orderId: string | null;
+      sessionLive: boolean;
+      complete: boolean;
+    }
   | { kind: "ended"; why: TableEndReason }
   | { kind: "unknown" };
 
@@ -55,6 +67,32 @@ export type TableEnd = Extract<CartOutcome, { kind: "paid" } | { kind: "ended" }
 
 export function tableEnded(o: CartOutcome): o is TableEnd {
   return o.kind === "paid" || o.kind === "ended";
+}
+
+/**
+ * Is this end the WHOLE answer? An `ended` always is (its cause is read before it is returned); a
+ * `paid` one only when every read behind its details came back. The end poll keeps running for an
+ * incomplete one — the receipt link or the tender arrives with the read that failed.
+ */
+export function endComplete(end: TableEnd): boolean {
+  return end.kind === "ended" || end.complete;
+}
+
+/**
+ * A later answer about an end already HELD (Codex round 2 on #361). An incomplete paid end takes the
+ * fields the later answer resolved — a known value is never forgotten for an unknown one, since the
+ * cart cannot un-pay — and nothing is said again (the hold spoke once). Null when nothing changes: a
+ * complete end is final, and only a `paid` answer can fill a `paid` one.
+ */
+export function heldEndUpgrade(held: TableEnd, next: TableEnd): TableEnd | null {
+  if (endComplete(held) || held.kind !== "paid" || next.kind !== "paid") return null;
+  return {
+    kind: "paid",
+    tender: next.tender !== "unknown" ? next.tender : held.tender,
+    orderId: next.orderId ?? held.orderId,
+    sessionLive: next.sessionLive,
+    complete: next.complete,
+  };
 }
 
 /** The rows `counterPayOutcome` reads, already past the membership gate. */
@@ -121,14 +159,16 @@ export function afterFailedRead(
 /**
  * The light poll that notices a close no event carries (a clear, a merge and the sweep all close
  * the session first, so Realtime has nobody to deliver to). Dine-in only (only a table is closed by
- * someone else), only with a cart to watch, and never once the table has ended. The effect also
- * skips a tick while the page is hidden; the visibility re-read covers the return.
+ * someone else), only with a cart to watch, and never once the table has ended — `ended` meaning an
+ * end whose answer is COMPLETE (`endComplete`): an incomplete paid end is still being asked about.
+ * The effect also skips a tick while the page is hidden; the visibility re-read covers the return.
  */
 export const END_POLL_MS = 60_000;
 
 export function endPollDelayMs(s: {
   isGroup: boolean;
   hasCart: boolean;
+  /** A COMPLETE end is held (`endComplete`) — an incomplete one keeps the poll. */
   ended: boolean;
 }): number | null {
   return s.isGroup && s.hasCart && !s.ended ? END_POLL_MS : null;
