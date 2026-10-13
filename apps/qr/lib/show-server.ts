@@ -20,7 +20,10 @@ export { GRACE_REREAD_MARGIN_MS };
  * adapter `passHead`), read on the view's DATABASE clock (`getCartView.dbNow` — the clock that
  * stamped the lines' `fire_at`, so no second host's skew enters the comparison; it replaced the app
  * server's `serverNow` here, which m1 §H justified only by a round trip PD10 has since paid on every
- * view). So this pass, the Bill's live pass, the TV board and Dad's pane flip on one rule.
+ * view). That holds while `mms_now` answers: on a failed clock read the view falls back to the app
+ * server's clock (logged — `getCartView`), which is the skew the old `serverNow` always carried, so
+ * the fallback is no worse than before. So this pass, the Bill's live pass, the TV board and Dad's
+ * pane flip on one rule.
  *
  * The rows the pass PRINTED stay on it after they go (the ticket then shows what was sent), so the
  * host keeps the ids it listed (`passDishes`) and reads the status over THOSE rows — a second round's

@@ -130,8 +130,8 @@ export function servedHoldCopy(
       return PAY_OPENS_SERVED;
     case "unknownHost":
       // Codex round 2 on #346 — the Bill cannot read the table's host. Say only what is known:
-      // never the counter (its server read may refuse a hosted table's drafts), and never "send"
-      // (this reader may be a guest).
+      // never `hostless`'s "a server will send" (a hosted table's host sends them), and never
+      // "send" (this reader may be a guest).
       return `Some dishes haven’t gone to the kitchen yet — ${PAY_OPENS_SERVED}`;
   }
 }

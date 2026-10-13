@@ -3970,8 +3970,8 @@ describe("PD10 · D5 — after the flip: Pay opens only once everything is serve
 
   it("a split-read miss leaves the table's HOST unknown: the draft holds Pay with the honest reason — never the counter promise, never 'send' (Codex round 2 on #346)", async () => {
     // MUTATION (checkout/served-gate-guesses-the-host): the gate fed the split's guessed `false` —
-    // a hosted table is called hostless, and the Bill promises a counter whose own read of the
-    // real host_seat refuses the drafts; red.
+    // a hosted table is called hostless, and the Bill tells it a server will send the dishes its
+    // host sends; red.
     const UNKNOWN =
       "Some dishes haven’t gone to the kitchen yet — Pay opens once everything’s served.";
     mount({ splitContext: null, initialViewMode: "dinein", initialItems: [{ ...ITEM }] });
