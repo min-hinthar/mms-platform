@@ -10,7 +10,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`. It gives each row's next step:
   - 343 can be built without the owner (21 high). Building is not always closing: a row that needs a
     migration still waits on the owner's go for the prod apply, and some need the device sitting.
-  - 117 are owner-gated, and 97 stay open.
+  - 121 are owner-gated, and 93 stay open.
   - 33 close here.
   - 4 (A1–A4) already read DONE and stay in the Option A table as the record of the owner's picks.
 
@@ -41,8 +41,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   average, but `mms_kds_stats` filters on `bumped_at` alone, so a days-old ticket bumped today still
   adds its whole age. Its row is restored with that note. The rows the refute pass kept open but that
   name a concrete fix move to Buildable (K33, F8, M172, P2df, J49, P2ak, P2ey), and the rows that wait
-  on a parked surface or an owner ruling move to Owner-gated (M215, J14, J6, P2co, S13, S18, M11,
-  M12, M23, M38, M54, M8, S10, S8, S9, P2z, J27). The counts above are the recomputed ones.
+  on a parked surface, an owner ruling, live keys or the card reader move to Owner-gated (M215, J14,
+  J6, P2co, S13, S18, M11, M12, M23, M38, M54, M8, S10, S8, S9, P2z, J27, and on its second review
+  M207, M111, P2gc, P2ht). The counts above are the recomputed ones.
 
 - **Two rows stay open after the blind review.**
   - K20 is marked partial: the 24 h queue window shipped, but the owner-set age policy did not.
