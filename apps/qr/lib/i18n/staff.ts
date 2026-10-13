@@ -1415,6 +1415,20 @@ export const STAFF = {
   "table.line.save": { en: "Save", my: "သိမ်း" }, // grounded: browse.price.verb.save
   // §17 — the busy label is a stated word, never "…" (the accessible name was literally an ellipsis).
   "table.line.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" },
+  // P2ar (lifecycle residuals) — the line left draft under an open, unsaved note (the host's phone
+  // sent the round first): `setLineNotes` refuses a sent line, so the typed text is kept read-only on
+  // the row and the one region says what to do. {x} the dish as the row names it. K15 drafts —
+  // grounded: out.write.failed မသိမ်းရသေးပါ, kds.title မီးဖိုချောင်, settle.soldOut.warn ပြောပါ,
+  // help.done ရပြီ.
+  "table.line.noteStranded": {
+    en: "{x} went to the kitchen before this note saved — tell the kitchen.",
+    my: "ဒီမှတ်ချက် မသိမ်းခင် {x} မီးဖိုချောင်ကို ရောက်သွားပြီ — မီးဖိုချောင်ကို ပြောပါ။",
+  }, // K15-HIGH — the allergy note that missed its dish; read wrong, nobody tells the cook
+  "table.line.noteStranded.tag": {
+    en: "Not saved — tell the kitchen",
+    my: "မသိမ်းရသေးပါ — မီးဖိုချောင်ကို ပြောပါ",
+  },
+  "table.line.verb.noteGotIt": { en: "Got it", my: "ရပြီ" },
 
   // ── the loss sheet: void / comp a fired line (LossActionSheet) ─────────────
   // Aria-only names for the two segmented groups. Neither group has visible text of its own, so
@@ -4727,6 +4741,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.market.live.out",
   "table.send.soldOut.one",
   "table.send.soldOut.many",
+  "table.line.noteStranded",
   "browse.price.set",
   "browse.price.verb.confirm",
   "entry.lock.forgot",

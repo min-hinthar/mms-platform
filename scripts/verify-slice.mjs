@@ -37745,6 +37745,47 @@ const MUTANTS = [
     find: '        {...(blocked || held ? { "aria-disabled": true } : {})}',
     replace: '        {...(blocked || held || soldOutMsg ? { "aria-disabled": true } : {})}',
   },
+  // Theme 9C · P2ar — a server's half-typed note never vanishes when its line leaves draft.
+  {
+    id: "lcr/line-editor/stranded-text-dropped",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "P2ar — the typed note vanishes with the field when the round is sent from the host's phone",
+    find: "        {stranded && (",
+    replace: "        {false && (",
+  },
+  {
+    id: "lcr/line-editor/stranded-unsaid",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "P2ar — the one region never says the note missed its dish: nobody is told to tell the kitchen",
+    find: '    onNotice?.({ k: "table.line.noteStranded", vars: { x: dishLabel } });\n',
+    replace: "",
+  },
+  {
+    id: "lcr/line-editor/focus-falls-to-body",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "P2ar — focus is left on <body> where the field vanished (§7: focus moves on a change under the person)",
+    find: "      strandedRef.current?.focus();\n",
+    replace: "      void 0;\n",
+  },
+  {
+    id: "lcr/line-editor/focus-yanked",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "P2ar — focus is yanked off a control the person moved to (landNote's rule: only when focus FELL)",
+    find: "    if (document.activeElement === null || document.activeElement === document.body)\n      strandedRef",
+    replace: "    if (true)\n      strandedRef",
+  },
+  {
+    id: "lcr/line-editor/untyped-editor-stranded",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "P2ar — an editor opened with nothing typed reads as a lost note: a false alarm in the one region",
+    find: "  const stranded = !isDraft && noteDraft !== null && noteDirty;",
+    replace: "  const stranded = !isDraft && noteDraft !== null;",
+  },
   // ── lcr: end ──
 ];
 

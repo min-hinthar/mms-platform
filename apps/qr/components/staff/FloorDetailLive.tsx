@@ -59,6 +59,7 @@ import {
   staffSendView,
   type HeldSendNote,
   type SendNotice,
+  type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendHold,
 } from "@/lib/staff-send-view";
@@ -769,6 +770,13 @@ export function FloorDetailLive({
     },
     [setSendNote, setSettleGate, sessionId],
   );
+  // P2ar (lifecycle residuals) — a line's AUTHORED notice (the note that missed its dish) through the
+  // same channel as `onWriteError`, rendered in the device's tongue (`<MsgText>`), the shape
+  // `StaffPromoControl`'s keyed refusals already take here.
+  const onLineNotice = useCallback(
+    (m: StaffKeyMsg) => onWriteError(<MsgText lang={lang} msg={m} />),
+    [onWriteError, lang],
+  );
   // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
   // WRITE_WAITING here ("no answer yet — that change may still be saved") through `onError`; its
   // row reports each edge through `onWaiting`. A late REFUSAL says its own sentence first (through
@@ -1305,6 +1313,7 @@ export function FloorDetailLive({
                   line={l}
                   disabled={false}
                   onError={onWriteError}
+                  onNotice={onLineNotice}
                   onEditState={onEditState}
                   onWaiting={onLineWaiting}
                   // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.
