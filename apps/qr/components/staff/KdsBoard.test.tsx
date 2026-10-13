@@ -3728,6 +3728,30 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     expect(own.container.querySelector(".kds-removed")).toBeNull();
   });
 
+  it("served HERE, recalled ELSEWHERE before this tablet saw it leave, then voided — said (Codex on #360, P2)", async () => {
+    // lck/kds/own-bump-never-lands — the bump's landing is never stamped, so the restored line stays
+    // "this tablet's own" and its void is swallowed; red.
+    vi.useFakeTimers();
+    currentQueue = twoLines();
+    const q = mount("en", currentQueue);
+    // the read this tablet's own Done triggers already shows the line BACK (another tablet recalled it)
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    await flush(0);
+    expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
+    // …then a server voids the restored line
+    const gone = twoLines();
+    gone.tickets[0] = { ...gone.tickets[0]!, lines: [gone.tickets[0]!.lines[1]!] };
+    currentQueue = gone;
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
+    );
+  });
+
   it("a one-dish card whose dish was voided is said too — the whole card left", async () => {
     // The CHANGELOG's claim, made true: the confirmation is by id, so a card that vanished is asked
     // about like any other.

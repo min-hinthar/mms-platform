@@ -127,14 +127,36 @@ export function removalsForStation(
   return station === "all" ? [...removals] : removals.filter((r) => r.line.station === station);
 }
 
-/** This device's pending bumps after a good snapshot: only those still on the board stay pending — a
- *  bump whose line has left was consumed by the diff above (never an alarm about the cook's own tap). */
+/**
+ * This device's own bumps, each with the fetch sequence current when its write answered ok
+ * (`landedAt`), or null while it is still out. A bump suppresses its line's departure in the diff
+ * (never an alarm about the cook's own tap) — but only for THAT departure (#360, Codex P2).
+ */
+export type OwnBumps = ReadonlyMap<string, number | null>;
+
+/**
+ * The pending bumps after a good snapshot fetched as `seq`. A bump stays pending only while its
+ * departure has not been seen:
+ *   · its line is OFF this snapshot — the departure is this diff's, consumed;
+ *   · its line is ON this snapshot and the snapshot was fetched AFTER the bump landed — the line came
+ *     BACK (another tablet recalled it before this one ever saw it leave): the suppression ends, so a
+ *     later void of the restored line is said, never swallowed as this tablet's old bump;
+ *   · its line is ON a snapshot fetched before the bump landed (the read raced the write), or the
+ *     bump is still out — pending.
+ */
 export function ownBumpsAfter(
-  ownBumps: ReadonlySet<string>,
+  ownBumps: OwnBumps,
   next: readonly KitchenTicket[],
-): Set<string> {
+  seq: number,
+): Map<string, number | null> {
   const on = new Set(next.flatMap((t) => t.lines.map((l) => l.id)));
-  return new Set([...ownBumps].filter((id) => on.has(id)));
+  const out = new Map<string, number | null>();
+  for (const [id, landedAt] of ownBumps) {
+    if (!on.has(id)) continue;
+    if (landedAt !== null && seq > landedAt) continue;
+    out.set(id, landedAt);
+  }
+  return out;
 }
 
 /** The line ids the stop cards of a read strike — none when the stop read did not answer. */

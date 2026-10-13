@@ -166,12 +166,37 @@ describe("mergeRemovals / removalsForStation / ownBumpsAfter / stoppedLineIds", 
     expect(removalsForStation([a, b], "drinks").map((r) => r.key)).toEqual(["removed:l-b"]);
     expect(removalsForStation([a, b], "all")).toHaveLength(2);
   });
-  it("a pending bump stays pending only while its line is on the board", () => {
-    // lck/kds-removed/own-bumps-never-pruned — a stale pending id would hide a LATER void of the same
-    // line once a recall put it back.
-    const left = ownBumpsAfter(new Set(["l-a", "l-b"]), [card("b|1", [line("l-b")])]);
-    expect([...left]).toEqual(["l-b"]);
+  it("a pending bump is consumed by its departure, and kept while the read raced the write", () => {
+    // lck/kds-removed/own-bumps-never-pruned — a consumed id kept forever hides a LATER void.
+    const board = [card("b|1", [line("l-b")])];
+    const left = ownBumpsAfter(
+      new Map([
+        ["l-a", 3],
+        ["l-b", 3],
+      ]),
+      board,
+      3,
+    );
+    // l-a left (consumed); l-b is on a snapshot fetched BEFORE the bump landed (seq 3 = landed 3)
+    expect([...left.keys()]).toEqual(["l-b"]);
+    // a bump still out stays pending whatever the snapshot
+    expect([...ownBumpsAfter(new Map([["l-b", null]]), board, 9).keys()]).toEqual(["l-b"]);
   });
+
+  it("THE INTERLEAVING: served here, recalled elsewhere before this tablet saw it leave, then VOIDED — said (#360, Codex P2)", () => {
+    // lck/kds-removed/own-bump-outlives-its-return — the id stayed in ownBumps and the void of the
+    // restored line was swallowed as this tablet's old bump; red.
+    const x = line("l-x");
+    // this tablet served X; its write landed while fetch 4 was the latest started
+    let own: Map<string, number | null> = new Map([["l-x", 4]]);
+    // fetch 5 (started after the landing) shows X BACK on the board: a recall elsewhere
+    own = ownBumpsAfter(own, [card("b|1", [x])], 5);
+    expect(own.has("l-x")).toBe(false);
+    // …then a server voids it: X leaves, and it is a candidate again
+    const c = candidates([card("b|1", [x])], [], { ownBumps: new Set(own.keys()) });
+    expect(c.map((r) => r.key)).toEqual(["removed:l-x"]);
+  });
+
   it("the stop cards' struck lines; none when the stop read did not answer", () => {
     expect([...stoppedLineIds([{ lines: [{ id: "l-a" }] }, { lines: [{ id: "l-b" }] }])]).toEqual([
       "l-a",
