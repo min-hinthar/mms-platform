@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
 /**
  * Phase 2d · floor — THE FLOOR READ BEHIND THE STRIP AND THE KITCHEN ROW.
  *
@@ -570,6 +571,41 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
     expect((await table7()).t.kitchen?.soldOut).toBe(0);
   });
 
+  it("a sold-out dish bumped INSIDE Mom's undo window stays flagged while it still counts as in the kitchen (Codex on #360, P2)", async () => {
+    // The fold keeps a served-but-unsettled line "in kitchen" for its six seconds; the menu lookup
+    // dropped it at once, so the card read "1 in kitchen · 1 marked sold out" → "1 in kitchen".
+    // lck/floor/sold-out-dropped-mid-window — red.
+    const bumped = new Date(Date.parse(DB_NOW) - 2_000).toISOString();
+    rows.qr_cart_items = [
+      line({
+        id: "l-86",
+        cart_id: PAID,
+        state: "served",
+        fire_at: ago(9),
+        bumped_at: bumped,
+        menu_item_id: MENU,
+      }),
+    ];
+    rows.menu_items = [{ id: MENU, is_sold_out: true }];
+    const { t } = await table7();
+    expect(t.kitchen?.inKitchen).toBe(1);
+    expect(t.kitchen?.soldOut).toBe(1);
+    // …and once the window has closed it is served food: neither in the kitchen nor flagged
+    rows.qr_cart_items = [
+      line({
+        id: "l-86",
+        cart_id: PAID,
+        state: "served",
+        fire_at: ago(9),
+        bumped_at: ago(1),
+        menu_item_id: MENU,
+      }),
+    ];
+    const after = (await table7()).t.kitchen;
+    expect(after?.inKitchen).toBe(0);
+    expect(after?.soldOut).toBe(0);
+  });
+
   it("an unreadable menu flags nothing and never takes the room down", async () => {
     rows.qr_cart_items = [
       line({ id: "l-86", cart_id: PAID, state: "fired", fire_at: ago(9), menu_item_id: MENU }),
@@ -586,14 +622,16 @@ describe("getFloorView — the lifecycle audit (one track, a sold-out flag, one 
   it("a bump inside Mom's undo window schedules ONE re-read for when it settles", async () => {
     // lck/floor/settle-reread-unscheduled — nothing in the database changes when the window closes,
     // so without it "Ready to serve" waited for the next 5 s poll after the dish was really out.
-    const bumped = new Date(Date.parse(DB_NOW) - 2_000).toISOString();
+    // The delay is computed from `KDS_UNDO_MS` and the fixture's offset, never transcribed (#360).
+    const BUMP_AGO_MS = 2_000;
+    const bumped = new Date(Date.parse(DB_NOW) - BUMP_AGO_MS).toISOString();
     rows.qr_cart_items = [
       line({ id: "l-just", state: "served", fire_at: ago(3), bumped_at: bumped }),
     ];
     const { snap, t } = await table7();
     expect(t.kitchen?.up).toBe(0);
     expect(t.kitchen?.inKitchen).toBe(1);
-    expect(snap.settleInMs).toBe(4_000);
+    expect(snap.settleInMs).toBe(KDS_UNDO_MS - BUMP_AGO_MS);
     rows.qr_cart_items = [
       line({ id: "l-out", state: "served", fire_at: ago(3), bumped_at: ago(1) }),
     ];

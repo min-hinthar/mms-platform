@@ -89,6 +89,16 @@ const parse = (iso: string | null): number | null => {
   return Number.isFinite(ms) ? ms : null;
 };
 
+/**
+ * #360 (Codex P2) — a SERVED line still inside Mom's undo window (`servedSettled`, the ONE track's
+ * predicate): the fold counts it as COOKING, and the floor's sold-out lookup must flag it for exactly
+ * as long — one predicate, so "in kitchen · marked sold out" never loses its flag mid-window. A line
+ * with no (or an unreadable) bump stamp has nothing to settle.
+ */
+export function servedUnsettled(r: { bumped_at: string | null }, nowIso: string): boolean {
+  return parse(r.bumped_at) !== null && !servedSettled(r.bumped_at, nowIso);
+}
+
 export function foldFloorKitchen(
   rows: readonly FloorKitchenRow[],
   ctx: FloorKitchenContext,
@@ -149,7 +159,7 @@ export function foldFloorKitchen(
       // The lifecycle audit — a bump inside Mom's undo window is still COOKING on the ONE track
       // (`servedSettled`): the floor no longer cues "ready to serve" for food she can take back with
       // one tap. A served line with no stamp has nothing to settle (it falls to `done`, as before).
-      if (bumpedMs !== null && !servedSettled(r.bumped_at, nowIso)) {
+      if (servedUnsettled(r, nowIso)) {
         cooking(r, fireMs);
         continue;
       }

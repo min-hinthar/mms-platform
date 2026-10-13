@@ -524,10 +524,13 @@ export function KdsBoard({
   // leaving is the cook's own tap. The sentence is said once in the ONE region, beside a stop card's,
   // for the stop card's dwell.
   const prevTickets = useRef<readonly KitchenTicket[]>(initial.tickets);
-  const ownBumps = useRef(new Set<string>());
+  // #360 (Codex P2) — each own bump carries WHEN its write landed (the fetch sequence then; null while
+  // it is out), so a line another tablet recalls before this one saw it leave stops being "ours"
+  // once a later snapshot shows it back (`ownBumpsAfter`): a void of the restored line is said.
+  const ownBumps = useRef(new Map<string, number | null>());
   const ownBump = useCallback((ids: readonly string[], on: boolean) => {
     for (const id of ids) {
-      if (on) ownBumps.current.add(id);
+      if (on) ownBumps.current.set(id, null);
       else ownBumps.current.delete(id);
     }
   }, []);
@@ -651,6 +654,11 @@ export function KdsBoard({
   // resurrect the ⋯ (the coalesced-refresh defect), and the first post-write snapshot is the truth
   // even when a second writer moved the dish — never "until the prop agrees" (menu-3's blind pass).
   const fetchSeq = useRef(0);
+  /** #360 (Codex P2) — an own bump's write LANDED: stamped with the fetch sequence now, so only a
+   *  snapshot fetched after it can show the line "back" (`ownBumpsAfter`). */
+  const ownLanded = useCallback((ids: readonly string[]) => {
+    for (const id of ids) if (ownBumps.current.has(id)) ownBumps.current.set(id, fetchSeq.current);
+  }, []);
   const [soldOverrides, setSoldOverrides] = useState<ReadonlyMap<string, SoldOutOverride>>(
     () => new Map(),
   );
@@ -857,11 +865,11 @@ export function KdsBoard({
       const candidates = removalCandidates({
         prev: prevTickets.current,
         next: queue.tickets,
-        ownBumps: ownBumps.current,
+        ownBumps: new Set(ownBumps.current.keys()),
         stopped: stoppedLineIds(queue.stops),
       });
       prevTickets.current = queue.tickets;
-      ownBumps.current = ownBumpsAfter(ownBumps.current, queue.tickets);
+      ownBumps.current = ownBumpsAfter(ownBumps.current, queue.tickets, seq);
       if (candidates.length > 0) void confirmAndSay(candidates);
       setSnap(queue);
       // PD5 — in the same batch: each card's round decision, carried forward and only sharpened; a
@@ -1196,6 +1204,7 @@ export function KdsBoard({
 
   const onBumped = useCallback(
     (entry: RecallEntry, label: string) => {
+      ownLanded(entry.lineIds);
       setRecall((prev) => railWith(prev, entry)); // the last 5 cards (SPEC-KDS §4), dishes apart
       // ONE slot, two kinds — and only the bump has a rail behind it. A bump landing inside an 86's
       // six seconds (the tap beside it, mid-rush — K22's own scenario) must not evict the dish's
@@ -1220,7 +1229,7 @@ export function KdsBoard({
     // `lang` is a REAL dependency, not a lint appeasement: `refresh` is permanently stable, so a
     // deps list of [refresh] freezes this closure at its first render and the live region keeps
     // announcing the bump in whichever language the console started in, for the rest of the shift.
-    [lang, refresh],
+    [lang, refresh, ownLanded],
   );
 
   // The lifecycle audit · decision 15 — a per-line Done is NOT a card bump. It leaves a DISH chip on
@@ -1229,11 +1238,12 @@ export function KdsBoard({
   // claiming it would push a card's six seconds — or an 86's — off the bar.
   const onLineDone = useCallback(
     (entry: RecallEntry, label: string) => {
+      ownLanded(entry.lineIds);
       setRecall((prev) => railWith(prev, entry));
       setNotice(tf(lang, "kds.live.line", { x: label }));
       void refresh();
     },
-    [lang, refresh],
+    [lang, refresh, ownLanded],
   );
 
   // K22 — the 86 has had a 6-second undo in the bar since K22 (the bump's since W3d). Same bar, same

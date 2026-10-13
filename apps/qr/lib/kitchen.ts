@@ -252,7 +252,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // refund can be a goodwill comp at a table still eating (the blind pass on #360, CRITICAL 1).
     db
       .from("qr_orders")
-      .select("id,cart_id,status")
+      // #360 (Codex P1) — the amounts too: a full refund is decided by `summarizeRefund`, which
+      // reads them (a cash refund leaves the order `paid`).
+      .select("id,cart_id,status,total_cents,refunded_cents")
       .in("cart_id", cartIds)
       .in("status", ["paid", "refunded"]),
     menuIds.length

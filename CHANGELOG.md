@@ -45,6 +45,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   says the drafts it drops (ruling #6: it never waits); the merge says the phones stay; a table closed
   under a server's page is named on the floor. No migration — M303–M306, M313, M314 and K49 filed (M307 retired:
   the session stream's M293); K50 · K51 are owner questions.
+- **Codex round 1 on #360** — a full refund is decided by the amount as well as the status (a full
+  CASH refund leaves the order `paid`), so the KDS, the floor and the paid round tag it; a sold-out
+  dish bumped inside Mom's undo window keeps its flag while it still counts as in the kitchen; a
+  line recalled on another tablet stops being "this tablet's bump", so its later void is said; a
+  counter-only floor schedules the settle re-read; and the paid round reads every paid cart of the
+  session (past 20 rounds too), saying so when it can only show the latest.
 
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 

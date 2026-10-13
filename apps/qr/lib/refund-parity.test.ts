@@ -320,4 +320,23 @@ describe("one refunded paid cart, three surfaces, one story (#360, CRITICAL 1 + 
     expect(floor?.refunded ?? 0).toBe(0);
     expect(page?.map((l) => l.refunded)).toEqual([undefined]);
   });
+
+  it("a FULL CASH refund (the order still `paid`, refunded = total) is tagged on all three (Codex on #360, P1)", async () => {
+    // `mms_refund_cash_line` raises `refunded_cents` and leaves the order `paid` (OPEN-ITEMS M308).
+    // lck/refunded-cart/amount-arm-ignored · lck/kitchen/refund-amounts-unread — red.
+    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 2400 }];
+    const { kds, floor, page } = await threeReads();
+    expect(kds.map((t) => t.refunded)).toEqual([true]);
+    expect(floor?.refunded).toBe(2);
+    expect(page?.map((l) => l.refunded)).toEqual([true]);
+  });
+
+  it("a PARTIAL cash refund leaves the order standing: untagged on all three", async () => {
+    rows.qr_orders = [{ ...rows.qr_orders![0]!, status: "paid", refunded_cents: 1200 }];
+    const { kds, floor, page } = await threeReads();
+    expect(kds.map((t) => t.refunded)).toEqual([undefined]);
+    expect(floor?.inKitchen).toBe(2);
+    expect(floor?.refunded ?? 0).toBe(0);
+    expect(page?.map((l) => l.refunded)).toEqual([undefined]);
+  });
 });

@@ -126,12 +126,20 @@ function tableApi(name: string) {
       return Promise.resolve({ data: null, error: null });
     },
     then(resolve: (r: { data: Row[] | null; error: unknown }) => void) {
-      if (name === "qr_orders") return resolve({ data: orders, error: null });
+      // #360 (Codex P2) — the orders read's CAP is real here (newest first, as the fixtures list them),
+      // and so is its column list, so a record page truncated at SETTLED_ORDER_CAP + 1 is truncated.
+      if (name === "qr_orders")
+        return resolve({
+          data: (cap === null ? orders : orders.slice(0, cap)).map((r) => pick(r, cols)),
+          error: null,
+        });
       if (name === "qr_cart_items") {
         if (inCarts !== null) {
           paidAsked = inCarts;
           if (paidReadFails) return resolve({ data: null, error: { message: "down" } });
-          const sorted = [...paidRows].sort((a, b) => {
+          // …and the cart filter: a line on a cart the read did not ask for is not returned.
+          const asked = paidRows.filter((r) => !("cart_id" in r) || inCarts!.includes(r.cart_id));
+          const sorted = [...asked].sort((a, b) => {
             for (const [c, asc] of sorts) {
               const x = String(a[c]);
               const y = String(b[c]);
@@ -317,5 +325,45 @@ describe("getTableDetail — the paid round's food still in the kitchen", () => 
     // exactly at the cap: nothing was cut, nothing is said
     paidRows = paidRows.slice(0, PAID_KITCHEN_CAP);
     expect((await detail()).paidKitchenCapped).toBe(false);
+  });
+
+  it("an OLDER round still cooking is read though the record's page stopped at its cap (22 rounds, Codex on #360, P2)", async () => {
+    // The paid round's cart ids came from the record's page (SETTLED_ORDER_CAP + 1 = 21 orders), so
+    // the 22nd round back — its food still on the wok, and counted by the floor card — was never
+    // read. lck/floor/paid-round-scope-capped-by-the-record — red.
+    const ROUNDS = 22;
+    orders = Array.from({ length: ROUNDS }, (_, i) => ({
+      id: `o-${i}`,
+      total_cents: 1200,
+      created_at: ago(60_000 * (i + 1)), // newest first
+      status: "paid",
+      refunded_cents: 0,
+      tip_cents: 0,
+      cart_id: `c-paid-${i}`,
+    }));
+    // only the OLDEST round still has food in the kitchen
+    paidRows = [line({ id: "oldest-main", cart_id: `c-paid-${ROUNDS - 1}`, state: "in_progress" })];
+    const d = await detail();
+    expect(d.paidKitchen?.map((l) => [l.id, l.stage])).toEqual([["oldest-main", "cooking"]]);
+    expect(paidAsked).toContain(`c-paid-${ROUNDS - 1}`);
+    expect(d.paidKitchenCapped).toBe(false);
+  });
+
+  it("past the scope read's own bound the group says it shows only the latest", async () => {
+    // lck/floor/paid-round-scope-cap-unsaid — a session past 200 settled rounds passed a partial
+    // scope off as the whole; red.
+    orders = Array.from({ length: 202 }, (_, i) => ({
+      id: `o-${i}`,
+      total_cents: 1200,
+      created_at: ago(60_000 * (i + 1)),
+      status: "paid",
+      refunded_cents: 0,
+      tip_cents: 0,
+      cart_id: `c-paid-${i}`,
+    }));
+    paidRows = [line({ id: "newest-main", cart_id: "c-paid-0", state: "in_progress" })];
+    const d = await detail();
+    expect(d.paidKitchen?.map((l) => l.id)).toEqual(["newest-main"]);
+    expect(d.paidKitchenCapped).toBe(true);
   });
 });
