@@ -205,7 +205,13 @@ export async function settleAuthorizedPickup(
       { amount_to_capture: plan.amountCents },
       // Keyed on the amount as well as the intent: a redelivery that somehow re-derived a DIFFERENT
       // amount must fail loudly on the key rather than quietly capture a second, different figure.
-      { idempotencyKey: `cap_${intentId}_${plan.amountCents}` },
+      //
+      // M72c — and NO in-process retry. This capture's retry is Stripe's REDELIVERY of the event,
+      // which re-runs void → re-derive → capture against the catalog as it is then; an SDK retry
+      // would capture the plan computed above after a full timeout had passed, holding M72's window
+      // C open for a second attempt. The key stays load-bearing at zero: the SDK still resends a
+      // first-attempt connection reset, and below one retry it no longer keys the request itself.
+      { idempotencyKey: `cap_${intentId}_${plan.amountCents}`, maxNetworkRetries: 0 },
     );
   } catch (e) {
     console.error("[manual-capture] capture failed", { intentId, cartId, error: e });

@@ -38,6 +38,10 @@ let retrieved: Record<string, unknown> | null = null;
  *  a refused cancel means "the tap won", "already canceled" or "cannot tell". */
 let retrievedAfterCancel: Record<string, unknown> | null = null;
 let retrieveFailsAfterCancel = false;
+/** M216 — what `retrieve` answers AFTER a re-acquire: the re-read that catches an attempt that died
+ *  (staff Cancel, a decline) between the poll's first snapshot and the acquire. */
+let retrievedAfterAcquire: Record<string, unknown> | null = null;
+let retrieveFailsAfterAcquire = false;
 let readerAction: Record<string, unknown> | null = null;
 /** Codex r2 on #310 (A3) — the resume read's failure switches. */
 let readerRetrieveFails = false;
@@ -69,9 +73,17 @@ vi.mock("./stripe", () => ({
         const afterCancel = calls.some((c) => c.op === "pi.cancel");
         if (afterCancel && retrieveFailsAfterCancel)
           return Promise.reject(Object.assign(new Error("net"), { code: "api_connection_error" }));
+        const afterAcquire = calls.some((c) => c.op === "acquire");
+        if (afterAcquire && retrieveFailsAfterAcquire)
+          return Promise.reject(Object.assign(new Error("net"), { code: "api_connection_error" }));
         // `false ?? x` is `false`, not `x` — a bare `afterCancel && …` here returned `false` on every
         // base-case read and made all 15 poll/cancel cases refuse as "Invalid request."
-        const answer = afterCancel && retrievedAfterCancel ? retrievedAfterCancel : retrieved;
+        const answer =
+          afterCancel && retrievedAfterCancel
+            ? retrievedAfterCancel
+            : afterAcquire && retrievedAfterAcquire
+              ? retrievedAfterAcquire
+              : retrieved;
         return Promise.resolve(answer ?? { id, status: "requires_payment_method", metadata: {} });
       },
     },
@@ -291,6 +303,8 @@ afterEach(() => {
   extendError = null;
   retrievedAfterCancel = null;
   retrieveFailsAfterCancel = false;
+  retrievedAfterAcquire = null;
+  retrieveFailsAfterAcquire = false;
   acquireResult = "acquired";
   heldByAttempt = false;
   heldError = null;
@@ -452,6 +466,22 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
       attemptId: string;
     };
     expect(rel).toEqual({ cartId: "cart-1", attemptId: mintedAttempt() });
+  });
+
+  it("a hand-off failure whose cancel ALSO fails HOLDS the freeze and says the outcome is unknown (M287, Codex on #352)", async () => {
+    // `terminal_reader_timeout` can be a false negative: the reader may be showing the charge.
+    processFails = { code: "terminal_reader_timeout" };
+    piCancelFails = true;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r.ok).toBe(false);
+    const ops = calls.map((c) => c.op);
+    expect(ops).toContain("pi.cancel");
+    // MUTATION terminal/m287-failed-cancel-frees-the-table: red.
+    expect(ops).not.toContain("releaseFor");
+    if (r.ok) return;
+    expect(r.error).toMatch(/may still be taking this card/);
+    // Never the reader-fault copy that invites a retry or another tender.
+    expect(r.error).not.toMatch(/try again, or settle by cash/);
   });
 
   it("a PI-create failure releases the freeze (nothing to cancel), scoped", async () => {
@@ -793,6 +823,90 @@ describe("terminalStatus — Codex round 1 on A3", () => {
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     piCancelFails = false;
     expect(r).toEqual({ ok: true, state: "collecting" });
+  });
+});
+
+describe("terminalStatus — a re-acquire re-reads the intent (M216, Codex round 4 on #280)", () => {
+  // The race: this poll retrieved a LIVE intent, then staff Cancel (or a decline) killed the attempt
+  // and released its freeze; the extend meets that null row and the re-acquire takes it (a null row
+  // is free). The panel already showed `canceled` / `failed` and never polls again, so answering
+  // `collecting` off the first snapshot left the table frozen until the TTL.
+  const liveThenReacquire = () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      metadata: TERMINAL_META,
+      amount: 4321,
+      last_payment_error: null,
+    };
+    extendResult = false; // the freeze cancel released: nothing of ours to extend
+    acquireResult = "acquired"; // …and the null row is free, so the re-acquire takes it
+  };
+  const ops = () => calls.map((c) => c.op);
+
+  it("an attempt CANCELED before the re-acquire: release the freeze just taken, scoped, and answer `canceled`", async () => {
+    liveThenReacquire();
+    retrievedAfterAcquire = {
+      id: "pi_test_1",
+      status: "canceled",
+      metadata: TERMINAL_META,
+      amount: 4321,
+      last_payment_error: null,
+    };
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: true, state: "canceled" });
+    // The intent is read AGAIN after the acquire — the first snapshot predates the cancel.
+    expect(ops().lastIndexOf("pi.retrieve")).toBeGreaterThan(ops().indexOf("acquire"));
+    // The release follows the acquire and is scoped to THIS attempt (never a successor's freeze).
+    expect(ops().indexOf("releaseFor")).toBeGreaterThan(ops().indexOf("acquire"));
+    expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
+      cartId: "cart-1",
+      attemptId: TERMINAL_META.settleAttempt,
+    });
+    // A dead attempt is not abandoned again — nothing on the reader or the intent is touched.
+    expect(ops()).not.toContain("reader.cancelAction");
+    expect(ops()).not.toContain("pi.cancel");
+  });
+
+  it("an attempt DECLINED before the re-acquire: release scoped, and answer the decline", async () => {
+    liveThenReacquire();
+    retrievedAfterAcquire = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      metadata: TERMINAL_META,
+      amount: 4321,
+      last_payment_error: { code: "card_declined" },
+    };
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({
+      ok: true,
+      state: "failed",
+      error: "The card was declined — try another card or cash.",
+    });
+    expect(ops().indexOf("releaseFor")).toBeGreaterThan(ops().indexOf("acquire"));
+    expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
+      cartId: "cart-1",
+      attemptId: TERMINAL_META.settleAttempt,
+    });
+    expect(ops()).not.toContain("pi.cancel");
+  });
+
+  it("an attempt still LIVE on the re-read keeps the freeze and keeps collecting", async () => {
+    liveThenReacquire();
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: true, state: "collecting" });
+    expect(ops().filter((op) => op === "pi.retrieve")).toHaveLength(2);
+    expect(ops()).not.toContain("releaseFor");
+  });
+
+  it("a re-read that FAILS is a poll miss — the freeze is KEPT (a live tap must never lose it)", async () => {
+    liveThenReacquire();
+    retrieveFailsAfterAcquire = true;
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: false, error: expect.stringMatching(/still trying/) });
+    expect(ops()).toContain("acquire");
+    expect(ops()).not.toContain("releaseFor");
+    expect(ops()).not.toContain("pi.cancel");
   });
 });
 

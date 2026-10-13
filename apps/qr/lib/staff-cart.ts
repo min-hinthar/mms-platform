@@ -50,6 +50,7 @@ import {
 const PAYING_REFUSAL = "This table is mid-payment — wait until they’ve finished.";
 const SENT_LINE_REFUSAL =
   "That dish already went to the kitchen — use Remove or Make it free instead.";
+const NOTHING_TO_SETTLE = "There’s nothing on this table to settle.";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -358,7 +359,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cart.id);
   if (countError) return { ok: false, error: STAFF_WRITE_OUTAGE };
-  if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
+  if ((count ?? 0) === 0) return { ok: false, error: NOTHING_TO_SETTLE };
 
   // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
   // check above is a fast read; this is the race-closing claim: once WE hold the freeze, a concurrent
@@ -433,6 +434,29 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     if (!totals) {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
+    }
+    // ── M252 · a comp-only cart is not a $0 sale ── The count above the freeze counts EVERY line,
+    // comped and voided ones included, so a cart whose every line was comped (or voided) reaches here
+    // — and `mms_fulfill_cash_order` accepts a derived subtotal of 0 against a passed 0, minting a
+    // "paid" order with no snapshot row (it snapshots only `state <> 'voided' and not comped`) whose
+    // `togo_status` is never stamped. Refuse it here: the settle doors' "nothing to settle".
+    //   • Only a ZERO subtotal can be such a cart. A positive one must equal the RPC's own derivation
+    //     from the same lines (it raises on a mismatch), so at least one line is snapshotted, and the
+    //     ordinary settle pays no extra read.
+    //   • Zero is not enough on its own: a chargeable $0 line (`grocery_items.price_cents >= 0`) still
+    //     settles, so the predicate is the RPC's own — a line that is neither voided nor comped.
+    //   • Read UNDER the freeze: both comp writers (`mms_void_line`, the approval's approve) lock the
+    //     cart and refuse under a fresh settle freeze, so no comp lands between this read and the RPC.
+    // Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    if (totals.subtotalCents === 0) {
+      const { count: chargeable, error: chargeableErr } = await db
+        .from("qr_cart_items")
+        .select("id", { count: "exact", head: true })
+        .eq("cart_id", cart.id)
+        .neq("state", "voided")
+        .eq("comped", false);
+      if (chargeableErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+      if ((chargeable ?? 0) === 0) return { ok: false, error: NOTHING_TO_SETTLE };
     }
     // Phase 2c · register — the COMPARE-AND-SWAP. The cashier collected the figure they were shown;
     // if the live lines now total something else (a qty step, a promo, a guest adding from their phone
@@ -738,7 +762,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   const amount = totals.totalCents;
   if (amount <= 0) {
     await releaseSettlementFor(cart.id, attempt);
-    return { ok: false, error: "There’s nothing on this table to settle." };
+    return { ok: false, error: NOTHING_TO_SETTLE };
   }
   // Phase 2c · register (P2aa) — the COMPARE-AND-SWAP, as on the cash settle: the confirm quoted the
   // last-polled total; `amount` is the live one. A mismatch refuses BEFORE any PaymentIntent exists,

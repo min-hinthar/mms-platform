@@ -1131,12 +1131,12 @@ export function TableCartProvider({
    * can attribute), so they must speak the same sentence; the "name it ONCE" rule applied to copy.
    *
    * ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
-   * `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
-   * excludes comped rows and still answers success — so an add that matched a comped sibling is a
-   * successful no-op, and "That line is already at our 99 max" would name a cap that is not the
-   * cause. Growth is the only thing proving the write moved this line, so only a short GROWTH is
-   * diagnosed. That no-op is a real defect in its own right, filed as T25 rather than described
-   * wrongly here.
+   * `mms_cart_item_inc_qty` skips comped rows and still answers success, so a comp landing on the
+   * merge target between `insertOrIncLine`'s sibling read and its bump makes the add a successful
+   * no-op, and "That line is already at our 99 max" would name a cap that is not the cause. Growth
+   * is the only thing proving the write moved this line, so only a short GROWTH is diagnosed. (T25
+   * took comped rows out of the sibling read, so an add no longer matches one outright; the race
+   * window is what is left, and closing it needs the RPC's applied delta — T27.)
    *
    * ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass on #250). It used to be, which left the most
    * ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced "Added
@@ -1241,9 +1241,9 @@ export function TableCartProvider({
         // sitting at 6 of 99. That needs no near-cap line to reach, so it was likelier than the cap
         // it claimed. `none` is spoken HERE and only here, because the mutation returned a view — so
         // the write provably COMMITTED and the sentence is not a guess about that. ⚠️ It is still not
-        // proof of the CAP, which this note used to claim: a zero net delta is equally a comped
-        // sibling (T25) or a concurrent restore (T43). `addShortfallNotice` says only "Nothing was
-        // added", which is what a zero actually supports.
+        // proof of the CAP, which this note used to claim: a zero net delta is equally a comp racing
+        // the merge bump (T25's window) or a concurrent restore (T43). `addShortfallNotice` says
+        // only "Nothing was added", which is what a zero actually supports.
         //
         // ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass). It used to be, which left the most
         // ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced
@@ -1252,12 +1252,12 @@ export function TableCartProvider({
         // quick-add is the true one.
         announceShortfall(itemsBefore, view.items, menuItemId, qty);
         // ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
-        // `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
-        // excludes comped rows and still answers success — so an add that matched a comped sibling
-        // is a successful no-op, and "That line is already at our 99 max" would name a cap that is
-        // not the cause. Growth is the only thing proving the write moved this line, so only a short
-        // GROWTH is diagnosed. The comped-sibling no-op is a real defect in its own right, filed as
-        // T25 rather than described wrongly here.
+        // `mms_cart_item_inc_qty` skips comped rows and still answers success, so a comp landing on
+        // the merge target between `insertOrIncLine`'s sibling read and its bump makes the add a
+        // successful no-op, and "That line is already at our 99 max" would name a cap that is not
+        // the cause. Growth is the only thing proving the write moved this line, so only a short
+        // GROWTH is diagnosed. (T25 took comped rows out of the sibling read; the race is what is
+        // left — T27.)
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return { state: "applied", view: view.items };

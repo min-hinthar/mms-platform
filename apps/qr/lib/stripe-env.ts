@@ -157,16 +157,22 @@ export function publishableKeyCandidates(): readonly EnvCandidate[] {
  *     alternative is capturing money that cannot be fulfilled. What that 500 SAYS is
  *     `webhookSecretDiagnostic`'s job, and it must be built from the RAW candidate list: this
  *     function's own output no longer contains the dropped name.
- *   - **test / unknown → keep both, `_TEST` first.** The BASE name legitimately holds a test secret
- *     in local dev, in `.env.example`, and in every deployment that predates the per-mode rename.
- *     Dropping it there would break working setups to guard a hazard that does not exist in test
- *     mode — over-blocking is as bad as under-blocking.
+ *   - **unknown → the same as live (M166, owner 2026-10-07).** `unknown` is "cannot tell" — no
+ *     secret key resolved, or a prefix `keyMode` does not read (a future format, a mock) — and
+ *     `resolvedStripeMode` says callers must never read it as "test". Keeping `_TEST` at top
+ *     precedence here was the one fail-OPEN branch in a module that otherwise fails closed, on the
+ *     one credential nothing else can check. An unreadable mode therefore counts as live, and the
+ *     diagnostic says the mode could not be READ rather than claiming it is live.
+ *   - **test → keep both, `_TEST` first.** The BASE name legitimately holds a test secret in local
+ *     dev, in `.env.example`, and in every deployment that predates the per-mode rename. Dropping it
+ *     there would break working setups to guard a hazard that does not exist in test mode —
+ *     over-blocking is as bad as under-blocking. Only a key that READS as test earns this branch.
  */
 export function webhookCandidatesForMode(
   mode: StripeMode,
   candidates: readonly EnvCandidate[],
 ): readonly EnvCandidate[] {
-  if (mode !== "live") return candidates;
+  if (mode === "test") return candidates;
   return candidates.filter(([name]) => !name.endsWith("_TEST"));
 }
 
@@ -204,6 +210,12 @@ export function missingEnvMessage(label: string, candidates: readonly EnvCandida
  * credential. Reported through `pickEnv`'s own trim rule, so a whitespace-only variable reads as
  * "not set" here exactly as it does during selection; two answers to "is it set?" would send the
  * operator hunting for a variable this module considers empty.
+ *
+ * M166 — the WHY differs by mode, and it is the half the operator acts on. In live mode the keys
+ * really did resolve live, so the remedy is the live endpoint's secret. In `unknown` mode nothing
+ * resolved to a mode at all, and telling that operator "the API keys resolved to LIVE mode" would
+ * send them looking for a live key that does not exist; what they need to hear is that the secret
+ * key's mode could not be read, and how to make it readable.
  */
 export function webhookSecretDiagnostic(
   mode: StripeMode,
@@ -216,9 +228,16 @@ export function webhookSecretDiagnostic(
   const described = ignored
     .map(([name, value]) => `${name} (${pickEnv([[name, value]]) ? "SET" : "not set"})`)
     .join(", ");
+  if (mode === "live")
+    return (
+      `${base} Ignored because the API keys resolved to LIVE mode: ${described}. ` +
+      `A _TEST name cannot sign live deliveries — delete it from this environment and set ` +
+      `STRIPE_WEBHOOK_SECRET to the live endpoint's signing secret.`
+    );
   return (
-    `${base} Ignored because the API keys resolved to LIVE mode: ${described}. ` +
-    `A _TEST name cannot sign live deliveries — delete it from this environment and set ` +
-    `STRIPE_WEBHOOK_SECRET to the live endpoint's signing secret.`
+    `${base} Ignored because the Stripe secret key's mode could not be read — no secret key is ` +
+    `set, or its prefix is not sk_test_/rk_test_/sk_live_/rk_live_ — and an unreadable mode counts ` +
+    `as live: ${described}. A _TEST name signs deliveries only when the secret key reads as test ` +
+    `mode — set a secret key with a test prefix, or set STRIPE_WEBHOOK_SECRET.`
   );
 }

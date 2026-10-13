@@ -159,6 +159,7 @@ vi.mock("@/lib/stripe", () => ({
         createdKeys.push(opts.idempotencyKey);
         createdAmounts.push(params.amount);
         createdMeta.push(params.metadata ?? {});
+        createdParams.push(params as unknown as Record<string, unknown>);
         order.push("create");
         return Promise.resolve({ id: NEW_PI, client_secret: "cs_test" });
       },
@@ -189,6 +190,8 @@ vi.mock("@/lib/surfaces", () => ({ surfaceOpen: () => splitOpen }));
 let extendResult = true;
 const extendCalls: { cartId: string; owner: string }[] = [];
 const createdMeta: Record<string, string | undefined>[] = [];
+/** M155 — every create's full params, so the payment-method list can be asserted. */
+const createdParams: Record<string, unknown>[] = [];
 const order: string[] = [];
 vi.mock("@/lib/lock", () => ({
   extendSettlementFor: (cartId: string, owner: string) => {
@@ -201,6 +204,7 @@ vi.mock("@/lib/split-settle", () => ({ captureAllIfReady: () => Promise.resolve(
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
 
 const { POST } = await import("./route");
+const { MEAL_PAYMENT_METHOD_TYPES } = await import("@/lib/payment-methods");
 
 function request(tipRate = 0.2) {
   return {
@@ -213,6 +217,7 @@ beforeEach(() => {
   extendResult = true;
   extendCalls.length = 0;
   createdMeta.length = 0;
+  createdParams.length = 0;
   order.length = 0;
   shareError = null;
   recorded = [];
@@ -239,6 +244,20 @@ beforeEach(() => {
 });
 
 const claim = () => recorded.find((r) => r.op === "update" && r.table === "qr_cart_shares");
+
+describe("create-share-intent — a share is paid by card (M155, owner ruling #7)", () => {
+  it("authorizes with the ONE named card-only list, never the Dashboard's automatic methods", async () => {
+    // A share is a phone payment for a meal. A bank debit authorized here would sit in
+    // `processing` for days while the table waits to capture-all. Apple Pay and Google Pay ride
+    // `card`, so the payer keeps them.
+    // MUTATION (stripecfg/share-intent-automatic-methods): swapped back; red.
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+    expect(createdParams).toHaveLength(1);
+    expect(createdParams[0]!.payment_method_types).toEqual([...MEAL_PAYMENT_METHOD_TYPES]);
+    expect(createdParams[0]).not.toHaveProperty("automatic_payment_methods");
+  });
+});
 
 describe("create-share-intent — the claim must count rows, never ask for a representation", () => {
   it("asks PostgREST for a count", async () => {
