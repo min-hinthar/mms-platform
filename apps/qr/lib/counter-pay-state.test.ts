@@ -77,12 +77,11 @@ describe("counterPayRefusal — unsent dishes never refuse the ask (PD2's lift, 
   });
 
   it("the dock says what the counter does with them — m2's words, verbatim, telling nobody to send", () => {
+    // Exact, so it pins everything a looser read would: the line goes to host, guest and hostless
+    // table alike, so it orders nobody to send (only the host can) and promises no time.
     expect(COUNTER_ASK_CARRIES_UNSENT).toBe(
       "You can still ask — the counter will check them with your table.",
     );
-    // It goes to host, guest and hostless table alike, so it orders nobody to send (only the host
-    // can) and promises no time.
-    expect(COUNTER_ASK_CARRIES_UNSENT).not.toMatch(/^Send\b|minute|soon/i);
   });
 });
 
