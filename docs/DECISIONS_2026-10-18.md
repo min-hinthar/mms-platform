@@ -273,6 +273,24 @@ These words are binding on every string this round adds. Each one extends PATH_D
 | C27 | C24 ②                | —   | The clause also goes on `safeClaim` (`lib/dropped-view.ts:278-281`), so the two claims never disagree.                                                                                                                                                                                                                                                                                                                                                                                                               |
 | C28 | J65 · J64            | —   | J64's read also returns `gone` ids (`is_active` false), with their kind, so J65's words reach a card the poll flips.                                                                                                                                                                                                                                                                                                                                                                                                 |
 
+### Codex round 4 on #357 (these win over the per-ID sections they name)
+
+- **J64:** the poll returns a state for EVERY id it queried. An id with no `menu_items` row reads `gone`
+  (unsellable, the `unavailableLines` rule), never "available"; the transition test covers a deletion.
+- **K49 ①:** the tip refund is part of the durable refund-owed amount and of the one idempotent Stripe
+  refund after the RPC (`refundLine` alone excludes the order-level tip), reconciled by the same row.
+- **M322:** the in-RPC compare takes `FOR SHARE` on the compared `menu_items` rows through fulfillment,
+  so a concurrent 86 either commits first (the dish is caught) or waits; plus a two-connection
+  availability-versus-fulfillment race test.
+- **M206:** the claim RPC enforces the counter-tender allowlist (`cash` / `terminal`) and
+  `status = 'paid'` under the same row lock — a card order whose `mms_earn_on_fulfill` failed is
+  never claimable by a seated member.
+- **M270 (6):** a recorded decline is bound to the cart's amount at the decline (or a mutation
+  version), not to line inserts: a quantity change after it voids the decline too. Tests cover a
+  quantity change as well as an added line.
+- **RULING#24 A:** the resolve update is scoped to `resolved = false`, first-writer-wins; a zero-row
+  result reads "already resolved by …" and never overwrites `resolved_by` / `resolved_at`.
+
 ### Spot-checked claims (26 of the 50 checked; the rest were confirmed and are not listed)
 
 | Claim                                                       | Ref checked                                              | Result                                          |
