@@ -16,8 +16,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Staff can mark a grocery item sold out (M190 closed).** `grocery_items.available` had no writer, so
   the shopper's "That item isn’t available today." could never fire. /staff/menu has a second list
   (Kitchen menu · Market): Mark sold out / Put back per item, the menu 86's gate, words and chip; the
-  write is a compare-and-swap with its row count read, and the scan refuses and the aisles drop the
-  item at once.
+  write is a compare-and-swap with its row count read; the scan refuses the item at once, and the
+  aisles drop it on each shopper's next load (the grid is one read per visit, so an open one keeps it
+  until then — the staff copy says exactly that).
 - **The console's Send names a sold-out dish it would fire, before the tap (P2ad's console half).**
   "Mohinga is sold out — remove it, or send it and tell the cook." sits under the Send on the table page
   and the order pad, in both tongues; it is a re-warning, never a block (the race-proof SQL refusal is

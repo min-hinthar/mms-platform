@@ -1671,9 +1671,13 @@ export const STAFF = {
   "browse.shelf.menu": { en: "Kitchen menu", my: "မီးဖိုချောင် မီနူး" },
   "browse.shelf.market": { en: "Market", my: "စျေး" },
   "browse.market.title": { en: "Market availability", my: "စျေး ပစ္စည်း ရနိုင်မှု" },
+  // The blind pass on #363 (BLOCKING 3) — the aisles are one client read per visit (and an offline
+  // cache), so a flip cannot clear an open grid: the copy promises the scan's refusal (server-side,
+  // `lib/grocery.ts`) at once and the aisles on the next load, nothing more. K15 draft (both MY
+  // values re-drafted with the English, grounded in this key's own shipped words).
   "browse.market.lead": {
-    en: "Mark an item sold out the moment you run out — shoppers can’t scan it or find it in the aisles until someone puts it back, and there is no timer that does it for you. Prices are set in the catalog, not here.",
-    my: "ပစ္စည်း ကုန်သွားတာနဲ့ ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းကို ဒီမှာ မပြင်ပါ။",
+    en: "Mark an item sold out the moment you run out — a scan of it is refused at once, and it leaves the aisles the next time a shopper opens them. It stays sold out until someone puts it back; no timer does it for you. Prices are set in the catalog, not here.",
+    my: "ပစ္စည်း ကုန်သွားတာနဲ့ ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — စကင်ဖတ်ရင် ချက်ချင်း ငြင်းပါမယ်၊ စျေးဝယ်သူ နောက်တစ်ခါ ဖွင့်တဲ့အခါ စင်တွေထဲကနေ ပျောက်သွားပါမယ်။ တစ်ယောက်ယောက် ပြန်မတင်မချင်း ကုန်နေပါမယ်၊ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းကို ဒီမှာ မပြင်ပါ။",
   },
   "browse.market.find": { en: "Find an item", my: "ပစ္စည်း ရှာပါ" },
   "browse.market.noMatch": {
@@ -1689,8 +1693,8 @@ export const STAFF = {
   },
   // The view's ONE live region (sr-only), echoed aria-hidden in the row it concerns.
   "browse.market.live.out": {
-    en: "{x} is sold out — shoppers can’t scan it or find it until you put it back.",
-    my: "{x} ကုန်သွားပြီ — ပြန်မတင်မချင်း စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။",
+    en: "{x} is sold out — a scan of it is refused now, and it leaves the aisles on each shopper’s next load.",
+    my: "{x} ကုန်သွားပြီ — အခုကစပြီး စကင်ဖတ်ရင် ငြင်းပါမယ်၊ စျေးဝယ်သူ နောက်တစ်ခါ ဖွင့်တဲ့အခါ စင်တွေထဲကနေ ပျောက်သွားပါမယ်။",
   }, // K15-HIGH — read wrong, a shelf the shop cannot fill keeps selling
   "browse.market.live.back": {
     en: "{x} is back in the market.",

@@ -1214,16 +1214,20 @@ dictionary (a TypeScript walk over the keys), never transcribed: 18 keys, 4 HIGH
   flag, chip and verbs (`browse.price.soldOut`, `.soldOutOnly`, `.verb.eightySix`, `.verb.putBack`):
   `browse.shelf.a11y.switch` — "Menu or market" · မီနူး ဒါမှမဟုတ် စျေး; `browse.shelf.menu` — "Kitchen
   menu" · မီးဖိုချောင် မီနူး; `browse.shelf.market` — "Market" · စျေး; `browse.market.title` and
-  `browse.market.a11y.list` — "Market availability" · စျေး ပစ္စည်း ရနိုင်မှု; `browse.market.lead` —
-  "Mark an item sold out the moment you run out — shoppers can’t scan it or find it in the aisles
-  until someone puts it back, and there is no timer that does it for you. Prices are set in the
-  catalog, not here." · ပစ္စည်း ကုန်သွားတာနဲ့ ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း
-  စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းကို
-  ဒီမှာ မပြင်ပါ။; `browse.market.find` — "Find an item" · ပစ္စည်း ရှာပါ; `browse.market.noMatch` — "No
+  `browse.market.a11y.list` — "Market availability" · စျေး ပစ္စည်း ရနိုင်မှု; `browse.market.lead` (**re-drafted** after the blind pass on #363: the aisles are one client read
+  per visit, so a flip cannot clear an open grid) — "Mark an item sold out the moment you run out — a
+  scan of it is refused at once, and it leaves the aisles the next time a shopper opens them. It stays
+  sold out until someone puts it back; no timer does it for you. Prices are set in the catalog, not
+  here." · ပစ္စည်း ကုန်သွားတာနဲ့ ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — စကင်ဖတ်ရင် ချက်ချင်း ငြင်းပါမယ်၊ စျေးဝယ်သူ
+  နောက်တစ်ခါ ဖွင့်တဲ့အခါ စင်တွေထဲကနေ ပျောက်သွားပါမယ်။ တစ်ယောက်ယောက် ပြန်မတင်မချင်း ကုန်နေပါမယ်၊
+  အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းကို ဒီမှာ မပြင်ပါ။ (the new clauses ground
+  ချက်ချင်း / ပြန်မတင်မချင်း in this key's own first draft; "the aisles" as စင်တွေ is a fresh draft —
+  check it reads as the shop's shelves, not the app's); `browse.market.find` — "Find an item" · ပစ္စည်း ရှာပါ; `browse.market.noMatch` — "No
   item matches “{x}”." · “{x}” နဲ့ ကိုက်ညီတဲ့ ပစ္စည်း မရှိပါ။; `browse.market.noMatchOut` — "No
   sold-out item matches “{x}”." · “{x}” နဲ့ ကိုက်ညီတဲ့ ကုန်သွားတဲ့ ပစ္စည်း မရှိပါ။;
-  `browse.market.live.out` (**HIGH**) — "{x} is sold out — shoppers can’t scan it or find it until you
-  put it back." · {x} ကုန်သွားပြီ — ပြန်မတင်မချင်း စျေးဝယ်သူတွေ စကင်ဖတ်လို့ မရ၊ ရှာလို့ မတွေ့ပါ။;
+  `browse.market.live.out` (**HIGH**, **re-drafted** with the lead) — "{x} is sold out — a scan of it is
+  refused now, and it leaves the aisles on each shopper’s next load." · {x} ကုန်သွားပြီ — အခုကစပြီး
+  စကင်ဖတ်ရင် ငြင်းပါမယ်၊ စျေးဝယ်သူ နောက်တစ်ခါ ဖွင့်တဲ့အခါ စင်တွေထဲကနေ ပျောက်သွားပါမယ်။;
   `browse.market.live.back` — "{x} is back in the market." · {x} ကို စျေးမှာ ပြန်တင်ပြီးပြီ။;
   `browse.market.err.flipUnknown` — "Couldn’t reach the market — {x} may or may not have changed.
   Check the row and try again." · စျေးစာရင်းနဲ့ ဆက်သွယ်လို့ မရပါ — {x} ပြောင်းသွားလား မသေချာပါ။ အတန်းကို
