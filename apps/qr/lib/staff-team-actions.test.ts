@@ -328,6 +328,33 @@ describe("provisionStaff — the staff row goes through the RPC, and a refusal l
       expect(res).toEqual({ ok: false, error: "Couldn’t save the staff role. Try again." });
       expect(deletedUsers).toEqual(["new-uid"]);
     });
+    // The RPC can COMMIT and its answer still be lost (a transport drop after the commit). Deleting
+    // the auth user then cascades away a member who WAS added — the ledger keeps their invite and the
+    // console says it failed. An unreadable answer is not a refusal: the row decides.
+    it("an RPC error after the row LANDED is the success it was — the member is kept", async () => {
+      rpcError = true;
+      targetRow = { user_id: "new-uid", email: "new@example.com", active: true, role: "server" };
+      const res = await invite("server");
+      expect(res).toEqual({ ok: true });
+      expect(deletedUsers).toEqual([]);
+      expect(analytics).toEqual(["staff_provisioned"]);
+    });
+    it("an unreadable answer after the row landed is kept too", async () => {
+      provisionVerdict = { status: "granted" };
+      targetRow = { user_id: "new-uid", email: "new@example.com", active: true, role: "server" };
+      expect(await invite("server")).toEqual({ ok: true });
+      expect(deletedUsers).toEqual([]);
+    });
+    it("a READABLE refusal never re-reads: the RPC said it wrote nothing", async () => {
+      provisionVerdict = { status: "ceiling" };
+      targetRow = { user_id: "new-uid", email: "new@example.com", active: true, role: "server" };
+      callerRole = "owner";
+      expect(await invite("server")).toEqual({
+        ok: false,
+        error: "Only the owner can add another owner.",
+      });
+      expect(deletedUsers).toEqual(["new-uid"]);
+    });
   });
 });
 

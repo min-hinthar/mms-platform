@@ -7,16 +7,18 @@
 -- (the trigger below refuses a write that ends the last owner; a database with none already is left
 -- as it is, but nothing can then be fixed through the app). Verify after: ONE definition each of
 -- `public.mms_staff_set(uuid, uuid, text, text, boolean)`, `public.mms_staff_provision(uuid, uuid,
--- text, text, text)` and `public.mms_staff_keep_an_owner()`; for the first two
--- `has_function_privilege('service_role', …, 'execute')` true and anon / authenticated false; the
--- third revoked from anon / authenticated; the trigger `staff_keep_an_owner` on `public.staff`
--- (AFTER UPDATE OR DELETE, FOR EACH ROW — `pg_trigger.tgtype = 25`); the table `public.staff_audit`
--- with RLS on, the one SELECT policy `staff_audit_read` (to authenticated, `is_staff_at_least
--- ('manager')`), and no INSERT / UPDATE / DELETE privilege for anon or authenticated. Deploy order:
--- migration first, app second — the old app's direct `.update()`s keep working (the trigger refuses
--- only a write that would leave no active owner), and until the new app ships nothing writes the
--- audit table. In that window a direct demotion of an owner can deadlock against an RPC call; one of
--- the two is aborted cleanly (## THE ONE LOCK CYCLE LEFT below).
+-- text, text, text)`, `public.mms_staff_keep_an_owner()` and `public.mms_staff_audit_direct()`; for
+-- the first two `has_function_privilege('service_role', …, 'execute')` true and anon / authenticated
+-- false, and `proconfig` holding `lock_timeout=5s`; the last two revoked from anon / authenticated;
+-- the triggers on `public.staff`: `staff_keep_an_owner` (AFTER UPDATE OR DELETE, FOR EACH ROW —
+-- `pg_trigger.tgtype = 25`) and `staff_audit_direct` (AFTER INSERT OR UPDATE OF role, active OR
+-- DELETE, FOR EACH ROW — `tgtype = 29`); the table `public.staff_audit` with RLS on, the one SELECT
+-- policy `staff_audit_read` (to authenticated, `is_staff_at_least('manager')`), and no INSERT /
+-- UPDATE / DELETE / TRUNCATE privilege for anon, authenticated OR service_role. Deploy order:
+-- migration first, app second — the old app's direct `.update()`s and `.insert()`s keep working (the
+-- owner trigger refuses only a write that would leave no active owner) and each is recorded as a
+-- DIRECT write (## `staff_audit` below). In that window a direct demotion of an owner can deadlock
+-- against an RPC call; one of the two is aborted cleanly (## THE ONE LOCK CYCLE LEFT below).
 --
 -- ## THE THREE DEFECTS
 --   M210 — two owners demoting (or deactivating) each other at once could leave the restaurant with
@@ -33,6 +35,12 @@
 -- `mms_staff_set` (a role change OR an active flip) decides the caller, the target and the write in
 -- one transaction, in this order (`mms_staff_provision`, the invite's staff row, takes (1), (2) and
 -- the ceiling on the role granted, in that order):
+--   0. a bounded wait — `set lock_timeout = '5s'` on BOTH functions: every wait below (the team
+--      lock, either row lock) gives up after five seconds with 55P03, which the app reads as its
+--      ordinary failure ("Couldn't update that member"). Without it one stuck transaction holding a
+--      staff row (a hand-run `begin; update staff …` left open) queues every team write behind it
+--      until PostgREST's statement timeout, each holding the team lock it took first
+--      (verify-team-race.mjs order k). Function-scoped: restored when the call returns.
 --   1. the TEAM LOCK — `pg_advisory_xact_lock(hashtext('mms_staff_team'))`, first, before any row.
 --      Every team write takes it, so two of them never interleave: the second waits for the first to
 --      COMMIT and then decides on what it committed. Taken before the row locks so two calls that
@@ -49,10 +57,13 @@
 --      take anyway, so the ceiling is decided on the role the UPDATE writes over (order e). The UPDATE
 --      therefore carries no role guard of its own: nothing can change the row between the two.
 --   4. the decision, each refusal BEFORE any write: 'not_found' · 'self' (the target IS the caller's
---      row; the app's own check, in front, also matches the session's e-mail) · 'changed' (the role the console
---      showed, `p_seen_role`, is not the role now) · 'noop' (already there — no write, no audit
---      row) · 'ceiling' (the caller ranks below the target's CURRENT role or, for a role change, the
---      REQUESTED one — A6's two halves; either alone leaks).
+--      row; the app's own check, in front, also matches the session's e-mail) · 'changed' (the role
+--      the console DISPLAYED, `p_seen_role` — sent by the Team screen, never the action's own read
+--      of the row — is not the role now) · 'ceiling' (the caller ranks below the target's CURRENT
+--      role or, for a role change, the REQUESTED one — A6's two halves; either alone leaks) ·
+--      'noop' (already there — no write, no audit row). The ceiling is decided BEFORE the no-op:
+--      the other way round, a manager "deactivating" an owner already switched off was told ok
+--      about an account outside their reach.
 --   5. the write, then ONE `staff_audit` row in the same transaction (M205): it commits with the write
 --      or not at all.
 --
@@ -99,12 +110,31 @@
 -- One row per invite, role change, deactivation and reactivation: who (`actor_id`, the caller's
 -- `staff.user_id`), what (`action`), to whom (`target_id`), the role before and after, and when.
 -- No foreign key on either id, matching `menu_price_audit` / `menu_availability_audit`: the ledger
--- outlives a deleted staff row, because "who made this person a manager" is the point. RLS on, ONE
--- SELECT policy for managers and owners, and no INSERT / UPDATE / DELETE privilege for any client
--- role: it is written only inside the two functions, as the service role.
+-- outlives a deleted staff row, because "who made this person a manager" is the point. The ids join
+-- to `staff.user_id`, which nothing re-keys: it is the primary key and a foreign key to
+-- `auth.users(id)` with no ON UPDATE, no code path updates it, and an allowlisted Google/magic-link
+-- sign-in is matched by e-mail without rewriting it. A future re-key (an UPDATE of `user_id`) would
+-- strand every row naming the old id — this header says so rather than claiming a join it cannot
+-- keep. RLS on, ONE SELECT policy for managers and owners (`is_staff_at_least` requires `active`,
+-- so an offboarded manager with a live JWT reads none of it), and no INSERT / UPDATE / DELETE /
+-- TRUNCATE privilege for ANY role the API serves — service_role included: both RPC writers and the
+-- direct-write trigger are SECURITY DEFINER and write as their owner, so a grant to service_role
+-- would only let a direct service-client insert forge a row.
+--
+-- `source` says which path wrote the row. 'rpc' — through `mms_staff_set` / `mms_staff_provision`,
+-- with the deciding caller as `actor_id`. 'direct' — any OTHER write to `staff` (the old app's
+-- `.insert()` / `.update()` in the rollout window, a preview built on an older base afterwards — they
+-- share the project — a hand-run statement, an auth user's cascade), recorded by the AFTER trigger
+-- `staff_audit_direct` with `actor_id` NULL, because nothing in a direct write says who decided it.
+-- The two RPCs mark their own write with a transaction-local `mms.team_rpc = 'on'` around exactly
+-- that statement, and the trigger skips a marked write, so an RPC write is recorded once. The mark
+-- is attribution, not a boundary: setting it takes `set_config`, which PostgREST does not expose,
+-- and whoever can run SQL on the project can rewrite this table anyway. A direct DELETE is the one
+-- action only the trigger writes (`removed`: the role it held, no role after).
 --
 -- Statuses (`mms_staff_set`): 'ok' | 'noop' | 'not_authorized' | 'not_found' | 'self' | 'changed' |
--- 'ceiling'. (`mms_staff_provision`): 'ok' | 'not_authorized' | 'ceiling' | 'exists'. Each returns
+-- 'ceiling'. (`mms_staff_provision`): 'ok' | 'not_authorized' | 'ceiling' | 'exists'. A lock wait
+-- past five seconds RAISES 55P03 in either (step 0), which the app reads as a failure. Each returns
 -- jsonb `{status, …}`; a malformed call (a NULL id, an unknown role, neither or both of p_role and
 -- p_active) RAISES — it is a bug in the caller, never a verdict about anyone's authority.
 --
@@ -112,30 +142,43 @@
 -- session can interleave, scripts/verify-team-race.mjs (`--mutants` replays every rule of this file,
 -- the single-session ones against the SQL test). Idempotent: `if not exists` on the table and its
 -- indexes, `drop policy if exists` before the policy, `create or replace` on the functions and the
--- trigger (no DROP of a function: the MCP apply path cannot confirm one), grants restated.
+-- triggers (no DROP of a function: the MCP apply path cannot confirm one), grants restated. The
+-- table is created once: re-applying this file never alters its columns or CHECKs (they are pinned by
+-- the SQL test's M210.12, not by the mutant battery, which can only replay what `create or replace`
+-- re-creates).
 
 -- ── 1. the audit ledger (M205) ───────────────────────────────────────────────────────────────────
 create table if not exists public.staff_audit (
   id         uuid primary key default gen_random_uuid(),
-  -- `staff.user_id` of the RESOLVED caller row (StaffCaller.staffId) — no FK, see the header.
-  actor_id   uuid not null,
+  -- `staff.user_id` of the RESOLVED caller row (StaffCaller.staffId) — no FK, see the header. NULL
+  -- only for a direct write, which carries no caller (`staff_audit_source`).
+  actor_id   uuid,
+  -- 'rpc' — written by mms_staff_set / mms_staff_provision; 'direct' — by `staff_audit_direct`.
+  source     text not null default 'rpc' check (source in ('rpc', 'direct')),
   action     text not null
-             check (action in ('invited', 'role_changed', 'deactivated', 'reactivated')),
+             check (action in ('invited', 'role_changed', 'deactivated', 'reactivated', 'removed')),
   target_id  uuid not null,
   from_role  text check (from_role in ('server', 'manager', 'owner')),
-  to_role    text not null check (to_role in ('server', 'manager', 'owner')),
+  to_role    text check (to_role in ('server', 'manager', 'owner')),
   created_at timestamptz not null default now(),
+  -- An RPC row names the caller who decided it; a direct row names nobody, rather than a guess.
+  constraint staff_audit_source check ((source = 'rpc') = (actor_id is not null)),
   -- The row says what happened and nothing it cannot: an invite has no role before; a role change
-  -- moved between two DIFFERENT roles; an active flip records the role it happened at, unchanged.
+  -- moved between two DIFFERENT roles; an active flip records the role it happened at, unchanged;
+  -- a removal (a direct DELETE — no RPC deletes) records the role it held and none after.
   constraint staff_audit_shape check (
-    (action = 'invited' and from_role is null)
-    or (action = 'role_changed' and from_role is not null and from_role <> to_role)
+    (action = 'invited' and from_role is null and to_role is not null)
+    or (action = 'role_changed' and from_role is not null and to_role is not null
+        and from_role <> to_role)
     or (action in ('deactivated', 'reactivated') and from_role = to_role)
+    or (action = 'removed' and source = 'direct' and from_role is not null and to_role is null)
   )
 );
 comment on table public.staff_audit is
-  'M205 — one row per team write (invite, role change, deactivation, reactivation), written in the '
-  'same transaction as the write by mms_staff_set / mms_staff_provision. Managers and owners read it.';
+  'M205 — one row per team write (invite, role change, deactivation, reactivation, removal), written '
+  'in the same transaction as the write: by mms_staff_set / mms_staff_provision (source rpc, the '
+  'caller as actor), or by the staff_audit_direct trigger for any other writer (source direct, no '
+  'actor). Managers and owners read it.';
 create index if not exists staff_audit_target_idx on public.staff_audit (target_id, created_at desc);
 create index if not exists staff_audit_created_idx on public.staff_audit (created_at desc);
 
@@ -144,11 +187,14 @@ drop policy if exists staff_audit_read on public.staff_audit;
 create policy staff_audit_read on public.staff_audit
   for select to authenticated using (public.is_staff_at_least('manager'));
 -- No insert / update / delete policy, and no such privilege either: with RLS on and no permissive
--- policy a client write is refused anyway, and with no grant it never reaches RLS. Stated so a later
--- reader does not "fix" the omission and open a path to a fictional entry.
-revoke all on table public.staff_audit from public, anon, authenticated;
+-- policy a client write is refused anyway, and with no grant it never reaches RLS. service_role gets
+-- NOTHING (it bypasses RLS, so a grant would be the whole door): every writer is a SECURITY DEFINER
+-- function writing as its owner, and nothing in the app reads the ledger through the service client.
+-- `revoke all` from service_role also undoes the hosted project's default privileges, which grant
+-- every new public table to it. Stated so a later reader does not "fix" the omission and open a
+-- path to a fictional entry.
+revoke all on table public.staff_audit from public, anon, authenticated, service_role;
 grant select on table public.staff_audit to authenticated;
-grant select, insert on table public.staff_audit to service_role;
 
 -- ── 2. a role change or an active flip (M210 · M208 · M205) ─────────────────────────────────────
 create or replace function public.mms_staff_set(
@@ -158,7 +204,7 @@ create or replace function public.mms_staff_set(
   p_role text default null,
   p_active boolean default null
 ) returns jsonb
-language plpgsql security definer set search_path = '' as $$
+language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$
 declare
   v_caller_role   text;
   v_caller_active boolean;
@@ -212,22 +258,28 @@ begin
   if v_target_role <> p_seen_role then
     return jsonb_build_object('status', 'changed', 'role', v_target_role);
   end if;
-  if (p_role is not null and p_role = v_target_role)
-     or (p_active is not null and p_active = v_target_active) then
-    return jsonb_build_object('status', 'noop', 'role', v_target_role, 'active', v_target_active);
-  end if;
+  -- The ceiling BEFORE the no-op: an account outside the caller's reach is refused even when the
+  -- request would change nothing, so "ok" never answers for a row this caller may not touch.
   if v_caller_rank < (case v_target_role when 'owner' then 3 when 'manager' then 2 else 1 end)
      or (p_role is not null
          and v_caller_rank < (case p_role when 'owner' then 3 when 'manager' then 2 else 1 end)) then
     return jsonb_build_object('status', 'ceiling');
   end if;
+  if (p_role is not null and p_role = v_target_role)
+     or (p_active is not null and p_active = v_target_active) then
+    return jsonb_build_object('status', 'noop', 'role', v_target_role, 'active', v_target_active);
+  end if;
 
-  -- (5) the write, and its audit row in the same transaction.
+  -- (5) the write, and its audit row in the same transaction. The mark around the UPDATE tells
+  -- `staff_audit_direct` this write is recorded below, with its caller — set for that one statement
+  -- and cleared after it, so a later direct write in the same transaction is still recorded.
+  perform set_config('mms.team_rpc', 'on', true);
   update public.staff s
      set role = coalesce(p_role, s.role),
          active = coalesce(p_active, s.active),
          updated_at = now()
    where s.user_id = p_target;
+  perform set_config('mms.team_rpc', '', true);
   v_action := case when p_role is not null then 'role_changed'
                    when p_active then 'reactivated' else 'deactivated' end;
   insert into public.staff_audit (actor_id, action, target_id, from_role, to_role)
@@ -256,7 +308,7 @@ create or replace function public.mms_staff_provision(
   p_role text,
   p_display_name text
 ) returns jsonb
-language plpgsql security definer set search_path = '' as $$
+language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$
 declare
   v_caller_role   text;
   v_caller_active boolean;
@@ -292,8 +344,12 @@ begin
   end if;
 
   begin
+    -- The same mark as mms_staff_set's write (recorded below, with its caller). Inside the block: a
+    -- unique_violation rolls the block back, and the mark with it.
+    perform set_config('mms.team_rpc', 'on', true);
     insert into public.staff (user_id, email, role, display_name)
       values (p_user_id, lower(p_email), p_role, p_display_name);
+    perform set_config('mms.team_rpc', '', true);
   exception when unique_violation then
     -- The row (or another row with that e-mail) is already there. Said as one status, never which:
     -- the action answers every create failure with one sentence (S1-audit S7).
@@ -337,3 +393,42 @@ create or replace trigger staff_keep_an_owner
 -- A trigger function fires as its owner whatever the grants; revoke anyway so it is not reachable as
 -- an RPC (the party cap's lockdown, 20260621000000_abuse_limits.sql; LEARNINGS #58).
 revoke all on function public.mms_staff_keep_an_owner() from public, anon, authenticated;
+
+-- ── 5. every OTHER write to `staff` is recorded too (M205) ──────────────────────────────────────
+-- The header's ## `staff_audit`: a write that did not come through the two RPCs (no `mms.team_rpc`
+-- mark) leaves a `source = 'direct'` row with no actor. Only a TEAM change is recorded — the row
+-- arriving or leaving, its role, its active flag — never a rename, an e-mail or a PIN: the trigger
+-- fires on `update of role, active`, and an UPDATE that names those columns without changing them
+-- writes nothing. One UPDATE that changes both writes two rows, role first, the flip at the new role.
+create or replace function public.mms_staff_audit_direct() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if current_setting('mms.team_rpc', true) = 'on' then
+    return null; -- an RPC write: recorded by the RPC, with its caller
+  end if;
+  if tg_op = 'INSERT' then
+    insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+      values (null, 'direct', 'invited', new.user_id, null, new.role);
+  elsif tg_op = 'DELETE' then
+    insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+      values (null, 'direct', 'removed', old.user_id, old.role, null);
+  else
+    if new.role is distinct from old.role then
+      insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+        values (null, 'direct', 'role_changed', new.user_id, old.role, new.role);
+    end if;
+    if new.active is distinct from old.active then
+      insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+        values (null, 'direct', case when new.active then 'reactivated' else 'deactivated' end,
+                new.user_id, new.role, new.role);
+    end if;
+  end if;
+  return null;
+end $$;
+
+create or replace trigger staff_audit_direct
+  after insert or update of role, active or delete on public.staff
+  for each row
+  execute function public.mms_staff_audit_direct();
+
+revoke all on function public.mms_staff_audit_direct() from public, anon, authenticated;

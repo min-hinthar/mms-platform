@@ -242,10 +242,24 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     p_role: parsed.data.role,
     p_display_name: parsed.data.displayName,
   });
-  const outcome = provisionOutcome(rowErr ? null : readProvisionVerdict(verdict));
+  const status = rowErr ? null : readProvisionVerdict(verdict);
+  const outcome = provisionOutcome(status);
   if (!outcome.ok) {
-    await db.auth.admin.deleteUser(created.user.id).catch(() => {});
-    return outcome;
+    // An UNREADABLE answer (a transport drop, a shape we do not know) is not a refusal: the RPC may
+    // have committed and its reply been lost. Deleting the auth user then would cascade away a
+    // member who WAS added, leaving their `invited` ledger row and a console that says it failed.
+    // So the row decides — present, it is the success it was; absent or unreadable, nothing landed
+    // that we can see, and the account goes (if a row did land after all, the cascade's delete is
+    // itself recorded by `staff_audit_direct` as a removal, so the ledger still tells the truth).
+    // A READABLE refusal is the RPC saying it wrote nothing, and is never second-guessed.
+    const landed =
+      status === null &&
+      !!(await db.from("staff").select("user_id").eq("user_id", created.user.id).maybeSingle())
+        .data;
+    if (!landed) {
+      await db.auth.admin.deleteUser(created.user.id).catch(() => {});
+      return outcome;
+    }
   }
 
   auditStaffAction("staff_provisioned", caller.staffId, {

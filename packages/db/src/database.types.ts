@@ -1860,30 +1860,33 @@ export type Database = {
       staff_audit: {
         Row: {
           action: string
-          actor_id: string
+          actor_id: string | null
           created_at: string
           from_role: string | null
           id: string
+          source: string
           target_id: string
-          to_role: string
+          to_role: string | null
         }
         Insert: {
           action: string
-          actor_id: string
+          actor_id?: string | null
           created_at?: string
           from_role?: string | null
           id?: string
+          source?: string
           target_id: string
-          to_role: string
+          to_role?: string | null
         }
         Update: {
           action?: string
-          actor_id?: string
+          actor_id?: string | null
           created_at?: string
           from_role?: string | null
           id?: string
+          source?: string
           target_id?: string
-          to_role?: string
+          to_role?: string | null
         }
         Relationships: []
       }

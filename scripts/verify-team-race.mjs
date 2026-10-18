@@ -38,6 +38,11 @@
  *       staff row, no audit row (`mms_staff_provision`'s caller lock).
  *   (i) O promotes a server and HOLDS → manager M's invite BLOCKS on O, then `ok` — the invite takes
  *       the team lock like every other team write (`mms_staff_provision`'s step 1).
+ *   (k) THE BOUNDED WAIT. X holds server S's row FOR UPDATE and never lets go (a hand-run `begin;
+ *       update staff …` left open) → M's deactivation of S BLOCKS on X and gives up at the
+ *       functions' `lock_timeout` (55P03) while X still holds the row; another team write lands
+ *       meanwhile (the team lock went with the failed call). Then X holds M's own row → M's invite
+ *       BLOCKS on it and gives up the same way, writing no staff row and no ledger row.
  *   (j) THE MIXED ORDER. B (owner) promotes a server through mms_staff_set and HOLDS the team lock →
  *       W's hand demotion of owner A locks A's row and its trigger BLOCKS on B → B's demotion of A
  *       wants A's row: a cycle. Postgres's deadlock detector aborts one side (measured: the direct
@@ -98,7 +103,13 @@ const MIGRATION_FILE = "20261018130000_m210_team_safety.sql";
 const MIGRATION = path.join(ROOT, "supabase/migrations", MIGRATION_FILE);
 const SQL_TEST = path.join(ROOT, "supabase/tests/m210_team_safety_test.sql");
 const TAG = "M210R";
-const FUNCTIONS = ["mms_staff_set", "mms_staff_provision", "mms_staff_keep_an_owner"];
+const FUNCTIONS = [
+  "mms_staff_set",
+  "mms_staff_provision",
+  "mms_staff_keep_an_owner",
+  "mms_staff_audit_direct",
+];
+const TRIGGERS = ["staff_keep_an_owner", "staff_audit_direct"];
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -364,10 +375,32 @@ function fixture(order, roles) {
   return ids;
 }
 const roleOf = (id) => q(`select role || ':' || active from public.staff where user_id = '${id}';`);
+/** The RPC ledger rows naming any of `ids` (the fixtures' own INSERTs leave `direct` rows). */
 const auditsOf = (ids) =>
+  q(`select count(*) from public.staff_audit
+      where source = 'rpc'
+        and (target_id in (${ids.map((i) => `'${i}'`).join(", ")})
+             or actor_id in (${ids.map((i) => `'${i}'`).join(", ")}));`);
+/** Every ledger row naming any of `ids`, whichever path wrote it. */
+const allAuditsOf = (ids) =>
   q(`select count(*) from public.staff_audit
       where target_id in (${ids.map((i) => `'${i}'`).join(", ")})
          or actor_id in (${ids.map((i) => `'${i}'`).join(", ")});`);
+/** The direct-write rows (`staff_audit_direct`) for `id` with `action`. */
+const directAuditsOf = (id, action) =>
+  q(`select count(*) from public.staff_audit
+      where source = 'direct' and target_id = '${id}' and action = '${action}';`);
+/** Whether `s`'s fired statement finishes within `ms` — polled, never slept. */
+async function doneWithin(s, ms) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (s.done()) return { done: true, ms: Date.now() - t0 };
+    if (s.fatal) throw new Error(`${TAG} ${s.name} errored:\n${s.fatal}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return { done: false, ms: Date.now() - t0 };
+}
+const LOCK_TIMEOUT = "ERR:canceling statement due to lock timeout";
 const owners = () =>
   q(`select count(*) from public.staff where role = 'owner' and active
        and display_name like '${TAG} %';`);
@@ -514,6 +547,10 @@ const ORDERS = {
           true,
         ],
         ["exactly one owner remains", owners(), "1"],
+        // M205 for writers that skip the RPCs: the committed hand demotion is in the ledger as a
+        // direct write; the refused one rolled back with its row.
+        ["W1's hand demotion is recorded as direct", directAuditsOf(f.A, "role_changed"), "1"],
+        ["W2's refused one left no row", directAuditsOf(f.B, "role_changed"), "0"],
       ];
     });
   },
@@ -564,7 +601,7 @@ const ORDERS = {
           q(`select count(*) from public.staff where user_id = '${fresh}';`),
           "0",
         ],
-        ["no audit row was written", auditsOf([fresh]), "0"],
+        ["no audit row was written", allAuditsOf([fresh]), "0"],
       ];
     });
   },
@@ -588,6 +625,7 @@ const ORDERS = {
         ["M's invite queued behind O's team write", how, "blocked"],
         ["M's invite landed after it", r, "ok"],
         ["one invite audit row", auditsOf([fresh]), "1"],
+        ["recorded once — not again as a direct write", allAuditsOf([fresh]), "1"],
       ];
     });
   },
@@ -626,6 +664,59 @@ const ORDERS = {
           auditsOf([f.X, f.A]),
           loser === "direct" ? "2" : "1",
         ],
+        [
+          "the direct demotion is in the ledger only if it landed",
+          directAuditsOf(f.A, "role_changed"),
+          loser === "direct" ? "0" : "1",
+        ],
+      ];
+    });
+  },
+  k: () => {
+    // A stuck writer must cost ONE call its answer, never queue the team behind it: both functions
+    // carry `set lock_timeout = '5s'` (the migration's step 0). The sessions here run with
+    // lock_timeout = 0, so only the functions' own setting can end the wait.
+    const f = fixture("k", { O: "owner", M: "manager", S: "server", T: "server" });
+    const fresh = q(`select gen_random_uuid();`);
+    q(`insert into auth.users (id, email) values ('${fresh}', '${fresh}@m210r.test');`);
+    return withSessions(["x", "m", "n"], async (x, m, n) => {
+      // Phase 1 — mms_staff_set waits on the target's row.
+      await x.run("begin;");
+      await x.run(`select 1 from public.staff where user_id = '${f.S}' for update;`);
+      m.fire(setActive(f.M, f.S, "server", false));
+      const how1 = await blockedOrDone(m, x);
+      const w1 = await doneWithin(m, 12000);
+      let rN = "(not run: the call never gave up)";
+      if (w1.done) rN = await n.run(setActive(f.O, f.T, "server", false));
+      await x.run("commit;");
+      const r1 = await m.collect();
+      // Phase 2 — mms_staff_provision waits on the caller's own row.
+      await x.run("begin;");
+      await x.run(`select 1 from public.staff where user_id = '${f.M}' for update;`);
+      m.fire(
+        attempt(
+          `select (public.mms_staff_provision('${f.M}', '${fresh}', '${fresh}@m210r.test', 'server', '${TAG} k-invite'))->>'status'`,
+        ),
+      );
+      const how2 = await blockedOrDone(m, x);
+      const w2 = await doneWithin(m, 12000);
+      await x.run("commit;");
+      const r2 = await m.collect();
+      return [
+        ["M's deactivation waited on the stuck row", how1, "blocked"],
+        ["and gave up while it was still held", w1.done, true],
+        ["as a lock timeout (55P03)", r1, LOCK_TIMEOUT],
+        ["another team write landed meanwhile", rN, "ok"],
+        ["S is still on", roleOf(f.S), "server:true"],
+        ["M's invite waited on M's stuck row", how2, "blocked"],
+        ["and gave up while it was still held", w2.done, true],
+        ["as a lock timeout (55P03)", r2, LOCK_TIMEOUT],
+        [
+          "no staff row was written",
+          q(`select count(*) from public.staff where user_id = '${fresh}';`),
+          "0",
+        ],
+        ["no ledger row was written", allAuditsOf([fresh]), "0"],
       ];
     });
   },
@@ -634,20 +725,22 @@ const ORDERS = {
 let lockOwned = false;
 /** Every open Session, so a signal can end their backends before the restore needs their locks. */
 const LIVE_SESSIONS = new Set();
-/** Sweep every fixture: audit rows, staff rows (the owner trigger off for THIS transaction only — a
- *  fixture owner may be the last one), then their auth users. */
+/** Sweep every fixture: staff rows (the owner trigger off for THIS transaction only — a fixture
+ *  owner may be the last one), their auth users, then every audit row naming them (the sweep's own
+ *  deletes are direct writes and leave `removed` rows). */
 function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
   q(`begin;
      create temp table m210r_ids on commit drop as
        select user_id as id from public.staff where display_name like '${TAG} %'
        union select id from auth.users where email like '%@m210r.test';
-     delete from public.staff_audit a using m210r_ids i
-       where a.target_id = i.id or a.actor_id = i.id;
      alter table public.staff disable trigger staff_keep_an_owner;
      delete from public.staff s using m210r_ids i where s.user_id = i.id;
      alter table public.staff enable trigger staff_keep_an_owner;
      delete from auth.users u using m210r_ids i where u.id = i.id;
+     -- LAST: the deletes above are direct writes, so staff_audit_direct records each one.
+     delete from public.staff_audit a using m210r_ids i
+       where a.target_id = i.id or a.actor_id = i.id;
      commit;`);
 }
 
@@ -682,15 +775,21 @@ const IDENTITY = `select p.proname || '|' || md5(pg_get_functiondef(p.oid)) || '
                    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'public' and p.proname in (${FUNCTIONS.map((f) => `'${f}'`).join(", ")})
                  union all
-                 select 'trigger|' || md5(pg_get_triggerdef(t.oid)) || '|' || t.tgenabled::text
+                 select 'trigger|' || t.tgname || '|' || md5(pg_get_triggerdef(t.oid)) || '|' ||
+                        t.tgenabled::text
                    from pg_trigger t
-                  where t.tgrelid = 'public.staff'::regclass and t.tgname = 'staff_keep_an_owner'
+                  where t.tgrelid = 'public.staff'::regclass
+                    and t.tgname in (${TRIGGERS.map((t) => `'${t}'`).join(", ")})
+                 union all
+                 select 'table|staff_audit|' ||
+                        coalesce(array_to_string(c.relacl::text[], ','), '(default)')
+                   from pg_class c where c.oid = 'public.staff_audit'::regclass
                   order by 1;`;
 const identityRows = (out) =>
   out
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => /^(mms_staff_\w+|trigger)\|/.test(l))
+    .filter((l) => /^(mms_staff_\w+|trigger|table)\|/.test(l))
     .join("\n");
 
 /** Which migration LAST defines a function — the chain must be this file alone (see the header). */
@@ -729,6 +828,11 @@ function runSqlTest() {
 const SET = "mms_staff_set";
 const PROV = "mms_staff_provision";
 const TRIG = "mms_staff_keep_an_owner";
+const DIRECT = "mms_staff_audit_direct";
+const SET_SIG =
+  "language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$\ndeclare\n  v_caller_role   text;\n  v_caller_active boolean;\n  v_target_role   text;";
+const PROV_SIG =
+  "language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$\ndeclare\n  v_caller_role   text;\n  v_caller_active boolean;\n  v_caller_rank   integer;";
 const MUTANTS = [
   // ── mms_staff_set: the caller ──
   {
@@ -909,6 +1013,119 @@ const MUTANTS = [
     find: "  if not exists (select 1 from public.staff s where s.role = 'owner' and s.active) then",
     replace: "  if not exists (select 1 from public.staff s where s.role = 'owner') then",
   },
+  {
+    id: "set/noop-before-ceiling",
+    fn: SET,
+    expect: "M210.6 · a manager cannot switch an off owner off",
+    why: "the blind pass on #366: the no-op decided before the ceiling answers a manager ok about an owner already switched off — an account outside their reach, reported as theirs to manage",
+    edits: [
+      {
+        find: '  -- The ceiling BEFORE the no-op: an account outside the caller\'s reach is refused even when the\n  -- request would change nothing, so "ok" never answers for a row this caller may not touch.\n',
+        replace:
+          "  if (p_role is not null and p_role = v_target_role)\n     or (p_active is not null and p_active = v_target_active) then\n    return jsonb_build_object('status', 'noop', 'role', v_target_role, 'active', v_target_active);\n  end if;\n",
+      },
+    ],
+  },
+  // ── the ledger's privileges (M205) ──
+  {
+    id: "audit/service-role-may-write",
+    fn: "staff_audit",
+    expect: "M210.0 · service_role cannot insert, update, delete or truncate the ledger",
+    why: "service_role bypasses RLS, so an INSERT grant lets any service-client insert forge a ledger row — `who made this person a manager` answered with a fiction; both writers are SECURITY DEFINER and need none",
+    find: "revoke all on table public.staff_audit from public, anon, authenticated, service_role;\ngrant select on table public.staff_audit to authenticated;",
+    replace:
+      "revoke all on table public.staff_audit from public, anon, authenticated, service_role;\ngrant select on table public.staff_audit to authenticated;\ngrant select, insert on table public.staff_audit to service_role;",
+  },
+  // ── the RPCs' mark and the direct-write ledger (M205, Codex P2 on #366) ──
+  {
+    id: "set/rpc-mark-missing",
+    fn: SET,
+    expect: "M210.8 · ONE audit row per write",
+    why: "without the mark the direct-write trigger records the RPC's own UPDATE too: every console change appears twice, once with its caller and once with nobody",
+    find: "  perform set_config('mms.team_rpc', 'on', true);\n  update public.staff s",
+    replace: "  update public.staff s",
+  },
+  {
+    id: "set/rpc-mark-outlives-its-write",
+    fn: SET,
+    expect: "M210.14 · a direct write after an RPC write is still recorded",
+    why: "the mark left on for the rest of the transaction: any later write in it — a direct UPDATE batched after an RPC call — is taken for the RPC's and never recorded",
+    find: "   where s.user_id = p_target;\n  perform set_config('mms.team_rpc', '', true);\n",
+    replace: "   where s.user_id = p_target;\n",
+  },
+  {
+    id: "provision/rpc-mark-missing",
+    fn: PROV,
+    expect: "M210.9 · the invite is recorded ONCE",
+    why: "the invite's INSERT unmarked: recorded once by the RPC with its caller and again as a direct write with none",
+    find: "    perform set_config('mms.team_rpc', 'on', true);\n    insert into public.staff",
+    replace: "    insert into public.staff",
+  },
+  {
+    id: "provision/rpc-mark-outlives-its-write",
+    fn: PROV,
+    expect: "M210.14 · a direct role change is recorded",
+    why: "the invite's mark never cleared: every direct write after an invite in the same transaction goes unrecorded",
+    find: "      values (p_user_id, lower(p_email), p_role, p_display_name);\n    perform set_config('mms.team_rpc', '', true);\n",
+    replace: "      values (p_user_id, lower(p_email), p_role, p_display_name);\n",
+  },
+  {
+    id: "direct/never-records",
+    fn: DIRECT,
+    expect: "M210.14 · a direct insert is recorded",
+    why: "Codex P2 on #366: the old app's direct inserts and updates in the rollout window, and every preview on an older base after it, change the team with no ledger row",
+    find: "  if current_setting('mms.team_rpc', true) = 'on' then\n    return null; -- an RPC write: recorded by the RPC, with its caller\n  end if;\n",
+    replace: "  return null;\n",
+  },
+  {
+    id: "direct/records-rpc-writes-too",
+    fn: DIRECT,
+    expect: "M210.8 · ONE audit row per write",
+    why: "the mark ignored: an RPC write is recorded twice, and the second row names nobody",
+    find: "  if current_setting('mms.team_rpc', true) = 'on' then\n    return null; -- an RPC write: recorded by the RPC, with its caller\n  end if;\n",
+    replace: "",
+  },
+  {
+    id: "direct/flip-swapped",
+    fn: DIRECT,
+    expect: "M210.14 · a direct deactivation is recorded as one",
+    why: "an offboarding recorded as a reinstatement — the one direction a reader must not get backwards",
+    find: "case when new.active then 'reactivated' else 'deactivated' end",
+    replace: "case when new.active then 'deactivated' else 'reactivated' end",
+  },
+  {
+    id: "direct/both-changes-one-row",
+    fn: DIRECT,
+    expect: "M210.14 · a direct change of both is recorded as both",
+    why: "one UPDATE changing role AND active recorded as the role change alone: the deactivation vanishes from the ledger",
+    find: "    end if;\n    if new.active is distinct from old.active then",
+    replace: "    elsif new.active is distinct from old.active then",
+  },
+  {
+    id: "direct/removal-not-recorded",
+    fn: DIRECT,
+    expect: "M210.14 · a removal is recorded",
+    why: "a deleted member (or an auth user deleted, by cascade) leaves no trace that they were ever removed",
+    find: "    insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)\n      values (null, 'direct', 'removed', old.user_id, old.role, null);\n",
+    replace: "    null;\n",
+  },
+  // ── the bounded wait: only order k can see it ──
+  {
+    id: "set/no-lock-timeout",
+    fn: SET,
+    expect: ["k"],
+    why: "the blind pass on #366: with no bound, one transaction left holding a staff row queues every team write behind it until PostgREST's statement timeout — each holding the team lock it took first",
+    find: SET_SIG,
+    replace: SET_SIG.replace(" set lock_timeout = '5s'", ""),
+  },
+  {
+    id: "provision/no-lock-timeout",
+    fn: PROV,
+    expect: ["k"],
+    why: "the same unbounded wait on the invite: a stuck caller row holds every invite, and the team lock, until the statement timeout",
+    find: PROV_SIG,
+    replace: PROV_SIG.replace(" set lock_timeout = '5s'", ""),
+  },
   // ── the locks: only the orders can see them ──
   {
     id: "set/team-lock-dropped",
@@ -972,7 +1189,9 @@ const MUTANTS = [
   {
     id: "provision/caller-lock-dropped",
     fn: PROV,
-    expect: ["h"],
+    // k's second phase waits on exactly this lock (the invite's caller row): without it there is no
+    // wait to bound, so k reddens with h — the same lock, seen twice.
+    expect: ["h", "k"],
     why: "M208 on the invite: a manager demoted mid-call still mints an account",
     find: "    from public.staff s where s.user_id = p_caller\n    for share;\n  v_caller_rank := case v_caller_role when 'owner' then 3 when 'manager' then 2\n                                      when 'server' then 1 else 0 end;\n  -- No row reads as NULLs: rank 0, never active — one refusal for gone, off and below the floor.\n  if v_caller_active is not true or v_caller_rank < 2 then\n    return jsonb_build_object('status', 'not_authorized');\n  end if;\n  if v_caller_rank < (case p_role",
     replace:
@@ -1014,7 +1233,7 @@ async function runMutants() {
   // Drift, with NOTHING written: what would this migration produce, rolled back?
   const live = identityRows(q(IDENTITY));
   const expected = identityRows(q(`begin;\n${MIGRATION_TEXT}\n${IDENTITY}\nrollback;`));
-  if (live !== expected || live.split("\n").length !== FUNCTIONS.length + 1) {
+  if (live !== expected || live.split("\n").length !== FUNCTIONS.length + TRIGGERS.length + 1) {
     throw new Error(
       `${TAG} REFUSED — the live definitions are not what ${MIGRATION_FILE} produces (or one is ` +
         `missing).\n  live:\n${live}\n  migration:\n${expected}`,

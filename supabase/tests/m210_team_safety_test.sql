@@ -20,7 +20,11 @@
 --
 -- Red-first: plpgsql ASSERT stops at the FIRST failure, so a red-then-green run proves one case.
 --
--- Run against any QR DB (rolls back — leaves NO data behind):
+-- ⚠️ LOCAL / THROWAWAY STACKS ONLY — never the shared QR project (there is no staging: preview and
+-- prod are the one project, docs/ENV.md). It rolls back and leaves no data behind, but WHILE it runs
+-- it holds `ALTER TABLE public.staff DISABLE TRIGGER` (an ACCESS EXCLUSIVE lock on `staff`, so every
+-- staff read and sign-in on that database waits for this file) and switches every live owner off
+-- inside its transaction. Run it against `supabase start` or CI's stack:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m210_team_safety_test.sql
 
 begin;
@@ -63,8 +67,18 @@ $$;
 create or replace function pg_temp.active_of(p text) returns boolean language sql as $$
   select active from public.staff where user_id = pg_temp.id(p)
 $$;
+-- The RPC ledger rows naming `p` (the fixtures' own INSERTs leave `direct` rows: M210.14).
 create or replace function pg_temp.audits(p text) returns integer language sql as $$
+  select count(*)::integer from public.staff_audit where target_id = pg_temp.id(p) and source = 'rpc'
+$$;
+-- Every ledger row naming `p`, whichever path wrote it — what "recorded once" is counted against.
+create or replace function pg_temp.all_audits(p text) returns integer language sql as $$
   select count(*)::integer from public.staff_audit where target_id = pg_temp.id(p)
+$$;
+-- The direct-write rows naming `p` with `action`.
+create or replace function pg_temp.direct(p text, p_action text) returns integer language sql as $$
+  select count(*)::integer from public.staff_audit
+   where target_id = pg_temp.id(p) and source = 'direct' and actor_id is null and action = p_action
 $$;
 -- A role change / an active flip by `by`, on `who`, as the console showed `seen`.
 create or replace function pg_temp.set_role(p_by text, p_who text, p_seen text, p_role text)
@@ -121,7 +135,42 @@ begin
      and not has_table_privilege('authenticated', 'public.staff_audit', 'update')
      and not has_table_privilege('authenticated', 'public.staff_audit', 'delete'),
     'M210.0 · no client role can write the ledger, and anon cannot read it';
+  -- service_role bypasses RLS, so a privilege is the whole door: a direct service-client insert
+  -- would forge a ledger row. Every writer is a SECURITY DEFINER function (M210.8 / .9 / .14 prove
+  -- they still write), so it needs none.
+  assert not has_table_privilege('service_role', 'public.staff_audit', 'insert')
+     and not has_table_privilege('service_role', 'public.staff_audit', 'update')
+     and not has_table_privilege('service_role', 'public.staff_audit', 'delete')
+     and not has_table_privilege('service_role', 'public.staff_audit', 'truncate'),
+    'M210.0 · service_role cannot insert, update, delete or truncate the ledger';
+  assert not has_function_privilege('anon', 'public.mms_staff_audit_direct()', 'execute')
+     and not has_function_privilege('authenticated', 'public.mms_staff_audit_direct()', 'execute'),
+    'M210.0 · the direct-write trigger function is not reachable as an RPC';
+  assert (select tgtype from pg_trigger
+           where tgrelid = 'public.staff'::regclass and tgname = 'staff_audit_direct'
+             and tgenabled = 'O') = 29,
+    'M210.0 · staff_audit_direct is AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW, and enabled';
+  for r in select p.proname, p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = any(want) loop
+    assert 'lock_timeout=5s' = any(r.proconfig),
+      format('M210.0 · %s bounds its lock waits (lock_timeout=5s; got %s)', r.proname, r.proconfig);
+  end loop;
 end $$;
+
+-- The privilege, exercised: as service_role, every write to the ledger is refused.
+set local role service_role;
+do $$
+declare e text;
+begin
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, action, target_id, from_role, to_role)
+                         values (gen_random_uuid(), 'invited', gen_random_uuid(), null, 'owner')$q$);
+  assert e like 'permission denied%', format('M210.0 · service_role cannot forge a ledger row (%s)', e);
+  e := pg_temp.raises($q$update public.staff_audit set to_role = 'owner'$q$);
+  assert e like 'permission denied%', format('M210.0 · service_role cannot rewrite the ledger (%s)', e);
+  e := pg_temp.raises($q$delete from public.staff_audit$q$);
+  assert e like 'permission denied%', format('M210.0 · service_role cannot erase the ledger (%s)', e);
+end $$;
+reset role;
 
 -- ══ M210.1 · the caller: gone, switched off, or below the floor — and a manager who is none ══
 do $$
@@ -203,6 +252,14 @@ begin
   j := pg_temp.set_active('b01', 'd02', 'owner', true);
   assert j->>'status' = 'ceiling',
     format('M210.6 · a manager cannot switch an owner back on either (%s)', j);
+  -- The ceiling comes BEFORE the no-op: a request that would change nothing about an owner is still
+  -- refused, never answered ok for an account outside a manager's reach.
+  j := pg_temp.set_active('b01', 'd02', 'owner', false);
+  assert j->>'status' = 'ceiling',
+    format('M210.6 · a manager cannot switch an off owner off (no ok for an owner) (%s)', j);
+  j := pg_temp.set_role('b01', 'a02', 'owner', 'owner');
+  assert j->>'status' = 'ceiling',
+    format('M210.6 · a manager cannot re-send an owner their own role (%s)', j);
   assert pg_temp.role_of('a02') = 'owner' and pg_temp.active_of('a02')
      and pg_temp.active_of('d02') is false and pg_temp.audits('a02') = 0
      and pg_temp.audits('d02') = 0,
@@ -237,8 +294,10 @@ begin
     format('M210.8 · the role change answers what it did (%s)', j);
   assert (select count(*) from public.staff_audit where target_id = pg_temp.id('b02')) = n + 1,
     'M210.8 · ONE audit row per write';
-  select * into r from public.staff_audit where target_id = pg_temp.id('b02')
-   order by created_at desc, id desc limit 1;
+  -- `created_at` is the transaction's now(): every row in this file shares it, so the row is picked
+  -- by what it is (the RPC's role change), never by a timestamp order that cannot tell them apart.
+  select * into r from public.staff_audit
+   where target_id = pg_temp.id('b02') and source = 'rpc' and action = 'role_changed';
   assert r.actor_id = pg_temp.id('a01') and r.action = 'role_changed'
      and r.from_role = 'manager' and r.to_role = 'server',
     format('M210.8 · the role change is recorded as who, what, from, to (%s)', row_to_json(r));
@@ -246,7 +305,7 @@ begin
   assert j->>'status' = 'ok' and j->>'email' = 'm2@m210.test',
     format('M210.8 · the deactivation answers the address to tell (%s)', j);
   select * into r from public.staff_audit
-   where target_id = pg_temp.id('b02') and action = 'deactivated';
+   where target_id = pg_temp.id('b02') and action = 'deactivated' and source = 'rpc';
   assert r.actor_id = pg_temp.id('a01') and r.from_role = 'server' and r.to_role = 'server',
     format('M210.8 · the deactivation is recorded at the role it happened at (%s)', row_to_json(r));
   j := pg_temp.set_active('a01', 'b02', 'server', true);
@@ -279,9 +338,11 @@ begin
      and (select email from public.staff where user_id = pg_temp.id('e01')) = 'new@m210.test',
     'M210.9 · the staff row is written, active, its e-mail lower-cased';
   assert exists (select 1 from public.staff_audit
-                  where target_id = pg_temp.id('e01') and action = 'invited'
+                  where target_id = pg_temp.id('e01') and action = 'invited' and source = 'rpc'
                     and actor_id = pg_temp.id('b01') and from_role is null and to_role = 'server'),
     'M210.9 · the invite is recorded';
+  assert pg_temp.all_audits('e01') = 1,
+    'M210.9 · the invite is recorded ONCE — not again as a direct write';
   j := public.mms_staff_provision(pg_temp.id('a01'), pg_temp.id('e02'), 'co@m210.test', 'owner', 'Co');
   assert j->>'status' = 'ok' and pg_temp.role_of('e02') = 'owner',
     format('M210.9 · an owner invites an owner (%s)', j);
@@ -290,7 +351,7 @@ begin
   assert j->>'status' = 'exists', format('M210.9 · the same member again is exists (%s)', j);
   j := public.mms_staff_provision(pg_temp.id('a01'), gen_random_uuid(), 'NEW@m210.test', 'server', 'A');
   assert j->>'status' = 'exists', format('M210.9 · the same e-mail again is exists (%s)', j);
-  assert pg_temp.audits('e01') = 1, 'M210.9 · a duplicate leaves no second audit row';
+  assert pg_temp.all_audits('e01') = 1, 'M210.9 · a duplicate leaves no second audit row';
 end $$;
 
 -- ══ M210.10 · a malformed call raises — it is a bug, never a verdict ═════════════════════════
@@ -311,7 +372,7 @@ end $$;
 
 -- ══ M210.11 · the table-level invariant: at least one active owner, for EVERY writer ═════════
 do $$
-declare e text;
+declare e text; n integer;
 begin
   -- Down to ONE active owner first (a01), through plain writes the trigger must allow: a co-owner
   -- demoted, another deactivated, one deleted — each while another owner remains.
@@ -322,6 +383,7 @@ begin
   assert (select count(*) from public.staff where role = 'owner' and active) = 1,
     'M210.11 · the fixture is down to one active owner';
   -- The last owner, three ways.
+  n := pg_temp.all_audits('a01');
   e := pg_temp.raises($q$update public.staff set role = 'manager' where user_id = pg_temp.id('a01')$q$);
   assert e like 'staff_keep_an_owner:%', format('M210.11 · the last owner cannot be demoted (%s)', e);
   e := pg_temp.raises($q$update public.staff set active = false where user_id = pg_temp.id('a01')$q$);
@@ -333,6 +395,8 @@ begin
     format('M210.11 · nor by deleting their auth user (the cascade) (%s)', e);
   assert pg_temp.role_of('a01') = 'owner' and pg_temp.active_of('a01'),
     'M210.11 · the last owner is still there';
+  assert pg_temp.all_audits('a01') = n,
+    'M210.11 · a refused direct write leaves no ledger row (it rolled back with the write)';
   -- What it must NOT block: the last owner's own name edit, any non-owner row, an off owner's row.
   update public.staff set display_name = 'M210 Owner Renamed' where user_id = pg_temp.id('a01');
   update public.staff set active = false where user_id = pg_temp.id('b01');
@@ -358,6 +422,66 @@ begin
   e := pg_temp.raises($q$insert into public.staff_audit (actor_id, action, target_id, from_role, to_role)
                          values (gen_random_uuid(), 'deactivated', gen_random_uuid(), 'server', 'owner')$q$);
   assert e like '%staff_audit_shape%', format('M210.12 · an active flip that moves the role is refused (%s)', e);
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+                         values (null, 'rpc', 'invited', gen_random_uuid(), null, 'server')$q$);
+  assert e like '%staff_audit_source%', format('M210.12 · an RPC row must name its caller (%s)', e);
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+                         values (gen_random_uuid(), 'direct', 'invited', gen_random_uuid(), null, 'server')$q$);
+  assert e like '%staff_audit_source%', format('M210.12 · a direct row names no caller (%s)', e);
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+                         values (gen_random_uuid(), 'rpc', 'removed', gen_random_uuid(), 'server', null)$q$);
+  assert e like '%staff_audit_shape%', format('M210.12 · no RPC removes a member (%s)', e);
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+                         values (null, 'direct', 'removed', gen_random_uuid(), 'server', 'server')$q$);
+  assert e like '%staff_audit_shape%', format('M210.12 · a removal has no role after (%s)', e);
+  e := pg_temp.raises($q$insert into public.staff_audit (actor_id, source, action, target_id, from_role, to_role)
+                         values (null, 'direct', 'invited', gen_random_uuid(), null, null)$q$);
+  assert e like '%staff_audit_shape%', format('M210.12 · an invite names the role granted (%s)', e);
+end $$;
+
+-- ══ M210.14 · a write that did NOT come through the RPCs is recorded too — once, with no actor ══
+-- (after every RPC case above, in the same transaction: the RPCs' mark must not outlive their write)
+do $$
+declare j jsonb; n integer;
+begin
+  -- A direct INSERT (the old app's provision, a hand-run bootstrap) — the fixtures above are some.
+  assert pg_temp.direct('c03', 'invited') = 1,
+    'M210.14 · a direct insert is recorded as an invite with no actor';
+  n := pg_temp.all_audits('c03');
+  update public.staff set role = 'manager' where user_id = pg_temp.id('c03');
+  assert pg_temp.direct('c03', 'role_changed') = 1
+     and exists (select 1 from public.staff_audit where target_id = pg_temp.id('c03')
+                  and source = 'direct' and action = 'role_changed'
+                  and from_role = 'server' and to_role = 'manager'),
+    'M210.14 · a direct role change is recorded, from and to';
+  update public.staff set active = false where user_id = pg_temp.id('c03');
+  assert pg_temp.direct('c03', 'deactivated') = 1 and pg_temp.direct('c03', 'reactivated') = 0,
+    'M210.14 · a direct deactivation is recorded as one';
+  -- One statement changing both writes both, the flip at the new role.
+  update public.staff set role = 'server', active = true where user_id = pg_temp.id('c03');
+  assert pg_temp.direct('c03', 'role_changed') = 2 and pg_temp.direct('c03', 'reactivated') = 1
+     and exists (select 1 from public.staff_audit where target_id = pg_temp.id('c03')
+                  and action = 'reactivated' and from_role = 'server' and to_role = 'server'),
+    'M210.14 · a direct change of both is recorded as both';
+  assert pg_temp.all_audits('c03') = n + 4, 'M210.14 · four direct changes, four rows';
+  -- Not a team change: a rename, and an UPDATE naming role/active without changing them.
+  update public.staff set display_name = 'M210 Server Renamed' where user_id = pg_temp.id('c03');
+  update public.staff set role = role, active = active where user_id = pg_temp.id('c03');
+  assert pg_temp.all_audits('c03') = n + 4, 'M210.14 · a rename or an unchanged write records nothing';
+  -- An RPC write right after: recorded ONCE, as rpc — and the direct write after IT still recorded.
+  j := pg_temp.set_role('a02', 'c03', 'server', 'manager');
+  assert j->>'status' = 'ok', format('M210.14 · the RPC write lands (%s)', j);
+  assert pg_temp.all_audits('c03') = n + 5 and pg_temp.direct('c03', 'role_changed') = 2,
+    'M210.14 · an RPC write is not double-recorded as a direct one';
+  update public.staff set role = 'server' where user_id = pg_temp.id('c03');
+  assert pg_temp.direct('c03', 'role_changed') = 3,
+    'M210.14 · a direct write after an RPC write is still recorded (the mark did not outlive it)';
+  -- A direct DELETE — through the auth user's cascade too.
+  delete from auth.users where id = pg_temp.id('c03');
+  assert pg_temp.direct('c03', 'removed') = 1
+     and exists (select 1 from public.staff_audit where target_id = pg_temp.id('c03')
+                  and action = 'removed' and from_role = 'server' and to_role is null),
+    'M210.14 · a removal is recorded with the role it held';
 end $$;
 
 -- ══ M210.13 · managers and owners read the ledger; a server reads none of it ══════════════════
@@ -374,6 +498,14 @@ do $$
 begin
   assert (select count(*) from public.staff_audit) = 0,
     'M210.13 · a server reads none of the ledger';
+end $$;
+-- d01 is a manager switched off (M210.9): `is_staff_at_least` requires `active`, so an offboarded
+-- manager whose JWT has not expired yet reads nothing.
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000210d01","role":"authenticated"}';
+do $$
+begin
+  assert (select count(*) from public.staff_audit) = 0,
+    'M210.13 · a switched-off manager reads none of the ledger';
 end $$;
 reset role;
 
