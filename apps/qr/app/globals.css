@@ -8941,7 +8941,9 @@ a .chrome-en {
    can never swallow it again. The language switch, the Help sheet's size rows, (counter-4) the
    register's OPEN arm — `aria-expanded`, the state it already carries — (manager-7) every
    `.staff-chip` on the manager rails and the drill-down sheets, and (Phase 3d) the kitchen's sound
-   circle in the bar when it sounds (`.staff-circ[aria-pressed]`) share this rule
+   circle in the bar when it sounds (`.staff-circ[aria-pressed]`), and (M190) the menu screen's
+   Kitchen menu / Market switch (two links, `.staff-chip[aria-current="page"]` — a tab pair, the
+   picked view, not a door) share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
@@ -8978,6 +8980,7 @@ a .chrome-en {
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
 .staff-circ[aria-pressed="true"],
+.staff-chip[aria-current="page"],
 .staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label {
   border-color: transparent;
@@ -14880,6 +14883,12 @@ a.aisle-tile {
   margin: var(--s2) 0 0;
   color: var(--t2);
   font-size: var(--fs-sm);
+}
+/* P2ad — the Send's sold-out re-warning: the warn ink the line's own "Not sent" tag wears (the
+   MARK tier staff act on), never a fill — the Send above it stays the one hero, and live. */
+.staff-send-hint-warn {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
 }
 /* The Undo's verb and its countdown on one row; the digits are tabular so the label does not jitter
    as the seconds fall. */

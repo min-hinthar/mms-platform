@@ -98,6 +98,8 @@ export function PickupPromise({
       togoStatus: order.togoStatus,
       arrivedAt: order.arrivedAt,
       createdAt: order.createdAt,
+      // Theme 5 — a bag Mom has started is with the kitchen, whatever the order's stamp still says.
+      kitchen,
     },
     nowTick,
   );

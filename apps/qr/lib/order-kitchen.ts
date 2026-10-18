@@ -93,6 +93,18 @@ export function bagKitchen(lines: ReadonlyArray<KitchenLine>, nowIso: string): B
 }
 
 /**
+ * Lifecycle residuals (Theme 5) — has the kitchen STARTED the bag? Mom's Start (`cooking`) or her Done
+ * (`done`) on a to-go dish is the kitchen's own word that it has the ticket, whatever the order row's
+ * fire time still says — Cook now on a held pickup moves the lines first, and the order's stamp only
+ * when its guarded write lands (`fireTicketNow`). `sent` is NOT started: a fired line nobody has
+ * tapped is the order row's to speak for (its stamp moves with the same Cook now). The ONE rule
+ * `pickupGuide` reads as "fired" beside `isFired`.
+ */
+export function bagStarted(bag: BagKitchen | null): boolean {
+  return bag === "cooking" || bag === "done";
+}
+
+/**
  * G — the to-go rail's "In the kitchen" sub. It read "Cooking" from the moment of payment (the
  * webhook stamps `togo_status = 'preparing'` before the wok is touched). Now it claims Cooking only
  * when Mom's Start says so, and the honest default is the family's "Sent to kitchen" — true of every

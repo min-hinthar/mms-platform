@@ -4,6 +4,48 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
+
+- **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook
+  now fires a held pickup's lines, `fireTicketNow` moves the paid order's own fire time to the DB clock
+  in one statement-guarded write (paid, still ahead, row count read back; a failure is logged, never
+  surfaced), so the guest's /track stops saying "You’re booked … closer to your time", the tray, pill
+  and /account stop saying "Scheduled", and the wall shows the code as Preparing while Mom cooks. And
+  a bag the kitchen has started (Start or Done) reads as with the kitchen on /track even if that write
+  failed — #359's "It’s cooking now." line then shows.
+- **Staff can mark a grocery item sold out (M190 closed).** `grocery_items.available` had no writer, so
+  the shopper's "That item isn’t available today." could never fire. /staff/menu has a second list
+  (Kitchen menu · Market): Mark sold out / Put back per item, the menu 86's gate, words and chip; the
+  write is a compare-and-swap with its row count read; the scan refuses the item at once, and the
+  aisles drop it on each shopper's next load (the grid is one read per visit, so an open one keeps it
+  until then — the staff copy says exactly that).
+- **The console's Send names a sold-out dish it would fire, before the tap (P2ad's console half).**
+  "Mohinga is sold out — remove it, or send it and tell the cook." sits under the Send on the table page
+  and the order pad, in both tongues; it is a re-warning, never a block (the race-proof SQL refusal is
+  M318, a migration).
+- **A server's half-typed note no longer vanishes (P2ar's visible half).** When the host's phone sends
+  the round before Save, the row keeps the typed text read-only ("Not saved — tell the kitchen"), the
+  page says "Mohinga went to the kitchen before this note saved — tell the kitchen.", focus lands on the
+  kept text, and "Got it" lets it go.
+- Registry: M315–M318 and J66 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
+  P2ar to the server-side signal; 19 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
+- **The blind pass and Codex on #363.** Cook now's order write is repairable: a Cook now on an
+  already-live ticket runs the same guarded write once no line of the cart is still held, so a write
+  that failed no longer leaves the bag off the wall and "Scheduled" for good (the tap-free repair is
+  M326, a migration); the guard reads the settled statuses (`paid` or `refunded`, #360 — a refund is a
+  tag, never a cancel), so a card-refunded bag cooked early moves like a cash-refunded one. The market
+  list names each SKU (brand · size · price · barcode, on the row and in the pill's name), since the
+  catalog carries same-name rows in one aisle, and its read is bounded with a full read refused rather
+  than shown partial. An undone send withdraws the stranded note's sentence and gives the field back,
+  focused. The market copy (EN, and its two Burmese drafts re-drafted for K15) promises the scan's
+  refusal at once and the aisles on the next load — the grid is one read per visit (M325). M323–M326
+  filed.
+- **Codex round 2 on #363.** "Got it" on a stranded note also withdraws its sentence from the page's
+  one status region (only while it is still that line's), so a screen reader no longer reads a note
+  that is gone; and the market toggle's outage ("Can’t reach the market shelf right now — nothing
+  changed.") is the dictionary's sentence with a Burmese twin at the render site, so a Burmese tablet
+  no longer shows it in English (one more K15 draft).
+
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 
 - **Every staff surface tells the same truth, live, and a mistake can be taken back (#360)** — a bump
@@ -71,6 +113,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   session's orders, `receipt_email` included) and T60 (the pill's stale pickup word); K30(A), M64 and
   M206 updated.
 - **Codex on #359: a Ready bag is re-read every 2 minutes (visible pages only), and the pill and the home card note the row they read.** The tray and /account Today now see the expo's hand-off without a tab switch, and a pickup's pointer keeps its slot when /track never saw the row.
+
+### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
+
+- **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only
+  what they back.** A table that settled at the counter sees each dish on the kitchen track, as the TV
+  wall does. The pickup page says "It’s cooking now." and "The kitchen’s done — we’re bagging it now."
+  from Mom's taps, and the to-go rail no longer reads Cooking from the moment of payment. A refunded
+  order (cash included, which leaves `status` 'paid') never reads "Paid in full". The home card speaks
+  the shared status word. A pickup booked hours ahead stays in the pill, the tray, /account Today and
+  history until its slot. The live read catches up after a lock or a reconnect. A cleared table
+  retires the pill of a pure dine-in order /track saw land (its first empty read; any other order
+  goes quiet and stays). A diner who sat at a counter-paid table before it settled gets the receipt
+  link; the email capture stays the earner's or a payer's. A resume no longer replays the arrival
+  (its Refresh included), and the tray and /account Today re-poll only while a fired bag is cooking.
+  Filed: M308 (a cash refund's status flip), M309 (high: RLS lets any current session member read the
+  session's orders, `receipt_email` included) and T60 (the pill's stale pickup word); K30(A), M64 and
+  M206 updated.
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 

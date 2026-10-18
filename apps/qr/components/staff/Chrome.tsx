@@ -11,6 +11,8 @@ import {
   WRITE_UNCONFIRMED_MY,
   WRITE_WAITING,
   WRITE_WAITING_MY,
+  MARKET_OUTAGE,
+  MARKET_OUTAGE_MY,
 } from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
 import { echoDrawn } from "@/lib/staff-labels";
@@ -161,6 +163,8 @@ const OUTAGE_TWINS: ReadonlyMap<string, string> = new Map([
   // Phase 2h (F6) — a line edit's two hang sentences (StaffLineEditor's plain-string `onError`).
   [WRITE_WAITING, WRITE_WAITING_MY],
   [WRITE_UNCONFIRMED, WRITE_UNCONFIRMED_MY],
+  // Codex r2 on #363 — the market shelf's outage (`setGroceryAvailable`, MarketShelfEditor's region).
+  [MARKET_OUTAGE, MARKET_OUTAGE_MY],
 ]);
 
 export function OutageText({ lang, error }: { lang: StaffLang; error: string }) {
