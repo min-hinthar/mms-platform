@@ -98,7 +98,10 @@ export function webhookSecretCandidates(): readonly EnvCandidate[] {
  *
  * Fed by the very resolvers the money path uses — the secret key `getStripe()` constructs with, the
  * publishable key it compares against (and the browser mounts), and the signing-secret list the
- * webhook route filters — so the badge cannot disagree with what checkout actually does. It never
+ * webhook route filters — so the badge cannot disagree with which keys checkout uses. ⚠️ It cannot
+ * check the signing secret's ENDPOINT: `whsec_…` carries no mode, so a test endpoint's secret left
+ * under `STRIPE_WEBHOOK_SECRET` still reads `live` (blind pass on #370). Only a delivered live
+ * event proves that half — ENV.md's cutover step 6. It never
  * throws: a missing credential is a status, not an error. Only the enum leaves; no value does.
  */
 export function readPaymentMode(): PaymentModeStatus {

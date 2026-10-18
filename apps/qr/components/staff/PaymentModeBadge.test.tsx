@@ -90,7 +90,9 @@ describe("PaymentModeBadge — the words per state", () => {
 
 describe("no credential reaches the markup", () => {
   // Each environment drives the REAL reader (`readPaymentMode`, lib/stripe.ts) into a different
-  // state; the badge it feeds must carry none of the values, and no Stripe prefix at all.
+  // state; the badge it feeds must carry none of the values, and no Stripe prefix at all. What bites
+  // here is the reader's `toBe(expected)` (an object or a value returned instead of the enum); the
+  // markup regex is the backstop for a future prop, since the badge itself has no env access.
   const SCENARIOS: [string, Partial<Record<(typeof ENV)[number], string>>, PaymentModeStatus][] = [
     [
       "live",

@@ -185,19 +185,20 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 4. Copy that endpoint's **Signing secret** (`whsec_…`) → Vercel Production `STRIPE_WEBHOOK_SECRET`.
 5. **Redeploy Production** (env changes don't apply to an existing build). Then open `/staff`: the
    **payments badge** under the greeting (on the doors and on the counter's screen) must read
-   **"Payments: Live"** with no sentence beside it. It is read-only — there is no switch, the mode
+   **"Payments: Live"** with no sentence beside it — necessary, not sufficient: step 6's delivery 200
+   is the only proof the signing secret is the live endpoint's. It is read-only — there is no switch, the mode
    lives here in Vercel only — and it is computed on the server by `readPaymentMode()`
    (`apps/qr/lib/stripe.ts`) from the very resolvers checkout and the webhook use; only the state
    reaches the page, never a value. Its states:
 
-   | Badge                   | State              | Meaning — and the fix                                                                                                                                                                           |
-   | ----------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | "Payments: Live"        | `live`             | Live keys that agree, and a signing secret the webhook may use in live mode. Done.                                                                                                              |
-   | "Payments: Test"        | `test`             | "Test payments — no real money is taken." Every resolved credential is test — including a Production that still holds the `_TEST` variables beside the live ones (`_TEST` wins). Remove them.   |
-   | "Payments: Check setup" | `mismatch`         | The secret and publishable keys are from different modes; `getStripe()` refuses every card. The half-done cutover: a `_TEST` key variable left behind (most often the `NEXT_PUBLIC_…_TEST`).    |
-   | "Payments: Check setup" | `webhook_mismatch` | The keys agree on live, but the only signing secret set is `STRIPE_WEBHOOK_SECRET_TEST`: cards are charged and every delivery is answered 500. Delete it; set `STRIPE_WEBHOOK_SECRET` (step 4). |
-   | "Payments: Check setup" | `unconfigured`     | A credential resolved to nothing: no secret key, no publishable key, or no signing secret under any name.                                                                                       |
-   | "Payments: Can’t tell"  | `unknown`          | A key carries no mode prefix `keyMode` reads (`sk_`/`rk_`/`pk_` + `test_`/`live_`). Use the dashboard's own key.                                                                                |
+   | Badge                   | State              | Meaning — and the fix                                                                                                                                                                                                                                               |
+   | ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | "Payments: Live"        | `live`             | Live keys that agree, and a signing secret set under a NAME the live webhook may use. It cannot prove the secret is the live endpoint's (`whsec_…` carries no mode), so a test secret left in `STRIPE_WEBHOOK_SECRET` also reads Live. Not done until step 6's 200. |
+   | "Payments: Test"        | `test`             | "Test payments — no real money is taken." Every resolved credential is test — including a Production that still holds the `_TEST` variables beside the live ones (`_TEST` wins). Remove them.                                                                       |
+   | "Payments: Check setup" | `mismatch`         | The secret and publishable keys are from different modes; `getStripe()` refuses every card. The half-done cutover: a `_TEST` key variable left behind (most often the `NEXT_PUBLIC_…_TEST`).                                                                        |
+   | "Payments: Check setup" | `webhook_mismatch` | The keys agree on live, but the only signing secret set is `STRIPE_WEBHOOK_SECRET_TEST`: cards are charged and every delivery is answered 500. Delete it; set `STRIPE_WEBHOOK_SECRET` (step 4).                                                                     |
+   | "Payments: Check setup" | `unconfigured`     | A credential resolved to nothing: no secret key, no publishable key, or no signing secret under any name.                                                                                                                                                           |
+   | "Payments: Can’t tell"  | `unknown`          | A key carries no mode prefix `keyMode` reads (`sk_`/`rk_`/`pk_` + `test_`/`live_`). Use the dashboard's own key.                                                                                                                                                    |
 
    Every "Check setup" and "Can’t tell" state adds "Tell the owner to check the Stripe settings in
    Vercel." The badge reads the environment of the RUNNING build — redeploy before you read it.
