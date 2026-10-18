@@ -10,7 +10,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   test pass charged five cards and wrote zero orders, and nothing could bring them back. Now `/track`
   asks the server 12 s and 40 s after a fresh card payment that has no order; staff get **Check
   payment** beside the clear's "A card payment started here and didn’t finish" (the refusal now names
-  it); and `/api/cron/stranded-payments` sweeps the last 24 h for a payment nobody is watching. Each
+  it); and `/api/cron/stranded-payments` sweeps the last 25 h for a payment nobody is watching. Each
   retrieves the PaymentIntent with the secret key and runs the webhook's OWN fulfillment.
 - **One fulfillment, not two.** The webhook's single-pay arm moved unchanged into
   `lib/fulfill-intent.ts`; the route only maps its outcome to the statuses it always answered. An AST
@@ -20,8 +20,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   pickup hold only; dollars; metadata bound to the cart and, at the guest door, to the payer's own uid;
   an open cart must still link this intent, so a superseded attempt is never fulfilled. A cancelled
   or already-paid cart gets a `qr_refunds_needed` row and no order. Every refusal is logged by name.
+- **Codex on #365 — five holes closed before merge.** A charge with ANY refund on it is refused (a
+  PaymentIntent stays `succeeded` after a refund, so an operator's refund in Stripe would otherwise
+  have been followed by an order). A charged secure tab, which never names itself on the cart's link,
+  is bound by the settlement freeze it was charged under, read from the database. /track asks on a
+  resume too, because the pill and the home card link a paid card as a resume before any order exists.
+  A refund-needed row that cannot be written now makes the webhook answer 500 so Stripe retries;
+  before, the charge was acknowledged with no order and no ledger row (that one predates this PR).
+  Two daily runs now overlap by an hour, and a run cut short by the page cap logs how far back it got.
 - **Bounded:** per-guest (6 per 10 min) and per-cart (10 per 10 min) budgets before any Stripe call;
-  the cron reads at most five pages and recovers at most 25 a run, skipping anything already on record
+  the cron reads at most ten pages and recovers at most 25 a run, skipping anything already on record
   and other apps' intents on the shared Stripe account.
 - **Honest copy.** A guest charged with no order is told exactly that ("Your card was charged, but the
   order didn’t go through"), with the payment reference and a person as the next step. There's no ETA

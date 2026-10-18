@@ -219,15 +219,24 @@ secret below exists.
    `{ "path": "/api/cron/stranded-payments", "schedule": … }`), per ruling #13's order. This repo has
    no Vercel cron yet, and the Vercel plan's cron frequency limit is not measured here — on a plan
    that allows only daily crons, a sub-daily schedule fails the deploy, so the follow-up measures
-   the plan first and picks the schedule to fit.
+   the plan first and picks the schedule to fit. **The schedule must run at least once every 24 h**
+   (`SWEEP_SCHEDULE_INTERVAL_MS`, `lib/payment-recovery.ts`). The window is sized for that: two runs
+   24 h apart share an hour. A more frequent schedule just overlaps more, which is safe because
+   anything already on record is skipped. A less frequent one leaves a gap no run covers. A run that
+   fails (a 500) also leaves its own day uncovered, so watch the cron's log after a failure; the
+   guest's /track and staff's Check payment still cover the payments someone is watching.
 
-What one run does: it lists the Stripe account's PaymentIntents created between 24 h and 3 min ago
-(at most five pages of 100), keeps the succeeded single-pay ones whose `cartId` metadata is
-cart-shaped, drops every one that already has an order or a `qr_refunds_needed` row, skips any whose
+What one run does: it lists the Stripe account's PaymentIntents created between 25 h 03 min and 3 min
+ago (at most ten pages of 100, each with its charge, so a refunded charge is refused), keeps the
+succeeded single-pay ones whose `cartId` metadata is cart-shaped, drops every one that already has an order or a `qr_refunds_needed` row, skips any whose
 cart is not in this database (the Stripe account is shared with the delivery app), and recovers at
 most 25. A recovered order logs `[payment-recovery] RECOVERED`; a charge whose cart was settled
 another way, cancelled, or no longer matches lands on `qr_refunds_needed` (the approvals screen),
-never as an order.
+never as an order. The list runs newest first and every run starts again, so on a window holding
+more than 1,000 intents (the Stripe account is shared with the delivery app) the oldest ones are
+never looked at. A run that hits that cap logs `sweep hit the page cap — older intents NOT examined`
+with how far back it reached. If that line ever appears, the sweep needs a saved cursor (OPEN-ITEMS
+M160).
 
 ## Staff sign-in — Google OAuth (primary) + magic-link + OTP
 
