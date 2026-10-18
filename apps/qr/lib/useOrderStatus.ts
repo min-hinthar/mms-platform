@@ -34,9 +34,11 @@ export type OrderStatus = {
  * Live tracking of the diner's OWN order, keyed by the Stripe PaymentIntent id (Stripe appends
  * `payment_intent` to the Payment Element return_url). Fulfillment is async — the signature-verified
  * webhook inserts `qr_orders` a beat after the redirect — so this surfaces the order via Realtime
- * **Postgres Changes** with no manual refresh. Authorization is the existing `qr_order_read` RLS
- * (`is_member(session_id)`), enforced per-subscriber by Realtime, so a guessed `payment_intent`
- * reveals nothing. A bounded fallback re-fetch (≈30s) covers the redirect→insert race and a cold
+ * **Postgres Changes** with no manual refresh. Authorization is the `qr_order_read` RLS — a member
+ * whose seat was taken no later than the order (`is_member_seated_by(session_id, created_at)`, M309)
+ * — enforced per-subscriber by Realtime, so a guessed `payment_intent` reveals nothing. ⚠️ The diner
+ * holds a COLUMN grant on `qr_orders` (every column but `receipt_email` / `receipt_sent_at`): this
+ * select names only granted columns, and lib/track-order-grants.test.ts holds it to that. A bounded fallback re-fetch (≈30s) covers the redirect→insert race and a cold
  * socket; if it still doesn't arrive, `timedOut` lets the UI offer a refresh. Forward-compatible:
  * S2's kitchen-status updates arrive on the same subscription.
  */

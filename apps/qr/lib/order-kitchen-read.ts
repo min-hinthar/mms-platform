@@ -10,8 +10,8 @@ import type { KitchenLine } from "./order-kitchen";
  * Lifecycle audit (2026-10-13) — the post-order KITCHEN read: the paid cart's lines, for /track.
  *
  * ⚠️ THE AUTHORIZATION IS THE DINER'S OWN RLS, AND NOTHING ELSE. Both reads below run on the
- * caller's cookie session (`serverClient`), so `qr_order_read` (`is_member(session_id)`) and
- * `qr_citem_read` (the cart's session, the same predicate) decide what comes back — exactly what the
+ * caller's cookie session (`serverClient`), so `qr_order_read` (a member seated no later than the
+ * order, M309) and `qr_citem_read` (a member of the cart's session) decide what comes back — what the
  * browser's live order read (`useOrderStatus`) and the cart's Realtime channel already see. No new
  * authority is minted here: a non-member, or a member whose session has closed or lapsed, gets no
  * order row and so `unreadable`, and an order id alone grants nothing. The service client is used

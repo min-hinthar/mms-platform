@@ -3036,6 +3036,31 @@ const MUTANTS = [
     find: "      refundedCents: it.refunded_cents ?? 0,",
     replace: "      refundedCents: 0,",
   },
+  // ── M309 — the diner's qr_orders reads stay inside the column grant (20261018120000) ──────────────
+  {
+    id: "m309/track-select-names-receipt-email",
+    file: "apps/qr/lib/track-order.ts",
+    suite: "lib/track-order-grants.test.ts",
+    why: "M309 — `authenticated` holds a COLUMN grant on qr_orders that withholds receipt_email: the live /track read naming it is refused with 42501 for every diner (the tracker goes dark), and the address is the earner's, read only by the service role. Every vitest suite mocks the DB, so only the grant-parity suite can see it",
+    find: '  "id,status,total_cents,',
+    replace: '  "id,status,receipt_email,total_cents,',
+  },
+  {
+    id: "m309/kitchen-read-names-a-withheld-column",
+    file: "apps/qr/lib/order-kitchen-read.ts",
+    suite: "lib/track-order-grants.test.ts",
+    why: "M309 — getOrderKitchen's cart probe runs on the diner's cookie session, so a withheld column in its select is a 42501 and /track's kitchen read reads `error` for every diner",
+    find: '    .select("cart_id")\n',
+    replace: '    .select("cart_id,receipt_sent_at")\n',
+  },
+  {
+    id: "m309/live-read-selects-star",
+    file: "apps/qr/lib/useOrderStatus.ts",
+    suite: "lib/track-order-grants.test.ts",
+    why: "M309 — `select *` names receipt_email, which the column grant withholds: the browser's live order read would be refused outright instead of reading the tracked shape",
+    find: "        .select(TRACK_ORDER_SELECT)\n",
+    replace: '        .select("*")\n',
+  },
   // ── W23a — the 86 gate: the only thing between an unavailable dish and a charge ─────────────────
   {
     id: "availability/delisted-item-still-sellable",

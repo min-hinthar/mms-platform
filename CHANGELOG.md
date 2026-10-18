@@ -46,6 +46,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   changed.") is the dictionary's sentence with a Burmese twin at the render site, so a Burmese tablet
   no longer shows it in English (one more K15 draft).
 
+### The next party at a table no longer reads the last party's order, and no diner reads a receipt address (2026-10-18, M309)
+
+- **The order read is scoped to the party at the table when it paid, and `receipt_email` leaves the
+  diner's grant.** `20261018120000_m309_order_read_scope.sql`: `authenticated` swaps its table-level
+  select on `qr_orders` for a column grant of every column but `receipt_email` and `receipt_sent_at`
+  (anon: none), and `qr_order_read`'s member arm becomes `is_member_seated_by(session_id,
+created_at)`, which admits a seat taken no later than the order (the rule the server arms already
+  use since #359). The next party at an uncleared sticker no longer reads the previous party's
+  order, its lines or its email. Diner screens are unchanged: the live /track read and the kitchen
+  read name only granted columns, and the receipt actions already read the address with the service
+  role, and every staff `.from("qr_orders")` read runs on the service role (which keeps its
+  table-level grant, restated in the migration). Proven by `supabase/tests/m309_order_read_scope_test.sql`
+  (in CI's required list) and `lib/track-order-grants.test.ts`, which parses the grant against every
+  diner-client `.from("qr_orders")` select and every literal `qr_orders(…)` embed, pins the diner
+  reads to their two files, and fails on any `.from("qr_orders")` whose client it cannot classify
+  (`m309/*` mutants). What it does not parse: Realtime subscriptions (`useOrderStatus` and the staff
+  `useFloorRealtime` watch `qr_orders`, both as a re-read trigger only, never reading the payload),
+  RPCs, a non-literal `.from(…)`, spread or FK-column embeds, a reassigned client, or a client passed
+  to a service-typed parameter — none exists today (measured), and none is proven absent tomorrow. **Still open under M309:** the paid cart's rows stay
+  `is_member`-scoped; an earlier member who never left still reads a later party's orders (minus the
+  two columns) until staff clear the table; an order fulfilled late (a webhook retry, M160(b)'s
+  recovery) is readable by a party seated between the charge and the insert; and no test yet reads
+  a Realtime broadcast as a member.
+
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 
 - **Every staff surface tells the same truth, live, and a mistake can be taken back (#360)** — a bump
