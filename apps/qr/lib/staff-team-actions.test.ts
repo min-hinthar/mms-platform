@@ -556,7 +556,9 @@ describe("setStaffRole — one RPC call decides and writes", () => {
   it("refuses a no-op on an account above the caller — the ceiling precedes the no-op", async () => {
     setVerdict = { status: "ceiling" };
     const res = await setStaffRole({ userId: TARGET, role: "owner", seenRole: "owner" });
-    expect(res).toEqual(refused({ status: "ceiling" }, "Only the owner can change an owner’s role."));
+    expect(res).toEqual(
+      refused({ status: "ceiling" }, "Only the owner can change an owner’s role."),
+    );
   });
 
   it("refuses a member who is not there at all", async () => {
