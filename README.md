@@ -119,7 +119,7 @@ The client **never computes a price**; the server re-derives every amount from t
 
 The steps a guest takes today, in the words the screens use. Open the app at
 `qr.mandalaymorningstar.com` or scan a QR code at the restaurant. The home screen has three doors:
-**Dine-in**, **To-go** and **Grocery**. Every screen shows English and Burmese together.
+**Dine-in**, **To-go** and **Grocery**. The menu, the buttons and the order screens show English and Burmese together (a few newer lines, like the first-visit guide, are English for now).
 
 **Dine-in at a table**
 
@@ -131,8 +131,7 @@ The steps a guest takes today, in the words the screens use. Open the app at
 3. **Order together.** Everyone at the table adds to one shared order. Tap **Invite** to share a link
    or the table code, or a tablemate can scan the table's sticker.
 4. **Send to the kitchen.** One phone at the table sends the table's order, and everyone's dishes go
-   with it. A short countdown lets you **Undo**. From any other phone, tap **Show a server** and our
-   staff send it for you.
+   with it. A short countdown lets you **Undo**. From any other phone, tap **Show a server** and show that screen to a server or at the counter, and our staff send it for you.
 5. **Follow your dishes.** Under **Order**, each dish moves on your pass when it's sent, then as the
    kitchen starts it and finishes it. You can keep ordering.
 6. **Pay at the counter.** Open **View bill** and tap **Pay at the counter**. Your phone becomes a pass
@@ -161,8 +160,7 @@ The steps a guest takes today, in the words the screens use. Open the app at
   you have enough. Find them under **Account → Rewards**, and use **Save your Stars** to keep them with
   your email.
 - **Receipts:** after you pay, your order page offers **View & print your full receipt**, and
-  **Email me this receipt** when email receipts are switched on. Past orders sit under
-  **Account → Orders**, where you can tap **Order again**.
+  **Email me this receipt** when email receipts are switched on. Orders you paid in the app sit under **Account → Orders**, where you can tap **Order again** (an order paid at the counter isn't listed there).
 - **Help:** **Account → You → How it works at a table** walks through dine-in. Or reach us at
   (626) 665-5317 or admin@mandalaymorningstar.com, 750 Terrado Plaza, Suite 33, Covina, CA 91723.
 

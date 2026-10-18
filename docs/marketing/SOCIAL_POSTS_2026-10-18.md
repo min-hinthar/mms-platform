@@ -31,7 +31,7 @@ browser bar.
 
 ## 1 · Launch post
 
-**Markers:** [confirm before posting: the QR stickers are on the tables]
+**Markers:** [confirm before posting: the QR stickers are on the tables] · [publish only after the live-payments cutover (C2)] — it invites guests to order to go, and pickup is paid by card before the kitchen gets it
 
 **Instagram / Facebook caption**
 
@@ -39,7 +39,7 @@ browser bar.
 >
 > Sit down, scan the QR code on your table, and the menu opens right there. Everyone at the table
 > adds to one shared order, and you send it to the kitchen together. Ordering to go? Order ahead and
-> pick a pickup time. Every screen is in English and Burmese.
+> pick a pickup time. The menu and the order screens are in English and Burmese.
 >
 > Start at qr.mandalaymorningstar.com
 >
@@ -103,7 +103,7 @@ the kitchen, a shared table order on its way to the kitchen, and the pass to sho
 > 2. Choose as soon as possible, or schedule a pickup time.
 > 3. Add your first name and phone number, and pay on your phone.
 > 4. Your order page follows it from the kitchen to ready.
-> 5. When you get here, tap I'm here and we'll tell the counter.
+> 5. From 30 minutes before your pickup time, tap I'm here and we'll tell the counter.
 > 6. When it's ready, show the code on your ticket at the counter.
 >
 > 750 Terrado Plaza, Suite 33, Covina, CA 91723
@@ -111,7 +111,7 @@ the kitchen, a shared table order on its way to the kitchen, and the pass to sho
 **X version**
 
 > To go from Mandalay Morning Star: order ahead on your phone, pick as soon as possible or a pickup
-> time, tap I'm here when you arrive, and show your code at the counter. qr.mandalaymorningstar.com
+> time, tap I'm here from 30 minutes before pickup, and show your code at the counter. qr.mandalaymorningstar.com
 
 **Suggested visual:** the pickup order page (`/track`, from a test pickup order) showing the claim
 ticket and the **I'm here** button. Take it within 30 minutes of the pickup time, when the button
