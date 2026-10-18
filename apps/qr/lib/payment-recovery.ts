@@ -182,12 +182,22 @@ export const SWEEP_SCHEDULE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** How much two consecutive runs share, past the min-age — slack for a late or slow cron start. */
 export const SWEEP_OVERLAP_MS = 60 * 60 * 1000;
 /**
- * How far back the sweep looks: one schedule interval, plus the min-age the previous run left
+ * How late inside its scheduled hour a daily cron may fire. A Vercel plan that only allows daily crons
+ * runs one anywhere within that hour, so two consecutive runs can sit up to `SWEEP_SCHEDULE_INTERVAL_MS`
+ * PLUS this apart (the blind pass on #369: without it, a 10:00 run followed by a 10:59 one left a
+ * margin of seconds that invocation latency could close). Counted into the lookback on its own, so
+ * `SWEEP_OVERLAP_MS` stays real slack on top of the worst drift.
+ */
+export const SWEEP_CRON_DRIFT_MS = 60 * 60 * 1000;
+/**
+ * How far back the sweep looks: one schedule interval, plus the cron's worst drift inside its hour,
+ * plus the min-age the previous run left
  * unexamined at its own `now`, plus the overlap (Codex on #365 @ a2636db: a bare 24 h minus the
  * 3 min floor left every intent created in the 3 minutes before a daily run in NO run's window).
  * Stripe's own webhook retries run for 72 h, so the window never outlives a delivery Stripe owes.
  */
-export const SWEEP_LOOKBACK_MS = SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;
+export const SWEEP_LOOKBACK_MS =
+  SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_CRON_DRIFT_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;
 /**
  * Pages of 100 the sweep reads at most — the bound on one run's Stripe calls, and the one gap this
  * sweep cannot close by itself. The list is newest-first and every run starts over, so on a window
@@ -308,7 +318,8 @@ export async function sweepStrandedPayments(
     if (page === SWEEP_MAX_PAGES - 1) {
       summary.truncated = true;
       // LOUD: the intents older than this one were not examined by this run, and the next run's
-      // window overlaps this one by only `SWEEP_OVERLAP_MS` — see `SWEEP_MAX_PAGES`.
+      // window overlaps this one by `SWEEP_CRON_DRIFT_MS + SWEEP_OVERLAP_MS` on time and only
+      // `SWEEP_OVERLAP_MS` at the cron's worst drift — see `SWEEP_MAX_PAGES`.
       console.error("[payment-recovery] sweep hit the page cap — older intents NOT examined", {
         pages: SWEEP_MAX_PAGES,
         reachedCreated: res.data.at(-1)?.created ?? null,
