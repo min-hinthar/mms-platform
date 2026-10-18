@@ -426,20 +426,41 @@ describe("the words — never 'idle', always the cause we know", () => {
     const party = (seats: string[], current = true) => ({ seats, current });
     // MUTATION (lcs/leave-warning-counts-the-host-alone): count every seat — a host alone at the
     // table is warned about others who do not exist.
-    expect(leaveWarning({ role: "host", mySeat: "me", party: party(["me", "aye"]) })).toBe("sends");
-    expect(leaveWarning({ role: "host", mySeat: "me", party: party(["me"]) })).toBeNull();
+    expect(
+      leaveWarning({ role: "host", mySeat: "me", ended: false, party: party(["me", "aye"]) }),
+    ).toBe("sends");
+    expect(
+      leaveWarning({ role: "host", mySeat: "me", ended: false, party: party(["me"]) }),
+    ).toBeNull();
     // A guest's leave strands nothing: only the host sends.
-    expect(leaveWarning({ role: "guest", mySeat: "me", party: party(["me", "aye"]) })).toBeNull();
-    expect(leaveWarning({ role: null, mySeat: "me", party: null })).toBeNull();
+    expect(
+      leaveWarning({ role: "guest", mySeat: "me", ended: false, party: party(["me", "aye"]) }),
+    ).toBeNull();
+    expect(leaveWarning({ role: null, mySeat: "me", ended: false, party: null })).toBeNull();
     // Codex round 2 on #361 — the party not established NOW (never read, or the read asked when the
     // leave flow opened still out, or failed): the hedged sentence, never silence, which reads as
     // "you are alone". MUTATION (lcs/leave-warning-claims-alone-unread): stale "alone" says nothing.
-    expect(leaveWarning({ role: "host", mySeat: "me", party: null })).toBe("maybe");
-    expect(leaveWarning({ role: "host", mySeat: "me", party: party(["me"], false) })).toBe("maybe");
+    expect(leaveWarning({ role: "host", mySeat: "me", ended: false, party: null })).toBe("maybe");
+    expect(
+      leaveWarning({ role: "host", mySeat: "me", ended: false, party: party(["me"], false) }),
+    ).toBe("maybe");
     // Membership never shrinks: a stale answer that SAW another seat still holds.
-    expect(leaveWarning({ role: "host", mySeat: "me", party: party(["me", "aye"], false) })).toBe(
-      "sends",
-    );
+    expect(
+      leaveWarning({
+        role: "host",
+        mySeat: "me",
+        ended: false,
+        party: party(["me", "aye"], false),
+      }),
+    ).toBe("sends");
+  });
+
+  it("the blind pass on #361 (B1) — a table that ENDED gives no leave warning: the Send is gone with the order, so nothing is stranded", () => {
+    // MUTATION (lcs/leave-warning-ignores-the-end): a host held on "this table closed" (a clear, a
+    // merge) keeps role host and the last party read, and was told leaving strands the others' Send.
+    const party = (seats: string[], current = true) => ({ seats, current });
+    for (const p of [party(["me", "aye"]), party(["me", "aye"], false), party(["me"], false), null])
+      expect(leaveWarning({ role: "host", mySeat: "me", ended: true, party: p })).toBeNull();
   });
 
   it("the card names each end by its own words, and the paid arms reuse the Bill's close", () => {

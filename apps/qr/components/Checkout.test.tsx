@@ -1017,6 +1017,42 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     }
   });
 
+  it("the blind pass on #361 (Q6a) — a paid cart with no PAID order row (a full refund flips it to 'refunded') is a paid close, not an editable bill, and the probe stops", async () => {
+    // `counterPayOutcome` answers `tender: "unknown"` + `complete: true` when the cart is `paid`
+    // and no `qr_orders` row is (`mms_apply_refund_reconcile` turns a fully refunded order to
+    // `refunded`; the cart stays `paid`). The Bill drew nothing for it: the bill stayed editable on a
+    // paid cart and its probe asked once a minute forever.
+    // MUTATION (lcs/bill-ignores-a-paid-unknown-tender).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "unknown",
+        orderId: null,
+        sessionLive: true,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      // Nothing claimed about WHERE it was paid (the menu's card for the same answer).
+      expect(document.body.textContent).not.toMatch(/at the counter|on a phone at your table/);
+      expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
+      expect(h.push).not.toHaveBeenCalled();
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("Codex round 2 on #361 (4) — a DEGRADED render (no split context) at a dine-in table still probes, on the cart view's own mode", async () => {
     // `cart/page.tsx` nulls the split context on ANY read failure, and the probe and its poll were
     // gated on that best-effort mode — so a degraded Bill at a table never learned of a clear.

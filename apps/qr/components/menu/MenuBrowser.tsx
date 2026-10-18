@@ -219,20 +219,33 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
   // sheet cannot read it itself and the menu — which has it — passes it down.
-  const { cartId, announce, refresh, tableNumber, role, members, me } = useCart();
+  const { cartId, announce, refresh, tableNumber, role, members, me, ended } = useCart();
   // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
   // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
   // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
   // before the first sync, and missing every phone that is face down (Codex round 1 on #361). Re-read
   // when the leave flow OPENS (Codex round 2: a tablemate who joined with their phone already face
-  // down never shows in presence) and, as an extra trigger, when the presence count moves; while the
-  // read the open asked for is out, `leaveWarning` hedges rather than claim the host is alone.
+  // down never shows in presence) and, as an extra trigger, when presence shows a seat it has NEVER
+  // shown before; while the read the open asked for is out, `leaveWarning` hedges rather than claim
+  // the host is alone.
+  //
+  // The extra trigger counts DISTINCT seats ever seen, never the live count (the blind pass on #361):
+  // a face-down phone dropping out of presence and back is no news about the party (membership never
+  // shrinks), and the count re-fired the read on every flap. Adjusted during render (React's "state
+  // from a changed input" pattern), so it is one render, never an effect's extra one.
+  const [seenSeats, setSeenSeats] = useState<ReadonlySet<string>>(() => new Set());
+  if (members.some((m) => !seenSeats.has(m.seat)))
+    setSeenSeats(new Set([...seenSeats, ...members.map((m) => m.seat)]));
+  // A table that ENDED has no Send to strand, and its party can only be read off a closed session —
+  // neither the read nor the warning (the blind pass on #361: "the others will need a server" was
+  // drawn under "this table closed").
+  const tableEnded = ended !== null;
   const party = useDurableParty(
     cartId,
-    mode === "dinein" && role === "host",
-    `${members.length}·${doorOpens}`,
+    mode === "dinein" && role === "host" && !tableEnded,
+    `${seenSeats.size}·${doorOpens}`,
   );
-  const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, party });
+  const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, ended: tableEnded, party });
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed

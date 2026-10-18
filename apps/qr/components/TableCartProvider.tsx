@@ -239,6 +239,10 @@ type CartCtx = {
    *  while it stands the menu shows ONE card that names the cause (`TableEndedCard`), every order
    *  control is inert, and nothing re-mints until `startNewOrder`. A solo order re-mints instead. */
   ended: TableEnd | null;
+  /** The cart `ended` ENDED — set exactly while `ended` is. Not `cartId`: the live id is null through
+   *  "Start a new order"'s mint and after a mint that fails, while the card (and a paid end's
+   *  "Track your order", `endTrackHref`) stays up (the blind pass on #361). */
+  endedCartId: string | null;
   /** The diner's "Start a new order" is minting (the card holds its button busy). */
   restarting: boolean;
   /** Start a new order after the table ended: one re-mint by the accepted code under J15
@@ -930,6 +934,8 @@ export function TableCartProvider({
   // card stays through the new order's own mint (`cartId` is null in between) so its button can
   // say it is working, and say so again if the mint fails.
   const endedNow = ended && (cartId === null || cartId === ended.cartId) ? ended.end : null;
+  // …and the cart it ended, which outlives the live `cartId` through the restart's mint.
+  const endedCartId = endedNow !== null && ended ? ended.cartId : null;
 
   // "Start a new order" — ONE re-mint by the accepted code under J15 (`dineinMintEntry`): the same
   // table while it is still seated (a paid table), a bare new order when it is not. The busy state
@@ -1912,6 +1918,7 @@ export function TableCartProvider({
       sendNudge,
       dbNow,
       ended: endedNow,
+      endedCartId,
       restarting,
       startNewOrder,
     }),
@@ -1947,6 +1954,7 @@ export function TableCartProvider({
       sendNudge,
       dbNow,
       endedNow,
+      endedCartId,
       restarting,
       startNewOrder,
     ],

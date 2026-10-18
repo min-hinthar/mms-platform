@@ -50,6 +50,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     of the silence that read as "alone".
   - Filed: M294. `getCartOrderRef` still reads a failed read as "no order" inside the resolver that
     /track shares.
+- **The capped blind pass on #361 (REJECT on `7a2961b`; both blockers fixed).**
+  - The host of a table that ENDED is no longer told that leaving strands the others' Send
+    (`leaveWarning` takes the end, and the menu stops reading the party of a closed session).
+  - A paid card keeps "Track your order" through a "Start a new order" whose mint fails: the link is
+    built from the ENDED cart's id (`endedCartId`), not the live one the mint nulls.
+  - /cart treats a paid cart with no readable paid order row (a full refund turns the order
+    `refunded`; the cart stays `paid`) as the bare "Paid" close the menu shows. It used to keep an
+    editable bill and probe once a minute forever.
+  - The party read re-fires on a seat presence has never shown, not on every presence flap.
+  - Filed: M327 (a seat that left can still ask `counterPayOutcome` about its old table).
 
 ### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
 

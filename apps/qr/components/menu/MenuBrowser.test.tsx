@@ -298,4 +298,37 @@ describe("session truth (finding 5) — the host's leave warning is read when th
     render(<Page />);
     expect(doorProps.leaveWarning).toBe("sends");
   });
+
+  it("the blind pass on #361 (B1) — a host held on an ENDED table is given no leave warning, and the party is not read", () => {
+    // After a clear or a merge the held session keeps role host and the last good party (the read
+    // on the closed session fails and keeps it), so "the others will need a server to send theirs"
+    // was drawn under "this table closed". MUTATION (lcs/menu-leave-warning-ignores-the-end).
+    cartOver = { ...HOST, ended: { kind: "ended", why: "cleared" } };
+    partyAnswer = { seats: ["me", "aye"], current: true };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    // The read is not asked either: it can only fail on the closed session.
+    expect(partyCalls.at(-1)?.[1]).toBe(false);
+  });
+
+  it("the blind pass on #361 (A4) — a presence FLAP never re-reads the party; a seat presence has never seen does", () => {
+    // MUTATION (lcs/leave-party-reads-on-every-flap): the epoch keyed on the presence COUNT — a
+    // face-down phone dropping out and back fired the durable-party read on every flap.
+    cartOver = HOST;
+    const { rerender } = render(<Page />);
+    const epochs = () => partyCalls.map((c) => c[2]);
+    const first = epochs().at(-1);
+    const aye = { seat: "aye", name: "Aye" };
+    cartOver = { ...HOST, members: [...HOST.members, aye] };
+    rerender(<Page />);
+    const joined = epochs().at(-1);
+    expect(joined).not.toBe(first); // a new seat is a reason to ask
+    const mark = partyCalls.length;
+    cartOver = HOST; // Aye's phone goes face down…
+    rerender(<Page />);
+    cartOver = { ...HOST, members: [...HOST.members, aye] }; // …and comes back
+    rerender(<Page />);
+    // Every render through the flap asked under the SAME epoch — the read never re-fired.
+    expect(new Set(epochs().slice(mark))).toEqual(new Set([joined]));
+  });
 });

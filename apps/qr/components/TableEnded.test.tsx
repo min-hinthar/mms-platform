@@ -162,7 +162,14 @@ describe("MenuTableEnded — the menu's mount", () => {
 
   it("wires the provider's restart, busy state and failure, and the tracker only for an order this seat may see", () => {
     const startNewOrder = vi.fn();
-    ctx.current = { ended: PAID, restarting: false, startNewOrder, cartId: "cart-1", error: null };
+    ctx.current = {
+      ended: PAID,
+      endedCartId: "cart-1",
+      restarting: false,
+      startNewOrder,
+      cartId: "cart-1",
+      error: null,
+    };
     const { rerender } = render(<MenuTableEnded />);
     expect(screen.getByRole("link", { name: /Track your order/ }).getAttribute("href")).toBe(
       "/track?cart=cart-1&paid=1",
@@ -172,6 +179,25 @@ describe("MenuTableEnded — the menu's mount", () => {
     ctx.current = { ...ctx.current, ended: { ...PAID, orderId: null }, error: "x" };
     rerender(<MenuTableEnded />);
     expect(screen.queryByRole("link", { name: /Track your order/ })).toBeNull();
+    expect(screen.getByText("Couldn’t start a new order — try again.")).toBeTruthy();
+  });
+
+  it("the blind pass on #361 (B2) — a PAID end keeps 'Track your order' through a failed 'Start a new order' (the live cart id is gone)", () => {
+    // `revalidate()` nulls the live cart id for the mint, and a mint that FAILS leaves it null with
+    // the card still up: the link is built from the ENDED cart's id, never the live one.
+    // MUTATION (lcs/end-track-reads-the-live-cart).
+    ctx.current = {
+      ended: PAID,
+      endedCartId: "cart-1",
+      restarting: false,
+      startNewOrder: vi.fn(),
+      cartId: null,
+      error: "Could not create session",
+    };
+    render(<MenuTableEnded />);
+    expect(screen.getByRole("link", { name: /Track your order/ }).getAttribute("href")).toBe(
+      "/track?cart=cart-1&paid=1",
+    );
     expect(screen.getByText("Couldn’t start a new order — try again.")).toBeTruthy();
   });
 });

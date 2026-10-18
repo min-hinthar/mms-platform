@@ -9,12 +9,14 @@ import { useCart } from "./TableCartProvider";
  * a table has ended — a solo order is never held (it re-mints with its cause said instead).
  */
 export function MenuTableEnded() {
-  const { ended, restarting, startNewOrder, cartId, error } = useCart();
+  const { ended, endedCartId, restarting, startNewOrder, error } = useCart();
   if (!ended) return null;
   return (
     <TableEndedCard
       end={ended}
-      trackHref={endTrackHref(ended, cartId)}
+      // The ENDED cart's id, never the live one: "Start a new order" nulls `cartId` for its mint, and
+      // a mint that fails leaves it null with this card still up (the blind pass on #361).
+      trackHref={endTrackHref(ended, endedCartId)}
       start={{
         kind: "mint",
         onStart: startNewOrder,

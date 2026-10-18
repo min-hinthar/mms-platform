@@ -274,8 +274,12 @@ export function focusOrphaned(active: Element | null, body: Element | null): boo
  * sync and drops a phone that is merely face down (Codex round 1 on #361).
  *
  *  - `sends` — another seat is in the party. Membership never shrinks (a leave is device-only, W20),
- *    so ANY answer that saw one still holds, even while a fresher read is out.
- *  - `null`  — nothing to say: a guest (only the host sends), or a host the CURRENT read found alone.
+ *    so ANY answer that saw one still holds, even while a fresher read is out — for the same cart:
+ *    the party is keyed by cart (`useDurableParty`), and the one way the table stops being that party's
+ *    is the table ENDING, which is the first arm below.
+ *  - `null`  — nothing to say: the table ENDED (a clear, a merge, the sweep, the bill paid — the held
+ *    session keeps role host and the last party read, but there is no Send left to strand; the blind
+ *    pass on #361), a guest (only the host sends), or a host the CURRENT read found alone.
  *  - `maybe` — a host whose party is not established right now: never read, the read asked when the
  *    leave flow opened still out (Codex round 2 on #361), or failed. Saying nothing then would claim
  *    the host is alone — the one claim no read made — so the sheet says the hedged sentence.
@@ -285,10 +289,12 @@ export type LeaveWarning = "sends" | "maybe" | null;
 export function leaveWarning(s: {
   role: "host" | "guest" | null;
   mySeat: string | null;
+  /** The table's order has ENDED (`useCart().ended` non-null). */
+  ended: boolean;
   /** The durable party's seats, and whether that answer is the one asked for the CURRENT epoch. */
   party: { seats: readonly string[]; current: boolean } | null;
 }): LeaveWarning {
-  if (s.role !== "host") return null;
+  if (s.ended || s.role !== "host") return null;
   if (s.party !== null && s.party.seats.some((seat) => seat !== s.mySeat)) return "sends";
   return s.party !== null && s.party.current ? null : "maybe";
 }

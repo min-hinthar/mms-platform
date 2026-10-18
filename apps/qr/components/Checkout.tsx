@@ -778,9 +778,14 @@ export function Checkout({
   // or the table ENDED under it (a staff Clear, a merge into another table, the sweep): the same
   // finished surface, with the cause named (`TableEndedCard`) instead of a stale, editable bill whose
   // every edit snapped back silently and whose Send said "try again" forever.
-  const [settledClose, setSettledClose] = useState<"counter" | "card" | TableEndReason | null>(
-    null,
-  );
+  // `"paid"` is a paid cart whose tender is not readable to this seat (no `qr_orders` row with
+  // `status = 'paid'` — a full refund turns the order `refunded` and leaves the cart `paid`): the
+  // menu's bare "Paid" card, nothing claimed about where (the blind pass on #361).
+  const [settledClose, setSettledClose] = useState<
+    "counter" | "card" | "paid" | TableEndReason | null
+  >(null);
+  // Whether the table is still seated, for the bare "Paid" card's "Ask our staff" line (`endCardWords`).
+  const [closeSessionLive, setCloseSessionLive] = useState(true);
   // Codex round 2 on #361 — the close on screen came from a COMPLETE answer (`endComplete`). A paid
   // answer whose tender or order read FAILED is drawn as far as it is known and the probe keeps
   // asking, so the receipt arrives with the read that failed (M116: unknowable ≠ "no order").
@@ -1049,9 +1054,13 @@ export function Checkout({
           }
           // No order this seat may see — or none KNOWN yet (an incomplete answer, which the probe
           // asks again). A COUNTER settle says so honestly; a tablemate's CARD says "paid on a
-          // phone at your table" — never "at the counter"; an unknown tender (the order row not
-          // yet readable) keeps the last good bill rather than guessing.
-          if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
+          // phone at your table" — never "at the counter"; an UNKNOWN tender (no paid order row is
+          // readable — a full refund, or a read that failed) is still a PAID cart, so it gets the
+          // bare "Paid" close that names no tender, as the menu's card does (the blind pass on
+          // #361: keeping the last good bill left an editable bill on a paid cart, and a COMPLETE
+          // answer of this shape kept the probe asking once a minute forever).
+          setCloseSessionLive(o.sessionLive);
+          setSettledClose(o.tender === "unknown" ? "paid" : o.tender);
         })
         .catch(() => {
           /* unknowable — the bill stays as it was, which is the honest floor */
@@ -3855,6 +3864,20 @@ export function Checkout({
                 by={settledClose}
                 menuHref={menuHref(sessionMode)}
                 menuText={menuLinkText(sessionMode, "browse")}
+              />
+            )}
+            {/* A paid cart whose tender this seat cannot read: "Paid", and nothing said about where. */}
+            {settledClose === "paid" && (
+              <TableEndedCard
+                end={{
+                  kind: "paid",
+                  tender: "unknown",
+                  orderId: null,
+                  sessionLive: closeSessionLive,
+                  complete: closeComplete,
+                }}
+                trackHref={null}
+                start={{ kind: "link", href: menuHref(sessionMode) }}
               />
             )}
             {/* Session truth — the table ENDED under the Bill: the cause, and a new order on the

@@ -1874,6 +1874,29 @@ describe("session truth — a table that ended is held, named and never silently
     expect(spoken()).toContain("Couldn’t start a new order — try again.");
   });
 
+  it("the blind pass on #361 (B2) — a held PAID end keeps naming its own cart through a failed restart, so the card's tracker survives", async () => {
+    // MUTATION (lcs/ended-cart-id-follows-the-live-cart): the ended cart's id read off the LIVE
+    // cart id — null for the mint and after a failed one, so "Track your order" vanished.
+    const { rerender } = await heldAt({
+      kind: "paid",
+      tender: "counter",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: true,
+    });
+    expect(ctl.endedCartId).toBe(ctl.cartId);
+    const held = ctl.endedCartId;
+    expect(held).not.toBeNull();
+    act(() => ctl.startNewOrder());
+    h.session.current = null;
+    h.error.current = "Could not create session";
+    rerender();
+    await drainDeferredAnnounces();
+    expect(ctl.cartId).toBeNull();
+    expect(ctl.ended?.kind).toBe("paid");
+    expect(ctl.endedCartId).toBe(held);
+  });
+
   it("a SOLO order that timed out re-mints, and the new order's sentence names the cause", async () => {
     const utils = mountAt("scango");
     await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
