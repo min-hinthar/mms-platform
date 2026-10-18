@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9075 qr tests + 428 ui tests · 4849 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** the live-payments cutover (OPEN-ITEMS C2) and the owner checklist ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9075 qr tests + 428 ui tests · 4849 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -186,7 +186,7 @@ Tracked in [`ROADMAP.md`](ROADMAP.md) (milestones → phases → tasks), the sin
 | **Tracks** S · R · J · W          | S1–S4 service model · R1–R9 richness · J0–J6 journey · W5–W23 polish arcs (W22d's light half open, M86)       | ✅ through W22f + W23                      |
 | **Option A** subtract to the core | park split pay · card-on-file tabs · kiosk; settlement = cash + Terminal; `/staff` to five screens            | ✅ A1–A7b                                  |
 | **Polish plan** Phase 0 → 4       | design system in code · the guest flow · staff · the journeys · production signals                            | 🟡 0–2 ✅ · 3a–3d (part) ✅ · 3e/3f/4 ⬜   |
-| **Path designs** PD1–PD13         | the owner's picks, 2026-10-07 — [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md)            | ⬜ next                                    |
+| **Path designs** PD1–PD13         | the owner's picks, 2026-10-07 — [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md)            | ✅ PD1–PD12 built (#326–#348) · PD13 gated |
 
 **Done** means the definition in [`docs/WORKFLOW.md`](docs/WORKFLOW.md) §Definition of done (with CLAUDE.md's "Gate before done"). Start any session with [`docs/HANDOFF.md`](docs/HANDOFF.md), then [`docs/context/INDEX.md`](docs/context/INDEX.md).
 
