@@ -34,11 +34,6 @@ type OrderRow = {
   pickup_slot: string | null;
   fire_at: string | null;
   cart_id: string | null;
-  // #360 (Codex P1) — the amounts `foodRefundedInFull` decides on.
-  total_cents: number;
-  refunded_cents: number | null;
-  service_charge_cents: number | null;
-  tip_cents: number | null;
 };
 
 type LineRow = {
@@ -79,11 +74,6 @@ let ordersError: { message: string } | null = null;
  *  dish per asked order (a bag). */
 let orderItems: { order_id: string; fulfillment: string }[] | null = null;
 let orderItemsError: { message: string } | null = null;
-/** #360 (Codex P1) — the line LEDGER (`readLineRefunds`): each order's `qr_order_items` ids (null =
- *  one line per asked order, `line-<order id>`), the `mms_refunds` rows, and the ledger's failure. */
-let orderLineIds: { id: string; order_id: string }[] | null = null;
-let ledger: { order_id: string; order_item_id: string | null }[] = [];
-let ledgerError: { message: string } | null = null;
 /** The bag's comped takeaway lines (`qr_cart_items`, comped). */
 let compLines: { cart_id: string; state: string; fulfillment: string }[] = [];
 /** What the orders read was filtered with: its `.eq()`s and its `.or()` expressions. */
@@ -212,49 +202,16 @@ vi.mock("@mms/db/server", () => ({
         };
         return chain;
       }
-      if (table === "mms_refunds") {
+      if (table === "qr_order_items") {
         let asked: unknown[] = [];
         const chain: Record<string, unknown> = {
           select: () => chain,
-          in: (col: string, ids: unknown[]) => {
-            if (col !== "order_id") throw new Error(`unexpected mms_refunds filter ${col}`);
-            asked = ids;
-            return chain;
-          },
-          limit: (n: number) => {
-            if (ledgerError) return Promise.resolve({ data: null, error: ledgerError });
-            return Promise.resolve({
-              data: ledger.filter((r) => asked.includes(r.order_id)).slice(0, n),
-              error: null,
-            });
-          },
-        };
-        return chain;
-      }
-      if (table === "qr_order_items") {
-        let asked: unknown[] = [];
-        /** The LEDGER's leg (`id,order_id`) answers line ids; the bag read answers fulfillments. */
-        let ledgerLeg = false;
-        const chain: Record<string, unknown> = {
-          select: (cols: string) => {
-            ledgerLeg = cols === "id,order_id";
-            return chain;
-          },
           in: (col: string, ids: unknown[]) => {
             if (col !== "order_id") throw new Error(`unexpected qr_order_items filter ${col}`);
             asked = ids;
             return chain;
           },
           limit: (n: number) => {
-            if (ledgerLeg) {
-              if (ledgerError) return Promise.resolve({ data: null, error: ledgerError });
-              const rows =
-                orderLineIds ?? asked.map((id) => ({ id: `line-${id as string}`, order_id: id }));
-              return Promise.resolve({
-                data: rows.filter((r) => asked.includes(r.order_id)).slice(0, n),
-                error: null,
-              });
-            }
             if (orderItemsError) return Promise.resolve({ data: null, error: orderItemsError });
             const rows =
               orderItems ?? asked.map((id) => ({ order_id: id as string, fulfillment: "togo" }));
@@ -458,10 +415,6 @@ const order = (id: string, sessionId: string | null, status = "ready"): OrderRow
   pickup_slot: null,
   fire_at: null,
   cart_id: `cart-${id}`,
-  total_cents: 2_000,
-  refunded_cents: 0,
-  service_charge_cents: 0,
-  tip_cents: 0,
 });
 
 const TOGO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001";
@@ -491,9 +444,6 @@ beforeEach(() => {
   ordersError = null;
   orderItems = null;
   orderItemsError = null;
-  orderLineIds = null;
-  ledger = [];
-  ledgerError = null;
   compLines = [];
   orderEqs = [];
   orderOrs = [];
@@ -1192,55 +1142,31 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
   });
 
-  // #360 (Codex P1) — a cash refund of every dish (`mms_refund_cash_line`) raises `refunded_cents`
-  // and leaves the order `paid`, so the status filter alone kept its code on the wall.
-  it("an order whose FOOD was refunded in full is off the wall though it is still paid — the tip kept (#360, Codex P1)", async () => {
-    // lck/board/route-publishes-a-refunded-bag — the status filter alone; the code stayed up; red.
+  // #360 — A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`). A cash refund of every dish leaves the
+  // order `paid`, and it can be goodwill with the food still handed over: the wall is driven by
+  // `togo_status` alone, so the code is still called, and staff close a cancelled order from the
+  // expo (OPEN-ITEMS J62 asks the owner which it is). A re-hide here goes red.
+  it("an order whose FOOD was refunded in full is still CALLED while it is paid — the wall reads togo_status (#360)", async () => {
     pickupOnly();
-    // $20.00 with a $3.00 tip: every dish back is $17.00 — the pool, never the total
-    orders = [
-      { ...order(TOGO, "sess-togo"), total_cents: 2_000, tip_cents: 300, refunded_cents: 1_700 },
-    ];
-    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
-    // …and a PARTIAL refund leaves the bag standing
-    orders = [
-      { ...order(TOGO, "sess-togo"), total_cents: 2_000, tip_cents: 300, refunded_cents: 900 },
-    ];
+    // $20.00 with a $3.00 tip: every dish back is $17.00 — the pool, every dish refunded
+    const refundedRow = {
+      ...order(TOGO, "sess-togo"),
+      status: "paid",
+      total_cents: 2_000,
+      tip_cents: 300,
+      service_charge_cents: 0,
+      refunded_cents: 1_700,
+    } as OrderRow;
+    orders = [refundedRow];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([
       { code: "AA0001", status: "ready" },
     ]);
-  });
-
-  it("every line in the LEDGER is a full refund though the cents round a cent short (#360, Codex P1)", async () => {
-    // lck/board/route-skips-the-ledger — the ledger never reached the rule; one cent short of the
-    // pool read as a partial refund and the code stayed up; red.
-    pickupOnly();
-    orders = [{ ...order(TOGO, "sess-togo"), total_cents: 2_000, refunded_cents: 1_999 }];
-    orderLineIds = [
-      { id: "li-1", order_id: TOGO },
-      { id: "li-2", order_id: TOGO },
-    ];
-    ledger = [
-      { order_id: TOGO, order_item_id: "li-1" },
-      { order_id: TOGO, order_item_id: "li-2" },
-    ];
-    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
-    // one line of the two refunded: standing
-    ledger = [{ order_id: TOGO, order_item_id: "li-1" }];
-    expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
-  });
-
-  it("an unreadable ledger fails OPEN: the order row alone decides, and a real bag stays up", async () => {
-    pickupOnly();
-    orderLineIds = [{ id: "li-1", order_id: TOGO }];
-    ledger = [{ order_id: TOGO, order_item_id: "li-1" }];
-    ledgerError = { message: "down" };
-    // a cent short of the pool, every line in the ledger — but the ledger cannot be read
-    orders = [{ ...order(TOGO, "sess-togo"), refunded_cents: 1_999 }];
-    expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
-    // …while the amount arm still reads the row: every dish back is off the wall
-    orders = [{ ...order(TOGO, "sess-togo"), refunded_cents: 2_000 }];
-    expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
+    // …and a comp-only bag on that cart is still a bag, still called (M250)
+    orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
+    compLines = [{ cart_id: `cart-${TOGO}`, state: "served", fulfillment: "togo" }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([
+      { code: "AA0001", status: "ready" },
+    ]);
   });
 
   it("an unreadable bag read publishes every code, as before — a real bag is never left uncalled", async () => {

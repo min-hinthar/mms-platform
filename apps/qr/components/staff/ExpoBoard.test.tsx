@@ -2325,3 +2325,31 @@ describe("the lifecycle audit — a refunded line says so on the bag", () => {
     }
   });
 });
+
+describe("#360 — a bag whose food was refunded in full is TAGGED, never hidden", () => {
+  // A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`): a full refund can be goodwill with the food still
+  // going out. The words are the table page's own for refunded food on its way out — one key, no
+  // second copy (`table.detail.paidKitchen.refunded`).
+  const K = "table.detail.paidKitchen.refunded" as const;
+  it("the refunded bag says to check with the counter, in its name and on the card; a standing bag does not", () => {
+    // lck/expo-board/refund-tag-undrawn · lck/expo-board/refund-tag-unnamed
+    for (const lang of ["en", "my"] as const) {
+      const { container } = mount(
+        lang,
+        queue([
+          ticket({ orderId: "order-r", shortCode: "RRRRRR", refunded: true }),
+          ticket({ orderId: "order-s", shortCode: "SSSSSS", tableNumber: 8 }),
+        ]),
+      );
+      const [gone, plain] = [...container.querySelectorAll("article")];
+      expect(gone!.textContent).toContain(ts(lang, K));
+      expect(plain!.textContent).not.toContain(ts(lang, K));
+      // WCAG 2.5.3 — the card's name carries the words it draws
+      expect(gone!.getAttribute("aria-label")).toContain(ts(lang, K));
+      expect(plain!.getAttribute("aria-label")).not.toContain(ts(lang, K));
+      // the bag keeps its controls: staff close a truly cancelled order here as ever
+      expect(within(gone as HTMLElement).getAllByRole("button").length).toBeGreaterThan(0);
+      cleanup();
+    }
+  });
+});

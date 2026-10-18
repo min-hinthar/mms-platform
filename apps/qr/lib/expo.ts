@@ -116,7 +116,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     db
       .from("qr_orders")
       .select(
-        // #360 (Codex P1) — the amounts `foodRefundedInFull` decides on (below).
+        // #360 — the amounts `foodRefundedInFull` tags a bag by (below).
         "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents",
       )
       .in("togo_status", ["preparing", "ready"])
@@ -151,19 +151,23 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
-  // #360 (Codex P1) — an order whose FOOD was refunded in full is nobody's bag, though it is still
-  // `paid`: `mms_refund_cash_line` raises `refunded_cents` and leaves the status, so the filter above
-  // kept a bag card on the lane after all its money went back. The ONE rule the KDS, the floor and
-  // the wall decide by (`foodRefundedInFull`), with the line ledger. Fails OPEN, the KDS's posture —
-  // NOT this lane's outage one: an unreadable ledger (`null`, logged) loses only the every-line arm,
-  // and the order row alone decides (its status, its amount against the goods pool), so a failed
-  // advisory read never hides a real bag nor freezes the counter. A partial refund keeps the bag,
-  // its refunded lines drawn "Refunded — don't bag" (`lineRefunded`, below).
+  // #360 — an order whose FOOD was refunded in full is still `paid` (`mms_refund_cash_line` raises
+  // `refunded_cents` and leaves the status), and it STAYS on the lane, TAGGED, never hidden: A TAG,
+  // NEVER A CANCEL (`lib/refunded-cart.ts`). A full refund can be a goodwill gesture with the food
+  // still going out, the KDS keeps cooking it (and any comp on its cart, M250), and a hide here ran
+  // BEFORE the comp read, so the comp lost the bag it rides. Staff close a truly cancelled order
+  // from this lane as ever (OPEN-ITEMS J62 asks the owner which it is). The ONE rule the KDS, the
+  // floor and the table page tag by (`foodRefundedInFull`), per ORDER here (a ticket is an order),
+  // with the line ledger. Fails OPEN, the KDS's posture — NOT this lane's outage one: an unreadable
+  // ledger (`null`, logged) loses only the every-line arm, and the order row alone decides (its
+  // status, its amount against the goods pool). A partial refund is not tagged; its refunded lines
+  // are drawn "Refunded — don't bag" (`lineRefunded`, below).
   const lineRefunds = await readLineRefunds(db, orders ?? [], "expo");
-  const bagOrders = (orders ?? []).filter((o) => !foodRefundedInFull(o, lineRefunds));
   // The paid bags' carts — the comp read (M250), the phone read and the kitchen-state read all key
   // by them. W21: the pickup contact phone lives on the CART; the order row joins back via cart_id.
-  const cartIds = [...new Set(bagOrders.map((o) => o.cart_id).filter((c): c is string => !!c))];
+  const cartIds = [
+    ...new Set((orders ?? []).map((o) => o.cart_id).filter((c): c is string => !!c)),
+  ];
   // Phase 2f review M1 — a SATURATED unpaid read degrades the unpaid section only. A sent-unpaid
   // counter order is exempt from the sweep, so uncollected ones accrue; turning the whole lane into
   // an outage at the cap hid every PAID bag over orders nobody came for. The read keeps the NEWEST
@@ -192,7 +196,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     return b ? [{ ...b, uncollected: counterUncollected(c.items ?? [], nowMs) }] : [];
   });
 
-  const orderIds = bagOrders.map((o) => o.id);
+  const orderIds = (orders ?? []).map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.
   const { data: items, error: itemsError } = orderIds.length
     ? await db
@@ -297,7 +301,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     unpaidRead.carts.flatMap((c) => (c.items ?? []).filter((l) => l.fulfillment === "togo")),
     nowIso,
   );
-  if (bagOrders.length === 0)
+  if (!orders || orders.length === 0)
     return {
       ok: true,
       queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso, settleInMs: unpaidSettle },
@@ -319,9 +323,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     else compsByCart.set(c.cart_id, [line]);
   }
 
-  const sessionIds = [
-    ...new Set(bagOrders.map((o) => o.session_id).filter((s): s is string => !!s)),
-  ];
+  const sessionIds = [...new Set(orders.map((o) => o.session_id).filter((s): s is string => !!s))];
   const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db.from("table_sessions").select("id,qr_code,mode").in("id", sessionIds)
     : { data: [] as { id: string; qr_code: string; mode: string }[], error: null };
@@ -389,7 +391,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   }
 
   const tickets: ExpoTicket[] = [];
-  for (const o of bagOrders) {
+  for (const o of orders) {
     // The snapshot's lines, then (M250) the cart's comps, oldest first — disjoint by construction
     // (a comp is never snapshotted). An order with no cart keeps its snapshot only.
     const lines = [
@@ -419,6 +421,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       arrivedAt: o.arrived_at ?? null,
       lines,
       createdAt: o.created_at,
+      // #360 — every dish refunded: drawn, TAGGED "check with the counter" (the table page's words
+      // for food going out), never dropped. Absent = not refunded in full.
+      ...(foodRefundedInFull(o, lineRefunds) ? { refunded: true as const } : {}),
     });
   }
 
