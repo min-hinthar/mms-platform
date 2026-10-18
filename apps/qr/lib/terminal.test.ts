@@ -468,6 +468,22 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
     expect(rel).toEqual({ cartId: "cart-1", attemptId: mintedAttempt() });
   });
 
+  it("a hand-off failure whose cancel ALSO fails HOLDS the freeze and says the outcome is unknown (M287, Codex on #352)", async () => {
+    // `terminal_reader_timeout` can be a false negative: the reader may be showing the charge.
+    processFails = { code: "terminal_reader_timeout" };
+    piCancelFails = true;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r.ok).toBe(false);
+    const ops = calls.map((c) => c.op);
+    expect(ops).toContain("pi.cancel");
+    // MUTATION terminal/m287-failed-cancel-frees-the-table: red.
+    expect(ops).not.toContain("releaseFor");
+    if (r.ok) return;
+    expect(r.error).toMatch(/may still be taking this card/);
+    // Never the reader-fault copy that invites a retry or another tender.
+    expect(r.error).not.toMatch(/try again, or settle by cash/);
+  });
+
   it("a PI-create failure releases the freeze (nothing to cancel), scoped", async () => {
     piCreateFails = true;
     const r = await settleCard({ sessionId: SESSION });

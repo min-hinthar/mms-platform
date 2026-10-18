@@ -1868,6 +1868,14 @@ const MUTANTS = [
     replace: '    else if (claimHeld) await releaseOwn(cartId, owner, "post-claim-throw");',
   },
   {
+    id: "terminal/m287-failed-cancel-frees-the-table",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "M287 (Codex on #352). A reader hand-off that throws may still be collecting (`terminal_reader_timeout` can be a false negative, and the client now gives up after 20 s). When the orphan cancel ALSO fails the outcome is unknown, and releasing the freeze lets a cash settle collect the same bill a second time. The failed cancel must hold the freeze",
+    find: "    if (!cancelled) return { ok: false, error: READER_OUTCOME_UNKNOWN };",
+    replace: "    if (false) return { ok: false, error: READER_OUTCOME_UNKNOWN };",
+  },
+  {
     id: "terminal/processing-read-as-paid",
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
