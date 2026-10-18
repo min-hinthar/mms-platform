@@ -23,10 +23,12 @@ import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
 // ── Phase 2d · floor ──
 import { UP_NOTICE_DWELL_MS, heardUp, upRose } from "@/lib/floor-kitchen";
+import { GRACE_REREAD_MARGIN_MS } from "@/lib/live-pass";
 import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { localizeCount, plural } from "@/lib/i18n/fill";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { paneUrl } from "@/lib/floor-pane";
+import { withoutClosedParam, type ClosedNote } from "@/lib/floor-closed-note";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useTurnoverNews } from "./TurnoverNews";
@@ -54,7 +56,15 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
  * `getFloorView`), so they refresh on the same tick and freeze on the same outage; `mergeFloorRows`
  * decides where the two lists meet and `floorRowKey` keys every row by its session.
  */
-export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
+export function FloorBoard({
+  initial,
+  closedTable = null,
+}: {
+  initial: FloorSnapshot;
+  /** The lifecycle audit — the table that closed under this device's table page or pad
+   *  (`closedFloorHref`), said once in the region; null when nothing closed. */
+  closedTable?: ClosedNote | null;
+}) {
   const lang = useStaffLang();
   // PD7 (m7 B10) — a clear's outcome, said here because the pane it was tapped in leaves with the
   // table (`TurnoverNews.tsx`). Null outside the counter's split.
@@ -311,6 +321,36 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       timers.clear();
     };
   }, [refresh]);
+  // The lifecycle audit — "ready to serve" waits out Mom's undo window (`foldFloorKitchen`), and the
+  // database says nothing when it closes: ONE re-read for the earliest bump (`settleInMs`, measured
+  // on the DB clock at the read, plus the shared margin). Each snapshot replaces the timer.
+  const settleInMs = snap.settleInMs ?? null;
+  useEffect(() => {
+    if (settleInMs === null) return;
+    const id = setTimeout(() => void refresh(), settleInMs + GRACE_REREAD_MARGIN_MS);
+    return () => clearTimeout(id);
+  }, [snap, settleInMs, refresh]);
+  // The lifecycle audit — a table closed under this device's page or pad (cleared or merged by a
+  // colleague, or timed out) is SAID here, where the bounce landed, never a silent jump; then the
+  // note's param leaves the address, so a reload never says it twice.
+  useEffect(() => {
+    if (closedTable === null) return;
+    // Deferred a tick (the house's lint-safe mount say — never a setState in the effect body).
+    void Promise.resolve().then(() => {
+      if (!alive.current) return;
+      onStripNotice(
+        closedTable === "unnamed"
+          ? { k: "floor.tableClosed.unnamed" }
+          : { k: "floor.tableClosed", vars: { id: closedTable } },
+      );
+    });
+    try {
+      window.history.replaceState(null, "", withoutClosedParam(window.location.href));
+    } catch (e) {
+      // Deliberate: the line is said either way — only a reload would say it again.
+      console.error("[FloorBoard] the closed note stayed in the address", e);
+    }
+  }, [closedTable, onStripNotice]);
   // Phase 2d · floor — the notices' dwell timers die with the board.
   useEffect(
     () => () => {

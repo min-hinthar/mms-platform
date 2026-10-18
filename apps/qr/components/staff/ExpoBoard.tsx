@@ -44,6 +44,7 @@ import { boundWrite, track } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { factSubject, laneFacts } from "@/lib/counter-attention";
+import { GRACE_REREAD_MARGIN_MS } from "@/lib/live-pass";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -922,6 +923,16 @@ export function ExpoBoard({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [refresh]);
+  // The lifecycle audit — a bump becomes "Kitchen done" only when Mom's undo window closes, and the
+  // database says nothing at that moment: ONE re-read for it (`settleInMs`, measured on the DB clock
+  // at the read; the shared margin lands it after the instant — the live pass's own pattern). Each
+  // snapshot replaces the timer, so it never stacks.
+  const settleInMs = snap.settleInMs ?? null;
+  useEffect(() => {
+    if (settleInMs === null) return;
+    const id = setTimeout(() => void refresh(), settleInMs + GRACE_REREAD_MARGIN_MS);
+    return () => clearTimeout(id);
+  }, [snap, settleInMs, refresh]);
 
   // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): a picked-up bump drops the card — restore focus
   // to the heading only when it fell to <body> from a real control (edge-triggered; poll-safe).
@@ -1443,7 +1454,7 @@ function ExpoCard({
       data-picked={picked || undefined}
       // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
       // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
-      aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOutAria })}
+      aria-label={`${tf(lang, cardNameKey, { x: grocery ? verifyWho : callOutAria })}${ticket.refunded ? `, ${refundedBagWords(lang, echoes)}` : ""}`}
     >
       {/* Phase 2d · bell — the ring the bell rang for (decorative; RM → none, the floor's rule). */}
       {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
@@ -1505,6 +1516,17 @@ function ExpoCard({
           )}
         </span>
       </header>
+      {/* #360 — every dish on the order was refunded (`foodRefundedInFull`, the KDS's rule). A TAG,
+          NEVER A CANCEL (`lib/refunded-cart.ts`): a full refund can be goodwill with the food still
+          going out, so the bag STAYS with its controls and says to check first; staff close a truly
+          cancelled order from here as ever. The table page's words for refunded food on its way
+          out — one key, no second copy. In warn, glyph beside words (never colour alone). */}
+      {ticket.refunded && (
+        <p style={refundedLine}>
+          <Icon name="receipt" size={18} aria-hidden />
+          <Chrome lang={lang} k="table.detail.paidKitchen.refunded" echo="stack" />
+        </p>
+      )}
       {ticket.pickupSlot && (
         <p style={secondaryLine}>
           <Chrome lang={lang} k="expo.pickup" vars={{ t: formatSlotLong(ticket.pickupSlot) }} />
@@ -1812,6 +1834,12 @@ function unpaidBadgeWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "settle.unpaid", false, shown);
 }
 
+/** #360 — the refunded bag's line exactly as it draws it (`echo="stack"`, the device's `shown`), for
+ *  the card's name (WCAG 2.5.3 — the name contains the visible label; the KDS's `refundedWords`). */
+function refundedBagWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "table.detail.paidKitchen.refunded", "stack", shown);
+}
+
 /** Self-review PT-2 — the same for a bag that owes nothing ("No charge"). */
 function noChargeBadgeWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "expo.bag.noCharge", false, shown);
@@ -1850,6 +1878,13 @@ function ExpoLineRow({ line, noChargeTag }: { line: ExpoLine; noChargeTag: boole
           />
         )}
       </span>
+      {/* The lifecycle audit — the money for this dish went back: never bag it. A tag in the warn
+          ink beside the words (never colour alone). */}
+      {line.refunded && (
+        <span style={{ ...destTag, color: "var(--warn)" }}>
+          <Chrome lang={lang} k="expo.bag.refunded" />
+        </span>
+      )}
       {/* A tag, so no echo (the chip rule); <Chrome> marks its own Burmese span. */}
       {line.noCharge && noChargeTag && (
         <span style={destTag}>
@@ -1895,6 +1930,16 @@ const codeSuffix: CSSProperties = {
 };
 // K27 — the pickup slot, the phone and the scan-and-go note at body size: read at arm's length.
 const secondaryLine: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", color: "var(--t2)" };
+// #360 — the refunded bag's line: body size like its neighbours, in warn and bold (it may change
+// what is handed over), the glyph on the words' line.
+const refundedLine: CSSProperties = {
+  ...secondaryLine,
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--s2)",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--warn)",
+};
 const readyTag: CSSProperties = {
   fontSize: "var(--fs-xs)",
   fontWeight: "var(--fw-heavy)",

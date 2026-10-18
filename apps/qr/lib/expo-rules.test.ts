@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
 import {
   compareExpoTickets,
   EXPO_TONE_MIN,
   expoAge,
   isScanGoBasket,
+  kitchenDoneAt,
   kitchenStateOf,
+  lineRefunded,
   laneRows,
   paidBagCompLine,
   PICKED_UNDO_ARM_MS,
@@ -22,39 +25,75 @@ import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
  * A4·2 · K30 (B) — both rules falsified by VALUE: a fixture where the discriminating line and the
  * catch-all produce different answers, never a fixture they agree on.
  */
-const togo = (state: string) => ({ state, fulfillment: "togo" });
+// The lifecycle audit — the DB clock the lane reads with, and a bump long out of Mom's undo window:
+// a served line counts as finished only once its stamp is `KDS_UNDO_MS` old (`bumpSettled`).
+const NOW_ISO = "2026-09-13T18:00:00.000Z";
+const NOW_MS = Date.parse(NOW_ISO);
+const SETTLED = new Date(NOW_MS - 60_000).toISOString();
+const togo = (state: string, bumped_at: string | null = state === "served" ? SETTLED : null) => ({
+  state,
+  fulfillment: "togo",
+  bumped_at,
+});
 const grocery = (state: string) => ({ state, fulfillment: "grocery" });
 const dinein = (state: string) => ({ state, fulfillment: "dinein" });
 
 describe("kitchenStateOf — the bag's kitchen state, off its cart's own lines", () => {
   it("is done once every to-go food line is served", () => {
-    expect(kitchenStateOf([togo("served"), togo("served")])).toBe("done");
+    expect(kitchenStateOf([togo("served"), togo("served")], NOW_ISO)).toBe("done");
   });
   it("is cooking while any to-go food line is still draft, fired or in progress", () => {
-    expect(kitchenStateOf([togo("served"), togo("fired")])).toBe("cooking");
-    expect(kitchenStateOf([togo("in_progress")])).toBe("cooking");
-    expect(kitchenStateOf([togo("draft")])).toBe("cooking");
+    expect(kitchenStateOf([togo("served"), togo("fired")], NOW_ISO)).toBe("cooking");
+    expect(kitchenStateOf([togo("in_progress")], NOW_ISO)).toBe("cooking");
+    expect(kitchenStateOf([togo("draft")], NOW_ISO)).toBe("cooking");
   });
   it("a VOIDED line is off the ticket and cannot keep a bag cooking forever", () => {
     // MUTATION: drop the `state !== "voided"` filter → a voided fired line reads as cooking.
-    expect(kitchenStateOf([togo("served"), togo("voided")])).toBe("done");
+    expect(kitchenStateOf([togo("served"), togo("voided")], NOW_ISO)).toBe("done");
   });
   it("grocery lines are never kitchen work — a grocery-only bag is done the moment it is paid", () => {
     // MUTATION: drop the `fulfillment === "togo"` filter → a grocery line (never fired, so never
     // served) reads as cooking, and every scan-and-go basket sinks below the food bags for good.
-    expect(kitchenStateOf([grocery("draft"), grocery("draft")])).toBe("done");
-    expect(kitchenStateOf([togo("served"), grocery("draft")])).toBe("done");
+    expect(kitchenStateOf([grocery("draft"), grocery("draft")], NOW_ISO)).toBe("done");
+    expect(kitchenStateOf([togo("served"), grocery("draft")], NOW_ISO)).toBe("done");
   });
   it("a dine-in line on a mixed order stays on the table — it is not in the bag", () => {
-    expect(kitchenStateOf([togo("served"), dinein("fired")])).toBe("done");
+    expect(kitchenStateOf([togo("served"), dinein("fired")], NOW_ISO)).toBe("done");
   });
   it("no lines readable is unknown, never a verdict either way", () => {
-    expect(kitchenStateOf(undefined)).toBe("unknown");
-    expect(kitchenStateOf([])).toBe("unknown");
+    expect(kitchenStateOf(undefined, NOW_ISO)).toBe("unknown");
+    expect(kitchenStateOf([], NOW_ISO)).toBe("unknown");
+  });
+  it("a bump inside Mom's undo window is still COOKING — the ONE track's settled predicate", () => {
+    // lck/expo-rules/done-on-a-raw-served — a raw `state = served` read "Kitchen done" within the
+    // realtime debounce of a mis-tapped All done: the bag jumped the queue and the bell rang for food
+    // still on the wok. One millisecond inside the window is cooking; exactly at it, done.
+    const inside = new Date(NOW_MS - KDS_UNDO_MS + 1).toISOString();
+    const at = new Date(NOW_MS - KDS_UNDO_MS).toISOString();
+    expect(kitchenStateOf([togo("served", inside)], NOW_ISO)).toBe("cooking");
+    expect(kitchenStateOf([togo("served", at)], NOW_ISO)).toBe("done");
+    // a served line with no stamp has nothing to settle — never "done" off a bare state
+    expect(kitchenStateOf([togo("served", null)], NOW_ISO)).toBe("cooking");
   });
   it("a bag whose every dish was voided after payment says nothing — not 'done' on a refund", () => {
-    expect(kitchenStateOf([togo("voided"), togo("voided")])).toBe("unknown");
-    expect(kitchenStateOf([togo("voided"), grocery("draft")])).toBe("unknown");
+    expect(kitchenStateOf([togo("voided"), togo("voided")], NOW_ISO)).toBe("unknown");
+    expect(kitchenStateOf([togo("voided"), grocery("draft")], NOW_ISO)).toBe("unknown");
+  });
+});
+
+describe("kitchenDoneAt — when the kitchen FINISHED a bag (the bell's key)", () => {
+  it("is the latest SETTLED bump among the to-go lines — a bump Mom can still take back is no finish", () => {
+    // lck/expo-rules/done-at-reads-an-unsettled-bump — keyed off a stamp still inside the window, the
+    // counter bell rang a finish the Undo then took back, and the real finish later rang nothing new.
+    const older = new Date(NOW_MS - 90_000).toISOString();
+    const inside = new Date(NOW_MS - 2_000).toISOString();
+    expect(kitchenDoneAt([togo("served", older), togo("served", inside)], NOW_ISO)).toBe(older);
+    expect(kitchenDoneAt([togo("served", inside)], NOW_ISO)).toBeNull();
+    expect(kitchenDoneAt([togo("served", older), togo("served", SETTLED)], NOW_ISO)).toBe(SETTLED);
+    // a dine-in line's bump is the table's, never the bag's
+    expect(
+      kitchenDoneAt([{ state: "served", fulfillment: "dinein", bumped_at: SETTLED }], NOW_ISO),
+    ).toBeNull();
   });
 });
 
@@ -323,5 +362,15 @@ describe("pickHoldReason — the lane's hold says whether a pick is still unsent
     // MUTATION (p2i-lane/hold-reason-always-pick): always `pick` — the lane's own hung pick write
     // refuses the stall's Reload, on a tab that could not stash it, for as long as it hangs; red.
     expect(pickHoldReason(new Map([["a", { committing: true }]]))).toBe("pickSending");
+  });
+});
+
+describe("lineRefunded — a bag line whose money went back", () => {
+  it("is any refunded amount above zero; zero, absent and null are an ordinary line", () => {
+    // lck/expo-rules/refund-reads-as-kept
+    expect(lineRefunded(1)).toBe(true);
+    expect(lineRefunded(0)).toBe(false);
+    expect(lineRefunded(undefined)).toBe(false);
+    expect(lineRefunded(null)).toBe(false);
   });
 });

@@ -4,6 +4,56 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
+
+- **Every staff surface tells the same truth, live, and a mistake can be taken back (#360)** — a bump
+  reads "done" on the expo, the bell and the floor only once Mom's 6-second undo closes (one re-read
+  when it does); a single dish's Done leaves a Bring-back chip (never the card's pill, decision 15); a
+  held card says its day and Cook now asks first; a dish VOIDED off the board — a whole one-dish card
+  included — is called out until Got it, once a by-id read confirms it was voided (a teammate's bump is
+  never a "stop"); a full refund keeps its food on the KDS, the floor and the table page, tagged "check
+  with the counter" (never hidden); the wall shows a ready bag whatever its schedule, windows by due
+  time and drops scan-and-go baskets (a refunded bag stays called — a tag, never a cancel); the expo says "Refunded — don't bag"; a sent dish
+  keeps its note, sold-out flag and kitchen stage on the table page, with the newest paid round's food;
+  staff box a draft to go (K18); a sold-out draft at the cash, reader and tab-close doors is named
+  above them with Remove first and re-warns once (PD8's pattern, never a block); a free clear's window
+  says the drafts it drops (ruling #6: it never waits); the merge says the phones stay; a table closed
+  under a server's page is named on the floor. No migration — M303–M306, M313, M314 and K49 filed (M307 retired:
+  the session stream's M293); K50 · K51 are owner questions.
+- **Codex round 1 on #360** — a full refund is decided by the amount as well as the status (a full
+  CASH refund leaves the order `paid`), so the KDS, the floor and the paid round tag it; a sold-out
+  dish bumped inside Mom's undo window keeps its flag while it still counts as in the kitchen; a
+  line recalled on another tablet stops being "this tablet's bump", so its later void is said; a
+  counter-only floor schedules the settle re-read; and the paid round reads every paid cart of the
+  session (past 20 rounds too), saying so when it can only show the latest.
+- **The blind pass on #360 (Codex out of quota)** — the refund tag answers the KITCHEN's question,
+  "was every dish refunded?" (`foodRefundedInFull`), not the receipt's: the order is `refunded`, or
+  every line has a line refund in the ledger, or the money back covers the goods pool
+  (`total − service − tip`). A fully refunded TIPPED cash order, the common case, was never tagged:
+  every line refund is clamped to that pool. The ledger is read once per surface, in IN-lists of 50,
+  only for a paid order with money back, and fails open. The paid round's cap notes say only true
+  numbers: the dishes it draws, or "Older rounds aren't listed here." with no number. The page's and
+  the floor's paid-cart reads go in IN-lists of 50. All done's own-bump landing has its test.
+- **Codex on #360's head** — the expo now TAGS a bag whose FOOD was refunded in full though the order
+  is still `paid` (a cash refund of every dish, the tip kept): "Refunded — check with the counter
+  before it goes out", by the same `foodRefundedInFull` rule and line ledger as the KDS. A tag, never
+  a hide: a full refund can be goodwill with the food still handed over, so the bag and any comped
+  dish on it (M250) stay on the lane and staff close a truly cancelled order there as before. An
+  unreadable ledger fails open, so the order row alone decides. The wall is unchanged: it stays
+  driven by `togo_status`. Filed J62, the owner's question: cancelled or goodwill? A bump whose answer was lost (the write threw, now
+  or after the bound) no longer stays "this tablet's own" while its dish is still on the board, so a
+  later void of that dish is said (`ownBumpsSettled`). Filed M322: the settle doors' sold-out read runs
+  outside the atomic settle (a migration).
+- **Codex round 3 on #360** — a CARD full refund now stays on the expo lane, tagged, and on the wall,
+  exactly as an equal cash refund does: the card refund flips the order `refunded`
+  (`mms_apply_refund_reconcile`) while the cash one leaves it `paid`, and both surfaces read
+  `paid` alone. The two settled statuses are now named once (`SETTLED_ORDER_STATUSES`). A mixed order
+  whose every dish was refunded with its grocery kept is tagged: the line ledger counts dishes only.
+  A served row with no bump stamp reads as cooking on the floor too, never "Kitchen done", by the one
+  `servedSettled` rule the expo and the table page already use. The table page's paid round says its
+  cap even when it draws no dish ("Older dishes aren't listed here."). The amount arm still counts a
+  kept grocery in the pool: no reader holds a grocery line's share of the order's discount and tax.
+
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 
 - **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only

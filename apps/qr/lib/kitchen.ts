@@ -37,6 +37,9 @@ import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
 import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
 import { stationForCategory } from "./kitchen-station";
 import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
+import { refundedCarts } from "./refunded-cart";
+import { readLineRefunds } from "./refunded-cart-read";
+import { FATE_CAP } from "./kds-removed";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -245,8 +248,17 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // No mode/status filter (W3a): dine-in enforces active below; pickup/scango outlive their session.
     db.from("table_sessions").select("id,qr_code,table_number,mode,status").in("id", sessionIds),
     // The order anchors the pickup/scango identity: its uuid tail IS the short code the diner's
-    // /track + exit pass show, so the kitchen and the customer's phone always agree.
-    db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
+    // /track + exit pass show, so the kitchen and the customer's phone always agree. The lifecycle
+    // audit — REFUNDED orders are read too, to TAG the card (`refundedCarts`), never to hide it: a full
+    // refund can be a goodwill comp at a table still eating (the blind pass on #360, CRITICAL 1).
+    db
+      .from("qr_orders")
+      // #360 — the amounts and the parts the refund pool leaves out (`total − service − tip`): a
+      // cash refund leaves the order `paid`, and a tipped one never reaches its total
+      // (`foodRefundedInFull`).
+      .select("id,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents")
+      .in("cart_id", cartIds)
+      .in("status", ["paid", "refunded"]),
     menuIds.length
       ? db
           .from("menu_items")
@@ -274,10 +286,20 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   if (sessRes.error || orderRes.error || menuRes.error) return { ok: false, reason: "outage" };
   const optionNameMy = names.optionNameMy;
   const sessById = new Map((sessRes.data ?? []).map((s) => [s.id, s]));
+  // The #CODE a card carries: its paid order's, else (a cart refunded in full) the refunded one's —
+  // the counter looks the order up by the code the guest holds.
   const orderByCart = new Map<string, string>();
+  const refundedOrderByCart = new Map<string, string>();
   for (const o of orderRes.data ?? []) {
-    if (o.cart_id && !orderByCart.has(o.cart_id)) orderByCart.set(o.cart_id, o.id);
+    if (!o.cart_id) continue;
+    const into = o.status === "refunded" ? refundedOrderByCart : orderByCart;
+    if (!into.has(o.cart_id)) into.set(o.cart_id, o.id);
   }
+  // The lifecycle audit — the ONE rule the floor and the table page tag by (`lib/refunded-cart.ts`),
+  // with the line ledger for a paid order that had money back (#360: every dish refunded, the tip
+  // kept). ADVISORY: unreadable, it logs and the order row alone decides (`readLineRefunds`).
+  const lineRefunds = await readLineRefunds(db, orderRes.data ?? [], "kitchen");
+  const refunded = refundedCarts(orderRes.data ?? [], lineRefunds);
   const stationByItem = new Map<string, KitchenStation>();
   // W23a — which dishes are ALREADY off the menu, so the ticket's 86 control shows the current answer
   // instead of an affordance the server would refuse. Same read, one more column.
@@ -405,7 +427,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // Unpaid is the CART's (`cartOwes`, Codex r4), so every line on the ticket answers the same:
       // the first line's answer — a comp's included — is the ticket's.
     } else {
-      const orderId = orderByCart.get(l.cart_id);
+      const orderId = orderByCart.get(l.cart_id) ?? refundedOrderByCart.get(l.cart_id);
       // The card's round (round 3 D4): only a dine-in table's batched Send can be numbered.
       const round: KitchenRound =
         channel !== "dinein" ? { kind: "none" } : roundFor(rounds, cart.session_id, l.fire_batch);
@@ -424,6 +446,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         pickupSlot: cart.pickup_slot ?? null,
         held: gate.held,
         unpaid: gate.unpaid,
+        // The lifecycle audit — a cart refunded in full keeps its food, TAGGED: "Refunded — check with
+        // the counter before cooking" (`refundedCarts`). Never a drop: a dropped card is one nobody
+        // can bump, and the floor would count its dishes "in kitchen" forever.
+        ...(refunded.has(l.cart_id) ? { refunded: true as const } : {}),
         lines: [line],
         firedAt: line.firedAt, // first (oldest) line's fire time = the ticket's age / due time
       });
@@ -443,6 +469,40 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     ...all.filter((t) => t.held).sort(byFire),
   ];
   return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
+}
+
+/**
+ * The lifecycle audit — the KDS's CONFIRMATION read (`lib/kds-removed.ts`): the CURRENT state of the
+ * lines that left the board between two snapshots, by id, in ONE statement. Only `voided` makes the
+ * board say "Removed: … — stop"; a line now `served` was a teammate's bump (the served rail is a
+ * different statement from the live read, so a bump landing between the two is on neither — the
+ * blind pass on #360, CRITICAL 4). Gated like the board's own read; ids bounded (`FATE_CAP`, uuid
+ * only). A failed read answers `{ ok: false }`, and the board says nothing.
+ */
+export async function readLineFates(
+  raw: unknown,
+): Promise<{ ok: true; states: Record<string, string> } | { ok: false }> {
+  const auth = await getStaffAuth();
+  if (auth.kind !== "staff") return { ok: false };
+  if (await isConsoleLocked()) return { ok: false };
+  if (
+    !Array.isArray(raw) ||
+    raw.length === 0 ||
+    raw.length > FATE_CAP ||
+    !raw.every((id) => typeof id === "string" && UUID_RE.test(id))
+  )
+    return { ok: false };
+  const { data, error } = await serviceClient()
+    .from("qr_cart_items")
+    .select("id,state")
+    .in("id", raw as string[]);
+  if (error) {
+    console.error("[kitchen] line fate read failed — the board says no removal", {
+      message: error.message,
+    });
+    return { ok: false };
+  }
+  return { ok: true, states: Object.fromEntries((data ?? []).map((r) => [r.id, r.state])) };
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };
