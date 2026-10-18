@@ -1943,6 +1943,10 @@ export type Database = {
     Functions: {
       is_host: { Args: { sess: string }; Returns: boolean }
       is_member: { Args: { sess: string }; Returns: boolean }
+      is_member_seated_by: {
+        Args: { seated_by: string; sess: string }
+        Returns: boolean
+      }
       is_staff: { Args: never; Returns: boolean }
       is_staff_at_least: { Args: { min_role: string }; Returns: boolean }
       mms_ack_table_clear_stop: {
