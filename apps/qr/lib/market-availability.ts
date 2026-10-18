@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
 import { setGroceryAvailableInput } from "@mms/db/schemas";
 import { staffGate } from "./staff";
+import { MARKET_OUTAGE } from "./staff-outage";
 
 /**
  * M190 (lifecycle residuals) — the market's out-of-stock toggle: the first writer
@@ -31,8 +32,8 @@ export type SetGroceryAvailableResult =
   | { ok: true; available: boolean }
   | { ok: false; error: string; code: GroceryAvailErrCode };
 
-const MARKET_OUTAGE =
-  "Can’t reach the market shelf right now — nothing changed. Try again in a moment.";
+// The outage sentence is the dictionary's (`browse.market.err.outage`), so `<OutageText>` can twin it
+// in Burmese at the render site — a literal here stays English on a Burmese tablet (Codex r2 on #363).
 
 export async function setGroceryAvailable(raw: unknown): Promise<SetGroceryAvailableResult> {
   const parsed = setGroceryAvailableInput.safeParse(raw);

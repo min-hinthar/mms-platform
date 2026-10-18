@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { STAFF } from "@/lib/i18n/staff";
 /**
  * M190 (lifecycle residuals) — `setGroceryAvailable`, the first writer `grocery_items.available` has
  * had, and proof that its write REACHES the shopper: the same fake table backs the staff write, the
@@ -230,9 +231,11 @@ describe("setGroceryAvailable — the market's out-of-stock toggle", () => {
       await setGroceryAvailable({ barcode: "99999999", available: false, expectedAvailable: true }),
     ).toMatchObject({ ok: false, code: "gone" });
     failRead = true;
+    // The outage is the dictionary's sentence verbatim — the string `<OutageText>` twins in Burmese
+    // (Codex r2 on #363); a reworded literal here would silently stay English on a Burmese tablet.
     expect(
       await setGroceryAvailable({ barcode: JAR, available: false, expectedAvailable: true }),
-    ).toMatchObject({ ok: false, code: "sentence" });
+    ).toEqual({ ok: false, code: "sentence", error: STAFF["browse.market.err.outage"].en });
     failRead = false;
     failWrite = true;
     expect(

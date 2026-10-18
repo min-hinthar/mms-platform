@@ -105,6 +105,29 @@ describe("MarketShelfEditor — the market's sold-out toggle", () => {
     expect(screen.getByRole("button", { name: `${MARK} — Pickled tea leaf` })).toBeTruthy();
   });
 
+  it("the server's outage sentence reads in Burmese on a Burmese console (Codex r2 on #363)", async () => {
+    // `setGroceryAvailable` returns its outage as a plain English string; `<OutageText>` twins it by
+    // identity. Unregistered, a Burmese tablet shows the English sentence.
+    setGroceryAvailable.mockResolvedValue({
+      ok: false,
+      code: "sentence",
+      error: STAFF["browse.market.err.outage"].en,
+    });
+    mount([jar()], "my");
+    await act(async () => {
+      fireEvent.click(
+        screen
+          .getAllByRole("button")
+          .find((b) =>
+            /Pickled tea leaf/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
+          )!,
+      );
+    });
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe(STAFF["browse.market.err.outage"].my);
+    expect(region.querySelector('[lang="my"]')).toBeTruthy();
+  });
+
   it("a LOST answer says the write may or may not have landed, keeps the shown state, and refreshes", async () => {
     setGroceryAvailable.mockRejectedValue(new Error("network"));
     mount([jar()]);

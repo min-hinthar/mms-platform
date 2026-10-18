@@ -116,6 +116,16 @@ describe("StaffLineEditor — the note that missed its dish (P2ar)", () => {
     expect((document.activeElement as HTMLElement).hasAttribute("data-line-name")).toBe(true);
   });
 
+  it("Got it withdraws the sentence from the ONE region — the note it named is gone (Codex r2 on #363)", () => {
+    const r = render(<Page line={draft} />);
+    typeANote("extra chili");
+    r.rerender(<Page line={fired} />);
+    expect(screen.getByRole("status").textContent).toBe(STRANDED);
+    fireEvent.click(screen.getByRole("button", { name: "Got it — Mohinga" }));
+    // The kept note was let go: a screen reader must not keep reading "…before this note saved".
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
   it("focus the person MOVED elsewhere is never yanked; the region is still told", () => {
     const r = render(<Page line={draft} />);
     typeANote("no egg");

@@ -1704,6 +1704,15 @@ export const STAFF = {
     en: "Couldn’t reach the market — {x} may or may not have changed. Check the row and try again.",
     my: "စျေးစာရင်းနဲ့ ဆက်သွယ်လို့ မရပါ — {x} ပြောင်းသွားလား မသေချာပါ။ အတန်းကို ကြည့်ပြီး ထပ်စမ်းပါ။",
   },
+  // Codex r2 on #363 — `setGroceryAvailable`'s outage sentence, returned as a PLAIN STRING (a
+  // `"use server"` module) and twinned at the render site by `<OutageText>` (`MARKET_OUTAGE`,
+  // lib/staff-outage.ts), the shape `out.write.waiting` takes. K15 draft; words grounded on
+  // `browse.market.err.flipUnknown` (စျေးစာရင်းနဲ့ ဆက်သွယ်လို့ မရပါ), `out.authority.unconfirmed`
+  // (ခုလောလောဆယ် · ခဏနေ ထပ်စမ်းကြည့်ပါ) and `shell.lang.note` (မပြောင်းပါ); ဘာမှ is fresh.
+  "browse.market.err.outage": {
+    en: "Can’t reach the market shelf right now — nothing changed. Try again in a moment.",
+    my: "စျေးစာရင်းနဲ့ ခုလောလောဆယ် ဆက်သွယ်လို့ မရပါ — ဘာမှ မပြောင်းပါ။ ခဏနေ ထပ်စမ်းကြည့်ပါ။",
+  },
   "browse.market.a11y.list": { en: "Market availability", my: "စျေး ပစ္စည်း ရနိုင်မှု" },
 
   // ═══ P2 PR B · people ═══════════════════════════════════════════════════════════

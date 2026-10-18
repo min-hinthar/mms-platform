@@ -28,7 +28,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   page says "Mohinga went to the kitchen before this note saved — tell the kitchen.", focus lands on the
   kept text, and "Got it" lets it go.
 - Registry: M315–M318 and J66 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
-  P2ar to the server-side signal; 18 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
+  P2ar to the server-side signal; 19 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
 - **The blind pass and Codex on #363.** Cook now's order write is repairable: a Cook now on an
   already-live ticket runs the same guarded write once no line of the cart is still held, so a write
   that failed no longer leaves the bag off the wall and "Scheduled" for good (the tap-free repair is
@@ -40,6 +40,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   focused. The market copy (EN, and its two Burmese drafts re-drafted for K15) promises the scan's
   refusal at once and the aisles on the next load — the grid is one read per visit (M325). M323–M326
   filed.
+- **Codex round 2 on #363.** "Got it" on a stranded note also withdraws its sentence from the page's
+  one status region (only while it is still that line's), so a screen reader no longer reads a note
+  that is gone; and the market toggle's outage ("Can’t reach the market shelf right now — nothing
+  changed.") is the dictionary's sentence with a Burmese twin at the render site, so a Burmese tablet
+  no longer shows it in English (one more K15 draft).
 
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 

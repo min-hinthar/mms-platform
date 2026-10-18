@@ -38261,6 +38261,23 @@ const MUTANTS = [
     replace: '  const gate = await staffGate("manager", MARKET_OUTAGE);',
   },
   {
+    id: "lcr/market-availability/outage-off-the-dictionary",
+    file: "apps/qr/lib/market-availability.ts",
+    suite: "lib/market-availability.test.ts",
+    why: "Codex r2 on #363 — the outage is a local English literal again, not the dictionary's sentence: `<OutageText>` matches by identity, so a Burmese tablet shows English",
+    find: 'import { MARKET_OUTAGE } from "./staff-outage";\n',
+    replace:
+      'const MARKET_OUTAGE = "Can’t reach the market shelf right now — nothing changed. Try again.";\n',
+  },
+  {
+    id: "lcr/chrome/twin-market-outage",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/MarketShelfEditor.test.tsx",
+    why: "Codex r2 on #363 — the market shelf's outage has no twin at the render site: a Burmese tablet reads 'Can’t reach the market shelf right now' in English",
+    find: "  [MARKET_OUTAGE, MARKET_OUTAGE_MY],\n",
+    replace: "",
+  },
+  {
     id: "lcr/grocery/scan-sells-a-sold-out-item",
     file: "apps/qr/lib/grocery.ts",
     suite: "lib/market-availability.test.ts",
@@ -38403,7 +38420,15 @@ const MUTANTS = [
     file: "apps/qr/components/staff/StaffLineEditor.tsx",
     suite: "components/staff/StaffLineEditor.stranded.test.tsx",
     why: "the blind pass on #363 — the send is undone and the line is a draft again, but the region still says the dish 'went to the kitchen before this note saved'",
-    find: "        onNotice?.(null);\n",
+    find: "        onNotice?.(null);\n        if (fell)",
+    replace: "        if (fell)",
+  },
+  {
+    id: "lcr/line-editor/got-it-sentence-stands",
+    file: "apps/qr/components/staff/StaffLineEditor.tsx",
+    suite: "components/staff/StaffLineEditor.stranded.test.tsx",
+    why: "Codex r2 on #363 — Got it lets the kept note go, but the region still says the dish 'went to the kitchen before this note saved' about a note no longer on screen",
+    find: "                  onNotice?.(null);\n",
     replace: "",
   },
   {

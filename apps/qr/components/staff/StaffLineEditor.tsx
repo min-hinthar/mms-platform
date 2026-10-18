@@ -524,6 +524,13 @@ export function StaffLineEditor({
                   .closest("li")
                   ?.querySelector<HTMLElement>("[data-line-name]");
                 setNoteDraft(null);
+                // Codex r2 on #363 — the note the region's sentence names is gone, so the sentence
+                // is withdrawn too (the host clears it only if it is still this line's — the undo
+                // path's rule), and the undo path then has nothing left to withdraw.
+                if (strandedSaid.current) {
+                  strandedSaid.current = false;
+                  onNotice?.(null);
+                }
                 nameEl?.focus();
               }}
               aria-label={
