@@ -213,11 +213,12 @@ export async function GET(req: NextRequest) {
     .is("table_number", null)
     .in("togo_status", ["preparing", "ready"])
     // The lifecycle audit — these filters only NARROW the read; `boardOrderLive` decides (and the
-    // wall publishes nothing it refuses). A refunded order is nobody's bag; the window is on the DUE
+    // wall publishes nothing it refuses). An order that never settled is nobody's bag; the window is on the DUE
     // time (a pickup booked more than a day ahead came up uncalled); and a HELD scheduled order
     // (fire_at still ahead) stays off until the kitchen starts it — but a READY bag is on the wall
     // whatever the schedule said (Cook now moves the order's fire time too since the residuals PR,
-    // but only through a guarded write that may fail — `fireTicketNow`, logged, never surfaced).
+    // but only through a guarded write that may fail — `fireTicketNow`, logged, never surfaced, and
+    // repaired by the next Cook now on the cart).
     // #360 (Codex P1): BOTH settled statuses — a card full refund is `refunded`, an equal cash one
     // stays `paid`, and the wall follows `togo_status` for both (a refund is a TAG, never a cancel).
     .in("status", [...SETTLED_ORDER_STATUSES])

@@ -37,7 +37,7 @@ import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
 import { readKitchenStops, settleKitchenStops } from "./kitchen-stop-read";
 import { stationForCategory } from "./kitchen-station";
 import { stopAckStatusOf, type KitchenStopAck } from "./kds-stop";
-import { refundedCarts } from "./refunded-cart";
+import { refundedCarts, SETTLED_ORDER_STATUSES } from "./refunded-cart";
 import { readLineRefunds } from "./refunded-cart-read";
 import { FATE_CAP } from "./kds-removed";
 
@@ -625,15 +625,23 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
     console.error("[kitchen] mms_fire_ticket_now failed", { cartId, message: error.message });
     return { ok: false, error: "Couldn’t fire that ticket. Try again.", code: "failed" };
   }
-  if (!fired) return { ok: false, error: "That ticket is already live.", code: "already-live" };
+  if (!fired) {
+    // The blind pass on #363 (BLOCKING 1) — the REPAIR. The lines are already live, so a Cook now
+    // whose order write failed (logged below) left `qr_orders.fire_at` at the held time with nothing
+    // to move it: this tap is the one that can. The same guarded write, run only once no line of the
+    // cart is still held (the order never runs ahead of its lines) — idempotent: an order already
+    // moved fails `fire_at > now` and nothing is written.
+    await fireHeldOrderNow(cartId, "repair");
+    return { ok: false, error: "That ticket is already live.", code: "already-live" };
+  }
 
   // Lifecycle residuals (Theme 5) — the ORDER follows its lines. The RPC moves only the cart lines'
   // fire time, while `qr_orders.fire_at` (snapshotted at fulfil) is what /track's guide, the tray,
   // the pill, /account and the wall read as "has the kitchen got it?" — so a held pickup Mom was
   // already cooking read "You’re booked … closer to your time" and "Scheduled" to its guest, and
   // stayed off the wall. Awaited (it is one guarded UPDATE), never surfaced: the kitchen cooks either
-  // way, and a refused or failed write is logged for the residual reader to catch.
-  await fireHeldOrderNow(cartId);
+  // way, and a refused or failed write is logged; the next Cook now on the cart repairs it (above).
+  await fireHeldOrderNow(cartId, "fired");
 
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
@@ -642,21 +650,32 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
 
 /**
  * Lifecycle residuals (Theme 5) — Cook now's ORDER half: `qr_orders.fire_at = <DB now>` for the cart's
- * PAID order whose fire time is still ahead. The DB clock (`mms_now`, the queue's own read; the app
+ * SETTLED order whose fire time is still ahead. The DB clock (`mms_now`, the queue's own read; the app
  * clock only when it fails, logged), because the stamp is compared against that clock by every reader.
  *
- * The guard is IN the statement: `status = 'paid'` (a refunded order is nobody's bag — the wall and
- * the tray drop it, and nothing may revive it) and `fire_at > now` (only ever EARLIER: an
- * as-soon-as-possible order's null stamp and an already-reached one are left exactly as they are).
- * `.update()` reports no row count, so `.select("id")` makes a write the guard blocked visible — a
- * paid cart with held lines and no held order is an anomaly worth a log line, never a silent
- * success. Nothing here is surfaced to the cook: the tickets are already live.
+ * The guard is IN the statement: `status in SETTLED_ORDER_STATUSES` (`paid` or `refunded` — #360: a
+ * refund is a TAG, never a cancel; a card refund reaching the total writes `refunded` where an equal
+ * cash one stays `paid`, and the wall, the tray and the KDS keep both bags alike, so Cook now moves
+ * both; an order that never settled is nobody's bag and nothing here revives it) and `fire_at > now`
+ * (only ever EARLIER: an as-soon-as-possible order's null stamp and an already-reached one are left
+ * exactly as they are). `.update()` reports no row count, so `.select("id")` makes a write the guard
+ * blocked visible — a paid cart whose lines just fired and no held order moved is an anomaly worth a
+ * log line, never a silent success. Nothing here is surfaced to the cook: the tickets are already live.
+ *
+ * `.eq("cart_id")` matches every order on the cart. One cart settles once — the card path is
+ * idempotent on its PaymentIntent and on the cart's open→paid flip, the split path flips once, and
+ * cash has a unique `(cart_id) where tender = 'cash'` (`20260702000100_fulfill_stamp_cart_id.sql`) —
+ * and should a cart ever hold two, both answer the same lines, so moving both is the right answer.
+ *
+ * `mode`: `fired` runs after the RPC moved the lines; `repair` runs on the already-live path, and
+ * first reads that NO line of the cart is still held (the RPC fires nothing on a cart that is not
+ * `paid`, and the order must never run ahead of lines still waiting) — a failed read stands down.
  */
-async function fireHeldOrderNow(cartId: string): Promise<void> {
+async function fireHeldOrderNow(cartId: string, mode: "fired" | "repair"): Promise<void> {
   // A THROW is caught too, not only a returned `{ error }`: the lines are already live, so the cook
   // must never read "Couldn’t fire that ticket" (and tap again) over an order write that broke.
   try {
-    await moveHeldOrder(cartId);
+    await moveHeldOrder(cartId, mode);
   } catch (e) {
     console.error("[kitchen] Cook now fired the lines; the order write threw", {
       cartId,
@@ -665,7 +684,7 @@ async function fireHeldOrderNow(cartId: string): Promise<void> {
   }
 }
 
-async function moveHeldOrder(cartId: string): Promise<void> {
+async function moveHeldOrder(cartId: string, mode: "fired" | "repair"): Promise<void> {
   const db = serviceClient();
   const clock = await db.rpc("mms_now");
   const nowIso =
@@ -678,11 +697,28 @@ async function moveHeldOrder(cartId: string): Promise<void> {
           });
           return new Date().toISOString();
         })();
+  if (mode === "repair") {
+    const { data: held, error: heldErr } = await db
+      .from("qr_cart_items")
+      .select("id")
+      .eq("cart_id", cartId)
+      .eq("state", "fired")
+      .gt("fire_at", nowIso)
+      .limit(1);
+    if (heldErr) {
+      console.error("[kitchen] Cook now repair: the held-line read failed", {
+        cartId,
+        message: heldErr.message,
+      });
+      return;
+    }
+    if ((held ?? []).length > 0) return; // still held: the order waits with its lines
+  }
   const { data: moved, error } = await db
     .from("qr_orders")
     .update({ fire_at: nowIso })
     .eq("cart_id", cartId)
-    .eq("status", "paid")
+    .in("status", [...SETTLED_ORDER_STATUSES])
     .gt("fire_at", nowIso)
     .select("id");
   if (error) {
@@ -692,8 +728,15 @@ async function moveHeldOrder(cartId: string): Promise<void> {
     });
     return;
   }
-  if ((moved ?? []).length === 0)
-    console.warn("[kitchen] Cook now fired the lines; no held paid order moved", { cartId });
+  const n = (moved ?? []).length;
+  // The repair finding nothing to move is the ordinary already-live tap; finding something is the
+  // trace that an earlier write failed.
+  if (mode === "repair") {
+    if (n > 0) console.warn("[kitchen] Cook now repaired a held order's fire time", { cartId });
+    return;
+  }
+  if (n === 0)
+    console.warn("[kitchen] Cook now fired the lines; no held settled order moved", { cartId });
 }
 
 /** M270 (1) — "Got it" answered: the RPC's own word, read (`stopAckStatusOf`), never cast. */

@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * So a held pickup Mom was already cooking read "You’re booked … closer to your time" and "Scheduled"
  * to its guest and stayed off the wall. Two fixes, both falsified by VALUE here:
  *
- *   1. `fireTicketNow` writes the order's stamp to the DB clock, guarded IN the statement (`paid`,
- *      `fire_at > now`), with the row count read back (`.select("id")`);
+ *   1. `fireTicketNow` writes the order's stamp to the DB clock, guarded IN the statement (a SETTLED
+ *      status — `paid` or `refunded`, #360 — and `fire_at > now`), with the row count read back
+ *      (`.select("id")`); and a Cook now on an already-live ticket REPAIRS a stamp whose first write
+ *      failed, once no line of the cart is still held (the blind pass on #363);
  *   2. `pickupGuide` treats a bag the kitchen has STARTED (`bagStarted`: Start or Done) as fired even
  *      while the order's stamp is still ahead — the belt for a write that failed.
  *
@@ -42,6 +44,8 @@ let tables: Record<string, Row[]> = {};
 let clockFails = false;
 let orderWriteFails = false;
 let clockThrows = false;
+let orderWriteThrows = false;
+let heldReadFails = false;
 
 function heldTables(order: Partial<Row> = {}): Record<string, Row[]> {
   return {
@@ -74,6 +78,10 @@ function updateChain(name: string, patch: Row) {
       filters.push((r) => r[col] === v);
       return api;
     },
+    in(col: string, vs: readonly unknown[]) {
+      filters.push((r) => vs.includes(r[col]));
+      return api;
+    },
     // PostgREST's `gt` is SQL's `>`: a NULL never compares greater (an as-soon-as-possible order).
     gt(col: string, v: string) {
       filters.push((r) => r[col] != null && String(r[col]) > v);
@@ -84,6 +92,8 @@ function updateChain(name: string, patch: Row) {
       return api;
     },
     then(res: (v: unknown) => unknown) {
+      // A rejected `.update()` chain (a socket that hangs up mid-write) — the order write itself.
+      if (name === "qr_orders" && orderWriteThrows) throw new Error("write socket hang up");
       if (name === "qr_orders" && orderWriteFails)
         return Promise.resolve({ data: null, error: { message: "boom" } }).then(res);
       const hit = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
@@ -93,6 +103,33 @@ function updateChain(name: string, patch: Row) {
           ? null
           : hit.map((r) => Object.fromEntries(cols!.split(",").map((c) => [c, r[c]])));
       return Promise.resolve({ data, error: null }).then(res);
+    },
+  };
+  return api;
+}
+
+/** The repair's held-line read, evaluated: `.select("id").eq().eq().gt().limit(n)`, awaited. */
+function selectChain(name: string) {
+  const filters: ((r: Row) => boolean)[] = [];
+  let cap = Infinity;
+  const api: Record<string, unknown> = {
+    eq(col: string, v: unknown) {
+      filters.push((r) => r[col] === v);
+      return api;
+    },
+    gt(col: string, v: string) {
+      filters.push((r) => r[col] != null && String(r[col]) > v);
+      return api;
+    },
+    limit(n: number) {
+      cap = n;
+      return api;
+    },
+    then(res: (v: unknown) => unknown) {
+      if (heldReadFails)
+        return Promise.resolve({ data: null, error: { message: "nope" } }).then(res);
+      const hit = (tables[name] ?? []).filter((r) => filters.every((f) => f(r))).slice(0, cap);
+      return Promise.resolve({ data: hit.map((r) => ({ id: r.id })), error: null }).then(res);
     },
   };
   return api;
@@ -121,7 +158,10 @@ vi.mock("@mms/db/server", () => ({
       throw new Error(`fake: unexpected rpc ${fn}`);
     },
     from(name: string) {
-      return { update: (patch: Row) => updateChain(name, patch) };
+      return {
+        update: (patch: Row) => updateChain(name, patch),
+        select: () => selectChain(name),
+      };
     },
   }),
 }));
@@ -163,6 +203,8 @@ beforeEach(() => {
   clockFails = false;
   orderWriteFails = false;
   clockThrows = false;
+  orderWriteThrows = false;
+  heldReadFails = false;
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   error = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -238,7 +280,7 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
     expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
     expect(order().fire_at).toBeNull();
     expect(warn).toHaveBeenCalledWith(
-      "[kitchen] Cook now fired the lines; no held paid order moved",
+      "[kitchen] Cook now fired the lines; no held settled order moved",
       { cartId: CART },
     );
   });
@@ -250,12 +292,21 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
     expect(order().fire_at).toBe(reached);
   });
 
-  it("a refunded order is never revived onto the wall", async () => {
+  it("a card-refunded held bag moves like a cash-refunded one: a refund is a TAG, never a cancel (#360)", async () => {
+    // A card refund reaching the total writes `refunded`; an equal cash refund leaves `paid`. Every
+    // staff board reads both (`SETTLED_ORDER_STATUSES`), and the wall follows `togo_status` for both.
     tables = heldTables({ status: "refunded" });
+    expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
+    expect(order().fire_at).toBe(DB_NOW);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("an order that never SETTLED is never revived onto the wall", async () => {
+    tables = heldTables({ status: "pending" });
     expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
     expect(order().fire_at).toBe(HELD_FIRE);
     expect(warn).toHaveBeenCalledWith(
-      "[kitchen] Cook now fired the lines; no held paid order moved",
+      "[kitchen] Cook now fired the lines; no held settled order moved",
       { cartId: CART },
     );
   });
@@ -278,7 +329,7 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
     });
   });
 
-  it("a THROWN order write is logged, never surfaced: the cook never reads a failed Cook now", async () => {
+  it("a THROWN clock read is logged, never surfaced: the cook never reads a failed Cook now", async () => {
     clockThrows = true;
     expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
     expect(tables.qr_cart_items!.every((l) => l.fire_at === DB_NOW)).toBe(true);
@@ -288,6 +339,17 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
         cartId: CART,
         message: "socket hang up",
       },
+    );
+  });
+
+  it("a THROWN order write (the `.update()` chain rejects) is logged, never surfaced", async () => {
+    orderWriteThrows = true;
+    expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
+    expect(tables.qr_cart_items!.every((l) => l.fire_at === DB_NOW)).toBe(true);
+    expect(order().fire_at).toBe(HELD_FIRE);
+    expect(error).toHaveBeenCalledWith(
+      "[kitchen] Cook now fired the lines; the order write threw",
+      { cartId: CART, message: "write socket hang up" },
     );
   });
 
@@ -306,13 +368,52 @@ describe("fireTicketNow — Cook now moves the order's fire time to the DB clock
     );
   });
 
-  it("an already-live ticket writes nothing to the order", async () => {
+  it("an already-live ticket whose order already moved writes nothing new", async () => {
     for (const l of tables.qr_cart_items!) l.fire_at = later(-60);
+    tables.qr_orders![0]!.fire_at = later(-60);
     expect(await fireTicketNow({ cartId: CART })).toMatchObject({
       ok: false,
       code: "already-live",
     });
+    expect(order().fire_at).toBe(later(-60));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("THE REPAIR: an order write that failed is repaired by the next Cook now (already-live)", async () => {
+    // First tap: the lines fire, the order write fails — the stamp stays an hour ahead.
+    orderWriteFails = true;
+    expect(await fireTicketNow({ cartId: CART })).toEqual({ ok: true });
     expect(order().fire_at).toBe(HELD_FIRE);
+    // A second tap (another tablet's stale card): the lines are live, so the RPC fires nothing —
+    // and the order's stamp still follows them to the DB clock.
+    orderWriteFails = false;
+    expect(await fireTicketNow({ cartId: CART })).toMatchObject({
+      ok: false,
+      code: "already-live",
+    });
+    expect(order().fire_at).toBe(DB_NOW);
+    expect(warn).toHaveBeenCalledWith("[kitchen] Cook now repaired a held order's fire time", {
+      cartId: CART,
+    });
+  });
+
+  it("the repair never pulls an order ahead of lines that are still HELD", async () => {
+    // The RPC refused (the cart is not `paid`), so the lines are still held: the order stays with them.
+    tables.qr_carts![0]!.status = "closed";
+    expect(await fireTicketNow({ cartId: CART })).toMatchObject({ code: "already-live" });
+    expect(tables.qr_cart_items!.every((l) => l.fire_at === HELD_FIRE)).toBe(true);
+    expect(order().fire_at).toBe(HELD_FIRE);
+  });
+
+  it("the repair stands down when the held-line read fails (never a guess), logged", async () => {
+    tables.qr_carts![0]!.status = "closed";
+    heldReadFails = true;
+    expect(await fireTicketNow({ cartId: CART })).toMatchObject({ code: "already-live" });
+    expect(order().fire_at).toBe(HELD_FIRE);
+    expect(error).toHaveBeenCalledWith("[kitchen] Cook now repair: the held-line read failed", {
+      cartId: CART,
+      message: "nope",
+    });
   });
 });
 
