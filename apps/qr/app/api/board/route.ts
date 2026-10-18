@@ -20,6 +20,8 @@ import {
 import { readRounds, roundFor } from "@/lib/kitchen-round-read";
 import { boardOrderIsBag, boardOrderLive, boardOrderReadOr } from "@/lib/board-orders";
 import { paidBagCompLine } from "@/lib/expo-rules";
+import { foodRefundedInFull } from "@/lib/refunded-cart";
+import { readLineRefunds } from "@/lib/refunded-cart-read";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
@@ -208,7 +210,11 @@ export async function GET(req: NextRequest) {
   const dayFloor = queueFloorIso(dbNowIso);
   const ordersRes = await db
     .from("qr_orders")
-    .select("id,session_id,togo_status,togo_ready_at,created_at,status,pickup_slot,fire_at,cart_id")
+    // #360 (Codex) — the amounts `foodRefundedInFull` decides on: a cash refund of every dish
+    // leaves the order `paid`, so the status filter below cannot see it.
+    .select(
+      "id,session_id,togo_status,togo_ready_at,created_at,status,pickup_slot,fire_at,cart_id,total_cents,refunded_cents,service_charge_cents,tip_cents",
+    )
     .is("table_number", null)
     .in("togo_status", ["preparing", "ready"])
     // The lifecycle audit — these filters only NARROW the read; `boardOrderLive` decides (and the
@@ -316,11 +322,20 @@ export async function GET(req: NextRequest) {
 
   // ALLOWLIST, not "anything that isn't dine-in": a mode this code has never heard of is absent
   // from the wall rather than on it. A null session_id is unknowable, not to-go.
-  const candidates = (data ?? []).filter((o) => {
+  const live = (data ?? []).filter((o) => {
     if (!boardOrderLive(o, dbNowIso, dayFloor)) return false;
     const mode = o.session_id ? sessionById.get(o.session_id)?.mode : undefined;
     return mode !== undefined && BOARD_MODES.has(mode);
   });
+  // #360 (Codex P1) — an order whose FOOD was refunded in full is nobody's bag, though it is still
+  // `paid`: `mms_refund_cash_line` raises `refunded_cents` and leaves the status, so the filter above
+  // let it through and the wall called a bag whose money had all gone back. The ONE rule the KDS, the
+  // floor and the expo decide by (`foodRefundedInFull`), with the line ledger. Fails OPEN, the KDS's
+  // posture: an unreadable ledger (`null`, logged) loses only the every-line arm, and the order row
+  // alone decides (its status, and its amount against the goods pool) — a real bag is never hidden
+  // by a read that failed.
+  const lineRefunds = await readLineRefunds(db, live, "board");
+  const candidates = live.filter((o) => !foodRefundedInFull(o, lineRefunds));
   // The lifecycle audit — a pure scan-and-go basket is not a bag: the shopper already holds it, and
   // the wall's Ready is the room's one CALL for food. The bag is the expo's — its takeaway snapshot
   // plus its cart's comped takeaway lines (M250) — and one food line makes it a bag. Either read

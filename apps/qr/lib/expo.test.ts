@@ -70,6 +70,9 @@ let ordersSnapshot: (() => Row[]) | null = null;
 let cartLineRows: Row[] = [];
 /** When set, the snapshot read answers these rows instead of one to-go Mohinga per order. */
 let orderItemRows: Row[] | null = null;
+/** #360 (Codex P1) — the line ledger (`mms_refunds`) `readLineRefunds` reads, and its failure. */
+let ledgerRows: Row[] = [];
+let ledgerFail = false;
 
 function tableApi(name: string) {
   const r: Rec = { table: name, ins: [], eqs: [], neqs: [] };
@@ -114,6 +117,10 @@ function tableApi(name: string) {
               })),
             error: null,
           };
+        if (name === "mms_refunds")
+          return ledgerFail
+            ? { data: null, error: { message: "ledger unreadable" } }
+            : { data: ledgerRows, error: null };
         if (name === "qr_carts")
           return {
             data: [
@@ -160,6 +167,12 @@ const order = (id: string, cartId: string | null, createdAt: string): Row => ({
   created_at: createdAt,
   customer_name: null,
   cart_id: cartId,
+  // #360 (Codex P1) — the amounts `foodRefundedInFull` decides on: nothing refunded.
+  status: "paid",
+  total_cents: 2_000,
+  refunded_cents: 0,
+  service_charge_cents: 0,
+  tip_cents: 0,
 });
 
 beforeEach(() => {
@@ -173,6 +186,8 @@ beforeEach(() => {
   compFail = false;
   compCount = null;
   orderItemRows = null;
+  ledgerRows = [];
+  ledgerFail = false;
   names.loadLineNames.mockClear();
   // B is due EARLIER than A; only the kitchen state can put A first.
   orderRows = [
@@ -827,6 +842,51 @@ describe("getExpoQueue — the lifecycle audit: a refund reaches the bag", () =>
     if (!res.ok) throw new Error("expected ok");
     const ordersRead = recs.find((r) => r.table === "qr_orders");
     expect(ordersRead?.eqs).toContainEqual(["status", "paid"]);
+  });
+
+  it("an order whose FOOD was refunded in full is off the lane though it is still paid — the tip kept (#360, Codex P1)", async () => {
+    // lck/expo/food-refunded-bag-kept — `mms_refund_cash_line` raises `refunded_cents` and leaves
+    // the order `paid`: the status filter alone left a bag card after every dollar of it went back.
+    // $20.00 with a $3.00 tip: every dish back is $17.00 — the pool, never the total.
+    orderRows = [
+      { ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"), tip_cents: 300, refunded_cents: 1_700 },
+      order(ORDER_B, CART_B, "2026-09-13T17:00:00Z"),
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets.map((t) => t.orderId)).toEqual([ORDER_B]);
+    // …and the reads behind the tickets never ask about the refunded bag's cart
+    expect(kitchenRead()?.ins).toEqual([["cart_id", [CART_B]]]);
+    // a PARTIAL refund keeps the bag
+    orderRows = [
+      { ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"), tip_cents: 300, refunded_cents: 900 },
+    ];
+    const partial = await getExpoQueue();
+    if (!partial.ok) throw new Error("expected ok");
+    expect(partial.queue.tickets.map((t) => t.orderId)).toEqual([ORDER_A]);
+  });
+
+  it("every line in the LEDGER is a full refund though the cents round a cent short (#360, Codex P1)", async () => {
+    // lck/expo/ledger-unread — the ledger never reached the rule; a cent short of the pool read as
+    // a partial refund and the bag stayed on the lane.
+    orderRows = [{ ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"), refunded_cents: 1_999 }];
+    ledgerRows = [{ order_id: ORDER_A, order_item_id: `line-${ORDER_A}` }];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets).toEqual([]);
+  });
+
+  it("an unreadable ledger fails OPEN: the bag stays, the lane is no outage, and the amount arm still decides", async () => {
+    ledgerFail = true;
+    ledgerRows = [{ order_id: ORDER_A, order_item_id: `line-${ORDER_A}` }];
+    orderRows = [{ ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"), refunded_cents: 1_999 }];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok — an advisory read never freezes the counter");
+    expect(res.queue.tickets.map((t) => t.orderId)).toEqual([ORDER_A]);
+    orderRows = [{ ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"), refunded_cents: 2_000 }];
+    const full = await getExpoQueue();
+    if (!full.ok) throw new Error("expected ok");
+    expect(full.queue.tickets).toEqual([]);
   });
 
   it("a line refunded after payment is drawn 'Refunded — don't bag'; the rest of the bag is not", async () => {

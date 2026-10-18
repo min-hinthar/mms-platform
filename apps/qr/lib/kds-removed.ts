@@ -143,7 +143,8 @@ export type OwnBumps = ReadonlyMap<string, number | null>;
  *     void of the restored line that a LATER snapshot shows is said, never swallowed as this
  *     tablet's old bump;
  *   · its line is ON a snapshot fetched before the bump landed (the read raced the write), or the
- *     bump is still out — pending.
+ *     bump is still out — pending. A write whose answer was LOST is settled like a landed one
+ *     (`ownBumpsSettled`), so "still out" never outlives the write itself.
  *
  * ⚠️ The window this does NOT close (#360's blind pass, open question a): a recall AND a void that
  * both land before the first snapshot fetched after the bump — this tablet never sees the line back,
@@ -163,6 +164,30 @@ export function ownBumpsAfter(
     if (landedAt !== null && seq > landedAt) continue;
     out.set(id, landedAt);
   }
+  return out;
+}
+
+/**
+ * An own bump's write SETTLED while `seq` was the latest fetch started: its answer LANDED (ok), or
+ * it was LOST (the action threw — the server may or may not have acted). Both stamp the marker, so
+ * the first snapshot fetched after `seq` decides it in `ownBumpsAfter`: the line OFF is the bump's
+ * own departure (consumed), the line ON means it did not land — or came back — and the mark retires.
+ *
+ * ⚠️ A LOST answer must settle too (#360, Codex P2): `kitchenWrite` reports a thrown write without
+ * calling the landing, so a marker left `null` stayed "still out" through every good snapshot that
+ * showed the line still on the board — for good — and a LATER real void of that line was swallowed
+ * as this tablet's own bump. A refused bump is not settled here: it never happened, and the board
+ * takes its marker back.
+ *
+ * Only the ids still marked: a refusal already took one back, or a departure consumed it.
+ */
+export function ownBumpsSettled(
+  ownBumps: OwnBumps,
+  ids: readonly string[],
+  seq: number,
+): Map<string, number | null> {
+  const out = new Map(ownBumps);
+  for (const id of ids) if (out.has(id)) out.set(id, seq);
   return out;
 }
 
