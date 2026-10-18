@@ -16,7 +16,8 @@ import type { MenuItem } from "./MenuBrowser";
  * the spy — the region itself is the provider's, pinned by its own suite.
  */
 const announce = vi.fn();
-/** Lifecycle audit — the cart facts a case steers (the cart view's lines and clock, the marks). */
+/** The cart fields a case overrides — session truth: a HOST at a table, for the leave warning;
+ *  lifecycle audit: the cart view's lines and clock, the sold-out marks. */
 const cart = vi.hoisted(() => ({ extra: {} as Record<string, unknown> }));
 vi.mock("@/components/TableCartProvider", () => ({
   useCart: () => ({
@@ -24,6 +25,10 @@ vi.mock("@/components/TableCartProvider", () => ({
     announce,
     refresh: async () => {},
     tableNumber: null,
+    role: null,
+    members: [],
+    me: null,
+    ended: null,
     ...cart.extra,
   }),
 }));
@@ -37,7 +42,25 @@ vi.mock("@/components/AddButton", () => ({
 vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
-vi.mock("@/components/DoorSheet", () => ({ DoorSheet: none }));
+vi.mock("@/components/MenuTableEnded", () => ({ MenuTableEnded: none }));
+// Session truth — the host's durable party is read through a Server Action (stubbed: each call's
+// arguments are kept, and `partyAnswer` is what it answers), and the DoorSheet draws nothing but
+// keeps its props, so a case can open the leave flow and read the warning it was handed.
+const partyCalls: unknown[][] = [];
+let partyAnswer: { seats: string[]; current: boolean } | null = null;
+vi.mock("@/lib/durable-party", () => ({
+  useDurableParty: (...args: unknown[]) => {
+    partyCalls.push(args);
+    return partyAnswer;
+  },
+}));
+let doorProps: { leaveWarning?: unknown; onOpenChange?: (open: boolean) => void } = {};
+vi.mock("@/components/DoorSheet", () => ({
+  DoorSheet: (p: typeof doorProps) => {
+    doorProps = p;
+    return null;
+  },
+}));
 vi.mock("@/components/PullToRefresh", () => ({ PullToRefresh: none }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: none }));
 vi.mock("./BlurUpImage", () => ({ BlurUpImage: none }));
@@ -97,6 +120,9 @@ const spoken = () =>
 beforeEach(() => {
   announce.mockClear();
   cart.extra = {};
+  partyCalls.length = 0;
+  partyAnswer = null;
+  doorProps = {};
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -234,6 +260,98 @@ describe("F31 — /menu speaks through ONE region", () => {
     );
     expect(screen.getByText("Nothing on the menu fits these filters — ease one.")).toBeTruthy();
     expect(announce).not.toHaveBeenCalled();
+  });
+});
+
+describe("session truth (finding 5) — the host's leave warning is read when the leave flow OPENS", () => {
+  const HOST = {
+    cartId: "cart-1",
+    role: "host",
+    me: { seat: "me", name: "Me" },
+    members: [{ seat: "me", name: "Me" }],
+  };
+
+  it("Codex round 2 on #361 — opening the door sheet re-reads the durable party, whatever presence says", () => {
+    // MUTATION (lcs/leave-flow-never-re-reads): the party is re-read only when presence grows — a
+    // tablemate who joined with their phone already face down never shows in presence, and the
+    // host's leave goes out under a minutes-old "alone".
+    cart.extra = HOST;
+    render(<Page />);
+    const epochs = () => partyCalls.map((c) => c[2]);
+    expect(partyCalls.at(-1)?.slice(0, 2)).toEqual(["cart-1", true]);
+    const before = new Set(epochs());
+    act(() => doorProps.onOpenChange?.(true));
+    const opened = epochs().at(-1);
+    expect(before.has(opened)).toBe(false);
+    // Closing is not a new ask; opening again is.
+    act(() => doorProps.onOpenChange?.(false));
+    expect(epochs().at(-1)).toBe(opened);
+    act(() => doorProps.onOpenChange?.(true));
+    expect(epochs().at(-1)).not.toBe(opened);
+  });
+
+  it("while that read is out the warning is HEDGED, never the silence that claims 'alone'; a current 'alone' says nothing", () => {
+    cart.extra = HOST;
+    partyAnswer = { seats: ["me"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("maybe");
+    cleanup();
+    partyAnswer = { seats: ["me"], current: true };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    cleanup();
+    partyAnswer = { seats: ["me", "aye"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("sends");
+  });
+
+  it("the blind pass on #361 (B1) — a host held on an ENDED table is given no leave warning, and the party is not read", () => {
+    // After a clear or a merge the held session keeps role host and the last good party (the read
+    // on the closed session fails and keeps it), so "the others will need a server to send theirs"
+    // was drawn under "this table closed". MUTATION (lcs/menu-leave-warning-ignores-the-end).
+    cart.extra = { ...HOST, ended: { kind: "ended", why: "cleared" } };
+    partyAnswer = { seats: ["me", "aye"], current: true };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    // The read is not asked either: it can only fail on the closed session.
+    expect(partyCalls.at(-1)?.[1]).toBe(false);
+  });
+
+  it("#361 review (2) — a PAID table still SEATED keeps the host's leave warning and its party read; a paid table whose session closed does not", () => {
+    // "Start a new order" re-joins the SAME session at a paid, still-seated table, so the host's
+    // leave still strands the next round's Send. MUTATION (lcs/menu-paid-seated-silences-the-leave).
+    const paid = { kind: "paid", tender: "counter", orderId: null, complete: true };
+    cart.extra = { ...HOST, ended: { ...paid, sessionLive: true } };
+    partyAnswer = { seats: ["me", "aye"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("sends");
+    expect(partyCalls.at(-1)?.[1]).toBe(true);
+    cleanup();
+    cart.extra = { ...HOST, ended: { ...paid, sessionLive: false } };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    expect(partyCalls.at(-1)?.[1]).toBe(false);
+  });
+
+  it("the blind pass on #361 (A4) — a presence FLAP never re-reads the party; a seat presence has never seen does", () => {
+    // MUTATION (lcs/leave-party-reads-on-every-flap): the epoch keyed on the presence COUNT — a
+    // face-down phone dropping out and back fired the durable-party read on every flap.
+    cart.extra = HOST;
+    const { rerender } = render(<Page />);
+    const epochs = () => partyCalls.map((c) => c[2]);
+    const first = epochs().at(-1);
+    const aye = { seat: "aye", name: "Aye" };
+    cart.extra = { ...HOST, members: [...HOST.members, aye] };
+    rerender(<Page />);
+    const joined = epochs().at(-1);
+    expect(joined).not.toBe(first); // a new seat is a reason to ask
+    const mark = partyCalls.length;
+    cart.extra = HOST; // Aye's phone goes face down…
+    rerender(<Page />);
+    cart.extra = { ...HOST, members: [...HOST.members, aye] }; // …and comes back
+    rerender(<Page />);
+    // Every render through the flap asked under the SAME epoch — the read never re-fired.
+    expect(new Set(epochs().slice(mark))).toEqual(new Set([joined]));
   });
 });
 

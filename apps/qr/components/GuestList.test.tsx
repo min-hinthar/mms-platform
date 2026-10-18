@@ -27,6 +27,7 @@ type Ctx = {
   revalidate: () => void;
   settling: boolean;
   cartId: string | null;
+  ended?: unknown;
 };
 const ctx = vi.hoisted(() => ({ current: {} as Ctx }));
 vi.mock("./TableCartProvider", () => ({ useCart: () => ctx.current }));
@@ -104,5 +105,38 @@ describe("GuestList — a failed join recovers by the route's word (J16)", () =>
     expect(alertText()).toContain("Couldn’t join this table.");
     expect(alertText()).not.toContain("HTTP 502");
     expect(retryButton()).not.toBeNull();
+  });
+});
+
+describe("GuestList — session truth", () => {
+  const SEATED: Ctx = {
+    ...FAILED,
+    me: { seat: "seat-me", name: "Aye" },
+    cartId: "cart-1",
+  };
+
+  it("finding 2 — the REGISTER's freeze speaks the register's sentence in both tongues, with no 'Pay your share' (the split is parked)", () => {
+    // MUTATION (lcs/guest-list-settle-speaks-the-split): drop the parked arm — a family whose bill
+    // Dad is taking in cash reads "Your table is splitting the bill" and a link to a door no phone
+    // can open.
+    ctx.current = { ...SEATED, settling: true };
+    render(<GuestList />);
+    expect(screen.getByText(/The counter is taking your table’s payment right now/)).toBeTruthy();
+    expect(screen.queryByText(/splitting the bill/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Pay your share/ })).toBeNull();
+    const my = document.querySelector('[lang="my"]');
+    expect(my?.textContent).toMatch(/[\u1000-\u109F]/);
+  });
+
+  it("a table that ENDED draws no party, no invite, no freeze — and no join-failure arm under the card", () => {
+    // MUTATION (lcs/guest-list-speaks-over-the-card): drop the ended return — a restart's failed
+    // mint shows "Couldn’t join this table" beside the card that already says what to do.
+    ctx.current = { ...SEATED, settling: true, ended: { kind: "ended", why: "cleared" } };
+    const { container } = render(<GuestList />);
+    expect(container.textContent).toBe("");
+    cleanup();
+    ctx.current = { ...FAILED, error: "x", ended: { kind: "ended", why: "cleared" } };
+    const again = render(<GuestList />);
+    expect(again.container.textContent).toBe("");
   });
 });

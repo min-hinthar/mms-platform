@@ -62,9 +62,11 @@ const mount = (p: {
   onNeedTable?: () => void;
   /** PD1 — the caption / waiting line ids. */
   describedBy?: string;
+  onChanged?: () => void;
 }) => {
   const g = p.grace ?? grace();
   const onMessage = p.onMessage ?? vi.fn();
+  const onChanged = p.onChanged ?? (() => {});
   const handle: { current: SendHandle | null } = { current: null };
   render(
     <SendToKitchenButton
@@ -75,7 +77,7 @@ const mount = (p: {
       draftCount={p.draftCount ?? 3}
       frozen={p.frozen ?? false}
       onMessage={onMessage}
-      onChanged={() => {}}
+      onChanged={onChanged}
       needsTable={p.needsTable}
       onNeedTable={p.onNeedTable}
       describedBy={p.describedBy}
@@ -389,6 +391,21 @@ describe("PD1 (m1 A5 · B6; DESIGN-LANGUAGE §21) — the Send names no count on
     expect(screen.getByRole("button", { name: /^Undo/ }).getAttribute("aria-describedby")).toBe(
       "send-caption",
     );
+  });
+});
+
+describe("session truth (finding 3) — a Send that THROWS re-reads", () => {
+  it("says try-again AND re-reads, so a table staff closed is discovered on the tap instead of 'try again' forever", async () => {
+    // MUTATION (lcs/send-throw-never-re-reads): drop the re-read — the host's every Send on a
+    // cleared table says "try again", a retry that can never succeed, and nothing names the close.
+    h.sendToKitchen.mockRejectedValue(new Error("cart_closed"));
+    const onChanged = vi.fn();
+    const { onMessage } = mount({ verb: "send", onChanged });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
+    });
+    expect(onMessage).toHaveBeenCalledWith("Couldn’t send that just now — please try again.");
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 });
 

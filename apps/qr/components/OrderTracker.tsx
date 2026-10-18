@@ -48,6 +48,13 @@ import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 import { isFired } from "@/lib/pickup-promise";
 import { orderOnScreen, pickupFootPromised, pickupPageShown } from "@/lib/pickup-view";
 import { TRACK } from "@/lib/i18n/track";
+// ── M160(b) ──
+import { recoverMyPayment } from "@/lib/payment-recovery-actions";
+import { TRACK_RECOVERY_ASK_MS, trackRecoveryShows } from "@/lib/payment-recovery-verdict";
+import { useOrderKitchen } from "@/lib/useOrderKitchen";
+import { bagKitchen, kitchenRows, railKitchenSub } from "@/lib/order-kitchen";
+import { refundArmCopy, settledFoot, settledSpoken, trackRefunded } from "@/lib/track-settled";
+import { OrderKitchenList } from "./OrderKitchenList";
 import { PickupPromise } from "./PickupPromise";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
@@ -55,6 +62,12 @@ import { PickupPromise } from "./PickupPromise";
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
 // subscription). The pickup variant (P2.2) is chosen once the order carries a pickup_slot.
+// Lifecycle audit (2026-10-13), G — while step 1 is the CURRENT step its sub is a claim, so there it is
+// not v7.2's constant: "Cooking" was lit at PAYMENT (the webhook stamps `togo_status = 'preparing'`
+// before the wok is touched). The current step reads `railKitchenSub` (lib/order-kitchen.ts), from the
+// bag's own lines: "Cooking" only after Mom's Start, "Kitchen’s done" after her Done, else "Sent to
+// kitchen". A step not yet reached, or already passed, keeps v7.2's description.
+const KITCHEN_STEP = 1;
 const SCANGO_STEPS: [title: string, sub: string][] = [
   ["Order placed", "We have it"],
   ["In the kitchen", "Cooking"],
@@ -81,6 +94,7 @@ export function OrderTracker({
   justPaid = false,
   awaitingCapture = false,
   counterPaid = false,
+  resume = false,
 }: {
   paymentIntent: string | null;
   // Split-tender (M3·P3.3b) orders have no PaymentIntent on the row, so /track keys them by the
@@ -103,6 +117,11 @@ export function OrderTracker({
    *  for this order the uid-scoped server read (`getMyOrderFallback`, its durable-membership arm)
    *  is the primary answer, fetched at mount rather than after the ~30s live give-up. */
   counterPaid?: boolean;
+  /** Lifecycle audit (2026-10-13), E — a RESUME (the pill, the tray, /account Today, the home card:
+   *  `resume=1`), not an arrival: the order already exists, so the uid-scoped snapshot is asked for at
+   *  mount, beside the live read. A pickup booked hours ahead is past its session by its slot, and the
+   *  live read alone would leave the guest on a blank "Confirming" for the ~30 s give-up. */
+  resume?: boolean;
 }) {
   const {
     order: liveOrder,
@@ -122,8 +141,17 @@ export function OrderTracker({
   // Only after `timedOut`: the live path is better when it works (Realtime keeps the rail moving),
   // and this must not race it on the happy path.
   const [fallback, setFallback] = useState<TrackFallback | null>(null);
+  // Lifecycle audit (2026-10-13), F/E — two more moments to ask: a live row that went STALE (the
+  // session closed under a visible page: the cached row is no longer live, and only the uid-scoped
+  // snapshot can say what happened since — the pickup page's wake used to be the only path that
+  // asked), and a RESUME, whose order already exists (no webhook race to wait out).
   useEffect(() => {
-    if ((!timedOut && !counterPaid) || liveOrder || fallback) return;
+    if (
+      (!timedOut && !counterPaid && !resume && !liveStale) ||
+      (liveOrder && !liveStale) ||
+      fallback
+    )
+      return;
     let active = true;
     void getMyOrderFallback({ orderId, paymentIntent })
       .then((r) => active && setFallback(r))
@@ -131,7 +159,7 @@ export function OrderTracker({
     return () => {
       active = false;
     };
-  }, [timedOut, counterPaid, liveOrder, fallback, orderId, paymentIntent]);
+  }, [timedOut, counterPaid, resume, liveStale, liveOrder, fallback, orderId, paymentIntent]);
   // PD3 — the /track wake. PickupPromise calls it once per clock change (its 30 s tick and every
   // visibilitychange→visible / focus), LIVE OR NOT (B7; blind pass on #330): the live re-read is how
   // a lapsed session is noticed at all, and once the page is not live the uid-scoped server snapshot
@@ -167,7 +195,59 @@ export function OrderTracker({
     liveStale,
     snapshot: fallback?.ok ? fallback.order : null,
   });
-  const staleSnapshot = (!liveOrder || liveStale) && !!fallback?.ok;
+  // The "isn't updating" notice: a snapshot on screen because the live read is GONE (stale, given up)
+  // or never applies (a counter order). A resume's at-mount snapshot is not that while the live read
+  // may still land (~30 s): it is the order, and the notice waits for the give-up like any other.
+  // ── M160(b) — the stranded-payment ask ──────────────────────────────────────────────────────────
+  //
+  // The order lands 1–2 s after a charge when the webhook works (measured, C18). When it does not —
+  // C18's test pass: five charged cards, zero orders — nothing on this page could ever bring it
+  // home. So a FRESH single-pay arrival with no order asks the server, twice and only twice
+  // (`TRACK_RECOVERY_ASK_MS`: 12 s, then past the ~30 s give-up), to retrieve the payment from Stripe
+  // and run the webhook's own fulfillment if Stripe says it went through (`recoverMyPayment`).
+  //
+  // Gated on "no order on screen" (`hasOrder`), NEVER on the URL's `resume=1` (Codex on #365 @
+  // a2636db): `ActiveOrderProvider` keeps a succeeded intent's pointer before any order exists, and
+  // every link it feeds — the home card, the pill, the tray — is a resume link, so a guest who left
+  // before the 12 s ask and came back that way was never asked for. A resume whose order exists has
+  // it on screen from the at-mount snapshot long before 12 s, and the server answers `recorded`
+  // before any Stripe call either way. Not while `processing` (Stripe has not finished),
+  // and not under manual capture (the card is only authorized until the hold is captured; the cron
+  // covers a capture whose webhook is lost). The answer changes the screen in exactly two ways
+  // (`trackRecoveryShows`): an order now exists → re-read it; or Stripe said charged and no order
+  // could be written → say so, and send the guest to a person. Every other answer leaves the page's
+  // own honest copy alone.
+  const [stranded, setStranded] = useState(false);
+  const hasOrder = !!order;
+  const recoveryArmed = !!paymentIntent && !processing && !awaitingCapture;
+  const wakeRef = useRef(wake);
+  useEffect(() => {
+    wakeRef.current = wake;
+  }, [wake]);
+  useEffect(() => {
+    if (!recoveryArmed || hasOrder || stranded || !paymentIntent) return;
+    let active = true;
+    const timers = TRACK_RECOVERY_ASK_MS.map((at) =>
+      setTimeout(() => {
+        void recoverMyPayment({ paymentIntent })
+          .then((answer) => {
+            if (!active) return;
+            const shows = trackRecoveryShows(answer);
+            if (shows === "refresh") wakeRef.current();
+            else if (shows === "stranded") setStranded(true);
+          })
+          .catch(() => {
+            // Deliberate: a failed ask is not an answer. The page keeps its own copy, the next ask
+            // (or the cron) tries again, and nothing on screen claims either way.
+          });
+      }, at),
+    );
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [recoveryArmed, hasOrder, stranded, paymentIntent]);
+  const staleSnapshot = !!fallback?.ok && (liveStale || (!liveOrder && (timedOut || counterPaid)));
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
 
   // ── W23d — the hold was CANCELLED, so no order exists and none ever will (registry M71) ─────────
@@ -369,14 +449,20 @@ export function OrderTracker({
   // subscription live; partial refunds keep status='paid'), and the READY card below is suppressed
   // for the pass (the expo still tracks a grocery-only "bag" until staff bump it — a diner told
   // "you're all set" must not also read "grab it from the counter" when that bump lands).
+  // W1c — the /track refund arm (the flagged follow-up): a FULLY refunded order gets an honest
+  // terminal state instead of a step rail claiming the kitchen's still on it. Partial refunds stay on
+  // the rail (the slip below says "Partly refunded" and names the amount).
+  // Lifecycle audit (2026-10-13), C — keyed on the refund STATE (`trackRefunded`), never `status`: a
+  // cash refund (`mms_refund_cash_line`) never flips `status`, so a table refunded in cash to the last
+  // cent never reached this arm and its settled card said "Paid in full" over "You paid $0.00".
+  const refunded = arrived && trackRefunded(order.refund);
   const pureGrocery =
-    arrived && order.status === "paid" && order.hasGrocery && !order.hasTogoFood && !isPickup;
-  // W1c — the /track refund arm (the flagged follow-up): a FULLY refunded order (charge.refunded
-  // webhook flips status once every cent is back) gets an honest terminal state instead of a step
-  // rail claiming the kitchen's still on it. Partial refunds keep status='paid' and stay on the
-  // rail — surfacing per-line refunds to the diner needs a diner-safe read of the manager-read
-  // mms_refunds ledger (tracked follow-up, PRODUCTION_PLAN W2e).
-  const refunded = arrived && order.status === "refunded";
+    arrived &&
+    order.status === "paid" &&
+    !refunded &&
+    order.hasGrocery &&
+    !order.hasTogoFood &&
+    !isPickup;
   // W9a — a settled DINE-IN table with no takeaway portion. Nothing is bagged for them and nothing
   // will ever bump `togo_status`, so the takeaway rail is structurally frozen at step 1: it promised
   // "status updates as the kitchen works on it" and then never moved again. Show the true terminal
@@ -386,22 +472,64 @@ export function OrderTracker({
   // lands, which routes to the door picker rather than guessing a mode.
   const backMode = order ? modeFromOrder(order) : null;
   const dineInSettled =
-    arrived && order.status === "paid" && isDineIn && !order.hasTogoFood && !pureGrocery;
+    arrived &&
+    order.status === "paid" &&
+    !refunded &&
+    isDineIn &&
+    !order.hasTogoFood &&
+    !pureGrocery;
   const ready = arrived && togo === "ready" && !pureGrocery && !refunded;
   // PD3 — the pickup page: NOW once, the path, the claim ticket, the one question. It owns the J5
   // "I’m here" (now with the 6-second take-back, decision 5) and the view's live region; a to-go
   // or scan-and-go order keeps the rail and the ready card below.
   // A PAID pickup only (`pickupPageShown`, lib/pickup-view.ts): a `pending` or `failed` row keeps the
   // existing arms.
-  const pickupPromise = pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
+  // Lifecycle audit (2026-10-13), C — and never over a refund: `refunded` is keyed on the refund STATE
+  // now, which a pickup can reach while `status` still reads 'paid' (a cash refund; the in-app refund's
+  // beat before the webhook's flip). The refund arm draws the page then, so the pickup page must not
+  // take the view's live region and its heading away from it.
+  const pickupPromise =
+    !refunded && pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
+
+  // Lifecycle audit (2026-10-13), A · B · G — what the KITCHEN has done, from the paid cart's own lines:
+  // ONE read (`useOrderKitchen` — the diner's own `is_member` RLS, Realtime on the lines, a re-read on
+  // the clock and on wake) and ONE derivation (lib/order-kitchen.ts, over lib/kitchen-track.ts). Asked
+  // only where an arm draws it: the settled dine-in table's dishes (A — the TV wall drew them cooking
+  // while this page said only "settled"), and a to-go bag the counter has not bagged yet: the rail's
+  // step 1 (G) and the pickup page's line (B). A lapsed or closed session reads `unreadable` and the
+  // arm keeps its own words, which stay true.
+  const bagInKitchen =
+    arrived && !refunded && order.hasTogoFood && (togo === "preparing" || togo === null);
+  const kitchen = useOrderKitchen(dineInSettled || bagInKitchen ? (order?.id ?? null) : null);
+  const kitchenRead = kitchen.status === "ready" ? kitchen : null;
+  const dishes =
+    dineInSettled && kitchenRead ? kitchenRows(kitchenRead.lines, kitchenRead.nowIso) : [];
+  const bag =
+    bagInKitchen && kitchenRead ? bagKitchen(kitchenRead.lines, kitchenRead.nowIso) : null;
+  // H — did the receipt's durable link render (ReceiptActions)? The settled foot points at it only then.
+  const [receiptLinked, setReceiptLinked] = useState(false);
 
   // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
   // completed order would briefly re-show as a "Confirming" pill on the next navigation before self-healing.
   // clearOrder defers its setState (rAF) → lint-safe.
-  const { clearOrder } = useActiveOrder();
+  const { clearOrder, noteTrackedOrder } = useActiveOrder();
+  // Once the row has landed, tell the device's order pointer what this page now knows: the order
+  // EXISTS (F — the pill's later empty read is then a cleared table, never the webhook race), and E —
+  // a pickup's pointer lives until its SLOT (plus the linger), not 4 h after the tap: the guest who
+  // paid at noon for 6:20 PM and closed the tab must still find the pill at 5:50.
+  // The KIND recorded is the real row's (`kindFromTrackedOrder`), never the device's door.
+  const landedId = order?.id ?? null;
+  const slotToNote = order?.pickupSlot ?? null;
+  const landedKind = order ? kindFromTrackedOrder(order) : null;
+  const landedTogo = !!order?.hasTogoFood;
+  useEffect(() => {
+    if (landedId && landedKind)
+      noteTrackedOrder({ pickupSlot: slotToNote, kind: landedKind, hasTogoFood: landedTogo });
+  }, [landedId, slotToNote, landedKind, landedTogo, noteTrackedOrder]);
   const orderDone =
     togo === "picked_up" ||
+    refunded ||
     order?.status === "refunded" ||
     order?.status === "failed" ||
     // W23d — a cancelled hold is terminal in the strongest sense: there is no order row at all, so
@@ -524,7 +652,7 @@ export function OrderTracker({
     // <html>, so the fixed z:-1 layer is visible without trapping the confetti/celebrations).
     <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
       <PaperAmbient />
-      {settleCanceled ? null : justPaid ? (
+      {settleCanceled ? null : justPaid && !(stranded && !order) ? (
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
         // ride a compact row below it, and the timeline follows.
         //
@@ -587,11 +715,12 @@ export function OrderTracker({
               // reader user was told the payment was fine in exactly the case where it was cancelled.
               settleCanceledSpoken(settleCanceled)
             : refunded
-              ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
+              ? refundArmCopy(order.tender).spoken
               : pureGrocery
                 ? "Paid — you’re all set. Show this screen on your way out if asked."
                 : dineInSettled
-                  ? "Paid in full — your table’s bill is paid."
+                  ? // C — the receipt's own settled-state line, so a refund is never spoken as "in full".
+                    settledSpoken(order.refund, order.tender)
                   : ready
                     ? "Your order’s ready — grab it before you go."
                     : arrived
@@ -600,26 +729,29 @@ export function OrderTracker({
                         : togo === "preparing"
                           ? "Your order is being prepared."
                           : "Payment confirmed — your order is in."
-                      : timedOut
-                        ? sharePayer
-                          ? "Your share is paid. The table’s bill is saved under whoever started splitting it — details below."
-                          : weDown
-                            ? // W10c — the escalation is announced too. The reference itself is spelled
-                              // out character by character in its own sr-only sibling below.
-                              `We’re having trouble on our end. ${safeClaim(notYetCharged)} — show this screen to staff and we’ll match it up.`
-                            : youOffline
-                              ? `You look offline. ${paidClaim(notYetCharged)} — reconnect and you can check again from this screen.`
-                              : "Your order is taking longer than expected — use the Refresh button to check."
-                        : justPaid
-                          ? notYetCharged
-                            ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
-                              // headline beside it now says so. Announcing "Payment confirmed" here
-                              // put the screen's two money claims in direct contradiction.
-                              "Card approved — we’re confirming your order."
-                            : "Payment confirmed — finishing your order."
-                          : processing
-                            ? "Confirming your payment."
-                            : "Confirming your order."}
+                      : stranded
+                        ? // M160(b) — Stripe's own word (the server retrieved it), never the redirect's.
+                          `${TRACK.strandedHead.en}. ${TRACK.strandedBody.en}`
+                        : timedOut
+                          ? sharePayer
+                            ? "Your share is paid. The table’s bill is saved under whoever started splitting it — details below."
+                            : weDown
+                              ? // W10c — the escalation is announced too. The reference itself is spelled
+                                // out character by character in its own sr-only sibling below.
+                                `We’re having trouble on our end. ${safeClaim(notYetCharged)} — show this screen to staff and we’ll match it up.`
+                              : youOffline
+                                ? `You look offline. ${paidClaim(notYetCharged)} — reconnect and you can check again from this screen.`
+                                : "Your order is taking longer than expected — use the Refresh button to check."
+                          : justPaid
+                            ? notYetCharged
+                              ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
+                                // headline beside it now says so. Announcing "Payment confirmed" here
+                                // put the screen's two money claims in direct contradiction.
+                                "Card approved — we’re confirming your order."
+                              : "Payment confirmed — finishing your order."
+                            : processing
+                              ? "Confirming your payment."
+                              : "Confirming your order."}
           {/* W23d — the partial fact, spoken. The visible notice lives on the receipt slip below,
             which is a visual artifact; without this a screen-reader user is told "your order is in"
             and never learns the basket changed. A second child of the SAME region, so the view
@@ -745,12 +877,13 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--warn)", margin: 0 }}>
             Refunded
           </p>
+          {/* C — by how the money went back: a cash refund was handed over at the counter, and
+              "banks typically post it" would send the guest to their bank for it. */}
           <p style={{ margin: "6px 0 0", fontWeight: "var(--fw-heavy)" }}>
-            Your money is on its way back.
+            {refundArmCopy(order.tender).lead}
           </p>
           <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-            This order was refunded to your original payment method — banks typically post it within
-            5–10 business days.
+            {refundArmCopy(order.tender).body}
           </p>
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
@@ -797,7 +930,12 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--ok)", margin: 0 }}>
             Paid
           </p>
-          <p style={{ margin: "6px 0 0", fontWeight: "var(--fw-heavy)" }}>Paid in full.</p>
+          {/* C — receipt-view's settled-state line ("Paid in full · Cash", "Partly refunded · Cash"):
+              a refund that left `status` at 'paid' must never read "Paid in full" here while the slip
+              below says what came back. */}
+          <p style={{ margin: "6px 0 0", fontWeight: "var(--fw-heavy)" }}>
+            {receiptStatusLabel(order.refund, order.tender)}
+          </p>
           {/* Deliberately does NOT say the meal is over. A dine-in diner can pay BEFORE sending food
               to the kitchen — `mms_fire_pending_food` fires their still-draft dine-in lines at
               settlement — so "thanks for dining with us" would be a goodbye delivered before the
@@ -807,6 +945,18 @@ export function OrderTracker({
               ? `Table ${order.tableNumber} is settled — your server will take it from here.`
               : "Your table is settled — your server will take it from here."}
           </p>
+          {/* A — the dishes, on the ONE KITCHEN TRACK, while this device may read them (the session is
+              open). Paying never stopped the kitchen: the counter settle fires any unsent food
+              (`mms_fire_pending_food`), and the wall and Mom's board go on drawing these rows. */}
+          {kitchen.status === "loading" ? (
+            <p style={kitchenNote}>Checking with the kitchen…</p>
+          ) : kitchen.status === "error" ? (
+            <p style={kitchenNote}>
+              Couldn’t check on the kitchen just now — we’ll try again when you come back.
+            </p>
+          ) : (
+            <OrderKitchenList rows={dishes} />
+          )}
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
             <strong style={{ color: "var(--tx)", letterSpacing: "var(--track-caps)" }}>
@@ -815,7 +965,7 @@ export function OrderTracker({
           </p>
         </section>
       ) : pickupPromise && order ? (
-        <PickupPromise order={order} justPaid={justPaid} live={live} onWake={wake} />
+        <PickupPromise order={order} justPaid={justPaid} live={live} onWake={wake} kitchen={bag} />
       ) : (
         <ul
           ref={timelineRef}
@@ -827,7 +977,13 @@ export function OrderTracker({
             const state = i < activeStep ? "done" : i === activeStep ? "now" : "pending";
             const last = i === STEPS.length - 1;
             const subtitle =
-              i === 0 && !arrived ? (processing ? "Confirming payment…" : "Confirming…") : sub;
+              i === 0 && !arrived
+                ? processing
+                  ? "Confirming payment…"
+                  : "Confirming…"
+                : i === KITCHEN_STEP && state === "now"
+                  ? railKitchenSub(bag)
+                  : sub;
             const dotBg =
               state === "done" ? "var(--ok)" : state === "now" ? "var(--ac)" : "var(--pg)";
             const dotBorder =
@@ -935,7 +1091,44 @@ export function OrderTracker({
       {/* W23d — `!settleCanceled`: this banner's every arm asserts a payment, and the terminal card
           above has already said the true thing. Two contradictory answers on one screen is worse
           than the original silence. */}
-      {timedOut && !arrived && !settleCanceled && (
+      {/* M160(b) — the recovery retrieved this payment from Stripe: charged, and no order could be
+          written (the table was settled another way, or the charge no longer matches the order). Not
+          a live region — the one role="status" above says it. It REPLACES the timed-out banner,
+          whose every arm says "we just can't reach the order from this screen", which is no longer
+          the true sentence. The payment reference is shown with it: it is what staff look it up by,
+          and `stranded` is only ever set by a recovery that ran on a `paymentIntent`, which is
+          exactly when `counterRef` is non-null — the guard below is for the type, not a case. */}
+      {stranded && !arrived && !settleCanceled && (
+        <div
+          style={{
+            padding: 14,
+            marginTop: 8,
+            borderRadius: "var(--r-card)",
+            border: "1px solid var(--warn)",
+            background: "var(--warnb)",
+          }}
+        >
+          <h2 style={{ margin: 0, fontWeight: "var(--fw-bold)", fontSize: "var(--fs-sm)" }}>
+            {TRACK.strandedHead.en}
+            <span lang="my" style={{ display: "block", fontWeight: "var(--fw-semibold)" }}>
+              {TRACK.strandedHead.my}
+            </span>
+          </h2>
+          <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
+            {TRACK.strandedBody.en}
+            <span lang="my" style={{ display: "block", color: "var(--t3)" }}>
+              {TRACK.strandedBody.my}
+            </span>
+          </p>
+          {counterRef && (
+            <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--tx)" }}>
+              <span style={{ color: "var(--t3)" }}>{counterRef.label}: </span>
+              <strong style={{ letterSpacing: "var(--track-caps)" }}>{counterRef.value}</strong>
+            </p>
+          )}
+        </div>
+      )}
+      {timedOut && !arrived && !settleCanceled && !stranded && (
         <div
           style={{
             padding: 14,
@@ -1435,7 +1628,9 @@ export function OrderTracker({
           capture (the server action re-authorizes earner/payer on every ask; renders nothing for
           a viewer it refuses). Sits under the compact card — the card stays the summary, the
           artifact is the itemized lasting copy. */}
-      {arrived && <ReceiptActions orderId={order.id} onSettled={setReceipt} />}
+      {arrived && (
+        <ReceiptActions orderId={order.id} onSettled={setReceipt} onLinked={setReceiptLinked} />
+      )}
 
       {/* Phase 1c · account-star — the save-your-Stars ask: confirmation → status → proof (the slip
           and its actions, ABOVE) → keeping what you earned → the farewell, which stays the flow's
@@ -1482,11 +1677,13 @@ export function OrderTracker({
           : refunded
             ? "This order is closed — the refund above is its final state."
             : pureGrocery
-              ? "You’re free to go — this receipt lives in your order history."
+              ? settledFoot("You’re free to go", order.tender, receiptLinked)
               : dineInSettled
                 ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
                   // move again. State what is actually true: the bill is paid and the receipt keeps.
-                  "Your table’s all settled — this receipt lives in your order history."
+                  // H — and where it keeps: a counter order is in no history (M206), so its foot
+                  // names the receipt link instead, and only when the link rendered.
+                  settledFoot("Your table’s all settled", order.tender, receiptLinked)
                 : timedOut && !arrived
                   ? // W9c — "keep this open" is a promise the code cannot keep here: `exhausted` and the
                     // server fallback are BOTH latched, so nothing on this screen will change on its own.
@@ -1593,6 +1790,13 @@ const chip: CSSProperties = {
   padding: "5px 10px",
   borderRadius: 999,
   whiteSpace: "nowrap",
+};
+
+// The settled card's quiet kitchen line while the read is out, or after it failed (static, not a region).
+const kitchenNote: CSSProperties = {
+  margin: "12px 0 0",
+  fontSize: "var(--fs-sm)",
+  color: "var(--t3)",
 };
 
 // Visually hidden, still announced by AT (the visible chip carries the same state for sighted users).

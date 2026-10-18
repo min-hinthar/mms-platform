@@ -131,7 +131,7 @@ function ItemSheetBody({
   hearted?: boolean;
   onToggleHeart?: (id: string) => void;
 }) {
-  const { add, cartId, loading, locked, lockedByYou, settling } = useCart();
+  const { add, cartId, loading, locked, lockedByYou, settling, ended } = useCart();
   const { shouldAnimate } = useAnimationPreference();
   // On mount (each keyed remount = open OR upsell swap): reset the SHARED sheet scroll to the top so a
   // swapped-in item starts at its hero, not wherever the previous item's "Goes well with" row sat. Reading
@@ -160,7 +160,8 @@ function ItemSheetBody({
   const soldOut = item.is_sold_out;
   // The cart is frozen server-side while a member checks out (locked) or the table settles (settling); no cart
   // yet / an add in flight also block. A disabled CTA, never a missing one.
-  const blocked = !cartId || busy || locked || settling;
+  // Session truth — and a table that ENDED (terminal: the card on the menu is the way on).
+  const blocked = !cartId || busy || locked || settling || !!ended;
   const canAdd = !soldOut && !blocked && valid;
   // W9b — the same three "why is this dead?" reasons the menu pills now carry (AddButton), spoken in
   // the same order and the same words. Without this the sheet's CTA sat greyed and mute during the
@@ -168,7 +169,7 @@ function ItemSheetBody({
   // consumers. It does NOT relax `blocked` — an add with no cartId still can't fire.
   const minting = loading && !cartId;
   // T20 — the FACT, not the label (see AddButton). `lockedByName` is peer-supplied presence text.
-  const reason = inertReason({ minting, locked, lockedByYou, settling });
+  const reason = inertReason({ minting, locked, lockedByYou, settling, ended: !!ended });
   // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
   // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
   const upsell = useMemo(

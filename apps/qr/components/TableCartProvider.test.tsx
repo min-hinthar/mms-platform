@@ -59,6 +59,9 @@ const h = vi.hoisted(() => ({
   setQty: vi.fn(),
   getCartView: vi.fn(),
   revalidate: vi.fn(),
+  // Session truth — the member-gated "why did this read fail?" answer. `unknown` by default: the
+  // shipped recovery (a write re-mints, a passive read stays) is what every older case pins.
+  counterPayOutcome: vi.fn(),
   onCartChange: { current: null as null | ((c: unknown) => void) },
   session: {
     current: null as null | {
@@ -70,8 +73,11 @@ const h = vi.hoisted(() => ({
       joinCode: string | null;
       tableNumber: number | null;
       created: boolean;
+      replacedStored?: boolean;
     },
   },
+  loading: { current: false },
+  error: { current: null as string | null },
 }));
 
 vi.mock("@/lib/cart", () => ({
@@ -87,11 +93,12 @@ vi.mock("@/lib/cart", () => ({
   getCartView: h.getCartView,
 }));
 vi.mock("@/lib/members", () => ({ setDisplayName: vi.fn(async () => {}) }));
+vi.mock("@/lib/counter-pay", () => ({ counterPayOutcome: h.counterPayOutcome }));
 vi.mock("@/lib/useTableSession", () => ({
   useTableSession: () => ({
     session: h.session.current,
-    loading: false,
-    error: null,
+    loading: h.loading.current,
+    error: h.error.current,
     revalidate: h.revalidate,
   }),
 }));
@@ -348,6 +355,10 @@ beforeEach(() => {
   h.setQty.mockReset();
   h.getCartView.mockReset();
   h.revalidate.mockReset();
+  h.counterPayOutcome.mockReset();
+  h.counterPayOutcome.mockResolvedValue({ kind: "unknown" });
+  h.loading.current = false;
+  h.error.current = null;
   h.session.current = {
     cartId: CART,
     seat: MY_SEAT,
@@ -555,7 +566,9 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
     await ctl.refresh();
     await drainDeferredAnnounces();
-    expect(spoken()).toContain("splitting the bill");
+    // Session truth (finding 2) — with the self-serve split parked the freeze is the REGISTER's, so
+    // the banner speaks the register's own sentence (`settleEdgeNotice`).
+    expect(spoken()).toContain("The counter is taking your table’s payment");
   });
 
   it("STILL announces a freeze the diner was never told about — the banner's whole reason to exist", async () => {
@@ -628,7 +641,9 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     );
     await ctl.refresh();
     await drainDeferredAnnounces();
-    expect(spoken()).toContain("splitting the bill");
+    // Session truth (finding 2) — with the self-serve split parked the freeze is the REGISTER's, so
+    // the banner speaks the register's own sentence (`settleEdgeNotice`).
+    expect(spoken()).toContain("The counter is taking your table’s payment");
   });
 });
 
@@ -1596,6 +1611,545 @@ describe("TableCartProvider — the cart ref moves in the commit, not after it (
     // MUTANT provider/cart-ref-advances-late: the ref moves in a passive effect — the old cart's rows
     // land on the new cart's state in the window between the commit and its effects; red.
     expect(ctl.items).toEqual([]);
+  });
+});
+
+/**
+ * Session truth — a diner is never silently cut off, frozen or re-minted (the order-lifecycle
+ * audit's session stream). A staff Clear, a Merge and the sweep close the session in the same
+ * transaction that ends the cart, so no Realtime event reaches the phone and every later read throws
+ * `cart_closed`. These pin the WIRING: a failed read is explained (`counterPayOutcome`), a dine-in
+ * end is HELD (one card, no re-mint), a solo end re-mints with its cause said, and no sentence says
+ * "idle".
+ */
+/** A promise the test settles by hand — an answer still out while something else happens. */
+function deferred<T>() {
+  let resolve: (v: T) => void = () => {};
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+describe("session truth — a table that ended is held, named and never silently re-minted", () => {
+  const COOKING: CartItem = { ...line(1), lineState: "in_progress" };
+  const mountAt = (mode: "dinein" | "scango") => {
+    const utils = render(
+      <TableCartProvider mode={mode}>
+        <Probe />
+      </TableCartProvider>,
+    );
+    const rerender = () =>
+      utils.rerender(
+        <TableCartProvider mode={mode}>
+          <Probe />
+        </TableCartProvider>,
+      );
+    return { ...utils, rerender };
+  };
+  const newSession = (
+    cartId: string,
+    over: Partial<NonNullable<typeof h.session.current>> = {},
+  ) => {
+    h.session.current = {
+      cartId,
+      seat: MY_SEAT,
+      sessionId: `sess-${cartId}`,
+      accessToken: "tok",
+      role: "host",
+      joinCode: "CODE",
+      tableNumber: null,
+      created: true,
+      ...over,
+    };
+  };
+
+  it("a CLEAR found by a passive read is held: the card's words in the one region, no re-mint, nothing 'idle'", async () => {
+    // MUTATION (lcs/provider-swallows-the-failed-read): `readView`'s catch stops reporting — the menu
+    // stays frozen on dishes the clear voided, and nothing ever says the table closed.
+    h.getCartView.mockResolvedValueOnce(view({ items: [COOKING] }));
+    mountAt("dinein");
+    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" }));
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("Our staff closed this table");
+    expect(spoken()).not.toMatch(/idle/i);
+    expect(h.revalidate).not.toHaveBeenCalled();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+  });
+
+  it("CRITICAL 1 — an Add whose line COMMITTED before a racing MERGE cancelled the cart is UNCONFIRMED, never 'didn't go through' — and nothing re-mints", async () => {
+    // The merge interleaving (the blind pass on #361): `addItem` commits the line, the merge
+    // re-parents it onto the target table's cart and cancels this one, and `addItem`'s TRAILING
+    // `getCartView` throws `cart_closed` — so the action rejects with the dish already on the
+    // target's order. The diagnosis read fails the same way and the explanation is `closed`. The
+    // dish may be cooking on the other table: "didn't go through" invited the re-add that puts it
+    // on two bills.
+    // MUTATION (lcs/write-arm-re-mints-before-asking): `explainCaught` re-mints on the spot again —
+    // the sticker re-hosts a table staff freed (M172) and the diner hears a false "idle" line.
+    const lineOnTheTarget = deferred<void>();
+    mountAt("dinein");
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.addItem.mockImplementation(async () => {
+      // The write lands (the target cart now holds it), THEN its own view read meets the closed cart.
+      lineOnTheTarget.resolve();
+      throw new Error("cart_closed");
+    });
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "closed" });
+    let r: AddResult | undefined;
+    await act(async () => {
+      r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    await lineOnTheTarget.promise;
+    expect(r?.state).toBe("unconfirmed");
+    expect(r && mayRetry(r)).toBe(false);
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain(
+      "We couldn’t confirm Mohinga — this table’s order has closed; ask our staff whether it made it onto your order before you add it again.",
+    );
+    expect(spoken()).not.toContain("didn’t go through");
+    expect(h.revalidate).not.toHaveBeenCalled();
+    expect(ctl.ended).toEqual({ kind: "ended", why: "closed" });
+  });
+
+  it("a WRITE's diagnosis asks afresh — a poll's stale 'open', asked before the Clear committed, never decides it", async () => {
+    // The blind pass on #361. The poll asked a beat before staff's Clear committed and its answer
+    // is still out (it will say `open`); the Add then fails on the cleared cart. Reusing that
+    // in-flight answer skipped the hold and re-minted under the diner.
+    // MUTATION (lcs/write-reuses-a-passive-ask): the write's ask is deduped like a passive one.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      const stale = deferred<unknown>();
+      h.counterPayOutcome.mockReturnValueOnce(stale.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000); // the poll's ask, still out
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(1);
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+      h.addItem.mockRejectedValue(new Error("cart_closed"));
+      h.getCartView.mockRejectedValue(new Error("cart_closed"));
+      await act(async () => {
+        await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(2);
+      expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" });
+      expect(h.revalidate).not.toHaveBeenCalled();
+      // The stale answer, landing last, changes nothing.
+      await act(async () => {
+        stale.resolve({ kind: "open" });
+        await Promise.resolve();
+      });
+      expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" });
+      expect(h.revalidate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an answer that lands after the provider UNMOUNTED neither speaks nor schedules anything", async () => {
+    // The blind pass on #361: `cartIdRef` is nulled on unmount, so `holdEnd` and `settleFate` drop
+    // an answer about a cart this provider no longer shows.
+    // MUTATION (lcs/unmounted-provider-still-answers): drop the unmount clear — the late answer
+    // flashes into a tree that is gone and leaves its notice timer behind.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const utils = mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      await drainDeferredAnnounces();
+      const late = deferred<unknown>();
+      h.counterPayOutcome.mockReturnValueOnce(late.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(1);
+      utils.unmount();
+      vi.clearAllTimers();
+      late.resolve({ kind: "ended", why: "cleared" });
+      // The answer travels `.catch` → `.finally` → `.then(settleFate)` before anything could speak:
+      // drain every hop (three bare ticks never reached `settleFate`, so the first draft of this
+      // case passed with the guard deleted — `lcs/unmounted-provider-still-answers` SURVIVED).
+      for (let i = 0; i < 25; i += 1) await Promise.resolve();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a held table refuses the next write AT THE DOOR — nothing is sent, the cause rides the result", async () => {
+    mountAt("dinein");
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "expired" });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended).not.toBeNull());
+    h.getCartView.mockClear();
+    let r: AddResult | undefined;
+    await act(async () => {
+      r = await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    expect(h.addItem).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ state: "refused", clause: "this order has closed" });
+    // And a focus/echo re-read of the held cart costs no round trip.
+    await act(async () => {
+      await ctl.refresh();
+    });
+    expect(h.getCartView).not.toHaveBeenCalled();
+  });
+
+  it("finding 2 — a table the REGISTER paid mid-freeze: held as paid, the freeze retired SILENTLY (no 'stopped taking payment', no stuck settling)", async () => {
+    // MUTATION (lcs/held-paid-table-keeps-its-freeze): `holdEnd` leaves `settling` — every Add stays
+    // disabled under the register sentence until a reload, and the card says the bill is paid.
+    h.getCartView.mockResolvedValueOnce(view({ items: [COOKING] }));
+    mountAt("dinein");
+    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    h.getCartView.mockResolvedValueOnce(view({ items: [COOKING], settling: true }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.settling).toBe(true));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      tender: "counter",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: true,
+    });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended?.kind).toBe("paid"));
+    await drainDeferredAnnounces();
+    expect(ctl.settling).toBe(false);
+    expect(ctl.locked).toBe(false);
+    expect(spoken()).toContain("All paid — thank you!");
+    expect(spoken()).not.toContain("stopped taking payment");
+    expect(h.revalidate).not.toHaveBeenCalled();
+  });
+
+  /** Mount at a dine-in table, read once, then hold it as `end` through a failed passive read. */
+  const heldAt = async (end: unknown) => {
+    const utils = mountAt("dinein");
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue(end);
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended).not.toBeNull());
+    return utils;
+  };
+
+  it("'Start a new order' re-mints ONCE, holds the card busy through the mint, then confirms and clears it", async () => {
+    const { rerender } = await heldAt({ kind: "ended", why: "cleared" });
+    act(() => {
+      ctl.startNewOrder();
+      ctl.startNewOrder(); // a double tap starts ONE order
+    });
+    expect(h.revalidate).toHaveBeenCalledTimes(1);
+    expect(ctl.restarting).toBe(true);
+    // The mint is in flight: no cart yet, and the card (`ended`) stays to carry the busy button.
+    h.session.current = null;
+    rerender();
+    expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" });
+    h.getCartView.mockResolvedValue(view());
+    newSession("cart-2", { replacedStored: true });
+    rerender();
+    await waitFor(() => expect(ctl.cartId).toBe("cart-2"));
+    await drainDeferredAnnounces();
+    expect(ctl.ended).toBeNull();
+    expect(ctl.restarting).toBe(false);
+    // The diner's own new order is confirmed — never the cold-mount "had ended" line it would
+    // otherwise read as (`replacedStored`), and never "idle".
+    expect(spoken()).toContain("Your new order is ready — add whatever you like.");
+  });
+
+  it("a new order that could not be started says so, and the card's button comes back", async () => {
+    const { rerender } = await heldAt({ kind: "ended", why: "closed" });
+    act(() => ctl.startNewOrder());
+    h.session.current = null;
+    h.error.current = "Could not create session";
+    rerender();
+    await drainDeferredAnnounces();
+    expect(ctl.restarting).toBe(false);
+    expect(ctl.ended).toEqual({ kind: "ended", why: "closed" });
+    expect(spoken()).toContain("Couldn’t start a new order — try again.");
+  });
+
+  it("the blind pass on #361 (B2) — a held PAID end keeps naming its own cart through a failed restart, so the card's tracker survives", async () => {
+    // MUTATION (lcs/ended-cart-id-follows-the-live-cart): the ended cart's id read off the LIVE
+    // cart id — null for the mint and after a failed one, so "Track your order" vanished.
+    const { rerender } = await heldAt({
+      kind: "paid",
+      tender: "counter",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: true,
+    });
+    expect(ctl.endedCartId).toBe(ctl.cartId);
+    const held = ctl.endedCartId;
+    expect(held).not.toBeNull();
+    act(() => ctl.startNewOrder());
+    h.session.current = null;
+    h.error.current = "Could not create session";
+    rerender();
+    await drainDeferredAnnounces();
+    expect(ctl.cartId).toBeNull();
+    expect(ctl.ended?.kind).toBe("paid");
+    expect(ctl.endedCartId).toBe(held);
+  });
+
+  it("a SOLO order that timed out re-mints, and the new order's sentence names the cause", async () => {
+    const utils = mountAt("scango");
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "expired" });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(h.revalidate).toHaveBeenCalledTimes(1));
+    expect(ctl.ended).toBeNull(); // a solo order is never held
+    h.getCartView.mockResolvedValue(view());
+    newSession("cart-2");
+    utils.rerender();
+    await waitFor(() => expect(ctl.cartId).toBe("cart-2"));
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("Your last order timed out — this is a new one.");
+  });
+
+  it("a write whose failure cannot be explained still re-mints — and a NEW cart is never called 'idle'", async () => {
+    // MUTATION (lcs/recovery-notice-says-idle): the retired "Your table sat idle too long" line.
+    const utils = mountAt("dinein");
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.addItem.mockRejectedValue(new Error("x"));
+    h.getCartView.mockRejectedValue(new Error("x"));
+    await act(async () => {
+      await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    expect(h.revalidate).toHaveBeenCalledTimes(1);
+    h.getCartView.mockResolvedValue(view());
+    newSession("cart-2");
+    utils.rerender();
+    await waitFor(() => expect(ctl.cartId).toBe("cart-2"));
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("We couldn’t reach your last order — this is a new one.");
+    expect(spoken()).not.toMatch(/idle/i);
+  });
+
+  it("finding 4 — a cold mount whose stored table had ended says so (it used to land silently in 'Just you')", async () => {
+    newSession(CART, { replacedStored: true });
+    mountAt("dinein");
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("Your last table’s order had ended — this is a new one.");
+  });
+
+  it("the poll notices a close no event carries — once a minute, only while visible, and never once held", async () => {
+    // MUTATION (lcs/provider-never-polls): drop the interval — a diner who is not tapping sits on a
+    // frozen menu reading "being made" over dishes a clear voided, for as long as the tab is open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      h.counterPayOutcome.mockResolvedValue({ kind: "open" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(1);
+      expect(ctl.ended).toBeNull();
+      h.counterPayOutcome.mockResolvedValue({ kind: "ended", why: "cleared" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(ctl.ended).toEqual({ kind: "ended", why: "cleared" }));
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Codex round 2 on #361 — a view IN FLIGHT when the end is held never lands: no freeze put back, nothing announced", async () => {
+    // The interleaving: a read is out, the table's end is held (here by a second read that failed
+    // and was explained), and the first read resolves AFTER the hold carrying the settle freeze it
+    // saw. `holdEnd` retired the freeze silently; applying that view put `settling`/`locked` back and
+    // the settle edge announced the register over a card that says the bill is paid.
+    // MUTATION (lcs/held-cart-takes-a-late-view): `applyView` takes views for a held cart again.
+    h.getCartView.mockResolvedValueOnce(view({ items: [COOKING] }));
+    mountAt("dinein");
+    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await drainDeferredAnnounces();
+    const late = deferred<CartView>();
+    h.getCartView.mockReturnValueOnce(late.promise);
+    let inFlight: Promise<unknown> = Promise.resolve();
+    act(() => {
+      inFlight = ctl.refresh();
+    });
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      tender: "counter",
+      orderId: "o-1",
+      sessionLive: true,
+      complete: true,
+    });
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await waitFor(() => expect(ctl.ended?.kind).toBe("paid"));
+    await drainDeferredAnnounces();
+    const said = spoken();
+    expect(said).toContain("All paid — thank you!");
+    await act(async () => {
+      late.resolve(view({ items: [COOKING], locked: true, lockedBy: PEER_SEAT, settling: true }));
+      await inFlight;
+    });
+    await drainDeferredAnnounces();
+    expect(ctl.settling).toBe(false);
+    expect(ctl.locked).toBe(false);
+    expect(spoken()).toBe(said);
+  });
+
+  it("Codex round 2 on #361 — an INCOMPLETE paid answer is held AND still asked about: the poll goes on, the card gains its receipt link, nothing is said twice", async () => {
+    // `counterPayOutcome` turned a failed read into `orderId: null`, and the hold cached it: no
+    // receipt link and the poll stopped, for as long as the card was open.
+    // MUTATION (lcs/provider-stops-polling-an-incomplete-end): the poll stops on ANY held end.
+    // MUTATION (lcs/held-end-never-upgrades): `holdEnd` ignores every answer after the first.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("dinein");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      await drainDeferredAnnounces();
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: null,
+        sessionLive: true,
+        complete: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(ctl.ended).toMatchObject({ kind: "paid", orderId: null }));
+      await drainDeferredAnnounces();
+      expect(spoken()).toContain("All paid — thank you!");
+      // The hold's sentence has had its window; the read that failed comes back on the next tick.
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "counter",
+        orderId: "o-1",
+        sessionLive: true,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(ctl.ended).toMatchObject({ orderId: "o-1", complete: true }));
+      await drainDeferredAnnounces();
+      expect(spoken()).not.toContain("All paid");
+      // Whole now: the poll stops.
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a solo order is not polled — only a table is closed by someone else", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountAt("scango");
+      await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+      expect(h.counterPayOutcome).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("J18 — the solo recovery banner stays mounted through its own retry", () => {
+  it("Try again keeps its place: 'Reconnecting…', aria-disabled, never unmounted under the pointer", async () => {
+    // MUTATION (lcs/solo-banner-unmounts-on-retry): gate the banner on `error` alone again.
+    h.session.current = null;
+    h.error.current = "Couldn’t get you connected — try again";
+    h.revalidate.mockImplementation(() => {
+      h.error.current = null;
+      h.loading.current = true;
+    });
+    render(
+      <TableCartProvider mode="pickup">
+        <Probe />
+      </TableCartProvider>,
+    );
+    const btn = screen.getByRole("button", { name: "Try again" });
+    btn.focus();
+    fireEvent.click(btn);
+    const busy = await screen.findByRole("button", { name: "Reconnecting…" });
+    expect(busy).toBe(btn); // the SAME node: focus never dropped to <body>
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toContain("Reconnecting to your order…");
+    fireEvent.click(busy);
+    expect(h.revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("CRITICAL 3 — a retry that SUCCEEDED is over: a later automatic re-mint raises no 'Reconnecting…' alert", async () => {
+    // The blind pass on #361: the tick was never reset, so after one solo Try again every later
+    // automatic re-mint raised `role="alert"` "Reconnecting to your order…" while the polite region
+    // said a new order had started — two regions contradicting each other.
+    // MUTATION (lcs/solo-retry-never-ends): drop the reset — the alert returns on the next re-mint.
+    h.session.current = null;
+    h.error.current = "Couldn’t get you connected — try again";
+    h.revalidate.mockImplementation(() => {
+      h.error.current = null;
+      h.loading.current = true;
+    });
+    const tree = () => (
+      <TableCartProvider mode="pickup">
+        <Probe />
+      </TableCartProvider>
+    );
+    const { rerender } = render(tree());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Reconnecting…" });
+    // The retry's mint succeeds.
+    h.loading.current = false;
+    h.session.current = {
+      cartId: CART,
+      seat: MY_SEAT,
+      sessionId: "sess-1",
+      accessToken: "tok",
+      role: "host",
+      joinCode: null,
+      tableNumber: null,
+      created: false,
+    };
+    rerender(tree());
+    await drainDeferredAnnounces();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Later, an AUTOMATIC re-mint (a recovery the diner did not press): no session for a beat.
+    h.session.current = null;
+    h.loading.current = true;
+    rerender(tree());
+    await drainDeferredAnnounces();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

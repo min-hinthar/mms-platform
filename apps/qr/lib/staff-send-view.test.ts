@@ -13,6 +13,7 @@ import {
   staffOwedSendUnits,
   staffSendCounts,
   staffSendView,
+  sendSoldOut,
   undoNotice,
   sendNoteAfterCommit,
   sendViewFact,
@@ -101,6 +102,7 @@ const input = (over: Partial<StaffSendViewInput> = {}): StaffSendViewInput => ({
   counterArm: null,
   hasName: true,
   payAtPickup: true,
+  lines: [],
   ...over,
 });
 
@@ -232,6 +234,7 @@ describe("sendHoldMsg / sendRefusalMsg — one sentence per hold, wherever it is
     staffAdded: 2,
     dinerUnits: 0,
     counter: false,
+    soldOut: null,
   };
   it("each hold names its fix; a LOST add is never worded as a wait", () => {
     expect(sendHoldMsg({ kind: "note", lineId: "l1", name: "Tea" })).toEqual({
@@ -359,6 +362,7 @@ describe("sendNoteAfterCommit — a send line lives until the fact it speaks to 
         staffAdded: 3,
         dinerUnits: 0,
         counter: false,
+        soldOut: null,
       }),
     ).toBe("send:3");
   });
@@ -474,6 +478,7 @@ describe("staffSendView — the counter's pay-at-pickup Send (owner decisions 1 
       kind: "send",
       units: 3,
       counter: true,
+      soldOut: null,
       emphasis: "secondary",
       note: "payAtPickup",
       blocked: null,
@@ -625,6 +630,7 @@ describe("the counter's noName, said", () => {
     staffAdded: 2,
     dinerUnits: 0,
     counter: true,
+    soldOut: null,
   };
 
   it("a refused fire for want of a name says so", () => {
@@ -644,5 +650,51 @@ describe("the counter's noName, said", () => {
     expect(sendRefusalMsg({ ...SEND_NONAME, blocked: "paying" }, null)).toEqual({
       k: "table.send.paying",
     });
+  });
+});
+
+describe("P2ad (lifecycle residuals) — the Send counts the sold-out dishes it would FIRE", () => {
+  // A dine-in table: two bowls of Mohinga (86'd since they were added) the Send fires, a sold-out
+  // to-go box it does NOT fire (it cooks at pay — the settle doors re-warn it), and tea on the menu.
+  const LINES = [
+    { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 2, sendable: true, soldOut: true },
+    { name: "Fish fritter", nameMy: null, qty: 4, sendable: false, soldOut: true },
+    { name: "Tea", nameMy: null, qty: 3, sendable: true, soldOut: false },
+    { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 1, sendable: true, soldOut: true },
+  ];
+
+  it("units are the sendable sold-out bowls only; each dish is named once, in cart order", () => {
+    expect(sendSoldOut(LINES)).toEqual({
+      units: 3,
+      dishes: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး" }],
+    });
+  });
+
+  it("a sold-out dish the Send does NOT fire is not this Send's to warn about", () => {
+    expect(sendSoldOut([LINES[1]!, LINES[2]!])).toBeNull();
+  });
+
+  it("the table's Send carries it — and it is NEVER a block", () => {
+    const v = staffSendView(input({ hostPresent: false, lines: LINES }));
+    expect(v).toMatchObject({
+      kind: "send",
+      blocked: null,
+      soldOut: { units: 3, dishes: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး" }] },
+    });
+    expect(staffSendView(input({ hostPresent: false }))).toMatchObject({ soldOut: null });
+  });
+
+  it("a counter order's Send carries it too", () => {
+    const v = staffSendView(
+      input({
+        mode: "pickup",
+        counterOrder: true,
+        counts: counts({ sendable: 0, counterDraft: 2 }),
+        counterArm: "walkup",
+        lines: [{ name: "Mohinga", nameMy: null, qty: 2, sendable: true, soldOut: true }],
+      }),
+    );
+    expect(v).toMatchObject({ kind: "send", counter: true, blocked: null });
+    expect(v.kind === "send" && v.soldOut?.units).toBe(2);
   });
 });

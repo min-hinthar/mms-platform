@@ -10,6 +10,7 @@
 // `tableDisplay`, is exercised through `lib/floor-merge-promo.test.ts` — the merge refusal names the
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
+import type { KitchenStage } from "./kitchen-track";
 import type { ClearPreview, ClearRefusal } from "./clear-table";
 import type { LineState } from "@mms/db";
 import type { RefundState, RefundSummary } from "./refund-view";
@@ -96,6 +97,15 @@ export type FloorKitchen = {
    *  bump's `<line id>@<bumped_at>` (`floor-kitchen.ts`). The floor's cue reads these, never `up`:
    *  a count holds still when one dish leaves the window as another comes out. */
   upKeys: string[];
+  /** The lifecycle audit — a dine-in table's served TO-GO dishes inside that window: bagged, never
+   *  served to the table, so never in `up`/`upKeys` (no "Ready to serve" cue). Absent reads as 0. */
+  bagUp?: number;
+  /** The lifecycle audit — dishes counted in `inKitchen` whose menu item was 86'd after they were
+   *  sent (the floor's advisory menu read). A question for the kitchen, never a cancel. Absent = 0. */
+  soldOut?: number;
+  /** The lifecycle audit — dishes counted in `inKitchen` on a cart refunded IN FULL
+   *  (`lib/refunded-cart.ts`): the KDS keeps them, tagged, and so does the card. Absent = 0. */
+  refunded?: number;
   /** Served before that window (or with no bump stamp). */
   done: number;
   /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */
@@ -127,6 +137,10 @@ export type FloorSnapshot = {
    *  `kitchen` is null because it is UNKNOWN, not empty, and the board says so once in its region.
    *  Required, never defaulted — a producer that forgot it would draw "nothing in the kitchen". */
   kitchenUnknown: boolean;
+  /** The lifecycle audit — how long (ms, on the DB clock) until the earliest bump on the floor leaves
+   *  Mom's undo window and turns into "ready to serve" (`settleLeftMs`): the board schedules ONE
+   *  re-read for it. Null/absent when no bump is inside the window. */
+  settleInMs?: number | null;
 };
 
 /** W10b: the floor poll discriminant (K10 parity with KitchenPoll/ExpoPoll). A failed gate/read used
@@ -192,6 +206,27 @@ export type TableLineView = {
    *  unsent line can say "Not sent yet · 4m ago" as plain text (no "late" rule). Advisory: absent on a
    *  settled record line and on a fixture that predates it, and then no age is said. */
   createdAt?: string | null;
+  /** The lifecycle audit — a sent dish's stage on the ONE kitchen track (`trackStage`: Sending…
+   *  inside the send grace, Sent, Cooking, Served once Mom's undo window closes), on the read's clock.
+   *  Null for a line off the track (voided, grocery); absent on a settled record line and on a
+   *  fixture that predates it — the editor then tags the raw state, as before. */
+  stage?: KitchenStage | null;
+};
+
+/** The lifecycle audit — one dish of a PAID round still in the kitchen (or just out), as the table
+ *  page's "From the paid round" group draws it (`paidRoundKitchen`, lib/paid-round.ts). */
+export type PaidKitchenLine = {
+  id: string;
+  name: string;
+  qty: number;
+  stage: KitchenStage;
+  notes: string | null;
+  modifiers: string[];
+  /** A to-go dish — bagged at the counter, never served to the table. */
+  togo: boolean;
+  /** #360 (CRITICAL 1) — on a cart refunded IN FULL (`lib/refunded-cart.ts`): still drawn and still
+   *  cooking, tagged exactly as the KDS tags its card. Absent = not refunded. */
+  refunded?: true;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -272,6 +307,17 @@ export type TableDetail = {
    *  rows (lib/floor.ts) and the order has more, so the surface must say the list is not the whole
    *  record. Always false on an open cart. */
   settledLinesTruncated: boolean;
+  /** The lifecycle audit — the table's PAID rounds' dishes still in the kitchen or just out, each
+   *  with its stage; [] when none, null when that ADVISORY read failed (the group is not drawn), and
+   *  absent on a fixture that predates it. */
+  paidKitchen?: PaidKitchenLine[] | null;
+  /** #360 (CRITICAL 3) — the paid-round DISH read hit its cap: the group shows the NEWEST dishes only
+   *  and says so, counting the dishes it draws (`paidRoundCapNote`). Absent = not capped. */
+  paidKitchenCapped?: boolean;
+  /** #360's blind pass (CRITICAL 2) — the paid round's ROUND read hit its cap (a session past
+   *  `PAID_ROUND_ORDER_CAP` settled rounds): older rounds were not read, and the group says so with no
+   *  number. Absent = not capped. */
+  paidRoundsCapped?: boolean;
   /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
    *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null

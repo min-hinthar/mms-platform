@@ -202,8 +202,11 @@
  *
  * So state the guarantee honestly: this catches the REGRESSION (a new consumer wired the obvious
  * way — or behind a barrel — a handler that stops scheduling, a second window constant), not a
- * deliberate evasion. The remaining shapes need invocation tracking, assignment tracking or a type
- * checker; two of the
+ * deliberate evasion. One more known limit, of the `READERS` allowlist itself: it does not tie a
+ * consumer to ITS OWN reader. A consumer that coalesces through the wrong one — the open cart's
+ * `getCartView` where its events are a paid cart's (`getOrderKitchen`), or the reverse — passes,
+ * because either name satisfies "reaches a reader". The remaining shapes need invocation tracking,
+ * assignment tracking or a type checker; two of the
  * suggested remedies are themselves a name-keyed matcher, which is what LEARNINGS #60 forbids, and
  * "treat every unresolved mutable callee as a reader" would flag unrelated `let` callbacks — a
  * guard that cries wolf gets ignored (LEARNINGS #92). If that pass is ever wanted it belongs in a
@@ -240,7 +243,9 @@
  * from it · an aliased re-export through a deep relative path · a local re-export of the imported
  * hook · an exported `let` alias of it · `export default` of a namespace-member alias · the
  * namespace object itself exported · the hook's own module exporting it under a second name · the
- * hook's module dropped from the re-export scan.
+ * hook's module dropped from the re-export scan · the post-order kitchen read passed raw · its
+ * coalescer wrapping a no-op · it scheduled AND read directly · its `READERS` entry dropped · a
+ * local look-alike `getOrderKitchen` shadowing the import.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
@@ -251,7 +256,7 @@
  * an unrelated destructured local · an immutable alias of the hook, correctly coalesced · an
  * immutable alias of the COALESCER, used correctly · the shadow-crossing reader chain with its inner
  * alias never called · a barrel re-exporting a DIFFERENT export of the hook's module · type-only
- * re-exports of the hook's module.
+ * re-exports of the hook's module · the post-order kitchen read, coalesced through its own reader.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -283,13 +288,25 @@ const REALTIME_MODULE = `${APP}/lib/realtime`;
 const CART_MODULE = `${APP}/lib/cart`;
 /** The ONE server-authoritative cart read. A coalescer that does not reach this refreshes nothing. */
 const READER = "getCartView";
+/**
+ * Every server read a cart-channel echo may legitimately refresh, as [module, export] pairs resolved
+ * from each file's IMPORTS (never a bare name). The open cart's consumers re-read `getCartView`; the
+ * post-order kitchen read (lifecycle audit, 2026-10-13) re-reads a PAID cart's lines through
+ * `getOrderKitchen`, which `getCartView` refuses by design (`cart_closed`). A coalescer must reach
+ * ONE of these — the M193 rule is unchanged: one window, and no consumer's events left unread.
+ */
+const READERS = [
+  [CART_MODULE, READER],
+  [`${APP}/lib/order-kitchen-read`, "getOrderKitchen"],
+];
+const READER_NAMES = READERS.map(([, name]) => `\`${name}\``).join(" or ");
 const HOOK = "useCartRealtime";
 const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
 /** The consumers that exist today. A walk that finds fewer than this has broken, not improved. */
-const MIN_CALL_SITES = 2;
+const MIN_CALL_SITES = 3;
 /** Same idiom for the docblock's case list: MEASURED at the round that set it, never counted by eye. */
-const MIN_PINNED_CASES = 68;
+const MIN_PINNED_CASES = 74;
 const CASES_HEADING = "## The cases this guard has been watched against";
 
 const problems = [];
@@ -606,13 +623,18 @@ function resolveFunction(from, name, react, loose = false, seen = new Set()) {
  * calls `getCartView` itself, while `TableCartProvider.refresh` reaches it through `readView`. So
  * the walk follows local function bindings transitively, guarded by a visited set.
  */
+/** A call to ANY of the accepted readers, each resolved through its own import (`READERS`). */
+function isReaderCall(n, ctx, loose = false) {
+  return ctx.readers.some(({ binding, name }) => isCallToBinding(n, binding, name, loose));
+}
+
 function reachesReader(fn, ctx, loose = false, seen = new Set()) {
   if (!fn || !fn.body || seen.has(fn.pos)) return false;
   seen.add(fn.pos);
   let found = false;
   walk(fn.body, (n) => {
     if (found || !ts.isCallExpression(n)) return;
-    if (isCallToBinding(n, ctx.reader, READER, loose)) {
+    if (isReaderCall(n, ctx, loose)) {
       found = true;
       return;
     }
@@ -634,7 +656,7 @@ function directReaderCalls(fn, ctx) {
     // ⚠️ THE IMPORTED-BINDING CHECK COMES FIRST (Codex round 3 on #287). Filtering to identifier
     // callees before this discarded `cart.getCartView(id)` — a namespace import — so a handler could
     // schedule AND read immediately through the qualified form.
-    if (isCallToBinding(n, ctx.reader, READER, true)) {
+    if (isReaderCall(n, ctx, true)) {
       hits.push(n.expression.getText());
       return;
     }
@@ -748,7 +770,7 @@ for (const rel of windowFiles) {
 
   const ctx = {
     coalescer: importedFrom(src, rel, COALESCER_MODULE, COALESCER),
-    reader: importedFrom(src, rel, CART_MODULE, READER),
+    readers: READERS.map(([mod, name]) => ({ binding: importedFrom(src, rel, mod, name), name })),
     react: importedAs(src, (t) => t === "react", "useCallback"),
   };
   const coalescer = ctx.coalescer;
@@ -801,7 +823,7 @@ for (const rel of windowFiles) {
       if (direct.length === 0) return true;
       fail(
         `${where}: onChange schedules through ${COALESCER} but ALSO calls ` +
-          `\`${[...new Set(direct)].join("`, `")}\`, which reaches \`${READER}\` directly — so every ` +
+          `\`${[...new Set(direct)].join("`, `")}\`, which reaches ${READER_NAMES} directly — so every ` +
           `row event still starts its own read and the coalesced one is added beside it (M193).`,
       );
       return "reported";

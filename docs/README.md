@@ -59,6 +59,7 @@ gets a line here in the PR that adds it.
 - [SHARED_DEVICE.md](SHARED_DEVICE.md) — switch, remember and lend an account on a shared device.
 - [CART_INTENT_LINK.md](CART_INTENT_LINK.md) — the cart→intent link (built as M151; kept as the design record later rows cite).
 - [STAFF_POLISH_AUDIT.md](STAFF_POLISH_AUDIT.md) — the seven-surface staff console audit (2026-09-20).
+- [marketing/SOCIAL_POSTS_2026-10-18.md](marketing/SOCIAL_POSTS_2026-10-18.md) — DRAFT customer posts on how to use the app, for the owner's review (none published; markers name what must be true first).
 
 ## History — finished plans, audits and logs (kept for the record and the code that cites them)
 

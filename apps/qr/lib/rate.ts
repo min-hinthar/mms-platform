@@ -5,6 +5,8 @@ import {
   MUTATE_RATE,
   PEEK_RATE,
   RECEIPT_RATE,
+  RECOVER_CART_RATE,
+  RECOVER_RATE,
   STAFF_PROMO_RATE,
   STEPUP_RATE,
 } from "./limits";
@@ -16,8 +18,8 @@ import {
  * the pattern proven by mms_promo_attempt) keyed by the verified seat (auth.uid()) so the unit is one
  * device — see lib/limits.ts for why per-seat over per-session.
  *
- * FAIL-OPEN: a limiter glitch (RPC error) must never strand a legit diner mid-order, so a failed CHECK
- * returns "allowed". The cost of a rare missed limit is far lower than blocking a paying table; the DB
+ * FAIL-OPEN by default: a limiter glitch (RPC error) must never strand a legit diner mid-order, so a
+ * failed CHECK returns "allowed" (the M160(b) recovery limiters opt into fail-closed — see them). The cost of a rare missed limit is far lower than blocking a paying table; the DB
  * caps (party trigger, status guards, server-authoritative money) remain the hard invariants regardless.
  */
 async function withinRate(
@@ -25,6 +27,7 @@ async function withinRate(
   key: string,
   max: number,
   windowSeconds: number,
+  onError: "open" | "closed" = "open",
 ): Promise<boolean> {
   const { data, error } = await serviceClient().rpc("mms_rate_limit", {
     p_bucket: bucket,
@@ -33,6 +36,10 @@ async function withinRate(
     p_window_seconds: windowSeconds,
   });
   if (error) {
+    if (onError === "closed") {
+      console.error("[rate] check failed (fail-closed)", bucket, error.message);
+      return false; // fail-closed: this limiter guards an external call, not a diner's order
+    }
     console.error("[rate] check failed (fail-open)", bucket, error.message);
     return true; // fail-open: never block a legit diner on a limiter error
   }
@@ -79,6 +86,29 @@ export function withinStaffPromoRate(callerStaffId: string): Promise<boolean> {
     callerStaffId,
     STAFF_PROMO_RATE.max,
     STAFF_PROMO_RATE.windowSeconds,
+  );
+}
+
+/**
+ * M160(b) — gate a guest's stranded-payment ask per verified uid (see RECOVER_RATE). FAIL-CLOSED,
+ * unlike the rest of this module: the limiter stands in front of a Stripe `retrieve` and a
+ * fulfillment, and a refused ask costs a guest nothing they can see (the /track copy is already the
+ * honest one). The backstop during a limiter outage is Stripe's own webhook redelivery (retried for
+ * up to three days), and the cron once it is scheduled with `CRON_SECRET` — which no limiter gates.
+ */
+export function withinRecoverRate(uid: string): Promise<boolean> {
+  return withinRate("recover", uid, RECOVER_RATE.max, RECOVER_RATE.windowSeconds, "closed");
+}
+
+/** M160(b) — gate every stranded-payment ask per CART, guest and staff alike (RECOVER_CART_RATE).
+ *  FAIL-CLOSED, for the reason above: staff read "try again" and the cron still sweeps. */
+export function withinRecoverCartRate(cartId: string): Promise<boolean> {
+  return withinRate(
+    "recovercart",
+    cartId,
+    RECOVER_CART_RATE.max,
+    RECOVER_CART_RATE.windowSeconds,
+    "closed",
   );
 }
 

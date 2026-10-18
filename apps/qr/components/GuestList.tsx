@@ -9,6 +9,8 @@ import { freezeBanner } from "@/lib/cart-freeze";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { guestListAtCap, guestListSeats, joinFailureArm } from "@/lib/guest-list";
 import { Avatar, Icon } from "@mms/ui";
+import { surfaceOpen } from "@/lib/surfaces";
+import { t } from "@/lib/i18n";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -31,6 +33,7 @@ export function GuestList() {
     revalidate,
     settling,
     cartId,
+    ended,
   } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   // W9a — `revalidate()` clears `error`, and the failure block below is gated on `error`. Without a
@@ -46,6 +49,11 @@ export function GuestList() {
   const [retryTick, setRetryTick] = useState(0);
   const retrying = retryTick > 0 && loading;
   if (!isGroup) return null;
+  // Session truth — the table ENDED: the party row, the invite and every freeze banner belong to a
+  // table that is gone. `TableEndedCard` (mounted beside this list) says what happened and owns the
+  // way forward, including its own mint's busy and failure states — so neither the join-failure arm
+  // below nor a dead cart's last freeze may speak over it.
+  if (ended) return null;
 
   // Pay-window lock (P3.2-lock): a member is checking out → the order's read-only for the moment
   // (AddButtons disable in parallel). A PLAIN visual banner (v7.2 .lockbar) — NOT a second live
@@ -147,6 +155,27 @@ export function GuestList() {
   // Plain visual banner, not a live region: the provider announced the transition through the view's
   // one region. Unlike `locked` (a moment that passes on its own) settling needs somewhere to GO —
   // the diner's share is waiting on the board — so this one carries a link.
+  //
+  // Session truth (finding 2) — WHOSE freeze: with the self-serve split parked only the REGISTER
+  // takes it (lib/counter-pay-state), so the banner speaks the register's own held reason, in both
+  // tongues (`registerSettling`, the Bill's dock and pass say the same), and offers no "Pay your
+  // share" — a door no phone can open. The split's banner and link return with the split.
+  if (banner === "settle" && cartId && !surfaceOpen("selfServeSplit"))
+    return (
+      <p style={settleBar}>
+        <Icon
+          name="receipt"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
+        <span>
+          {t("en", "registerSettling")}
+          <span lang="my" style={settleMy}>
+            {t("my", "registerSettling")}
+          </span>
+        </span>
+      </p>
+    );
   if (banner === "settle" && cartId)
     return (
       <p style={settleBar}>
@@ -279,6 +308,14 @@ const settleBar: CSSProperties = {
   color: "var(--t2)",
   fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
+};
+// The Burmese half of the register's sentence: its own block line (a margin, never a whitespace
+// node — DESIGN-LANGUAGE §6), at the regular weight the bilingual lines use.
+const settleMy: CSSProperties = {
+  display: "block",
+  marginTop: 4,
+  fontFamily: "var(--font-my)",
+  fontWeight: "var(--fw-semibold)",
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,

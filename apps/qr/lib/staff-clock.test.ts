@@ -15,8 +15,16 @@ afterAll(() => {
   if (PREV_TZ === undefined) delete process.env.TZ;
   else process.env.TZ = PREV_TZ;
 });
-const { sameServiceDay, serviceDayKey, staffClock, staffClockSeconds, staffDate, staffDateTime } =
-  await import("./staff-clock");
+const {
+  sameServiceDay,
+  serviceDayKey,
+  serviceDayOffset,
+  staffClock,
+  staffClockSeconds,
+  staffDate,
+  staffDateTime,
+  staffWeekday,
+} = await import("./staff-clock");
 
 /** ICU may set a narrow no-break space before the meridiem; the digits are what is asserted. */
 const plain = (s: string) => s.replace(/\u202f/g, " ");
@@ -49,5 +57,25 @@ describe("staff-clock — every staff time is the restaurant's", () => {
     // 02:42:05 UTC on the 16th is 7:42:05 PM PDT on the 15th; the stamp is an identifier, no AM/PM.
     expect(staffClockSeconds("2026-09-16T02:42:05.000Z")).toBe("7:42:05");
     expect(staffClockSeconds("2026-09-16T02:42:05.000Z")).toMatch(/^\d{1,2}:\d{2}:\d{2}$/);
+  });
+});
+
+describe("serviceDayOffset · staffWeekday — the lifecycle audit's day on a held card", () => {
+  // 11 PM PDT on the 15th, and 1 AM PDT on the 16th: two HOURS apart, two SERVICE days.
+  const LATE = "2026-09-16T06:00:00.000Z";
+  const AFTER_MIDNIGHT = "2026-09-16T08:00:00.000Z";
+  it("counts service days in the restaurant's zone, never 24-hour spans", () => {
+    // lck/staff-clock/day-offset-by-24h — a 24 h floor called 1 AM tomorrow "today".
+    expect(serviceDayOffset(AFTER_MIDNIGHT, LATE)).toBe(1);
+    expect(serviceDayOffset(LATE, LATE)).toBe(0);
+    // UTC's date changes at 5 PM PDT: still the same service day
+    expect(serviceDayOffset("2026-09-16T01:00:00.000Z", "2026-09-15T23:00:00.000Z")).toBe(0);
+    expect(serviceDayOffset("2026-09-18T02:00:00.000Z", LATE)).toBe(2);
+    expect(serviceDayOffset(LATE, AFTER_MIDNIGHT)).toBe(-1);
+    expect(serviceDayOffset("nope", LATE)).toBeNaN();
+  });
+  it("names the restaurant's weekday", () => {
+    // 2026-09-16T06:00Z is Tuesday the 15th in Los Angeles (Wednesday in UTC).
+    expect(staffWeekday(LATE)).toBe("Tue");
   });
 });

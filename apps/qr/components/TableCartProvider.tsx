@@ -58,6 +58,25 @@ import { setDisplayName } from "@/lib/members";
 import type { SendNudge } from "@/lib/send-nudge-state";
 import type { SessionRefusal } from "@/lib/session-refusal";
 import { useTableSession } from "@/lib/useTableSession";
+import { counterPayOutcome } from "@/lib/counter-pay";
+import {
+  afterFailedRead,
+  CLOSED_ORDER_CLAUSE,
+  endComplete,
+  endedNewsKey,
+  endedWriteNotice,
+  endPollDelayMs,
+  focusOrphaned,
+  heldEndUpgrade,
+  mintNotice,
+  settleEdgeNotice,
+  tableEnded,
+  type CartOutcome,
+  type TableEnd,
+} from "@/lib/session-truth";
+import { surfaceOpen } from "@/lib/surfaces";
+import { t } from "@/lib/i18n";
+import { useEndPoll } from "@/lib/end-poll";
 import {
   useCartRealtime,
   useGroupCart,
@@ -222,6 +241,21 @@ type CartCtx = {
    *  first view: the menu's kitchen strip reads every stage against it (`lib/kitchen-track.ts` via
    *  `lib/live-pass`), never this phone's clock. */
   dbNow: string | null;
+  /** Session truth — the table's order ENDED (paid, cleared by staff, merged away, timed out), as a
+   *  member-gated read established after a failed read (`counterPayOutcome`), or null. Dine-in only:
+   *  while it stands the menu shows ONE card that names the cause (`TableEndedCard`), every order
+   *  control is inert, and nothing re-mints until `startNewOrder`. A solo order re-mints instead. */
+  ended: TableEnd | null;
+  /** The cart `ended` ENDED — set exactly while `ended` is. Not `cartId`: the live id is null through
+   *  "Start a new order"'s mint and after a mint that fails, while the card (and a paid end's
+   *  "Track your order", `endTrackHref`) stays up (the blind pass on #361). */
+  endedCartId: string | null;
+  /** The diner's "Start a new order" is minting (the card holds its button busy). */
+  restarting: boolean;
+  /** Start a new order after the table ended: one re-mint by the accepted code under J15
+   *  (`dineinMintEntry`) — the same table when it is still seated (a paid table), a bare new order
+   *  when it is not. Never by the sticker in the page's props (M172). */
+  startNewOrder: () => void;
   /** Lifecycle audit (out-of-stock 0) — dishes an add on THIS phone was refused as sold out, keyed
    *  by menu item id, valued with the SERVER's clock at the refusal (ms). The menu weighs each mark
    *  against its catalog render and the cart view (`lib/dish-sold-out.ts`), so the card flips to
@@ -307,6 +341,20 @@ export function TableCartProvider({
   // is the one that survives a thin read.
   const [mySeat, setMySeat] = useState<string | null>(null);
   const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
+  // Session truth — the end a failed read was explained as, KEYED BY THE CART it ended (a new cart
+  // from "Start a new order" is not ended; `endedNow` below). The ref is the same fact for the write
+  // paths and the read guard, written with it (the `freezeRef` pattern).
+  const [ended, setEnded] = useState<{ cartId: string; end: TableEnd } | null>(null);
+  const endedRef = useRef<{ cartId: string; end: TableEnd } | null>(null);
+  // A failed PASSIVE read (focus, an echo, the freeze re-check, the first load) — a fact, explained
+  // by the effect below (`askWhy`), which `readView` cannot call directly: it is declared above the
+  // one live region the explanation speaks through.
+  const [failedRead, setFailedRead] = useState<{ cartId: string; n: number } | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  // J18 (session truth, finding 6) — the solo recovery banner's retry: GuestList's W9a shape, DERIVED
+  // (no effect): `loading` is true for exactly the re-mint's round trip, and the tick keeps the first
+  // mount's ordinary loading from drawing a banner nobody asked for.
+  const [soloRetryTick, setSoloRetryTick] = useState(0);
   // 3c-ii (D30) — the table number the latest CONFIRMED view carried, or null until one has. A
   // table bound at Send (`bindTable` → `touchCart`) reaches every phone through its `qr_carts`
   // watch, and the view names it; the context reads this over the mint's own number so the
@@ -325,6 +373,15 @@ export function TableCartProvider({
   useLayoutEffect(() => {
     cartIdRef.current = cartId;
   }, [cartId]);
+  // Session truth (the blind pass on #361) — and NULLED on unmount: `holdEnd` and `settleFate` act
+  // only on an answer about `cartIdRef.current`, so a poll or diagnosis answer that lands after the
+  // provider is gone (a navigation away mid-ask) can never speak or set state on an unmounted tree.
+  useEffect(
+    () => () => {
+      cartIdRef.current = null;
+    },
+    [],
+  );
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -415,6 +472,10 @@ export function TableCartProvider({
   // in the fetch callback, before React re-renders, so the first `settling` state and the ref are
   // written from the same view and the edge effect below sees no transition.
   const prevSettling = useRef<boolean | null>(null);
+  // The lock announcement's baseline (see the lock edge effect below). Declared HERE, beside the
+  // settle baseline, because a table that ENDED retires both silently (`holdEnd`): its last freeze
+  // is moot, and "The order's unlocked — you can edit again" over a closed table would be a lie.
+  const prevLocked = useRef(false);
 
   // T14 — the freeze the WRITE paths read. See the note in `applyView`, which is the only writer.
   /**
@@ -490,6 +551,12 @@ export function TableCartProvider({
       // on the new cart's state with the old table, rows and totals. Every caller names the cart it
       // asked for; a view for a cart that is no longer this provider's is refused outright.
       if (forCart !== undefined && forCart !== cartIdRef.current) return false;
+      // Session truth (Codex round 2 on #361) — a HELD cart takes no view at all. `holdEnd` retired
+      // its freeze silently, but a read (or a mutation's own view) already in flight when the end was
+      // held still resolves afterwards, and applying it put `locked`/`settling` back — the settle
+      // edge then announced the register over a card that says the bill is paid. Refused HERE, not by
+      // advancing the ticket in `holdEnd`: a mutation's view carries no ticket and would outrank it.
+      if (endedRef.current !== null && endedRef.current.cartId === cartIdRef.current) return false;
       // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
       // read still in flight. A ticket that is no longer current = a read another view has overtaken.
       if (!acceptView(viewSeqRef.current, seq)) return false;
@@ -559,6 +626,9 @@ export function TableCartProvider({
     // The ticket makes the ACCEPTANCE decision race-free; it cannot make a later read of shared
     // mutable state race-free. Carry the value out instead of going back for it.
     if (!cartId) return { outcome: "failed", items: null };
+    // Session truth — a cart already explained as ENDED answers `cart_closed` forever; reading it
+    // again teaches nothing and costs a round trip per echo, focus and re-check.
+    if (endedRef.current?.cartId === cartId) return { outcome: "failed", items: null };
     // Minted BEFORE the await: the ticket records the order reads were ISSUED in, which is the order
     // their answers describe. Comparing on resolve is what stops the slower of two from winning.
     const seq = issueRead(viewSeqRef.current);
@@ -579,8 +649,12 @@ export function TableCartProvider({
         ? { outcome: "applied", items: v.items }
         : { outcome: "overtaken", items: null };
     } catch {
-      // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
-      // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
+      // Cart no longer open (paid/closed) → assertCartMember 403. Swallowed HERE so a stale read
+      // after a successful add can't surface as a false-negative "Couldn't add" — but no longer
+      // swallowed for good (session truth): a failed read is a FACT the effect below explains
+      // (`askWhy` → `counterPayOutcome`). A clear, a merge and the sweep close the session, so no
+      // Realtime event ever reaches this phone again; this failure is the only signal there is.
+      setFailedRead((f) => ({ cartId, n: (f?.n ?? 0) + 1 }));
       return { outcome: "failed", items: null };
     }
   }, [cartId, applyView]);
@@ -642,6 +716,8 @@ export function TableCartProvider({
         // (it returns on `prev === null`). `settling` is still its initial `false` here, which is the
         // honest baseline for a view we never got.
         if (active && prevSettling.current === null) prevSettling.current = false;
+        // Session truth — and explain it, as every failed read is (the effect below).
+        if (active) setFailedRead((f) => ({ cartId, n: (f?.n ?? 0) + 1 }));
       });
     return () => {
       active = false;
@@ -800,22 +876,6 @@ export function TableCartProvider({
   useLayoutEffect(() => {
     viewDiffRef.current = announceOrderChanges;
   }, [announceOrderChanges]);
-  // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
-  // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
-  // Say so once, through the SAME single live region every notice uses (microtask-deferred, the
-  // established no-sync-setState-in-effect pattern). Without this the diner taps "Table 5 · 3 items"
-  // and silently lands in an empty cart — the opposite of the card's promise.
-  const resumeNoticed = useRef(false);
-  useEffect(() => {
-    if (!resume || !session?.created || resumeNoticed.current) return;
-    resumeNoticed.current = true;
-    void Promise.resolve().then(() =>
-      flash(
-        "Your earlier visit at this table had ended — we’ve started a fresh one for you.",
-        4200,
-      ),
-    );
-  }, [resume, session, flash]);
   // Cancel a pending clear-timer on unmount so it can't fire setState on an unmounted component
   // (same cancel-guard discipline as the load effects above).
   useEffect(
@@ -826,10 +886,9 @@ export function TableCartProvider({
   );
 
   // Session-recovery messaging (bugfix: a silently-expired table session). When a cart op fails we
-  // re-mint (revalidate) instead of stranding the diner behind a hopeless "try again". This effect
-  // reads the OUTCOME of that re-mint by diffing the cartId: a NEW cart ⇒ the session had truly
-  // expired and was swept (honest "timed out, fresh order"); the SAME cart ⇒ renewed/transient
-  // (nudge a retry). Deferred (microtask) so it's not a synchronous setState in the effect body.
+  // re-mint (revalidate) instead of stranding the diner behind a hopeless "try again". The effect
+  // below reads the OUTCOME of that re-mint by diffing the cartId. Deferred (microtask) so it's not
+  // a synchronous setState in the effect body.
   const recoveringRef = useRef(false);
   /**
    * Was the write that TRIGGERED this re-mint one we could not confirm? (Codex round 2 on #251, P1.)
@@ -842,27 +901,180 @@ export function TableCartProvider({
    * effects away, in the one live region.
    */
   const recoveryWriteUnconfirmedRef = useRef(false);
+  /** Session truth — the terminal answer that drove a SOLO re-mint, so its sentence names the cause
+   *  (`mintNotice`); null for a re-mint whose cause we could not see. */
+  const recoveryCauseRef = useRef<TableEnd | null>(null);
+  /** Session truth — the mint in flight is the diner's own "Start a new order". */
+  const restartingRef = useRef(false);
   const prevCartIdRef = useRef<string | null>(null);
+
+  /**
+   * Session truth — WHY could this cart not be read? Asked of the one member-gated server answer
+   * (`counterPayOutcome`, classified by `cartFate`). A throw is `unknown` (an outage establishes
+   * nothing — the M116 rule).
+   *
+   * DEDUPED for PASSIVE triggers only — an echo burst, a focus and a poll tick landing together ask
+   * once. A WRITE's diagnosis passes `fresh` and always issues its own ask (the blind pass on #361):
+   * a poll asked a beat BEFORE a Clear committed answers `open`, and a write that reused that stale
+   * answer skipped the hold and re-minted under the diner — the exact silent re-mint this exists to
+   * end. The fresh ask also becomes the one later passive triggers share.
+   */
+  const whyRef = useRef<{ cartId: string; p: Promise<CartOutcome> } | null>(null);
+  const askWhy = useCallback((id: string, fresh = false): Promise<CartOutcome> => {
+    const out = whyRef.current;
+    if (!fresh && out && out.cartId === id) return out.p;
+    const p = counterPayOutcome({ cartId: id })
+      .catch((): CartOutcome => ({ kind: "unknown" }))
+      .finally(() => {
+        if (whyRef.current?.p === p) whyRef.current = null;
+      });
+    whyRef.current = { cartId: id, p };
+    return p;
+  }, []);
+
+  /**
+   * Session truth — HOLD a dine-in table that ended: the card, the inert controls, and ONE sentence
+   * through the one live region (the card's own title). Nothing re-mints: the diner chooses when to
+   * start again, and the sticker in this page's props can no longer re-host a table staff just
+   * freed (M172).
+   *
+   * The dead cart's last freeze is retired SILENTLY: both edge baselines are moved first, so the
+   * lock and settle effects see no transition — "The order's unlocked" or "The counter stopped
+   * taking payment" over a table that has just PAID would be false. (`settling` used to stick true
+   * after a register settle: the T20 re-check ends on a failed read, so every Add stayed disabled
+   * under "splitting the bill" until a reload.)
+   */
+  const holdEnd = useCallback(
+    (id: string, end: TableEnd) => {
+      if (id !== cartIdRef.current) return; // an answer about a cart this provider has left
+      if (endedRef.current?.cartId === id) {
+        // Already held — said once. But an INCOMPLETE paid end (a read behind its tender or its
+        // order failed) takes what a later answer resolved, SILENTLY: the card gains its receipt
+        // link or its tender when the read does (Codex round 2 on #361, `heldEndUpgrade`).
+        const next = heldEndUpgrade(endedRef.current.end, end);
+        if (next !== null) {
+          endedRef.current = { cartId: id, end: next };
+          setEnded({ cartId: id, end: next });
+        }
+        return;
+      }
+      endedRef.current = { cartId: id, end };
+      prevLocked.current = false;
+      prevSettling.current = false;
+      freezeRef.current = { locked: false, lockedBy: null, mySeat: freezeRef.current.mySeat };
+      settlingRef.current = false;
+      explainedFreezeRef.current = null;
+      setLocked(false);
+      setLockedBy(null);
+      setSettling(false);
+      setEnded({ cartId: id, end });
+      const key = endedNewsKey(end);
+      flash(t("en", key), 5000, t("my", key), { kind: "news" });
+    },
+    [flash],
+  );
+
+  /**
+   * Session truth — act on an explained failure (`afterFailedRead`): hold a dine-in end, re-mint a
+   * solo one (its cause said by `mintNotice`) or a write's unexplained failure (the shipped
+   * recovery), and leave a passive read's unexplained failure on the last good view.
+   */
+  const settleFate = useCallback(
+    (id: string, o: CartOutcome, write: boolean) => {
+      if (id !== cartIdRef.current) return;
+      const next = afterFailedRead(o, { isGroup, write });
+      if (next === "hold" && tableEnded(o)) holdEnd(id, o);
+      else if (next === "remint") {
+        recoveringRef.current = true;
+        recoveryCauseRef.current = tableEnded(o) ? o : null;
+        revalidate();
+      }
+    },
+    [isGroup, holdEnd, revalidate],
+  );
+
+  // A failed PASSIVE read, explained (focus, an echo, the freeze re-check, the first load). A cart
+  // already held is not asked again.
   useEffect(() => {
-    if (!cartId) return;
+    if (!failedRead) return;
+    const id = failedRead.cartId;
+    if (endedRef.current?.cartId === id) return;
+    void askWhy(id).then((o) => settleFate(id, o, false));
+  }, [failedRead, askWhy, settleFate]);
+
+  // The end as the CURRENT cart sees it: a new cart (the diner's new order) is not ended, and the
+  // card stays through the new order's own mint (`cartId` is null in between) so its button can
+  // say it is working, and say so again if the mint fails.
+  const endedNow = ended && (cartId === null || cartId === ended.cartId) ? ended.end : null;
+  // …and the cart it ended, which outlives the live `cartId` through the restart's mint.
+  const endedCartId = endedNow !== null && ended ? ended.cartId : null;
+
+  // "Start a new order" — ONE re-mint by the accepted code under J15 (`dineinMintEntry`): the same
+  // table while it is still seated (a paid table), a bare new order when it is not. The busy state
+  // ends in the notice effect below (the new cart) or the failure effect after it.
+  const startNewOrder = useCallback(() => {
+    if (restartingRef.current) return;
+    restartingRef.current = true;
+    recoveringRef.current = false;
+    recoveryWriteUnconfirmedRef.current = false;
+    recoveryCauseRef.current = null;
+    setRestarting(true);
+    revalidate();
+  }, [revalidate]);
+
+  // The ONE sentence a mint earns (`mintNotice`): the diner's new order, a recovery re-mint (never
+  // "idle" — the cause we know, or that we do not know it), the home card's resume, or a cold mount
+  // whose stored table had ended (finding 4: reload, a new tab or home → Dine-in used to land
+  // silently in a new, unnumbered "Just you"). Runs on every null → cart transition.
+  useEffect(() => {
+    if (!cartId || !session) return;
     const prev = prevCartIdRef.current;
     prevCartIdRef.current = cartId;
-    if (!recoveringRef.current) return;
+    const recovering = recoveringRef.current;
     recoveringRef.current = false;
+    const restarted = restartingRef.current;
+    restartingRef.current = false;
     const unconfirmed = recoveryWriteUnconfirmedRef.current;
-    recoveryWriteUnconfirmedRef.current = false;
-    // A NEW cart means the old one was swept: nothing the diner did to it survived, so there is
-    // nothing to double-add and the honest sentence is the same either way.
-    const msg =
-      prev && prev !== cartId
-        ? "Your table sat idle too long — we started a fresh order."
-        : unconfirmed
-          ? // SAME cart, and the write that sent us here may have landed on it. Point at the cart,
-            // never at the retry: re-sending is the one action that can charge the dish twice.
-            "Reconnected to your table — check your order below."
-          : "Reconnected to your table — please try that again.";
-    void Promise.resolve().then(() => flash(msg, 3500));
-  }, [cartId, flash]);
+    if (recovering || restarted) recoveryWriteUnconfirmedRef.current = false;
+    const cause = recoveryCauseRef.current;
+    recoveryCauseRef.current = null;
+    const notice = mintNotice({
+      firstMint: prev === null,
+      recovering,
+      restarted,
+      newCart: prev !== null && prev !== cartId,
+      unconfirmed,
+      cause,
+      created: session.created,
+      resume: !!resume,
+      replacedStored: session.replacedStored,
+    });
+    void Promise.resolve().then(() => {
+      // J18 — a mint that SUCCEEDED ends the diner's retry: the solo banner's "Reconnecting…" belongs
+      // to the retry the diner pressed, never to a later automatic re-mint (the blind pass on #361,
+      // CRITICAL 3 — the tick was never reset, so every later re-mint raised a `role="alert"`
+      // "Reconnecting to your order…" while the polite region said a new order had started).
+      setSoloRetryTick(0);
+      if (restarted) {
+        setRestarting(false);
+        // The card — and the button the diner pressed — has just left the page: give focus to the
+        // menu's heading rather than <body> (WCAG 2.4.3), only if nothing else has taken it.
+        if (focusOrphaned(document.activeElement, document.body))
+          document.querySelector<HTMLElement>("main h1")?.focus({ preventScroll: true });
+      }
+      if (notice) flash(notice.text, notice.ms);
+    });
+  }, [cartId, session, resume, flash]);
+
+  // A new order that could not be started: the card's button comes back, and the region says so.
+  useEffect(() => {
+    if (!error || !restartingRef.current) return;
+    restartingRef.current = false;
+    void Promise.resolve().then(() => {
+      setRestarting(false);
+      flash("Couldn’t start a new order — try again.", 3500, undefined, { kind: "correction" });
+    });
+  }, [error, flash]);
 
   // Announce a NEW guest joining (diff by seat so we don't announce the first sync — self + already-
   // present members — or a self re-appear after a blip). Deferred into a callback (localStorage/presence
@@ -894,6 +1106,33 @@ export function TableCartProvider({
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
+
+  /**
+   * Session truth — the close no event carries. A staff Clear, a Merge and the sweep all close the
+   * session in the same transaction that ends the cart, so `is_member` is already false when
+   * Realtime authorizes the change: this phone hears nothing, and a diner who is not tapping would
+   * sit on a frozen menu reading "being made" over dishes the clear voided. So while a dine-in cart
+   * is live, ask once a minute, and only while the page is visible (the visibility re-read above
+   * covers the return). The ask is `counterPayOutcome` itself, not a full view read: an open cart
+   * answers in three indexed reads and changes nothing on screen. The poll stops the moment the
+   * table is held with a COMPLETE answer (`endPollDelayMs`, `endComplete`). It renews nothing — an
+   * abandoned tab never keeps a table alive.
+   * The interval and its visibility rule are `useEndPoll` (lib/end-poll), shared with /cart.
+   */
+  // The cadence (`endPollDelayMs`) and the visible-only tick (`useEndPoll`) are shared with the Bill.
+  // An INCOMPLETE paid end keeps the poll (Codex round 2 on #361): its next tick re-asks, and
+  // `holdEnd` folds in what that answer resolved.
+  const endPollMs = endPollDelayMs({
+    isGroup,
+    hasCart: cartId !== null,
+    ended: endedNow !== null && endComplete(endedNow),
+  });
+  const endPollTick = useCallback(() => {
+    const id = cartIdRef.current;
+    if (!id) return;
+    void askWhy(id).then((o) => settleFate(id, o, false));
+  }, [askWhy, settleFate]);
+  useEndPoll(endPollMs, endPollTick);
 
   /**
    * T20 — the one thing that lets a stale freeze heal on /menu.
@@ -1041,6 +1280,8 @@ export function TableCartProvider({
       viewIsCurrent: boolean;
       /** null ⇔ the re-read itself failed (`unreachable`), which is never publishable — T30. */
       refusal: PublishableRefusal | null;
+      /** Session truth — the dine-in table this write found ENDED (now held), or null. */
+      held: TableEnd | null;
     }> => {
       let fresh: CartItem[] | null = null;
       // ⚠️ Did the re-read WIN the screen? (Codex round 3 on #251, P1.) `applyView` answers, and
@@ -1087,9 +1328,18 @@ export function TableCartProvider({
       // thing the diner heard. The caller checks for a landing FIRST and speaks only if there was
       // none. The re-mint is not deferred: it is a recovery, not a statement, and only the arm that
       // could not read the cart at all takes it.
+      //
+      // ⚠️ SESSION TRUTH — THE ARM THAT COULD NOT READ ASKS WHY BEFORE IT RE-MINTS. It re-minted on
+      // the spot, so a table staff had CLEARED (or merged away, or that had PAID) was re-minted under
+      // the diner and announced as "Your table sat idle too long": false for all three, the tapped
+      // dish lost, and a sticker-entered phone re-hosting the table staff had just freed (M172). The
+      // member-gated answer decides (`settleFate`): a dine-in end is HELD (the card), a solo one
+      // re-mints with its cause said, and only an unknowable answer takes the shipped re-mint.
+      let held: TableEnd | null = null;
       if (refusalNeedsRemint(refusal)) {
-        recoveringRef.current = true;
-        revalidate();
+        const o = await askWhy(id, true);
+        if (isGroup && tableEnded(o)) held = o;
+        settleFate(id, o, true);
       }
       // ⚠️ THE CLASSIFICATION CROSSES THE SEAM, NOT A SENTENCE (T32). The caller may be the provider
       // publishing it alone, or `YourUsual` composing it into its own sentence — and those need
@@ -1102,9 +1352,10 @@ export function TableCartProvider({
         fresh,
         viewIsCurrent,
         refusal: refusal.cause === "unreachable" ? null : refusal,
+        held,
       };
     },
-    [applyView, revalidate],
+    [applyView, askWhy, settleFate, isGroup],
   );
 
   /**
@@ -1179,7 +1430,16 @@ export function TableCartProvider({
    * slot never defers — and names the dish when the caller handed `add` one.
    */
   const publishUnconfirmed = useCallback(
-    (name?: string) => {
+    (name?: string, held?: TableEnd | null) => {
+      // Session truth — the table ENDED under this write (`explainCaught` held it): the retraction
+      // names the cause, and nothing re-mints, so the recovery latch below is not set.
+      if (held) {
+        flash(endedWriteNotice(held, name), 3000, undefined, {
+          kind: "correction",
+          family: name ? { text: endedWriteNotice(held) } : undefined,
+        });
+        return;
+      }
       // Latch BEFORE the flash: `explainCaught` has already fired `revalidate()` on the arm that could
       // not read the cart, so the recovery effect may run at any point after this and must find the
       // flag set. Cleared by that effect, so a later ordinary re-mint still says "try that again".
@@ -1239,6 +1499,15 @@ export function TableCartProvider({
       // and nothing was read, so no cause is carried (T42 — never a previous write's: the clause
       // lives on each result, so there is no shared value left for this exit to pick up, T31).
       if (!cartId) return { state: "refused", view: null, clause: null };
+      // Session truth — a table already held as ENDED takes no write: nothing is sent, so this is a
+      // true refusal (`mayRetry` holds once a new order exists), said with its cause. The pill and
+      // the sheet are inert already (`inertReason`); this is for `YourUsual`, which never gates.
+      // Unlike a freeze, an end never heals by waiting, so refusing at the door hides no correction.
+      if (endedRef.current?.cartId === cartId) {
+        const msg = `${opts?.name ?? "That"} didn’t go through — ${CLOSED_ORDER_CLAUSE}.`;
+        flash(msg, 3000, undefined, { kind: "correction" });
+        return { state: "refused", view: null, clause: CLOSED_ORDER_CLAUSE };
+      }
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
@@ -1370,7 +1639,7 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
-        const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, refusal, held } = await explainCaught(cartId);
         // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
         // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
         // on that trailing read with the add already in the cart. Reporting failure there is a lie
@@ -1436,7 +1705,7 @@ export function TableCartProvider({
           return { ...result, clause: refusal ? publishRefusal(refusal, opts?.name) : null };
         // The optimistic claim is still standing — ours, or the one the caller spoke at the tap;
         // retract it rather than let an outcome that may not claim a landing stand as one.
-        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);
+        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name, held);
         return result;
       } finally {
         setPendingDelta((n) => n - qty);
@@ -1474,6 +1743,13 @@ export function TableCartProvider({
       // this value into its next queued op. A signature that cannot express an outcome guarantees
       // the outcome is misreported; widening it is not a refactor, it is the defect.
       if (!cartId) return { state: "refused", view: null };
+      // Session truth — nothing reaches a cart held as ENDED (see `add`).
+      if (endedRef.current?.cartId === cartId) {
+        flash(`That didn’t go through — ${CLOSED_ORDER_CLAUSE}.`, 3000, undefined, {
+          kind: "correction",
+        });
+        return { state: "refused", view: null };
+      }
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
       if (announce) flash(announce, 2000, undefined, { kind: "claim" });
@@ -1538,7 +1814,7 @@ export function TableCartProvider({
         // the snap-back, and attributes the refusal to what the re-read established.
         // The re-read's freeze classification is not read here (T41, below) — `explainCaught` still
         // runs for the re-read, the snap-back it applies, and the re-mint on the unreadable arm.
-        const { fresh, viewIsCurrent } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, held } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read is the evidence: the line at `qty`, or
@@ -1578,8 +1854,9 @@ export function TableCartProvider({
         // F30 (lifecycle audit) — the retraction NAMES the dish, as `add`'s does: with rows in flight a
         // bare "We couldn’t confirm that" does not say which "−" it is about. Codex A (#362): from
         // the re-read when it has the line, else from the rows held when the tap was made (`line`,
-        // captured before the write) — a FAILED re-read is exactly the case F30 exists for.
-        if (result.state === "unconfirmed") publishUnconfirmed(now?.name ?? line?.name);
+        // captured before the write) — a FAILED re-read is exactly the case F30 exists for. Session
+        // truth: a table this write found ENDED (`held`) names its cause too, as `add`'s does.
+        if (result.state === "unconfirmed") publishUnconfirmed(now?.name ?? line?.name, held);
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
@@ -1646,7 +1923,7 @@ export function TableCartProvider({
 
   // Announce the pay-lock transition through the SINGLE live region (the lockbar banner is plain
   // visual). Diff via a ref so it fires on the edge, not every render; deferred (not a sync effect set).
-  const prevLocked = useRef(false);
+  // (`prevLocked` is declared beside `prevSettling`, above.)
   useEffect(() => {
     if (locked === prevLocked.current) return;
     prevLocked.current = locked;
@@ -1707,9 +1984,10 @@ export function TableCartProvider({
     // settle release must not discard a lock explanation that is still true.
     if (!settling && explainedFreezeRef.current?.axis === "settling")
       explainedFreezeRef.current = null;
-    const msg = settling
-      ? "Your table is splitting the bill — the order’s locked while everyone pays"
-      : "The split was called off — you can edit the order again";
+    // Session truth (finding 2) — WHOSE freeze it is decides the words: with the self-serve split
+    // parked only the register takes it, so this speaks the register's own sentence, and a release
+    // without a payment is its own — never "the split was called off" (`settleEdgeNotice`).
+    const msg = settleEdgeNotice(settling, surfaceOpen("selfServeSplit"));
     void Promise.resolve().then(() => {
       if (
         freezeBannerSuppressed({
@@ -1782,6 +2060,10 @@ export function TableCartProvider({
       settling,
       sendNudge,
       dbNow,
+      ended: endedNow,
+      endedCartId,
+      restarting,
+      startNewOrder,
       soldOutMarks,
     }),
     [
@@ -1815,18 +2097,26 @@ export function TableCartProvider({
       settling,
       sendNudge,
       dbNow,
+      endedNow,
+      endedCartId,
+      restarting,
+      startNewOrder,
       soldOutMarks,
     ],
   );
 
+  const soloRetrying = !isGroup && soloRetryTick > 0 && loading;
   return (
     <Ctx.Provider value={ctxValue}>
       {children}
       {/* Recovery affordance for SOLO modes (scan-&-go / pickup). If a session mint — or a re-mint
           after a failed cart op — fails, `cartId` is null and taps silently no-op; without this the
           diner is stranded behind an auto-clearing toast. Dine-in surfaces the same recovery in
-          GuestList (group-aware copy); this fills the gap GuestList's `!isGroup → null` leaves. */}
-      {error && !isGroup && (
+          GuestList (group-aware copy); this fills the gap GuestList's `!isGroup → null` leaves.
+          J18 — `soloRetrying` keeps it MOUNTED through the re-mint: `revalidate()` clears `error`,
+          and a banner gated on it alone deleted the button under the finger (focus to <body>, nothing
+          said, the banner silently back on a second failure). */}
+      {(error || soloRetrying) && !isGroup && (
         <p
           role="alert"
           style={{
@@ -1859,10 +2149,19 @@ export function TableCartProvider({
             size={15}
             style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
           />
-          Couldn’t reach your order.{" "}
+          {/* The text CHANGES on retry, so the alert narrates the attempt — and changes again when
+              the failure returns, which is what makes a repeat failure audible at all. */}
+          {soloRetrying ? "Reconnecting to your order…" : "Couldn’t reach your order."}{" "}
           <button
             type="button"
-            onClick={() => revalidate()}
+            // `aria-disabled`, never `disabled`: a disabled button leaves the focus order, and the
+            // keyboard user who just pressed it would lose their place.
+            aria-disabled={soloRetrying || undefined}
+            onClick={() => {
+              if (soloRetrying) return;
+              setSoloRetryTick((n) => n + 1);
+              revalidate();
+            }}
             style={{
               minHeight: 44,
               padding: "0 4px",
@@ -1872,10 +2171,10 @@ export function TableCartProvider({
               fontWeight: "var(--fw-heavy)",
               fontSize: "var(--fs-sm)",
               textDecoration: "underline",
-              cursor: "pointer",
+              cursor: soloRetrying ? "progress" : "pointer",
             }}
           >
-            Try again
+            {soloRetrying ? "Reconnecting…" : "Try again"}
           </button>
         </p>
       )}

@@ -178,6 +178,11 @@ export function SendToKitchenButton({
       } catch {
         // assertCartMember (not a member / session closed) throws; Next redacts the message in prod.
         onMessage("Couldn’t send that just now — please try again.");
+        // Session truth (finding 3) — and re-read: a table staff CLEARED or merged away throws here
+        // forever, and "try again" can never succeed. The host's re-read fails the same way, which
+        // is what asks why (`counterPayOutcome`) and swaps this bill for the close that names the
+        // cause — its sentence then takes the region from this one. A blip just re-reads.
+        onChanged();
       }
     });
   };

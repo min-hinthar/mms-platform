@@ -36,7 +36,7 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId, drain, items, mode, role, sendNudge } = useCart();
+  const { count, totals, cartId, drain, items, mode, role, sendNudge, ended } = useCart();
   // PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a dine-in table's cart is SHARED: no count capsule and
   // no count in the name (a tablemate's tap away from wrong); a second line in the console's own
   // words instead — "Not sent yet" while a dish waits on the Send, and, on the HOST's phone, "Someone's
@@ -77,13 +77,16 @@ export function CartBar() {
   // the grocery CTA band through `useCtaDock` (Codex #238 P1 found the grocery dock unwired, which
   // is exactly where a hand-copied second copy would have drifted).
   const barRef = useRef<HTMLButtonElement | null>(null);
-  useCtaDock(barRef, Boolean(cartId && href && shown));
+  useCtaDock(barRef, Boolean(cartId && href && shown && !ended));
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
   useEffect(() => {
     if (href) router.prefetch(href);
   }, [href, router]);
-  if (!cartId || !href || !shown) return null;
+  // Session truth — no bar to an order that ENDED: the card on the menu says what became of it
+  // (a paid one links its tracker), and "View order" would open a bill nobody can add to — not even
+  // for a removed dish (`shown`): the card, not the bill, is the way on from an ended table.
+  if (!cartId || !href || !shown || ended) return null;
   // R1 (the viewport sweep, two reviewers independently) — `totals` is null until the FIRST
   // server read lands, and the count flips optimistically before it: for that beat the bar read
   // "1 · View order · $0.00" beside a row showing the dish at $14.00. A zero is a wrong money
