@@ -52,6 +52,63 @@ export type FulfillIntentOutcome =
 /** Who asked. `webhook` is the signed event; the rest are M160(b)'s three recovery doors. */
 export type FulfillVia = "webhook" | "track" | "staff" | "cron";
 
+type Db = ReturnType<typeof serviceClient>;
+
+/**
+ * M160(b) blind pass on #365 @ 1b760cb (CRITICAL) — the order read, as ONE function both reads use:
+ * `{ id }` when an order for this intent is on record, `null` when none is, `"unreadable"` when the
+ * read failed (never "no order": that is how a retry storm or a false ledger row starts).
+ */
+async function orderOnRecord(
+  db: Db,
+  paymentIntent: string,
+): Promise<{ id: string } | null | "unreadable"> {
+  const { data, error } = await db
+    .from("qr_orders")
+    .select("id")
+    .eq("stripe_payment_intent_id", paymentIntent)
+    .maybeSingle();
+  if (error) return "unreadable";
+  return data ? { id: data.id } : null;
+}
+
+/** An unreadable re-check: the idempotency read's own retry step — never "no order". */
+const RECHECK_UNREAD: FulfillIntentOutcome = { kind: "retry", step: "order_lookup" };
+
+/**
+ * The re-check before EVERY refund-ledger write. The idempotency read at the top is a moment: a
+ * concurrent `payment_intent.succeeded` delivery — or a second recovery door; /track, staff and the
+ * cron can all ask while the webhook is in flight — may commit `mms_fulfill_order` after it, and that
+ * commit flips the cart to `paid`. This caller then reads `paid` as another tender's settle (or a
+ * re-derived total that no longer matches) and would write a refund-needed row for a charge that is
+ * correctly fulfilled, telling the guest "charged, no order" and staff to refund it. So the ledger
+ * write waits on a second read: an order now on record is `already_recorded`; an unreadable read is
+ * `retry`. A genuine other-tender settle still has no order for THIS intent, and still writes its row.
+ *
+ * The window that remains — the concurrent fulfillment committing between this read and the upsert —
+ * is milliseconds wide where the first was seconds (the cart and totals reads sat inside it), and it
+ * fails toward the ledger, never toward a second order: `mms_fulfill_order` raises on a non-open cart.
+ * Closing it outright needs the write and the check in ONE statement (an RPC that inserts the row
+ * only `where not exists` an order for the intent) — OPEN-ITEMS M160, filed rather than migrated here.
+ */
+async function recheckBeforeLedger(
+  db: Db,
+  intent: Stripe.PaymentIntent,
+  tag: string,
+  via: FulfillVia,
+): Promise<FulfillIntentOutcome | null> {
+  const again = await orderOnRecord(db, intent.id);
+  if (again === "unreadable") {
+    console.error(`${tag} order re-check before the refund ledger failed`, {
+      paymentIntent: intent.id,
+      via,
+    });
+    return RECHECK_UNREAD;
+  }
+  if (again) return { kind: "already_recorded", orderId: again.id };
+  return null;
+}
+
 export async function fulfillSucceededIntent(
   intent: Stripe.PaymentIntent,
   via: FulfillVia,
@@ -123,6 +180,9 @@ export async function fulfillSucceededIntent(
     return { kind: "retry", step: "cart_lookup" };
   }
   if (cartRow && cartRow.status !== "open") {
+    // The cart may be `paid` by THIS intent's own concurrent fulfillment (recheckBeforeLedger).
+    const settledRecheck = await recheckBeforeLedger(db, intent, tag, via);
+    if (settledRecheck) return settledRecheck;
     console.error(`${tag} card PI for an already-settled cart — refund needed`, {
       cartId,
       paymentIntent: intent.id,
@@ -193,6 +253,8 @@ export async function fulfillSucceededIntent(
     // won't self-heal, so record a durable refund-needed entry (idempotent on the PI, like the
     // card-after-settle branch) so it's recoverable. The webhook still answers 409 (Stripe keeps
     // trying in case it does resolve; the upsert no-ops on each retry).
+    const mismatchRecheck = await recheckBeforeLedger(db, intent, tag, via);
+    if (mismatchRecheck) return mismatchRecheck;
     const { error: refundErr } = await db.from("qr_refunds_needed").upsert(
       {
         payment_intent: intent.id,

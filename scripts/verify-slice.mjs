@@ -37274,6 +37274,31 @@ const MUTANTS = [
     find: '      if (out.value.kind === "recorded" || out.value.kind === "refund_needed") router.refresh();',
     replace: "      void router;",
   },
+  // ── M160(b) · the blind pass + Codex on #365 @ 1b760cb ──
+  {
+    id: "fulfill-intent/settled-recheck-dropped",
+    file: "apps/qr/lib/fulfill-intent.ts",
+    suite: "lib/fulfill-intent.test.ts",
+    why: "M160(b) blind pass (CRITICAL) — without the re-check, a cart flipped to paid by THIS intent's own concurrent fulfillment reads as another tender's settle: a refund-needed row for a correctly fulfilled charge, and the guest told 'charged, no order'",
+    find: "    if (settledRecheck) return settledRecheck;\n",
+    replace: "",
+  },
+  {
+    id: "fulfill-intent/mismatch-recheck-dropped",
+    file: "apps/qr/lib/fulfill-intent.ts",
+    suite: "lib/fulfill-intent.test.ts",
+    why: "M160(b) blind pass — the amount-mismatch branch writes the same ledger row, so it needs the same re-check: an order that landed meanwhile is already_recorded, never reconcile_mismatch",
+    find: "    if (mismatchRecheck) return mismatchRecheck;\n",
+    replace: "",
+  },
+  {
+    id: "fulfill-intent/recheck-unreadable-as-no-order",
+    file: "apps/qr/lib/fulfill-intent.ts",
+    suite: "lib/fulfill-intent.test.ts",
+    why: "M160(b) — an unreadable re-check read as 'no order' writes the very ledger row the re-check exists to prevent; it is retry",
+    find: "    return RECHECK_UNREAD;\n",
+    replace: "",
+  },
   // ── The lifecycle audit (2026-10-13) · KITCHEN ↔ FLOOR ↔ BOARD — every staff surface tells the
   // same truth, live, and a mistake can be taken back. Prefix `lck/`. ──
   {

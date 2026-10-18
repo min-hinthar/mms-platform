@@ -77,6 +77,11 @@ vi.mock("./totals", () => ({
 // ── the database ──
 let existingOrder: { id: string } | null = null;
 let existingError: { message: string } | null = null;
+/** M160(b) — the order reads AFTER the first, in order: a concurrent delivery committing between
+ *  this caller's idempotency read and its refund-ledger write. Empty = every read answers as the
+ *  first one did (`existingOrder` / `existingError`). */
+let laterOrderReads: { data: { id: string } | null; error: { message: string } | null }[] = [];
+let orderReadCount = 0;
 let cartRow: { status: string; tab_type: string; promo_code: string | null } | null = null;
 let cartError: { message: string } | null = null;
 let fulfillAnswer: { data: string | null; error: { message: string } | null } = {
@@ -97,8 +102,11 @@ vi.mock("@mms/db/server", () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: () => {
-            if (table === "qr_orders")
-              return Promise.resolve({ data: existingOrder, error: existingError });
+            if (table === "qr_orders") {
+              orderReadCount++;
+              const later = orderReadCount > 1 ? laterOrderReads.shift() : undefined;
+              return Promise.resolve(later ?? { data: existingOrder, error: existingError });
+            }
             if (table === "qr_carts")
               return Promise.resolve({
                 data: cartError ? null : { ...cartRow, session_id: "sess-1" },
@@ -157,6 +165,8 @@ beforeEach(() => {
   totalsThrows = false;
   existingOrder = null;
   existingError = null;
+  laterOrderReads = [];
+  orderReadCount = 0;
   cartRow = { status: "open", tab_type: "none", promo_code: null };
   cartError = null;
   fulfillAnswer = { data: "order-1", error: null };
@@ -229,6 +239,59 @@ describe("the cross-tender guard (S1.3) — and M160's cancelled cart", () => {
     const out = await fulfillSucceededIntent(intent({ metadata: {} }), "webhook");
     expect(out).toEqual({ kind: "no_cart_metadata" });
     expect(rpcCalls).toEqual([]);
+  });
+});
+
+/**
+ * M160(b) blind pass on #365 @ 1b760cb (CRITICAL) — the idempotency read at the top is a MOMENT. A
+ * concurrent `payment_intent.succeeded` delivery (or a second recovery door) can commit
+ * `mms_fulfill_order` after it — the order written, the cart flipped to `paid` — and this caller then
+ * reads that `paid` cart as ANOTHER tender's settle. Without a re-check it writes a refund-needed row
+ * for a correctly fulfilled charge and tells the guest "charged, no order". So every refund-ledger
+ * write is preceded by a second read of the order table, and an unreadable second read is retry.
+ */
+describe("the race: an order committed between the idempotency read and the ledger write", () => {
+  it("a cart flipped to paid BY THIS INTENT's own concurrent fulfillment is already_recorded", async () => {
+    cartRow = { status: "paid", tab_type: "none", promo_code: null };
+    laterOrderReads = [{ data: { id: "order-w" }, error: null }];
+    const out = await fulfillSucceededIntent(intent(), "cron");
+    expect(out).toEqual({ kind: "already_recorded", orderId: "order-w" });
+    expect(upserts).toEqual([]);
+    expect(captures).toEqual([]);
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
+  });
+
+  it("an amount mismatch whose order landed meanwhile is already_recorded, with no ledger row", async () => {
+    totals = { ...totals, totalCents: 5000 };
+    laterOrderReads = [{ data: { id: "order-w" }, error: null }];
+    const out = await fulfillSucceededIntent(intent(), "track");
+    expect(out).toEqual({ kind: "already_recorded", orderId: "order-w" });
+    expect(upserts).toEqual([]);
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
+  });
+
+  it.each([
+    ["a settled cart", () => (cartRow = { status: "paid", tab_type: "none", promo_code: null })],
+    ["an amount mismatch", () => (totals = { ...totals, totalCents: 5000 })],
+  ])(
+    "%s with an UNREADABLE re-check is retry — never 'no order', never a ledger row",
+    async (_n, arrange) => {
+      arrange();
+      laterOrderReads = [{ data: null, error: { message: "timeout" } }];
+      const out = await fulfillSucceededIntent(intent(), "staff");
+      expect(out).toEqual({ kind: "retry", step: "order_lookup" });
+      expect(upserts).toEqual([]);
+      expect(captures).toEqual([]);
+    },
+  );
+
+  it("the re-check is a SECOND read: a genuine other-tender settle still writes its ledger row", async () => {
+    cartRow = { status: "paid", tab_type: "none", promo_code: null };
+    laterOrderReads = [{ data: null, error: null }];
+    const out = await fulfillSucceededIntent(intent(), "webhook");
+    expect(out).toEqual({ kind: "settled_elsewhere", cartStatus: "paid" });
+    expect(orderReadCount).toBe(2);
+    expect(upserts).toHaveLength(1);
   });
 });
 
