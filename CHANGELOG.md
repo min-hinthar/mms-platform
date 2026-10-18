@@ -4,7 +4,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### A tablemate can no longer read another party's order or anyone's receipt address (2026-10-18, M309)
+### The next party at a table no longer reads the last party's order, and no diner reads a receipt address (2026-10-18, M309)
 
 - **The order read is scoped to the party at the table when it paid, and `receipt_email` leaves the
   diner's grant.** `20261018120000_m309_order_read_scope.sql`: `authenticated` swaps its table-level
@@ -14,10 +14,15 @@ created_at)`, which admits a seat taken no later than the order (the rule the se
   use since #359). The next party at an uncleared sticker no longer reads the previous party's
   order, its lines or its email. Diner screens are unchanged: the live /track read and the kitchen
   read name only granted columns, and the receipt actions already read the address with the service
-  role. Proven by `supabase/tests/m309_order_read_scope_test.sql` (in CI's required list; red-first
-  against 15 mutations of the migration on a throwaway Postgres 16) and `lib/track-order-grants.test.ts`,
-  which parses the grant against every diner-client select (`m309/*` mutants). **Not applied to prod:**
-  it waits for the owner's go. Still open under M309: the paid cart's rows stay `is_member`-scoped.
+  role, and every staff `qr_orders` read runs on the service role (which keeps its table-level
+  grant, restated in the migration). Proven by `supabase/tests/m309_order_read_scope_test.sql` (in
+  CI's required list) and `lib/track-order-grants.test.ts`, which parses the grant against every
+  diner-client select and every `qr_orders(…)` embed, and fails on any `qr_orders` read whose client
+  it cannot classify (`m309/*` mutants). **Still open under M309:** the paid cart's rows stay
+  `is_member`-scoped; an earlier member who never left still reads a later party's orders (minus the
+  two columns) until staff clear the table; an order fulfilled late (a webhook retry, M160(b)'s
+  recovery) is readable by a party seated between the charge and the insert; and no test yet reads
+  a Realtime broadcast as a member.
 
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 

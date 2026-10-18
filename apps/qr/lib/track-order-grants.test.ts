@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -22,13 +23,20 @@ import { describe, expect, it } from "vitest";
  *     DINER client (`browserClient()`, `serverClient(…)`, `sessionClient(…)` — RLS and column
  *     privileges apply), its select string evaluated (a literal, or `TRACK_ORDER_SELECT` read from
  *     lib/track-order.ts's own export).
- * Limit: a diner client handed to a helper as a PARAMETER is not followed. None is today — every
- * other `qr_orders` read is on the service role, which keeps its table-level grant.
+ * FAIL-CLOSED on what it cannot classify (the blind pass on #364): EVERY `.from("qr_orders")` in
+ * lib/, app/ and components/ must resolve to a diner factory (checked above) or to the service role —
+ * `serviceClient(…)` bound in scope, or a parameter typed `ReturnType<typeof serviceClient>` (directly
+ * or through a same-file `type` alias) — and anything else (a `useMemo` binding, a destructured or
+ * chained receiver, an untyped parameter) fails the suite instead of being skipped. Staff are
+ * `authenticated` too, so this is also the proof that no staff read rides a staff JWT. And every
+ * EMBED of `qr_orders(…)` in a select string, on any client, names only granted columns (never `*`).
  */
 const QR = join(__dirname, "..");
 const REPO = join(QR, "..", "..");
 const MIGRATIONS = join(REPO, "supabase", "migrations");
 const DINER_FACTORIES = new Set(["browserClient", "serverClient", "sessionClient"]);
+const SERVICE_FACTORY = "serviceClient";
+const SERVICE_TYPE = `ReturnType<typeof ${SERVICE_FACTORY}>`;
 const WITHHELD = ["receipt_email", "receipt_sent_at"];
 
 function parse(file: string) {
@@ -129,8 +137,25 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-/** The initializer callee a name is bound to in the nearest enclosing scope, or null (a parameter,
- *  an import, anything else). */
+/** A parameter's declared type, an alias of the service client when the file declares one. */
+function isServiceType(sf: ts.SourceFile, type: ts.TypeNode | undefined): boolean {
+  if (!type) return false;
+  const text = type.getText(sf).replace(/\s+/g, "");
+  if (text === SERVICE_TYPE.replace(/\s+/g, "")) return true;
+  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName) || type.typeArguments)
+    return false;
+  const alias = type.typeName.text;
+  return sf.statements.some(
+    (s) =>
+      ts.isTypeAliasDeclaration(s) &&
+      s.name.text === alias &&
+      s.type.getText(sf).replace(/\s+/g, "") === SERVICE_TYPE.replace(/\s+/g, ""),
+  );
+}
+
+/** The initializer callee a name is bound to in the nearest enclosing scope; SERVICE_FACTORY for a
+ *  parameter typed as the service client; null for anything else (an untyped parameter, an import, a
+ *  non-call initializer). */
 function boundFactory(at: ts.Node, name: string): string | null {
   for (let n: ts.Node | undefined = at.parent; n; n = n.parent) {
     const stmts =
@@ -147,39 +172,65 @@ function boundFactory(at: ts.Node, name: string): string | null {
           return null;
         }
       }
-    if (
-      ts.isFunctionLike(n) &&
-      n.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)
-    )
-      return null;
+    if (ts.isFunctionLike(n)) {
+      const p = n.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === name);
+      if (p) return isServiceType(at.getSourceFile(), p.type) ? SERVICE_FACTORY : null;
+    }
   }
   return null;
 }
 
 type DinerRead = { file: string; line: number; select: string };
+type Scan = { reads: DinerRead[]; unclassified: string[]; embeds: DinerRead[]; service: number };
 
-/** Every `<diner client>.from("qr_orders").select(<arg>)` in the app. */
-function dinerOrderReads(): DinerRead[] {
-  const out: DinerRead[] = [];
-  const track = trackOrderSelect();
-  for (const file of [
+function appFiles(): string[] {
+  return [
     ...sourceFiles(join(QR, "lib")),
     ...sourceFiles(join(QR, "app")),
     ...sourceFiles(join(QR, "components")),
-  ]) {
+  ];
+}
+
+/** The column lists of every `qr_orders(…)` / `qr_orders!hint(…)` embed in a select string. */
+function embeddedOrderColumns(select: string): string[] {
+  return [...select.matchAll(/(?:^|[,(\s:])qr_orders(?:![\w]+)?\s*\(([^()]*)\)/g)].map(
+    (m) => m[1] ?? "",
+  );
+}
+
+/** Every `.from("qr_orders")` in the app, classified, plus every embed of `qr_orders(…)`. */
+function scanOrderReads(files: string[] = appFiles()): Scan {
+  const out: DinerRead[] = [];
+  const unclassified: string[] = [];
+  const embeds: DinerRead[] = [];
+  let service = 0;
+  const track = trackOrderSelect();
+  for (const file of files) {
     const sf = parse(file);
+    const at = (n: ts.Node) =>
+      `${relative(QR, file)}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
     const visit = (n: ts.Node) => {
+      if (ts.isStringLiteralLike(n))
+        for (const cols of embeddedOrderColumns(n.text))
+          embeds.push({
+            file: relative(QR, file),
+            line: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1,
+            select: cols,
+          });
       if (
         ts.isCallExpression(n) &&
         ts.isPropertyAccessExpression(n.expression) &&
         n.expression.name.text === "from" &&
-        ts.isIdentifier(n.expression.expression) &&
         n.arguments.length === 1 &&
         ts.isStringLiteralLike(n.arguments[0]!) &&
         (n.arguments[0] as ts.StringLiteralLike).text === "qr_orders"
       ) {
-        const factory = boundFactory(n, n.expression.expression.text);
-        if (factory && DINER_FACTORIES.has(factory)) {
+        const recv = n.expression.expression;
+        const factory = ts.isIdentifier(recv) ? boundFactory(n, recv.text) : null;
+        if (factory === SERVICE_FACTORY) service += 1;
+        else if (!factory || !DINER_FACTORIES.has(factory))
+          unclassified.push(`${at(n)} — receiver \`${recv.getText(sf)}\``);
+        else {
           const sel = n.parent;
           const call = sel?.parent;
           if (
@@ -211,12 +262,13 @@ function dinerOrderReads(): DinerRead[] {
     };
     visit(sf);
   }
-  return out;
+  return { reads: out, unclassified, embeds, service };
 }
 
 describe("M309 — diner qr_orders reads name only granted columns", () => {
   const grant = grantedColumns();
-  const reads = dinerOrderReads();
+  const scan = scanOrderReads();
+  const reads = scan.reads;
 
   it("the grant withholds the receipt address and its stamp", () => {
     for (const c of WITHHELD) expect(grant.cols.has(c), `${grant.file} grants ${c}`).toBe(false);
@@ -235,6 +287,53 @@ describe("M309 — diner qr_orders reads name only granted columns", () => {
         .map((c) => `${r.file}:${r.line} names ${c} (not granted by ${grant.file})`),
     );
     expect(misses).toEqual([]);
+  });
+
+  it("every qr_orders read is on a client it can classify — a diner factory or the service role", () => {
+    expect(scan.unclassified).toEqual([]);
+    expect(scan.service).toBeGreaterThan(0); // never vacuous
+  });
+
+  it("every embed of qr_orders(…) names only granted columns, on any client", () => {
+    const misses = scan.embeds.flatMap((e) =>
+      topLevelColumns(e.select)
+        .filter((c) => !grant.cols.has(c))
+        .map((c) => `${e.file}:${e.line} embeds qr_orders(${c})`),
+    );
+    expect(scan.embeds.length).toBeGreaterThan(0); // feedback.ts and refunds.ts embed it today
+    expect(misses).toEqual([]);
+  });
+
+  it("refuses the receivers it cannot classify, and reads the service-typed parameter", () => {
+    const dir = mkdtempSync(join(tmpdir(), "m309-guard-"));
+    const f = join(dir, "probe.ts");
+    writeFileSync(
+      f,
+      [
+        "type Db = ReturnType<typeof serviceClient>;",
+        'function a(db: Db) { return db.from("qr_orders").select("*"); }',
+        'function b(db) { return db.from("qr_orders").select("id"); }',
+        'function c() { const supa = useMemo(() => browserClient(), []); return supa.from("qr_orders").select("*"); }',
+        'async function d(x) { return (await serverClient(x)).from("qr_orders").select("*"); }',
+        'function e() { const { supa } = ctx(); return supa.from("qr_orders").select("*"); }',
+        'const E = "id,qr_orders(receipt_email)";',
+      ].join("\n"),
+    );
+    try {
+      const probe = scanOrderReads([f]);
+      expect(probe.service).toBe(1);
+      // The lines of b · c · d · e: an untyped parameter, a useMemo binding, a chained receiver and a
+      // destructured one.
+      expect(probe.unclassified.map((u) => u.split(" — ")[0]!.split(":").pop())).toEqual([
+        "3",
+        "4",
+        "5",
+        "6",
+      ]);
+      expect(probe.embeds.map((e) => e.select)).toEqual(["receipt_email"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("parses PostgREST select strings: embeds excluded, alias and cast unwrapped", () => {

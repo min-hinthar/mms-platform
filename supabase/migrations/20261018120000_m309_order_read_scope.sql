@@ -17,8 +17,8 @@
 --   is revoked from `anon` and `authenticated` and re-granted to `authenticated` column by column,
 --   every column but those two. Postgres checks column privileges on what a query NAMES, so a member's
 --   `select receipt_email` (or `select *`, which names it) is refused with 42501, while every column
---   the diner's reads name still reads. Realtime's postgres_changes builds each subscriber's payload
---   from the columns that subscriber may select, so the two columns also leave the live broadcast.
+--   the diner's reads name still reads. (Whether Realtime's postgres_changes payload also drops the
+--   two columns is NOT proven here — no test reads a broadcast as a member; M309 keeps it open.)
 --   Nothing on the diner's side named them: the email lives in two server actions (`getReceiptLink`,
 --   `setReceiptEmail`, lib/receipt.ts) that already read and write it with the SERVICE ROLE, after
 --   their own earner/payer authorization (M206's seat arm buys the link only, never the address).
@@ -57,12 +57,20 @@
 -- member of the EARLIER party who never left the session still reads the LATER party's orders (minus
 -- ①'s columns) — the system has no notion of "party" beyond the session, and the two share one open
 -- cart until staff clear the table (m182), which closes the session and ends every member's read.
+-- And ②'s boundary is the order's INSERT time, not its payment: a fulfillment that lands late (a
+-- Stripe retry, an outage, M160(b)'s recovery) admits a party seated between the charge and the
+-- insert — it reads that order's row and lines, never ①'s two columns. Closing it needs a
+-- payment-time anchor on the row (M309).
 --
 -- ## What a diner still reads (and the test proves)
 -- `useOrderStatus`'s live read and its Realtime subscription (TRACK_ORDER_SELECT, keyed by the
 -- PaymentIntent id or the order id), and `getOrderKitchen`'s `cart_id` probe (lib/order-kitchen-read.ts)
 -- — the only `qr_orders` reads that run on a diner's JWT. Every other reader runs on the service role,
--- which bypasses RLS and keeps its table-level grant. Staff keep the `is_staff()` arm unchanged.
+-- which bypasses RLS and keeps its table-level grant — restated below, because the local stack CI
+-- builds does not hand the service role one by default (prod's is Supabase's default grant; the
+-- statement is a no-op there). Staff keep the `is_staff()` arm unchanged; their console reads all
+-- run on the service role, which lib/track-order-grants.test.ts proves by refusing any `qr_orders`
+-- read it cannot classify.
 --
 -- ## Idempotent
 -- A table-level REVOKE also revokes every column privilege on the table, so a re-run lands on the same
@@ -93,6 +101,7 @@ alter policy qr_order_read on public.qr_orders
 
 -- ── ① the diner's column grant ──────────────────────────────────────────────────────────────────
 revoke select on public.qr_orders from anon, authenticated;
+grant select on public.qr_orders to service_role;
 grant select (
   id, session_id, subtotal_cents, discount_cents, service_charge_cents, tax_cents, tip_cents,
   total_cents, stripe_payment_intent_id, status, created_at, pickup_slot, fire_at, tender, cart_id,
