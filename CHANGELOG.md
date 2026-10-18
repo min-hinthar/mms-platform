@@ -13,7 +13,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   included — is called out until Got it, once a by-id read confirms it was voided (a teammate's bump is
   never a "stop"); a full refund keeps its food on the KDS, the floor and the table page, tagged "check
   with the counter" (never hidden); the wall shows a ready bag whatever its schedule, windows by due
-  time and drops refunds and scan-and-go baskets; the expo says "Refunded — don't bag"; a sent dish
+  time and drops scan-and-go baskets (a refunded bag stays called — a tag, never a cancel); the expo says "Refunded — don't bag"; a sent dish
   keeps its note, sold-out flag and kitchen stage on the table page, with the newest paid round's food;
   staff box a draft to go (K18); a sold-out draft at the cash, reader and tab-close doors is named
   above them with Remove first and re-warns once (PD8's pattern, never a block); a free clear's window
@@ -44,6 +44,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   or after the bound) no longer stays "this tablet's own" while its dish is still on the board, so a
   later void of that dish is said (`ownBumpsSettled`). Filed M322: the settle doors' sold-out read runs
   outside the atomic settle (a migration).
+- **Codex round 3 on #360** — a CARD full refund now stays on the expo lane, tagged, and on the wall,
+  exactly as an equal cash refund does: the card refund flips the order `refunded`
+  (`mms_apply_refund_reconcile`) while the cash one leaves it `paid`, and both surfaces read
+  `paid` alone. The two settled statuses are now named once (`SETTLED_ORDER_STATUSES`). A mixed order
+  whose every dish was refunded with its grocery kept is tagged: the line ledger counts dishes only.
+  A served row with no bump stamp reads as cooking on the floor too, never "Kitchen done", by the one
+  `servedSettled` rule the expo and the table page already use. The table page's paid round says its
+  cap even when it draws no dish ("Older dishes aren't listed here."). The amount arm still counts a
+  kept grocery in the pool: no reader holds a grocery line's share of the order's discount and tax.
 
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 

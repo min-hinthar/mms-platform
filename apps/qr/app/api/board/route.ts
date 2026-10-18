@@ -20,6 +20,7 @@ import {
 import { readRounds, roundFor } from "@/lib/kitchen-round-read";
 import { boardOrderIsBag, boardOrderLive, boardOrderReadOr } from "@/lib/board-orders";
 import { paidBagCompLine } from "@/lib/expo-rules";
+import { SETTLED_ORDER_STATUSES } from "@/lib/refunded-cart";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
@@ -215,8 +216,10 @@ export async function GET(req: NextRequest) {
     // wall publishes nothing it refuses). A refunded order is nobody's bag; the window is on the DUE
     // time (a pickup booked more than a day ahead came up uncalled); and a HELD scheduled order
     // (fire_at still ahead) stays off until the kitchen starts it — but a READY bag is on the wall
-    // whatever the schedule said (Cook now moves only the cart lines' fire time).
-    .eq("status", "paid")
+    // whatever the schedule said (Cook now moves only the cart lines' fire time). #360 (Codex P1):
+    // BOTH settled statuses — a card full refund is `refunded`, an equal cash one stays `paid`, and
+    // the wall follows `togo_status` for both (a refund is a TAG, never a cancel).
+    .in("status", [...SETTLED_ORDER_STATUSES])
     .or(boardOrderReadOr(dayFloor, dbNowIso))
     // NEWEST READINESS first, then creation (the blind pass on A4·1, CRITICAL 3; the key reshaped
     // by Codex round 1): `picked_up` is a manual expo tap, so untapped `ready` rows accumulate all

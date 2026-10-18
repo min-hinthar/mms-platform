@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   foodRefundedInFull,
+  orderSettled,
   refundedCarts,
+  SETTLED_ORDER_STATUSES,
   type LineRefunds,
   type RefundOrderRow,
 } from "./refunded-cart";
@@ -137,5 +139,15 @@ describe("refundedCarts — the ONE rule the KDS, the floor and the table page t
 
   it("an order with no cart is skipped", () => {
     expect(refundedCarts([order({ cart_id: null, status: "refunded" })], null).size).toBe(0);
+  });
+});
+
+describe("orderSettled — the statuses a settled order holds, named once (#360, Codex P1)", () => {
+  it("paid AND refunded: a card refund flips the status where an equal cash one does not", () => {
+    // lck/refunded-cart/settled-is-paid-only · lck/refunded-cart/settled-is-anything — red.
+    expect([...SETTLED_ORDER_STATUSES]).toEqual(["paid", "refunded"]);
+    expect(orderSettled("paid")).toBe(true);
+    expect(orderSettled("refunded")).toBe(true);
+    for (const s of ["pending", "failed", ""]) expect(orderSettled(s)).toBe(false);
   });
 });

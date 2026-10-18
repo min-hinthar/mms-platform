@@ -90,13 +90,16 @@ const parse = (iso: string | null): number | null => {
 };
 
 /**
- * #360 (Codex P2) — a SERVED line still inside Mom's undo window (`servedSettled`, the ONE track's
- * predicate): the fold counts it as COOKING, and the floor's sold-out lookup must flag it for exactly
- * as long — one predicate, so "in kitchen · marked sold out" never loses its flag mid-window. A line
- * with no (or an unreadable) bump stamp has nothing to settle.
+ * #360 (Codex P2) — a SERVED line the ONE track does not call settled (`servedSettled`): the fold
+ * counts it as COOKING, and the floor's sold-out lookup must flag it for exactly as long — one
+ * predicate, so "in kitchen · marked sold out" never loses its flag mid-window. That is a bump still
+ * inside Mom's undo window AND (Codex P2, round 3) a served row with no or an unreadable bump stamp:
+ * the expo (`bumpSettled`) and the table page (`trackStage`) read that legacy row as still cooking,
+ * and a floor that read it as `done` said "Kitchen done" over the same dish. Never a second copy of
+ * the rule: the negation of `servedSettled`, nothing more.
  */
 export function servedUnsettled(r: { bumped_at: string | null }, nowIso: string): boolean {
-  return parse(r.bumped_at) !== null && !servedSettled(r.bumped_at, nowIso);
+  return !servedSettled(r.bumped_at, nowIso);
 }
 
 export function foldFloorKitchen(
@@ -158,7 +161,8 @@ export function foldFloorKitchen(
       const bumpedMs = parse(r.bumped_at);
       // The lifecycle audit — a bump inside Mom's undo window is still COOKING on the ONE track
       // (`servedSettled`): the floor no longer cues "ready to serve" for food she can take back with
-      // one tap. A served line with no stamp has nothing to settle (it falls to `done`, as before).
+      // one tap. A served line with no (or an unreadable) stamp is not settled either, so it is
+      // cooking too (#360, Codex P2) — never `done`, which the expo and the table page never say of it.
       if (servedUnsettled(r, nowIso)) {
         cooking(r, fireMs);
         continue;

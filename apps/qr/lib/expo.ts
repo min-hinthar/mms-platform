@@ -21,7 +21,7 @@ import { readUnpaidCounterCarts } from "./register-queue";
 import { counterUncollected, unpaidBag } from "./counter-order";
 import { settleLeftMs, soonerMs } from "./bump-settle";
 import { lineRefunded } from "./expo-rules";
-import { foodRefundedInFull } from "./refunded-cart";
+import { foodRefundedInFull, SETTLED_ORDER_STATUSES } from "./refunded-cart";
 import { readLineRefunds } from "./refunded-cart-read";
 
 /**
@@ -120,9 +120,11 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
         "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents",
       )
       .in("togo_status", ["preparing", "ready"])
-      // The lifecycle audit — a REFUNDED order is nobody's bag: `charge.refunded` flips the status
-      // and nothing else, so the lane kept bagging a fully refunded order (OPEN-ITEMS: a cancel edge).
-      .eq("status", "paid")
+      // #360 (Codex P1) — BOTH settled statuses (`SETTLED_ORDER_STATUSES`): a card refund reaching
+      // the total flips the order `refunded` (`mms_apply_refund_reconcile`), and a paid-only read
+      // dropped that bag while an equal cash refund (still `paid`) stayed on the lane, tagged. A TAG,
+      // NEVER A CANCEL: the refunded bag stays, and `foodRefundedInFull` (below) tags it.
+      .in("status", [...SETTLED_ORDER_STATUSES])
       // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
       // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
       // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
@@ -180,7 +182,8 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
   const nowMs = Date.parse(nowIso);
   // A cart the paid read already holds settled between the two reads: it is a PAID bag now, drawn
-  // once, as paid (Codex round 1 on #308 — never twice, once each way).
+  // once, as paid (Codex round 1 on #308 — never twice, once each way). "Paid" is the settled read's
+  // set, so a REFUNDED bag (#360, Codex P1) dedupes exactly as a paid one does.
   const paidCarts = new Set((orders ?? []).map((o) => o.cart_id).filter((c) => !!c));
   const bags = unpaidRead.carts.flatMap((c) => {
     if (paidCarts.has(c.id)) return [];

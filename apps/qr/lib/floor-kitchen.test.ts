@@ -4,9 +4,12 @@ import {
   foldFloorKitchen,
   heardUp,
   kitchenSegments,
+  servedUnsettled,
   upRose,
   type FloorKitchenRow,
 } from "./floor-kitchen";
+import { bumpSettled } from "./bump-settle";
+import { trackStage } from "./kitchen-track";
 import { PULSE_PASS_LINGER_MS } from "./board-pulse";
 import { DEFAULT_KDS_THRESHOLDS } from "./kds-urgency";
 import { KDS_UNDO_MS } from "./kds-undo";
@@ -88,16 +91,15 @@ describe("foldFloorKitchen — what the floor may say about the kitchen", () => 
     expect(fold(rows, false)?.notSent).toBe(3);
   });
 
-  it("'ready to serve' is the wall's window: bumped 4:59 ago is up, 5:01 ago is done, never bumped is done", () => {
-    // MUTATION: drop the linger floor → all three read up.
+  it("'ready to serve' is the wall's window: bumped 4:59 ago is up, 5:01 ago is done", () => {
+    // MUTATION: drop the linger floor → both read up.
     expect(PULSE_PASS_LINGER_MS).toBe(5 * MIN);
     const k = fold([
       row({ state: "served", bumped_at: at(-(4 * MIN + 59_000)), fire_at: at(-20 * MIN) }),
       row({ state: "served", bumped_at: at(-(5 * MIN + 1_000)), fire_at: at(-20 * MIN) }),
-      row({ state: "served", bumped_at: null, fire_at: at(-20 * MIN) }),
     ]);
     expect(k?.up).toBe(1);
-    expect(k?.done).toBe(2);
+    expect(k?.done).toBe(1);
   });
 
   it("the oldest in-kitchen line is the MIN fire time, whatever the row order", () => {
@@ -349,6 +351,25 @@ describe("foldFloorKitchen — the lifecycle audit: one track, the bag's verb, a
     const settled = fold([{ ...inside, bumped_at: at(-KDS_UNDO_MS) }]);
     expect(settled?.up).toBe(1);
     expect(settled?.upKeys).toEqual([`l-mis@${at(-KDS_UNDO_MS)}`]);
+  });
+
+  it("a served row with NO bump stamp, or an unreadable one, is still IN THE KITCHEN — the ONE track's rule (#360, Codex P2)", () => {
+    // lck/floor-kitchen/legacy-served-reads-done — a legacy or unstamped `served` row fell through to
+    // `done`, so the floor said "Kitchen done" while the expo (`bumpSettled`) and the table page
+    // (`trackStage`) said still cooking. Settled is `servedSettled` alone; anything else is cooking.
+    for (const bumped_at of [null, "not-a-date"]) {
+      const legacy = row({ id: "l-old", state: "served", bumped_at, fire_at: at(-20 * MIN) });
+      const k = fold([legacy]);
+      expect(k?.inKitchen).toBe(1);
+      expect(k?.done).toBe(0);
+      expect(k?.up).toBe(0);
+      expect(kitchenSegments(k)).toEqual([{ k: "floor.kitchen.inKitchen", n: 1 }]);
+      // the same row on the other two boards' rules: not finished, still cooking
+      expect(bumpSettled(legacy, at(0))).toBe(false);
+      expect(trackStage(legacy, at(0))).toBe("cooking");
+      // …and the floor's sold-out lookup reads it as cooking for exactly as long
+      expect(servedUnsettled(legacy, at(0))).toBe(true);
+    }
   });
 
   it("a dine-in table's served TO-GO dish is bagged — `bagUp`, never 'ready to serve'", () => {

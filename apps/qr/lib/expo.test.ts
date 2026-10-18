@@ -98,7 +98,18 @@ function tableApi(name: string) {
       const answer = (): { data: unknown; error: unknown; count?: number | null } => {
         if (name === "qr_orders") {
           if (ordersSnapshot) orderRows = ordersSnapshot();
-          return { data: orderRows, error: null };
+          // #360 (Codex P1) — the read's STATUS filter is APPLIED (an `.in` list or an `.eq`), so a
+          // read that asks for `paid` alone really loses a card-refunded bag.
+          const inList = r.ins.find(([c]) => c === "status")?.[1];
+          const eqVal = r.eqs.find(([c]) => c === "status")?.[1];
+          return {
+            data: orderRows.filter(
+              (o) =>
+                (inList === undefined || inList.includes(o.status)) &&
+                (eqVal === undefined || o.status === eqVal),
+            ),
+            error: null,
+          };
         }
         if (name === "qr_order_items")
           return {
@@ -839,13 +850,82 @@ describe("getExpoQueue — a bag settled between the two reads is drawn once, as
 });
 
 describe("getExpoQueue — the lifecycle audit: a refund reaches the bag", () => {
-  it("reads PAID orders only — a fully refunded order is nobody's bag", async () => {
-    // lck/expo/refunded-order-bagged — `charge.refunded` flips the status and nothing else, and the
-    // lane's read had no status filter.
+  it("reads both SETTLED statuses: a CARD full refund (`refunded`) stays on the lane, TAGGED, as the equal cash one does (#360, Codex P1)", async () => {
+    // lck/expo/card-refund-off-the-lane — `mms_apply_refund_reconcile` flips a card order refunded
+    // in full to `refunded`, and the paid-only read dropped it from the lane while an equal CASH
+    // refund (still `paid`, `refunded_cents` raised) stayed on it, tagged. A refund is a TAG, never
+    // a cancel: the status is read, and `foodRefundedInFull` (arm a) tags it.
+    orderRows = [
+      {
+        ...order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"),
+        status: "refunded",
+        refunded_cents: 2_000,
+      },
+      order(ORDER_B, CART_B, "2026-09-13T17:00:00Z"),
+      // never settled: never a bag
+      {
+        ...order("44444444-4444-4444-8444-444444444444", null, "2026-09-13T17:10:00Z"),
+        status: "pending",
+      },
+    ];
     const res = await getExpoQueue();
     if (!res.ok) throw new Error("expected ok");
     const ordersRead = recs.find((r) => r.table === "qr_orders");
-    expect(ordersRead?.eqs).toContainEqual(["status", "paid"]);
+    expect(ordersRead?.ins).toContainEqual(["status", ["paid", "refunded"]]);
+    expect(ordersRead?.eqs.filter(([c]) => c === "status")).toEqual([]);
+    expect(res.queue.tickets.map((t) => [t.orderId, t.refunded ?? false]).sort()).toEqual(
+      [
+        [ORDER_A, true],
+        [ORDER_B, false],
+      ].sort(),
+    );
+    // its comps, its kitchen state and its phone are read like any paid bag's
+    expect(kitchenRead()?.ins).toEqual([["cart_id", [CART_A, CART_B]]]);
+    // a refunded order is decided by its status: the ledger is never asked about it
+    expect(recs.some((x) => x.table === "mms_refunds")).toBe(false);
+  });
+
+  it("a cart the read holds as a REFUNDED bag is drawn once, as that bag — never again as unpaid (#360, Codex P1)", async () => {
+    // The unpaid dedupe keys by the settled read's carts: the refunded bag is in it like a paid one.
+    const CART_U = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    orderRows = [
+      {
+        ...order(ORDER_A, CART_U, "2026-09-13T17:30:00Z"),
+        status: "refunded",
+        refunded_cents: 2_000,
+      },
+    ];
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        {
+          id: CART_U,
+          session_id: "sess-u",
+          customer_name: null,
+          items: [
+            {
+              id: "s",
+              name: "Mohinga",
+              qty: 1,
+              modifiers: [],
+              modifier_option_ids: null,
+              fulfillment: "togo",
+              notes: null,
+              menu_item_id: "dish-1",
+              state: "fired",
+              fire_at: "2026-09-13T17:50:00.000Z",
+              bumped_at: null,
+              comped: false,
+            },
+          ],
+        },
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets.map((t) => t.cartId)).toEqual([CART_U]);
+    expect(res.queue.unpaid).toEqual([]);
   });
 
   // #360 — A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`). `mms_refund_cash_line` raises

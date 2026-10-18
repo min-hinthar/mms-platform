@@ -2541,6 +2541,31 @@ describe("the lifecycle audit — the table page names a paid round's food and r
     expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
   });
 
+  it("a capped read with NO dish to draw still says it is capped — never a silent page (#360, Codex P2)", () => {
+    // lck/floor-detail/paid-round-empty-cap-unsaid — the capped dish read held only dishes served
+    // long ago, `paidRoundKitchen` drew none, and the length guard hid the truncation warning too.
+    const dishes = mountWith({ ...DETAIL, paidKitchen: [], paidKitchenCapped: true });
+    const text = dishes.container.textContent ?? "";
+    expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
+    expect(text).toContain(STAFF["table.detail.paidKitchen.olderDishes"].en);
+    expect(text).not.toContain(String(PAID_KITCHEN_CAP));
+    // no empty labelled list beside it: a list of nothing is announced and says nothing
+    const title = screen.getByText(STAFF["table.detail.paidKitchen.title"].en, { exact: false });
+    const titleId = title.closest("p")?.id;
+    expect(titleId).toBeTruthy();
+    expect(dishes.container.querySelector(`ul[aria-labelledby="${titleId}"]`)).toBeNull();
+    dishes.unmount();
+    // the ROUND cap alone, over no dish: said too
+    const rounds = mountWith({ ...DETAIL, paidKitchen: [], paidRoundsCapped: true });
+    expect(rounds.container.textContent).toContain(
+      STAFF["table.detail.paidKitchen.olderRounds"].en,
+    );
+    rounds.unmount();
+    // nothing to draw and nothing capped: no group at all
+    const none = mountWith({ ...DETAIL, paidKitchen: [] });
+    expect(none.container.textContent).not.toContain(STAFF["table.detail.paidKitchen.title"].en);
+  });
+
   it("a dine-in table's draft dish offers For here / To go", () => {
     // lck/floor-detail/reroute-unoffered
     mountWith({ ...DETAIL, lines: [{ ...line("l1", "Mohinga"), state: "draft" }] });

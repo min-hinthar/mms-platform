@@ -94,11 +94,16 @@ export function newestFirst<T extends { created_at: string; id: string }>(a: T, 
  *     sentence names no number.
  *
  * Both: the dish sentence alone, which already says older ones are not here. Neither: no note.
+ *
+ * #360 (Codex P2) — the dish read capped and NOTHING drawn (its newest dishes all served past the
+ * linger): "Showing the latest 0 dishes" names a count of nothing, so the sentence is the one with no
+ * number — older dishes are not listed here. It is still said: a capped read is never silent.
  */
 export type PaidRoundCapNote = {
   key:
     | "table.detail.paidKitchen.capped.one"
     | "table.detail.paidKitchen.capped.many"
+    | "table.detail.paidKitchen.olderDishes"
     | "table.detail.paidKitchen.olderRounds";
   vars?: { n: number };
 };
@@ -108,6 +113,7 @@ export function paidRoundCapNote(
   dishesCapped: boolean,
   roundsCapped: boolean,
 ): PaidRoundCapNote | null {
+  if (dishesCapped && shown === 0) return { key: "table.detail.paidKitchen.olderDishes" };
   if (dishesCapped)
     return {
       key: plural(
@@ -119,4 +125,18 @@ export function paidRoundCapNote(
     };
   if (roundsCapped) return { key: "table.detail.paidKitchen.olderRounds" };
   return null;
+}
+
+/**
+ * #360 (Codex P2) — is the "From the paid round" group drawn? When it has a dish to name OR a cap to
+ * say (`paidRoundCapNote`). A capped read whose dishes all fell outside the linger draws no dish, and
+ * a length guard alone hid its truncation warning with the empty list: the page then said neither
+ * the dish nor that it could not see it. Nothing to name and nothing capped: no group.
+ */
+export function paidRoundDrawn(
+  lines: readonly PaidKitchenLine[],
+  dishesCapped: boolean,
+  roundsCapped: boolean,
+): boolean {
+  return lines.length > 0 || paidRoundCapNote(lines.length, dishesCapped, roundsCapped) !== null;
 }
