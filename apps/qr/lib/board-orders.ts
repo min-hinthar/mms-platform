@@ -1,4 +1,5 @@
 import { isScanGoBasket } from "./expo-rules";
+import { orderSettled } from "./refunded-cart";
 
 /**
  * The lifecycle audit (2026-10-13) — WHICH orders the TV wall's code column may publish, decided once
@@ -15,7 +16,10 @@ import { isScanGoBasket } from "./expo-rules";
  *    at once; the ready rule stays for a write that failed.);
  *  · the window was `created_at >= floor`, so a pickup booked more than a day ahead never reached the
  *    wall on the day it came up — the expo windows by DUE time since #275, and the wall now does too;
- *  · a REFUNDED order kept its code (the read had no status filter);
+ *  · an order that never SETTLED could reach the wall (the read had no status filter). #360 (Codex
+ *    P1): settled is `paid` OR `refunded` (`orderSettled`) — a refund is a TAG, never a cancel, and
+ *    a card refund flips the status where an equal cash one does not, so the wall follows
+ *    `togo_status` for both alike;
  *  · a pure scan-and-go basket was published as Preparing and called Ready — the room's one call for
  *    food — though the shopper already holds the goods (`isScanGoBasket`, the expo's own rule).
  */
@@ -31,7 +35,7 @@ export type BoardOrderRow = {
 
 /** Is this order live for the wall at `nowIso`, inside the service window that starts at `floorIso`? */
 export function boardOrderLive(o: BoardOrderRow, nowIso: string, floorIso: string): boolean {
-  if (o.status !== "paid") return false;
+  if (!orderSettled(o.status)) return false;
   if (o.togo_status !== "preparing" && o.togo_status !== "ready") return false;
   // The window is on the DUE time (the expo's rule): a slotted order by its slot, an ASAP one by
   // when it was placed.

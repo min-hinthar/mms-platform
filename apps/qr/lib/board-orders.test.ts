@@ -39,9 +39,20 @@ describe("boardOrderLive", () => {
       boardOrderLive(row({ created_at: at(-60), pickup_slot: at(-48 * 60) }), NOW, FLOOR),
     ).toBe(false);
   });
-  it("only a PAID order, still preparing or ready", () => {
-    // lck/board-orders/refunded-on-the-wall
-    expect(boardOrderLive(row({ status: "refunded" }), NOW, FLOOR)).toBe(false);
+  it("only a SETTLED order (paid, or refunded — a refund is a TAG, never a cancel), still preparing or ready", () => {
+    // #360 (Codex P1) — lck/board-orders/card-refund-off-the-wall: a card refund reaching the total
+    // flips the order `refunded` (`mms_apply_refund_reconcile`) while an equal cash refund leaves it
+    // `paid`, so a paid-only rule dropped the card bag the cash one keeps. The wall follows
+    // `togo_status`: the refunded row reads exactly as the paid one, ready and preparing alike.
+    for (const togo_status of ["ready", "preparing"])
+      expect(boardOrderLive(row({ status: "refunded", togo_status }), NOW, FLOOR)).toBe(
+        boardOrderLive(row({ status: "paid", togo_status }), NOW, FLOOR),
+      );
+    expect(boardOrderLive(row({ status: "refunded" }), NOW, FLOOR)).toBe(true);
+    expect(boardOrderLive(row({ status: "refunded", fire_at: at(20) }), NOW, FLOOR)).toBe(false);
+    // lck/board-orders/any-status-on-the-wall — an order that never settled is nobody's bag
+    expect(boardOrderLive(row({ status: "pending" }), NOW, FLOOR)).toBe(false);
+    expect(boardOrderLive(row({ status: "failed" }), NOW, FLOOR)).toBe(false);
     expect(boardOrderLive(row({ togo_status: "picked_up" }), NOW, FLOOR)).toBe(false);
     expect(boardOrderLive(row({ togo_status: null }), NOW, FLOOR)).toBe(false);
   });

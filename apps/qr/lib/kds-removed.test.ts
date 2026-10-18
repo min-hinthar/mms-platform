@@ -5,6 +5,7 @@ import {
   fateIds,
   mergeRemovals,
   ownBumpsAfter,
+  ownBumpsSettled,
   removalCandidates,
   removalsForStation,
   stoppedLineIds,
@@ -195,6 +196,28 @@ describe("mergeRemovals / removalsForStation / ownBumpsAfter / stoppedLineIds", 
     // …then a server voids it: X leaves, and it is a candidate again
     const c = candidates([card("b|1", [x])], [], { ownBumps: new Set(own.keys()) });
     expect(c.map((r) => r.key)).toEqual(["removed:l-x"]);
+  });
+
+  it("a bump whose answer was LOST is settled: the line still on a later snapshot retires it, and its void is said (#360, Codex P2)", () => {
+    // lck/kds-removed/lost-bump-stays-out — a marker left `null` survived every snapshot showing the
+    // line, and the line's later void was swallowed as this tablet's own bump; red.
+    const x = line("l-x");
+    // tapped (null), then the write THREW while fetch 4 was the latest started
+    let own = ownBumpsSettled(new Map([["l-x", null]]), ["l-x"], 4);
+    expect(own.get("l-x")).toBe(4);
+    // a snapshot fetched before the loss still holds it (the read raced the write)…
+    own = ownBumpsAfter(own, [card("b|1", [x])], 4);
+    expect(own.has("l-x")).toBe(true);
+    // …fetch 5 still shows X: the write never landed, the mark retires
+    own = ownBumpsAfter(own, [card("b|1", [x])], 5);
+    expect(own.has("l-x")).toBe(false);
+    const c = candidates([card("b|1", [x])], [], { ownBumps: new Set(own.keys()) });
+    expect(c.map((r) => r.key)).toEqual(["removed:l-x"]);
+  });
+
+  it("settling touches only the ids still marked: a refused or consumed bump stays gone", () => {
+    const own = ownBumpsSettled(new Map([["l-a", null]]), ["l-a", "l-gone"], 7);
+    expect([...own]).toEqual([["l-a", 7]]);
   });
 
   it("the stop cards' struck lines; none when the stop read did not answer", () => {

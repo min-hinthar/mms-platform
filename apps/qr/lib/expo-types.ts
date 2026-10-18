@@ -73,6 +73,10 @@ export type ExpoTicket = {
   lines: ExpoLine[];
   /** When the order was paid (ISO) — the board shows its age so a forgotten bag surfaces. */
   createdAt: string;
+  /** #360 — the order's FOOD was refunded in full (`foodRefundedInFull`): the bag stays, TAGGED
+   *  "check with the counter", never hidden — A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`).
+   *  Absent = not refunded in full. */
+  refunded?: true;
 };
 
 /** Phase 2f · P2v — an OPEN counter order whose food the kitchen has, before it is paid ("Unpaid —

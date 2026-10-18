@@ -49,6 +49,7 @@ function fakeDb() {
 
 const { readLineRefunds, REFUND_ID_CHUNK, LINE_REFUND_ROW_CAP } =
   await import("./refunded-cart-read");
+const { foodRefundedInFull } = await import("./refunded-cart");
 const order = (id: string, over: Partial<RefundOrderRow> = {}): RefundOrderRow => ({
   id,
   cart_id: `c-${id}`,
@@ -85,6 +86,35 @@ describe("readLineRefunds — the line ledger, read once, chunked, failing open"
     expect([...(got?.itemsByOrder.get("o1") ?? [])]).toEqual(["i1", "i2"]);
     expect(got?.itemsByOrder.has("o9")).toBe(false);
     expect([...(got?.refundedLines ?? [])]).toEqual(["i1"]);
+  });
+
+  it("a GROCERY line is not a dish: every dish refunded with the grocery kept is food refunded in full (#360, Codex P2)", async () => {
+    // lck/refunded-cart-read/grocery-counts-as-a-dish — the grocery's snapshot id stayed in the
+    // order's lines, so "every line refunded" was false; the amount arm was false too (the grocery is
+    // in the goods pool), and the KDS, the floor and the paid round never tagged the refunded dishes.
+    tables.qr_order_items = [
+      { id: "i-dish", order_id: "o1", fulfillment: "dinein" },
+      { id: "i-togo", order_id: "o1", fulfillment: "togo" },
+      { id: "i-groc", order_id: "o1", fulfillment: "grocery" },
+    ];
+    tables.mms_refunds = [
+      { order_id: "o1", order_item_id: "i-dish" },
+      { order_id: "o1", order_item_id: "i-togo" },
+    ];
+    // $24.00, a $4.00 tip, $10.00 back: the amount arm alone says partial
+    const o = order("o1");
+    const got = await readLineRefunds(db(), [o], "test");
+    expect([...(got?.itemsByOrder.get("o1") ?? [])]).toEqual(["i-dish", "i-togo"]);
+    expect(foodRefundedInFull(o, got)).toBe(true);
+    // …and a dish still standing beside the grocery keeps the order untagged
+    tables.mms_refunds = [{ order_id: "o1", order_item_id: "i-dish" }];
+    expect(foodRefundedInFull(o, await readLineRefunds(db(), [o], "test"))).toBe(false);
+    // a grocery-only order holds no dish: the line arm has nothing to say (the order row decides)
+    tables.qr_order_items = [{ id: "i-groc", order_id: "o1", fulfillment: "grocery" }];
+    tables.mms_refunds = [{ order_id: "o1", order_item_id: "i-groc" }];
+    const groc = await readLineRefunds(db(), [o], "test");
+    expect(groc?.itemsByOrder.has("o1")).toBe(false);
+    expect(foodRefundedInFull(o, groc)).toBe(false);
   });
 
   it("reads only a PAID order with money back — a refunded order is decided by its status, an untouched one has no rows", async () => {

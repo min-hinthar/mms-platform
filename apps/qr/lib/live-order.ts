@@ -272,3 +272,25 @@ export function liveOrdersMoving(
 ): boolean {
   return orders.some((o) => o.hasTogoFood && o.togoStatus !== "ready" && isFired(o.fireAt, nowMs));
 }
+
+/** J (Codex on #359) — how often a READY bag is re-read: slower than a moving one (it waits on the
+ *  guest, not the kitchen), and never zero (its hand-off is the row leaving the list). */
+export const READY_BAG_POLL_MS = 120_000;
+
+/**
+ * J — is a re-read due on this tick? Every tick while a bag is moving (`liveOrdersMoving`); and for a
+ * READY bag, once `READY_BAG_POLL_MS` has passed since the last read (Codex on #359). The expo's
+ * picked-up tap is the server DROPPING the row (`getMyLiveOrders` filters `picked_up`), and these lists
+ * have no Realtime, so a Ready bag ruled at rest kept "Ready for pickup" on a visible page after the
+ * hand-off until a focus or visibility event. Still only a visible page (the caller's gate); a held
+ * pickup, a dine-in row and a grocery basket stay at rest.
+ */
+export function liveOrdersPollDue(
+  orders: ReadonlyArray<Pick<LiveOrder, "hasTogoFood" | "togoStatus" | "fireAt">>,
+  nowMs: number,
+  lastReadMs: number,
+): boolean {
+  if (liveOrdersMoving(orders, nowMs)) return true;
+  if (nowMs - lastReadMs < READY_BAG_POLL_MS) return false;
+  return orders.some((o) => o.hasTogoFood && o.togoStatus === "ready");
+}

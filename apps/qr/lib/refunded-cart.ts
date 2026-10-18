@@ -19,6 +19,20 @@ import { remainingPoolCents } from "./refund-console";
  * Pure: no I/O. The readers pass the order rows they already hold, and the line ledger
  * (`readLineRefunds`, `lib/refunded-cart-read.ts`) for the orders that need it.
  */
+/**
+ * #360 (Codex P1) — the `qr_orders` statuses a SETTLED order can hold, named once for every staff
+ * board that reads one: `paid`, and `refunded` — which only a CARD refund reaching the total writes
+ * (`mms_apply_refund_reconcile`); an equal cash refund leaves the order `paid` with `refunded_cents`
+ * raised. A board that read `paid` alone dropped the card bag the cash one keeps. A TAG, NEVER A
+ * CANCEL: both are read, and `foodRefundedInFull` tags the refunded one.
+ */
+export const SETTLED_ORDER_STATUSES = ["paid", "refunded"] as const;
+
+/** Is this order status one a settled order holds (`SETTLED_ORDER_STATUSES`)? */
+export function orderSettled(status: string): boolean {
+  return (SETTLED_ORDER_STATUSES as readonly string[]).includes(status);
+}
+
 export type RefundOrderRow = {
   id: string;
   cart_id: string | null;
@@ -29,8 +43,9 @@ export type RefundOrderRow = {
   tip_cents: number | null;
 };
 
-/** The line ledger for the orders a reader holds: each order's `qr_order_items` ids, and the ids the
- *  ledger holds a LINE refund for (`mms_refunds.order_item_id`, one per line by
+/** The line ledger for the orders a reader holds: each order's DISH `qr_order_items` ids (grocery
+ *  excluded — goods handed over, never cooked; #360, Codex P2), and the ids the ledger holds a LINE
+ *  refund for (`mms_refunds.order_item_id`, one per line by
  *  `mms_refunds_one_per_line`). `null` from the read = unreadable: the line arm is not decided. */
 export type LineRefunds = {
   itemsByOrder: ReadonlyMap<string, readonly string[]>;
@@ -46,15 +61,20 @@ export type LineRefunds = {
  * a cash tip by default (the blind pass on #360, CRITICAL 1). Any ONE of:
  *
  *   (a) the order is `refunded` — the processor's own verdict (a card refund reaching the total);
- *   (b) EVERY line of the order has a line refund in the ledger — exact: the amounts round each
- *       line's discount and tax shares separately and can sum a cent short of the pool, the rows
- *       cannot;
+ *   (b) EVERY DISH line of the order (grocery excluded, `readLineRefunds`) has a line refund in the
+ *       ledger — exact: the amounts round each line's discount and tax shares separately and can sum
+ *       a cent short of the pool, the rows cannot;
  *   (c) the amount refunded covers the goods pool, through the pool helper (never a copy of it). The
  *       amount is `refunded_cents`, not a ledger sum: every ledger insert raises it in the same
  *       transaction (`mms_record_refund`, `mms_refund_cash_line`; W23b backfilled the rows before
  *       it), and it ALSO carries a refund made from the processor's dashboard, which
  *       `mms_apply_refund_reconcile` records with no ledger row — the order-level refund the ledger
- *       never sees. So it is the ledger's sum and more, and needs no read.
+ *       never sees. So it is the ledger's sum and more, and needs no read. It still counts a kept
+ *       GROCERY line's value in the pool (#360, Codex P2): taking it out needs each grocery line's
+ *       price, quantity and its share of the order's discount and tax (`mms_refund_line_amount`'s
+ *       allocation) — a further read and a second copy of that SQL, data no reader holds. So a mixed
+ *       order whose dishes came back through the LEDGER is tagged by (b); one whose dishes came back
+ *       from the processor's dashboard alone (no ledger row) stays untagged — the honest miss.
  *
  * `lines` null (the ledger was unreadable) loses only (b): (a) and (c) read the order row itself.
  */

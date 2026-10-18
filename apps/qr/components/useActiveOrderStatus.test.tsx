@@ -20,10 +20,12 @@ vi.mock("@/lib/useOrderStatus", () => ({
   useOrderStatus: () => ({ ...status, refresh: () => {} }),
 }));
 const clearOrder = vi.fn();
+const noteTrackedOrder = vi.fn();
 vi.mock("./ActiveOrderProvider", () => ({
   useActiveOrder: () => ({
     order: { paymentIntent: "pi_1", cartId: "c1", mode: "dinein", createdAt: Date.now() },
     clearOrder,
+    noteTrackedOrder,
   }),
 }));
 vi.mock("@/lib/order-actions", () => ({ resolveSplitOrderId: () => Promise.resolve(null) }));
@@ -65,6 +67,7 @@ function tracked(over: Partial<TrackedOrder>): TrackedOrder {
 
 beforeEach(() => {
   clearOrder.mockReset();
+  noteTrackedOrder.mockReset();
   status = { order: null, timedOut: false, stale: false };
 });
 afterEach(cleanup);
@@ -125,5 +128,36 @@ describe("useActiveOrderStatus — a stale read is not a live status", () => {
     const { result } = renderHook(() => useActiveOrderStatus(true));
     expect(result.current.isDone).toBe(true);
     await waitFor(() => expect(clearOrder).toHaveBeenCalled());
+  });
+});
+
+describe("useActiveOrderStatus — the row it reads is noted on the pointer (Codex on #359)", () => {
+  it("a pickup row that lands HERE (the home card, the header) stamps its slot and basis on THIS order", async () => {
+    // A diner who left the Stripe return before /track saw the row: the pointer has no slot and
+    // no `landed`. RED when only OrderTracker notes: the pointer still expires 4 h after payment,
+    // and a pickup booked that evening or the next day loses its resume card on reopen.
+    status = {
+      order: tracked({
+        hasDineInFood: false,
+        hasTogoFood: true,
+        pickupSlot: "2026-10-14T01:20:00.000Z",
+        togoStatus: "preparing",
+        tableNumber: null,
+      }),
+      timedOut: false,
+      stale: false,
+    };
+    renderHook(() => useActiveOrderStatus(true));
+    await waitFor(() =>
+      expect(noteTrackedOrder).toHaveBeenCalledWith(
+        { pickupSlot: "2026-10-14T01:20:00.000Z", kind: "pickup", hasTogoFood: true },
+        { paymentIntent: "pi_1", cartId: "c1" },
+      ),
+    );
+  });
+
+  it("notes nothing before a row has landed", () => {
+    renderHook(() => useActiveOrderStatus(true));
+    expect(noteTrackedOrder).not.toHaveBeenCalled();
   });
 });

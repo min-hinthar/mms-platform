@@ -21,6 +21,8 @@ import { readUnpaidCounterCarts } from "./register-queue";
 import { counterUncollected, unpaidBag } from "./counter-order";
 import { settleLeftMs, soonerMs } from "./bump-settle";
 import { lineRefunded } from "./expo-rules";
+import { foodRefundedInFull, SETTLED_ORDER_STATUSES } from "./refunded-cart";
+import { readLineRefunds } from "./refunded-cart-read";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -114,12 +116,15 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     db
       .from("qr_orders")
       .select(
-        "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
+        // #360 — the amounts `foodRefundedInFull` tags a bag by (below).
+        "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id,status,total_cents,refunded_cents,service_charge_cents,tip_cents",
       )
       .in("togo_status", ["preparing", "ready"])
-      // The lifecycle audit — a REFUNDED order is nobody's bag: `charge.refunded` flips the status
-      // and nothing else, so the lane kept bagging a fully refunded order (OPEN-ITEMS: a cancel edge).
-      .eq("status", "paid")
+      // #360 (Codex P1) — BOTH settled statuses (`SETTLED_ORDER_STATUSES`): a card refund reaching
+      // the total flips the order `refunded` (`mms_apply_refund_reconcile`), and a paid-only read
+      // dropped that bag while an equal cash refund (still `paid`) stayed on the lane, tagged. A TAG,
+      // NEVER A CANCEL: the refunded bag stays, and `foodRefundedInFull` (below) tags it.
+      .in("status", [...SETTLED_ORDER_STATUSES])
       // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
       // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
       // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
@@ -148,6 +153,18 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
+  // #360 — an order whose FOOD was refunded in full is still `paid` (`mms_refund_cash_line` raises
+  // `refunded_cents` and leaves the status), and it STAYS on the lane, TAGGED, never hidden: A TAG,
+  // NEVER A CANCEL (`lib/refunded-cart.ts`). A full refund can be a goodwill gesture with the food
+  // still going out, the KDS keeps cooking it (and any comp on its cart, M250), and a hide here ran
+  // BEFORE the comp read, so the comp lost the bag it rides. Staff close a truly cancelled order
+  // from this lane as ever (OPEN-ITEMS J62 asks the owner which it is). The ONE rule the KDS, the
+  // floor and the table page tag by (`foodRefundedInFull`), per ORDER here (a ticket is an order),
+  // with the line ledger. Fails OPEN, the KDS's posture — NOT this lane's outage one: an unreadable
+  // ledger (`null`, logged) loses only the every-line arm, and the order row alone decides (its
+  // status, its amount against the goods pool). A partial refund is not tagged; its refunded lines
+  // are drawn "Refunded — don't bag" (`lineRefunded`, below).
+  const lineRefunds = await readLineRefunds(db, orders ?? [], "expo");
   // The paid bags' carts — the comp read (M250), the phone read and the kitchen-state read all key
   // by them. W21: the pickup contact phone lives on the CART; the order row joins back via cart_id.
   const cartIds = [
@@ -165,7 +182,8 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
   const nowMs = Date.parse(nowIso);
   // A cart the paid read already holds settled between the two reads: it is a PAID bag now, drawn
-  // once, as paid (Codex round 1 on #308 — never twice, once each way).
+  // once, as paid (Codex round 1 on #308 — never twice, once each way). "Paid" is the settled read's
+  // set, so a REFUNDED bag (#360, Codex P1) dedupes exactly as a paid one does.
   const paidCarts = new Set((orders ?? []).map((o) => o.cart_id).filter((c) => !!c));
   const bags = unpaidRead.carts.flatMap((c) => {
     if (paidCarts.has(c.id)) return [];
@@ -406,6 +424,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       arrivedAt: o.arrived_at ?? null,
       lines,
       createdAt: o.created_at,
+      // #360 — every dish refunded: drawn, TAGGED "check with the counter" (the table page's words
+      // for food going out), never dropped. Absent = not refunded in full.
+      ...(foodRefundedInFull(o, lineRefunds) ? { refunded: true as const } : {}),
     });
   }
 

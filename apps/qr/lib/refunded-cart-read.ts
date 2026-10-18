@@ -50,7 +50,7 @@ export async function readLineRefunds(
         chunks.map((chunk) =>
           db
             .from("qr_order_items")
-            .select("id,order_id")
+            .select("id,order_id,fulfillment")
             .in("order_id", chunk)
             .limit(LINE_REFUND_ROW_CAP),
         ),
@@ -83,6 +83,12 @@ export async function readLineRefunds(
     }
     const itemsByOrder = new Map<string, string[]>();
     for (const i of itemReads.flatMap((r) => r.data ?? [])) {
+      // #360 (Codex P2) — the DISHES only: the kitchen's question is "was every dish refunded?", and a
+      // grocery line is goods handed over, never cooked. Kept in, a mixed order with every dish
+      // refunded and its grocery kept read "not every line" here, while the amount arm (below the
+      // read, `foodRefundedInFull`) cannot help: the grocery's value is in the goods pool. A
+      // grocery-only order holds no dish, so it has no entry and the line arm has nothing to say.
+      if (i.fulfillment === "grocery") continue;
       const arr = itemsByOrder.get(i.order_id) ?? [];
       arr.push(i.id);
       itemsByOrder.set(i.order_id, arr);

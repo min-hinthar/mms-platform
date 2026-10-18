@@ -3752,6 +3752,82 @@ describe("the lifecycle audit — every kitchen mistake can be taken back, and n
     );
   });
 
+  it("a Done whose answer was LOST, the line still on the board, then voided — said (#360, Codex P2)", async () => {
+    // lck/kds/lost-done-never-settles — a thrown write never reaches the landing, so the mark stayed
+    // "still out" through every snapshot that showed the line and its later void was swallowed; red.
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    currentQueue = twoLines();
+    const q = mount("en", currentQueue);
+    bumpLine.mockImplementationOnce(() => Promise.reject(new Error("socket dropped")));
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    await flush(0);
+    expect(bumpLine).toHaveBeenCalledWith({ lineId: "line-1", to: "served" });
+    // the write never landed: the next good snapshot still shows the dish
+    await flush(5_000);
+    // …then a server voids it
+    const gone = twoLines();
+    gone.tickets[0] = { ...gone.tickets[0]!, lines: [gone.tickets[0]!.lines[1]!] };
+    currentQueue = gone;
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
+    );
+  });
+
+  it("a Done that hung past the bound and then THREW settles too: the line still on, then voided — said (#360, Codex P2)", async () => {
+    // lck/kds/late-lost-never-settles — the late arm of the same defect; red.
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    currentQueue = twoLines();
+    const q = mount("en", currentQueue);
+    const write = deferred<KitchenActionResult>();
+    bumpLine.mockImplementationOnce(() => write.promise);
+    await act(async () => {
+      fireEvent.click(q.container.querySelector<HTMLButtonElement>("#kds-line-line-1")!);
+    });
+    await flush(STAFF_HANG_MS);
+    await act(async () => {
+      write.reject(new Error("socket dropped"));
+    });
+    await flush(5_000); // the dish is still on the board
+    const gone = twoLines();
+    gone.tickets[0] = { ...gone.tickets[0]!, lines: [gone.tickets[0]!.lines[1]!] };
+    currentQueue = gone;
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
+    );
+  });
+
+  it("ALL DONE whose answer was LOST, the card still on the board, then voided — said (#360, Codex P2)", async () => {
+    // lck/kds/lost-bump-never-settles — the card bump's twin; red.
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    currentQueue = queue(); // a one-dish card: line-1
+    const q = mount("en", currentQueue);
+    bumpTicket.mockImplementationOnce(() => Promise.reject(new Error("socket dropped")));
+    await act(async () => {
+      fireEvent.click(q.getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    });
+    await flush(0);
+    expect(bumpTicket).toHaveBeenCalledTimes(1);
+    await flush(5_000); // the card is still there
+    currentQueue = { ...queue(), tickets: [] };
+    readLineFates.mockResolvedValueOnce({ ok: true, states: { "line-1": "voided" } });
+    await flush(5_000);
+    expect(readLineFates).toHaveBeenCalledWith(["line-1"]);
+    expect(q.container.querySelector(".kds-removed")?.textContent).toContain(
+      tf("en", "kds.removed", { x: `1× Mohinga · ${T4}` }),
+    );
+  });
+
   it("ALL DONE here, recalled elsewhere before this tablet saw the card leave, then voided — said (#360's blind pass)", async () => {
     // The card bump's own landing (`onBumped`) — the per-line case above has a twin here, which had
     // no test and no live mutant. lck/kds/card-bump-never-lands — the bump's landing is never

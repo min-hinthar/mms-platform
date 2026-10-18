@@ -79,6 +79,9 @@ let compLines: { cart_id: string; state: string; fulfillment: string }[] = [];
 /** What the orders read was filtered with: its `.eq()`s and its `.or()` expressions. */
 let orderEqs: [string, unknown][] = [];
 let orderOrs: string[] = [];
+/** #360 (Codex P1) — the `status` IN-list the orders read demanded (`null` = none); APPLIED to the
+ *  rows, so a read that asks for `paid` alone really loses the refunded bag. */
+let orderSettled: unknown[] | null = null;
 let sessions: SessionRow[] = [];
 let sessionsError: { message: string } | null = null;
 /** What the kitchen LINE read answers. */
@@ -164,6 +167,10 @@ vi.mock("@mms/db/server", () => ({
             return chain;
           },
           in: (col: string, values: unknown[]) => {
+            if (col === "status") {
+              orderSettled = values;
+              return chain;
+            }
             if (col !== "togo_status") throw new Error(`unexpected qr_orders filter ${col}`);
             statuses = values;
             orderStatuses = values;
@@ -185,6 +192,7 @@ vi.mock("@mms/db/server", () => ({
             if (ordersError) return Promise.resolve({ data: null, error: ordersError });
             const sorted = orders
               .filter((o) => statuses === null || statuses.includes(o.togo_status))
+              .filter((o) => orderSettled === null || orderSettled.includes(o.status))
               .sort((a, b) => {
                 for (const k of keys) {
                   const av = a[k.col];
@@ -447,6 +455,7 @@ beforeEach(() => {
   compLines = [];
   orderEqs = [];
   orderOrs = [];
+  orderSettled = null;
   sessions = [
     {
       id: "sess-togo",
@@ -1115,13 +1124,28 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
   });
 
-  it("a REFUNDED order is nobody's bag — never on the wall", async () => {
-    // lck/board-orders/refunded-on-the-wall — the read had no status filter.
+  it("a CARD full refund (`refunded`) is called exactly as the paid bag beside it — the wall reads togo_status (#360, Codex P1)", async () => {
+    // lck/board/card-refund-off-the-wall — `mms_apply_refund_reconcile` flips a card order refunded
+    // in full to `refunded`, and a paid-only read dropped it from the wall while the equal CASH
+    // refund (still `paid`) stayed called. A refund is a TAG, never a cancel: both settled statuses
+    // are read, and the rule (`boardOrderLive`) treats them alike, ready and preparing.
     pickupOnly();
-    orders = [{ ...order(TOGO, "sess-togo"), status: "refunded" }];
+    const R = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0002";
+    const P = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0003";
+    orders = [
+      { ...order(TOGO, "sess-togo"), status: "refunded" },
+      { ...order(R, "sess-togo", "preparing"), status: "refunded" },
+      order(P, "sess-togo", "preparing"),
+      { ...order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0004", "sess-togo"), status: "pending" },
+    ];
     const body = (await (await GET(req())).json()) as Body;
-    expect(body.orders).toEqual([]);
-    expect(orderEqs).toContainEqual(["status", "paid"]);
+    expect(body.orders).toEqual([
+      { code: "AA0001", status: "ready" },
+      { code: "AA0002", status: "preparing" },
+      { code: "AA0003", status: "preparing" },
+    ]);
+    expect(orderSettled).toEqual(["paid", "refunded"]);
+    expect(orderEqs.filter(([c]) => c === "status")).toEqual([]);
   });
 
   it("a pure scan-and-go basket is never called Ready — one food line makes it a bag", async () => {
@@ -1140,6 +1164,33 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
     compLines = [{ cart_id: `cart-${TOGO}`, state: "served", fulfillment: "togo" }];
     expect(((await (await GET(req())).json()) as Body).orders?.length).toBe(1);
+  });
+
+  // #360 — A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`). A cash refund of every dish leaves the
+  // order `paid`, and it can be goodwill with the food still handed over: the wall is driven by
+  // `togo_status` alone, so the code is still called, and staff close a cancelled order from the
+  // expo (OPEN-ITEMS J62 asks the owner which it is). A re-hide here goes red.
+  it("an order whose FOOD was refunded in full is still CALLED while it is paid — the wall reads togo_status (#360)", async () => {
+    pickupOnly();
+    // $20.00 with a $3.00 tip: every dish back is $17.00 — the pool, every dish refunded
+    const refundedRow = {
+      ...order(TOGO, "sess-togo"),
+      status: "paid",
+      total_cents: 2_000,
+      tip_cents: 300,
+      service_charge_cents: 0,
+      refunded_cents: 1_700,
+    } as OrderRow;
+    orders = [refundedRow];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([
+      { code: "AA0001", status: "ready" },
+    ]);
+    // …and a comp-only bag on that cart is still a bag, still called (M250)
+    orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
+    compLines = [{ cart_id: `cart-${TOGO}`, state: "served", fulfillment: "togo" }];
+    expect(((await (await GET(req())).json()) as Body).orders).toEqual([
+      { code: "AA0001", status: "ready" },
+    ]);
   });
 
   it("an unreadable bag read publishes every code, as before — a real bag is never left uncalled", async () => {

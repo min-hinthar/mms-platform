@@ -34,7 +34,7 @@ export type ActiveOrderStatus = {
  * and the hook opens no channel — collapsing what would otherwise be a duplicate realtime subscription.
  */
 export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
-  const { order, clearOrder } = useActiveOrder();
+  const { order, clearOrder, noteTrackedOrder } = useActiveOrder();
 
   // Resolve a split order id (no PI) so split orders can be tracked. The resolved id is stored WITH its cart
   // id and used only when it matches the CURRENT order's cart (below) — so a stale id from a prior split
@@ -124,6 +124,24 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
         trackRefunded(tracked.refund) ||
         tracked.status === "refunded" ||
         tracked.status === "failed"));
+
+  // E/F (Codex on #359) — note the row on the pointer HERE too, not only on /track: a diner who left
+  // the Stripe return before OrderTracker saw the webhook's row has a pointer with no slot and no
+  // `landed`, so a pickup booked that evening or the next day expired 4 h after payment even after
+  // the home card or the header had read its slot. `tracked` is always THIS pointer's row (it resets
+  // on a key change, and the split id is used only for the current cart), and the note names the
+  // order explicitly — off /track there is no URL to name it. The store skips an unchanged note.
+  const notePi = order?.paymentIntent ?? null;
+  const noteCart = order?.cartId ?? null;
+  const noteSlot = tracked?.pickupSlot ?? null;
+  const noteTogo = !!tracked?.hasTogoFood;
+  useEffect(() => {
+    if (kind)
+      noteTrackedOrder(
+        { pickupSlot: noteSlot, kind, hasTogoFood: noteTogo },
+        { paymentIntent: notePi, cartId: noteCart },
+      );
+  }, [kind, noteSlot, noteTogo, notePi, noteCart, noteTrackedOrder]);
 
   // Retire the resumable order on a terminal state. clearOrder defers its setState (rAF) → lint-safe.
   useEffect(() => {

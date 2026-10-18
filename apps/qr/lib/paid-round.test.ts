@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { paidRoundCapNote, paidRoundKitchen, type PaidKitchenRow } from "./paid-round";
+import {
+  paidRoundCapNote,
+  paidRoundDrawn,
+  paidRoundKitchen,
+  type PaidKitchenRow,
+} from "./paid-round";
 import { STAFF } from "./i18n/staff";
 import { fill } from "./i18n/fill";
 import { KDS_UNDO_MS } from "./kds-undo";
@@ -101,5 +106,35 @@ describe("paidRoundCapNote — under a cap, only a number that is TRUE (#360 bli
 
   it("no cap, no note", () => {
     expect(paidRoundCapNote(3, false, false)).toBeNull();
+  });
+
+  it("the dish read hit its cap and DRAWS nothing: older dishes are not listed — with no number (#360, Codex P2)", () => {
+    // lck/paid-round/zero-drawn-said-as-a-count — "Showing the latest 0 dishes" names a count of
+    // nothing; the true sentence is that older dishes are not here.
+    expect(say(paidRoundCapNote(0, true, false))).toBe("Older dishes aren’t listed here.");
+    expect(say(paidRoundCapNote(0, true, true))).toBe("Older dishes aren’t listed here.");
+    expect(say(paidRoundCapNote(0, false, true))).toBe("Older rounds aren’t listed here.");
+    expect(paidRoundCapNote(0, false, false)).toBeNull();
+  });
+});
+
+describe("paidRoundDrawn — the group is drawn when it has a dish OR a cap to say (#360, Codex P2)", () => {
+  const dish = {
+    id: "p",
+    name: "Tea",
+    qty: 1,
+    stage: "sent" as const,
+    notes: null,
+    modifiers: [],
+    togo: false,
+  };
+  it("a capped read whose dishes are all outside the linger still says it is capped", () => {
+    // lck/paid-round/empty-capped-group-undrawn — the length guard hid the truncation warning with
+    // the (empty) list, and the page said nothing of either.
+    expect(paidRoundDrawn([], true, false)).toBe(true);
+    expect(paidRoundDrawn([], false, true)).toBe(true);
+    expect(paidRoundDrawn([dish], false, false)).toBe(true);
+    // nothing to draw and nothing to say: no group
+    expect(paidRoundDrawn([], false, false)).toBe(false);
   });
 });

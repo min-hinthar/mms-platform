@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({ readMyLiveOrders: vi.fn() }));
 vi.mock("./orders", () => ({ readMyLiveOrders: h.readMyLiveOrders }));
 
 const { LIVE_ORDERS_POLL_MS, useLiveOrders } = await import("./useLiveOrders");
+const { READY_BAG_POLL_MS } = await import("./live-order");
 
 const ORDER = { id: "o1" } as LiveOrder;
 
@@ -173,6 +174,34 @@ describe("useLiveOrders — J, a re-poll for every caller, gated by the moving r
     const mountReads = h.readMyLiveOrders.mock.calls.length;
     await tick(3);
     expect(h.readMyLiveOrders.mock.calls.length).toBe(mountReads);
+  });
+
+  it("a READY bag is still re-read, at the slower READY_BAG_POLL_MS — its hand-off is the server dropping it (Codex on #359)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(Date.parse("2026-10-13T21:00:00.000Z"));
+    h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [] }); // the expo marked it picked up
+    render(<Seeded initial={[ready]} />);
+    const ticksPerRead = READY_BAG_POLL_MS / LIVE_ORDERS_POLL_MS;
+    await tick(ticksPerRead - 1); // inside the slower cadence: nothing read
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+    // RED when a Ready bag stops every tick: "Ready for pickup" stood after the hand-off until a
+    // focus or visibility event, because nothing pushes the picked_up transition to this list.
+    await tick();
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("polled").textContent).toBe("none");
+  });
+
+  it("never reads a Ready bag while the tab is hidden", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(Date.parse("2026-10-13T21:00:00.000Z"));
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    render(<Seeded initial={[ready]} />);
+    await tick((READY_BAG_POLL_MS / LIVE_ORDERS_POLL_MS) * 3);
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+    vis.mockRestore();
   });
 
   it("a HELD pickup starts the reads by itself once its fire_at passes", async () => {

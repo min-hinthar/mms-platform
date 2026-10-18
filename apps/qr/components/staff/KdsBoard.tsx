@@ -56,6 +56,7 @@ import {
   fateIds,
   mergeRemovals,
   ownBumpsAfter,
+  ownBumpsSettled,
   removalCandidates,
   removalsForStation,
   stoppedLineIds,
@@ -367,11 +368,15 @@ async function kitchenWrite<T>(
   key: string,
   say: KdsSay,
   land: (value: T) => void | Promise<void>,
+  /** #360 (Codex P2) — the answer was LOST (the action threw, now or late): whatever the caller
+   *  marked at the tap is settled, never left "still out" (`ownBumpsSettled`). */
+  lost?: () => void,
 ): Promise<void> {
   // ⚠️ The RAW action promise — never `boundWrite(raceTimeout(x))`, whose own timer reads a hang as
   // a throw and drops the late answer (lib/bounded-write.ts).
   const out = await boundWrite(raw);
   if (out.kind === "answer") return land(out.value);
+  if (out.kind === "threw") lost?.();
   if (out.kind === "threw") return say.err(unknownMsg(x));
   const waiting = waitingMsg(x);
   say.err(waiting);
@@ -383,6 +388,7 @@ async function kitchenWrite<T>(
     say.drop(waiting);
     if (late.kind === "answer") void land(late.value);
     else say.err(unknownMsg(x));
+    if (late.kind === "threw") lost?.();
   });
 }
 
@@ -659,7 +665,12 @@ export function KdsBoard({
   /** #360 (Codex P2) — an own bump's write LANDED: stamped with the fetch sequence now, so only a
    *  snapshot fetched after it can show the line "back" (`ownBumpsAfter`). */
   const ownLanded = useCallback((ids: readonly string[]) => {
-    for (const id of ids) if (ownBumps.current.has(id)) ownBumps.current.set(id, fetchSeq.current);
+    ownBumps.current = ownBumpsSettled(ownBumps.current, ids, fetchSeq.current);
+  }, []);
+  /** #360 (Codex P2) — an own bump whose answer was LOST settles the same way: a later snapshot that
+   *  still shows the line retires the mark, so a later void of it is said (`ownBumpsSettled`). */
+  const ownLost = useCallback((ids: readonly string[]) => {
+    ownBumps.current = ownBumpsSettled(ownBumps.current, ids, fetchSeq.current);
   }, []);
   const [soldOverrides, setSoldOverrides] = useState<ReadonlyMap<string, SoldOutOverride>>(
     () => new Map(),
@@ -2023,6 +2034,7 @@ export function KdsBoard({
                   onBumped={onBumped}
                   onLineDone={onLineDone}
                   ownBump={ownBump}
+                  ownLost={ownLost}
                   menuOpenId={menuLineId}
                   pending86={pending86}
                   onOpenMenu={openMenu}
@@ -2283,6 +2295,7 @@ function TicketCard({
   onBumped,
   onLineDone,
   ownBump,
+  ownLost,
   menuOpenId,
   pending86,
   onOpenMenu,
@@ -2309,6 +2322,8 @@ function TicketCard({
   /** The lifecycle audit — this tablet's own bumps (`on`), or a refused one taken back (`off`): the
    *  board's removal diff never calls out the cook's own tap. */
   ownBump: (ids: readonly string[], on: boolean) => void;
+  /** #360 (Codex P2) — an own bump whose write's answer was lost: settled, never left out. */
+  ownLost: (ids: readonly string[]) => void;
   /** Phase 2b — the line whose ⋯ sheet is open (its ⋯ is `aria-expanded`). */
   menuOpenId: string | null;
   /** Phase 2b — dishes whose 86 is in flight → the line whose sheet sent it. */
@@ -2395,6 +2410,8 @@ function TicketCard({
               label,
             );
         },
+        // #360 (Codex P2) — a LOST answer settles the tap's mark: never "still out" for good.
+        () => ownLost(lineIds),
       );
     } finally {
       pendingRef.current = false;
@@ -2578,6 +2595,7 @@ function TicketCard({
             onRefresh={onRefresh}
             landingHeld={landingHeld}
             ownBump={ownBump}
+            ownLost={ownLost}
             onServed={lineServed}
           />
         ))}
@@ -2662,6 +2680,7 @@ function KdsLineRow({
   onRefresh,
   landingHeld,
   ownBump,
+  ownLost,
   onServed,
 }: {
   line: KitchenLine;
@@ -2680,6 +2699,8 @@ function KdsLineRow({
   landingHeld: () => boolean;
   /** The lifecycle audit — this tablet's own bumps (see TicketCard). */
   ownBump: (ids: readonly string[], on: boolean) => void;
+  /** #360 (Codex P2) — an own bump whose answer was lost (see TicketCard). */
+  ownLost: (ids: readonly string[]) => void;
   /** The lifecycle audit — a Done that landed: the card offers its Undo pill and Bring-back chip. */
   onServed: (line: KitchenLine, dish: string, tappedAt: number) => void;
 }) {
@@ -2722,6 +2743,8 @@ function KdsLineRow({
           // row back to its stale state for a beat before the new snapshot landed.
           else await onRefresh();
         },
+        // #360 (Codex P2) — a Done whose answer was LOST settles its mark (see TicketCard).
+        serving ? () => ownLost([line.id]) : undefined,
       );
     } finally {
       pendingRef.current = false;

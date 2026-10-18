@@ -7,7 +7,9 @@ import {
   kindFromTrackedOrder,
   liveOrderModeLabel,
   liveOrdersMoving,
+  liveOrdersPollDue,
   liveOrderTrackHref,
+  READY_BAG_POLL_MS,
   liveWithoutSession,
   sameActiveOrder,
   staleOrderFate,
@@ -327,5 +329,26 @@ describe("the device's order pointer (lifecycle audit, 2026-10-13)", () => {
     expect(
       liveOrdersMoving([bag({ togoStatus: "preparing", fireAt: "2026-10-14T00:40:00.000Z" })], now),
     ).toBe(false);
+  });
+
+  it("J (Codex on #359) — a READY bag is re-read at the slower cadence until the server drops it", () => {
+    const now = Date.parse("2026-10-13T21:00:00.000Z");
+    const ready = { hasTogoFood: true, togoStatus: "ready", fireAt: null };
+    const cooking = { hasTogoFood: true, togoStatus: "preparing", fireAt: null };
+    const due = now - READY_BAG_POLL_MS; // the last read was exactly one cadence ago
+    const early = now - READY_BAG_POLL_MS + 1;
+    // RED when a Ready bag is never due: the picked_up hand-off is the row LEAVING the list, and
+    // nothing pushes that to /account Today or the tray.
+    expect(liveOrdersPollDue([ready], now, due)).toBe(true);
+    // RED when a Ready bag rides the 30 s tick: it waits on the guest, not the kitchen.
+    expect(liveOrdersPollDue([ready], now, early)).toBe(false);
+    // A fired bag still moving is due on every tick, whenever the last read was.
+    expect(liveOrdersPollDue([cooking], now, now)).toBe(true);
+    // A grocery basket's exit-pass "ready" (no to-go food) and a dine-in row stay at rest.
+    expect(liveOrdersPollDue([{ ...ready, hasTogoFood: false }], now, 0)).toBe(false);
+    expect(
+      liveOrdersPollDue([{ hasTogoFood: false, togoStatus: null, fireAt: null }], now, 0),
+    ).toBe(false);
+    expect(liveOrdersPollDue([], now, 0)).toBe(false);
   });
 });

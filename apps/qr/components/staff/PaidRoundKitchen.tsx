@@ -17,7 +17,9 @@ import { Chrome } from "./Chrome";
  * #360 — a dish on a round refunded IN FULL is drawn TAGGED, as the KDS tags its card (a full refund
  * can be a goodwill comp at a table still eating — never a cancel); and past a read's cap the group
  * holds the NEWEST dishes and says so, rather than passing a partial list off as the whole — with
- * only a number that is true (`paidRoundCapNote`; the blind pass, CRITICAL 2).
+ * only a number that is true (`paidRoundCapNote`; the blind pass, CRITICAL 2). #360 (Codex P2): a
+ * capped read that draws NO dish is still drawn (`paidRoundDrawn`), title and cap note only — no
+ * empty labelled list beside them, which a screen reader announces as a list of nothing.
  */
 export function PaidRoundKitchen({
   lang,
@@ -44,32 +46,34 @@ export function PaidRoundKitchen({
           <Chrome lang={lang} k={capSay.key} vars={capSay.vars} echo="stack" />
         </p>
       )}
-      <ul role="list" aria-labelledby={id} style={list}>
-        {lines.map((l) => (
-          <li key={l.id} style={row}>
-            <span>
-              {l.qty}× {l.name}
-            </span>
-            <span style={tag}>
-              {" · "}
-              <Chrome lang={lang} k={lineTagKey({ state: "", stage: l.stage })} />
-              {l.togo && (
-                <>
-                  {" · "}
-                  <Chrome lang={lang} k="table.line.toGo" />
-                </>
-              )}
-            </span>
-            {l.refunded && (
-              <span style={refundTag}>
-                <Chrome lang={lang} k="table.detail.paidKitchen.refunded" echo="stack" />
+      {lines.length > 0 && (
+        <ul role="list" aria-labelledby={id} style={list}>
+          {lines.map((l) => (
+            <li key={l.id} style={row}>
+              <span>
+                {l.qty}× {l.name}
               </span>
-            )}
-            {l.modifiers.length > 0 && <span style={mods}>{l.modifiers.join(" · ")}</span>}
-            {l.notes && <span style={note}>“{l.notes}”</span>}
-          </li>
-        ))}
-      </ul>
+              <span style={tag}>
+                {" · "}
+                <Chrome lang={lang} k={lineTagKey({ state: "", stage: l.stage })} />
+                {l.togo && (
+                  <>
+                    {" · "}
+                    <Chrome lang={lang} k="table.line.toGo" />
+                  </>
+                )}
+              </span>
+              {l.refunded && (
+                <span style={refundTag}>
+                  <Chrome lang={lang} k="table.detail.paidKitchen.refunded" echo="stack" />
+                </span>
+              )}
+              {l.modifiers.length > 0 && <span style={mods}>{l.modifiers.join(" · ")}</span>}
+              {l.notes && <span style={note}>“{l.notes}”</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

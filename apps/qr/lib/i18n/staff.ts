@@ -3169,6 +3169,12 @@ export const STAFF = {
     en: "Showing the latest {n} dishes — older ones aren’t listed here.",
     my: "နောက်ဆုံး ဟင်း {n} ခုကိုပဲ ပြထားတယ် — အရင်ကဟာတွေ ဒီမှာ မပါပါ။",
   }, // K15 draft — grounded: floor.kitchen.notSent {n} ခု
+  // #360 (Codex P2) — the paid-round DISH read hit its cap and DRAWS nothing (every dish it read was
+  // served past the linger): no count is true, so none is said (`paidRoundCapNote`).
+  "table.detail.paidKitchen.olderDishes": {
+    en: "Older dishes aren’t listed here.",
+    my: "အရင်က ဟင်းတွေ ဒီမှာ မပါပါ။",
+  }, // K15 draft — grounded: table.detail.paidKitchen.capped.many ဟင်း · အရင်ကဟာတွေ ဒီမှာ မပါပါ
   // #360 (the blind pass, CRITICAL 2) — only the paid round's ROUND read hit its cap: older rounds
   // were not read, so no count is known — and none is said.
   "table.detail.paidKitchen.olderRounds": {
