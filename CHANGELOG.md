@@ -20,6 +20,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   Filed: M308 (a cash refund's status flip), M309 (high: RLS lets any current session member read the
   session's orders, `receipt_email` included) and T60 (the pill's stale pickup word); K30(A), M64 and
   M206 updated.
+- **Codex on #359: a Ready bag is re-read every 2 minutes (visible pages only), and the pill and the home card note the row they read.** The tray and /account Today now see the expo's hand-off without a tab switch, and a pickup's pointer keeps its slot when /track never saw the row.
 
 ### The open-items registry, read against the code (2026-10-12, docs only)
 

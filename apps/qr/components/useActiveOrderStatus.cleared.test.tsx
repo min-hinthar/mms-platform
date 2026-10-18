@@ -37,7 +37,7 @@ vi.mock("@/lib/useAnonSession", () => ({ useAnonSession: () => anon }));
 let stored: ActiveOrder;
 const clearOrder = vi.fn();
 vi.mock("./ActiveOrderProvider", () => ({
-  useActiveOrder: () => ({ order: stored, clearOrder }),
+  useActiveOrder: () => ({ order: stored, clearOrder, noteTrackedOrder: () => {} }),
 }));
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 vi.mock("@/lib/order-actions", () => ({ resolveSplitOrderId: () => Promise.resolve(ORDER_ID) }));

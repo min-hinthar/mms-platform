@@ -64,8 +64,13 @@ type ActiveOrderCtx = {
   /** /track tells the store what it learned once the order's row lands: that it EXISTS (`landed`, F)
    *  and its pickup slot (E — a pickup booked hours ahead stays resumable until its slot). Applies
    *  only to the stored order the current /track URL names (a tray link to another order never
-   *  stretches or marks this one). */
-  noteTrackedOrder: (info: { pickupSlot: string | null } & StaleBasis) => void;
+   *  stretches or marks this one) — or, off /track, the order the caller names in `about`: the pill
+   *  and the home card read the stored pointer's own row (Codex on #359: a diner who left the Stripe
+   *  return before /track saw the row otherwise kept the 4 h capture TTL on a pickup booked later). */
+  noteTrackedOrder: (
+    info: { pickupSlot: string | null } & StaleBasis,
+    about?: { paymentIntent: string | null; cartId: string | null },
+  ) => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
    *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
    *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
@@ -293,7 +298,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   // async read, never on OrderTracker's first render — so the capture (in the commit that mounted
   // /track) has already written the pointer this reads, and its frame callback was scheduled first.
   // Frame callbacks run in the order they were scheduled, so in a shared frame this one lands last.
-  const noteTrackedOrder = useCallback((info: { pickupSlot: string | null } & StaleBasis) => {
+  const noteTrackedOrder = useCallback<ActiveOrderCtx["noteTrackedOrder"]>((info, about) => {
     try {
       const raw = localStorage.getItem(KEY_ORDER);
       if (!raw) return;
@@ -307,9 +312,9 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
         (o.pickupSlot ?? null) === pickupSlot
       )
         return;
-      // Only the order the page is ABOUT: the /track URL in the address bar right now.
+      // Only the order the caller is ABOUT: the one it names, else the /track URL in the address bar.
       const url = new URLSearchParams(window.location.search);
-      const key = { paymentIntent: url.get("payment_intent"), cartId: url.get("cart") };
+      const key = about ?? { paymentIntent: url.get("payment_intent"), cartId: url.get("cart") };
       if (!sameActiveOrder(o, key)) return;
       const next: ActiveOrder = { ...o, landed, pickupSlot };
       localStorage.setItem(KEY_ORDER, JSON.stringify(next));

@@ -375,4 +375,55 @@ describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13
     expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
     window.history.replaceState(null, "", "/");
   });
+
+  it("E/F (Codex on #359) — a caller off /track notes the order it NAMES: the home card stamps it; another order is refused", async () => {
+    // The diner left the Stripe return before /track saw the row, then the home card read it.
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({
+        paymentIntent: "pi_1",
+        cartId: null,
+        mode: "pickup",
+        createdAt: Date.now(),
+      }),
+    );
+    pathname = "/";
+    search = "";
+    window.history.replaceState(null, "", "/");
+    function Noter({ pi, slot }: { pi: string; slot: string }) {
+      const { noteTrackedOrder } = useActiveOrder();
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            noteTrackedOrder(
+              { pickupSlot: slot, kind: "pickup", hasTogoFood: true },
+              { paymentIntent: pi, cartId: null },
+            )
+          }
+        >
+          note
+        </button>
+      );
+    }
+    const r = render(
+      <ActiveOrderProvider>
+        <Noter pi="pi_2" slot="2026-10-20T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    act(() => screen.getByRole("button").click());
+    // A row for ANOTHER order never stretches this one.
+    expect(stored().pickupSlot).toBeUndefined();
+    r.rerender(
+      <ActiveOrderProvider>
+        <Noter pi="pi_1" slot="2026-10-14T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    act(() => screen.getByRole("button").click());
+    // RED when only the /track URL can name the order: on "/" there is none, the note is dropped,
+    // and the pointer still expires four hours after payment.
+    expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
+    expect(stored().landed).toEqual({ kind: "pickup", hasTogoFood: true });
+  });
 });
