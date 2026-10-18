@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * `supabase/tests/m210_team_safety_test.sql` and, for the orders, `scripts/verify-team-race.mjs`.
  * What is left HERE is the wiring, which is where a hole ships just as well:
  *   · the RPC is asked about the right people — the caller's ROW (`staffId`), never the session's
- *     uid, and the role the action READ as the role the console showed;
+ *     uid, and the role the CONSOLE showed (`seenRole`, sent with the request) — never the action's
+ *     own read of the row, which is milliseconds old and so can never be the stale one;
  *   · its verdict is READ — a refusal, an error or an answer we cannot parse never reports ok, a
  *     no-op announces nothing, and a failed invite deletes the auth user it made;
  *   · the session-aware checks that stay in TypeScript: the floor at the door, the self check's
@@ -143,7 +144,14 @@ vi.mock("@mms/db/server", () => ({
       rpcCalls.push([name, args]);
       if (name === "mms_rate_limit") return Promise.resolve({ data: true, error: null });
       if (rpcError) return Promise.resolve({ data: null, error: { message: "rpc down" } });
-      if (name === "mms_staff_set") return Promise.resolve({ data: setVerdict, error: null });
+      if (name === "mms_staff_set")
+        return Promise.resolve({
+          data:
+            typeof setVerdict === "function"
+              ? (setVerdict as (a: Row) => unknown)(args)
+              : setVerdict,
+          error: null,
+        });
       if (name === "mms_staff_provision")
         return Promise.resolve({ data: provisionVerdict, error: null });
       throw new Error(`unexpected rpc ${name}`);
@@ -201,6 +209,20 @@ afterEach(() => {
   if (POSTHOG_KEY_BEFORE === undefined) delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
   else process.env.NEXT_PUBLIC_POSTHOG_KEY = POSTHOG_KEY_BEFORE;
 });
+
+/** A refusal as the action reports it: a `changed` verdict also asks the console to re-read the
+ *  roster, since the screen the manager acted on is the thing that went stale. */
+const refused = (verdict: unknown, error: string) =>
+  (verdict as { status?: unknown } | null)?.status === "changed"
+    ? { ok: false, error, refresh: true }
+    : { ok: false, error };
+
+/** What `mms_staff_set` decides about the role the console showed, against the row as it is now —
+ *  the one rule this suite must SEE run, because the hole is which value reaches it. */
+const decideSeen = (args: Row) =>
+  args.p_seen_role !== targetRow?.role
+    ? { status: "changed", role: targetRow?.role }
+    : { status: "ok", email: "target@example.com" };
 
 const invite = (role: Role = "server") =>
   provisionStaff({ email: "New@Example.com", displayName: "New Person", role });
@@ -310,9 +332,9 @@ describe("provisionStaff — the staff row goes through the RPC, and a refusal l
 });
 
 describe("setStaffActive — one RPC call decides and writes", () => {
-  it("asks about the caller's ROW, the member, the role it READ, and the flag", async () => {
+  it("asks about the caller's ROW, the member, the role the console SHOWED, and the flag", async () => {
     callerRole = "manager";
-    const res = await setStaffActive({ userId: TARGET, active: false });
+    const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: true });
     expect(teamCalls()).toEqual([
       [
@@ -322,25 +344,47 @@ describe("setStaffActive — one RPC call decides and writes", () => {
     ]);
   });
 
+  it("sends the role the CONSOLE showed, not the one its own read just found — a stale screen is refused", async () => {
+    // The Team screen loaded while this member was a manager; they have been demoted to server since.
+    // The action's own read sees "server", so only the console's value can tell the two apart.
+    targetRow = { user_id: TARGET, email: "target@example.com", active: true, role: "server" };
+    setVerdict = decideSeen;
+    const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "manager" });
+    expect(teamCalls()[0]?.[1]).toMatchObject({ p_seen_role: "manager" });
+    expect(res).toEqual({
+      ok: false,
+      error: "That member’s role just changed — the list now shows it. Check it and try again.",
+      refresh: true,
+    });
+    expect(deactivationEmails).toEqual([]);
+    expect(analytics).toEqual([]);
+  });
+
+  it("refuses a request that does not say what the console showed", async () => {
+    const res = await setStaffActive({ userId: TARGET, active: false });
+    expect(res).toEqual({ ok: false, error: "Invalid request." });
+    expect(teamCalls()).toEqual([]);
+  });
+
   it("records the change it made as the secondary analytics event", async () => {
-    await setStaffActive({ userId: TARGET, active: false });
+    await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(analytics).toEqual(["staff_deactivated"]);
   });
 
   it("tells the address the RPC switched off, not the one read a moment earlier", async () => {
     setVerdict = { status: "ok", email: "current@example.com" };
-    await setStaffActive({ userId: TARGET, active: false });
+    await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(deactivationEmails).toEqual(["current@example.com"]);
   });
 
   it("sends no heads-up on a reactivation", async () => {
-    await setStaffActive({ userId: TARGET, active: true });
+    await setStaffActive({ userId: TARGET, active: true, seenRole: "server" });
     expect(deactivationEmails).toEqual([]);
   });
 
   it("a no-op is success, and announces nothing", async () => {
     setVerdict = { status: "noop", role: "server", active: false };
-    const res = await setStaffActive({ userId: TARGET, active: false });
+    const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: true });
     expect(deactivationEmails).toEqual([]);
     expect(analytics).toEqual([]);
@@ -348,7 +392,10 @@ describe("setStaffActive — one RPC call decides and writes", () => {
 
   const refusals: [unknown, string][] = [
     [{ status: "ceiling" }, "Only the owner can change an owner’s account."],
-    [{ status: "changed", role: "owner" }, "That member just changed — reload and try again."],
+    [
+      { status: "changed", role: "owner" },
+      "That member’s role just changed — the list now shows it. Check it and try again.",
+    ],
     [{ status: "not_authorized" }, "That needs a manager — ask one to step in."],
     [{ status: "self" }, "You can’t deactivate your own account."],
     [{ status: "not_found" }, "No such staff member."],
@@ -358,15 +405,15 @@ describe("setStaffActive — one RPC call decides and writes", () => {
   for (const [verdict, error] of refusals) {
     it(`the database's ${JSON.stringify(verdict)} → "${error}", and no heads-up`, async () => {
       setVerdict = verdict;
-      const res = await setStaffActive({ userId: TARGET, active: false });
-      expect(res).toEqual({ ok: false, error });
+      const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
+      expect(res).toEqual(refused(verdict, error));
       expect(deactivationEmails).toEqual([]);
     });
   }
 
   it("an RPC error is a failure, never ok", async () => {
     rpcError = true;
-    const res = await setStaffActive({ userId: TARGET, active: false });
+    const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "Couldn’t update that member. Try again." });
   });
 
@@ -374,28 +421,28 @@ describe("setStaffActive — one RPC call decides and writes", () => {
     // The database refuses self by ROW; a session whose e-mail names this row while its uid does not
     // (an allowlisted Google sign-in) is caught here or nowhere.
     targetRow = { user_id: OTHER, email: "Caller@Example.com", active: true, role: "manager" };
-    const res = await setStaffActive({ userId: OTHER, active: false });
+    const res = await setStaffActive({ userId: OTHER, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "You can’t deactivate your own account." });
     expect(teamCalls()).toEqual([]);
   });
 
   it("refuses a member who is not there at all, without asking", async () => {
-    const res = await setStaffActive({ userId: ABSENT, active: false });
+    const res = await setStaffActive({ userId: ABSENT, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "No such staff member." });
     expect(teamCalls()).toEqual([]);
   });
 
   it("reports an OUTAGE when the member's row is unreadable, never 'no such member'", async () => {
     targetRowUnreadable = true;
-    const res = await setStaffActive({ userId: TARGET, active: false });
+    const res = await setStaffActive({ userId: TARGET, active: false, seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "outage" });
     expect(teamCalls()).toEqual([]);
   });
 });
 
 describe("setStaffRole — one RPC call decides and writes", () => {
-  it("asks about the caller's ROW, the member, the role it READ, and the role requested", async () => {
-    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+  it("asks about the caller's ROW, the member, the role the console SHOWED, and the role requested", async () => {
+    const res = await setStaffRole({ userId: TARGET, role: "manager", seenRole: "server" });
     expect(res).toEqual({ ok: true });
     expect(teamCalls()).toEqual([
       [
@@ -407,7 +454,10 @@ describe("setStaffRole — one RPC call decides and writes", () => {
 
   const refusals: [unknown, string][] = [
     [{ status: "ceiling" }, "Only the owner can change an owner’s role."],
-    [{ status: "changed", role: "manager" }, "That role just changed — reload and try again."],
+    [
+      { status: "changed", role: "manager" },
+      "That role just changed — the list now shows it. Check it and try again.",
+    ],
     [{ status: "not_authorized" }, "That needs a manager — ask one to step in."],
     [{ status: "self" }, "You can’t change your own role."],
     [{ status: "not_found" }, "No such staff member."],
@@ -416,34 +466,68 @@ describe("setStaffRole — one RPC call decides and writes", () => {
   for (const [verdict, error] of refusals) {
     it(`the database's ${JSON.stringify(verdict)} → "${error}"`, async () => {
       setVerdict = verdict;
-      expect(await setStaffRole({ userId: TARGET, role: "manager" })).toEqual({ ok: false, error });
+      expect(await setStaffRole({ userId: TARGET, role: "manager", seenRole: "server" })).toEqual(
+        refused(verdict, error),
+      );
     });
   }
+
+  it("sends the role the CONSOLE showed, not the one its own read just found — a stale screen is refused", async () => {
+    // The screen still shows a server; someone made them a manager since. Asking to make them a
+    // manager again would otherwise read as a no-op, and asking for owner would be decided on a look
+    // nobody had.
+    targetRow = { user_id: TARGET, email: "target@example.com", active: true, role: "manager" };
+    setVerdict = decideSeen;
+    const res = await setStaffRole({ userId: TARGET, role: "owner", seenRole: "server" });
+    expect(teamCalls()[0]?.[1]).toMatchObject({ p_seen_role: "server", p_role: "owner" });
+    expect(res).toEqual({
+      ok: false,
+      error: "That role just changed — the list now shows it. Check it and try again.",
+      refresh: true,
+    });
+    expect(analytics).toEqual([]);
+  });
+
+  it("asks the database even when its own read says the member is already there", async () => {
+    // The console showed a server and asked for manager; the row is a manager already. Whether that
+    // is a no-op or a stale screen is the database's call — never answered ok from a read.
+    targetRow = { user_id: TARGET, email: "target@example.com", active: true, role: "manager" };
+    setVerdict = decideSeen;
+    const res = await setStaffRole({ userId: TARGET, role: "manager", seenRole: "server" });
+    expect(teamCalls()).toHaveLength(1);
+    expect(res).toMatchObject({ ok: false, refresh: true });
+  });
+
+  it("refuses a request that does not say what the console showed", async () => {
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res).toEqual({ ok: false, error: "Invalid request." });
+    expect(teamCalls()).toEqual([]);
+  });
 
   it("REFUSES changing your OWN role, matched by e-mail as well as uid, before asking", async () => {
     // A manager promoting themselves is the shortest path of all; and the sole owner demoting
     // themselves leaves the place with no owner and nobody able to restore one.
     callerRole = "manager";
     targetRow = { user_id: OTHER, email: "caller@example.com", active: true, role: "manager" };
-    const res = await setStaffRole({ userId: OTHER, role: "owner" });
+    const res = await setStaffRole({ userId: OTHER, role: "owner", seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "You can’t change your own role." });
     expect(teamCalls()).toEqual([]);
   });
 
   it("treats a no-op change as success without asking", async () => {
-    const res = await setStaffRole({ userId: TARGET, role: "server" });
+    const res = await setStaffRole({ userId: TARGET, role: "server", seenRole: "server" });
     expect(res).toEqual({ ok: true });
     expect(teamCalls()).toEqual([]);
   });
 
   it("refuses a member who is not there at all", async () => {
-    const res = await setStaffRole({ userId: ABSENT, role: "manager" });
+    const res = await setStaffRole({ userId: ABSENT, role: "manager", seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "No such staff member." });
   });
 
   it("reports an OUTAGE when the session is unreadable", async () => {
     authKind = "unavailable";
-    expect(await setStaffRole({ userId: TARGET, role: "manager" })).toEqual({
+    expect(await setStaffRole({ userId: TARGET, role: "manager", seenRole: "server" })).toEqual({
       ok: false,
       error: "outage",
     });
@@ -451,7 +535,7 @@ describe("setStaffRole — one RPC call decides and writes", () => {
 
   it("refuses a server at the door, without asking", async () => {
     callerRole = "server";
-    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    const res = await setStaffRole({ userId: TARGET, role: "manager", seenRole: "server" });
     expect(res).toEqual({ ok: false, error: "That needs a manager — ask one to step in." });
     expect(teamCalls()).toEqual([]);
   });

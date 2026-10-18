@@ -15,7 +15,9 @@
  * must not answer ok, one layer up).
  */
 
-export type StaffActionResult = { ok: true } | { ok: false; error: string };
+/** `refresh: true` rides a refusal whose cause is the SCREEN — the role it showed is not the row's
+ *  any more (`changed`) — so the console re-reads the roster instead of leaving the stale look up. */
+export type StaffActionResult = { ok: true } | { ok: false; error: string; refresh?: true };
 
 /** A6 — ONE floor-refusal sentence for all three team actions. Named once because it is the string a
  *  server sees when they POST at a screen they cannot open, and three hand-copied versions is how
@@ -92,12 +94,15 @@ export function setOutcome(
             : "You can’t deactivate your own account.",
       };
     case "changed":
+      // The console re-reads the roster on `refresh`, so the sentence says the list is current
+      // now — never "reload", which would ask the manager to do what the screen just did.
       return {
         ok: false,
         error:
           kind === "role"
-            ? "That role just changed — reload and try again."
-            : "That member just changed — reload and try again.",
+            ? "That role just changed — the list now shows it. Check it and try again."
+            : "That member’s role just changed — the list now shows it. Check it and try again.",
+        refresh: true,
       };
     case "ceiling":
       return {

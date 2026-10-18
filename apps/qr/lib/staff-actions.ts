@@ -313,9 +313,13 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   // M208 · M210 · M205 — ONE call decides and writes. `mms_staff_set` takes the team lock, the
   // caller's row FOR SHARE (their authority, which nothing can revoke mid-call) and the target's FOR
   // UPDATE, then refuses — before any write — a caller gone, off or below the floor, the caller
-  // themselves, a role that is no longer `target.role` (the one the console showed: a member promoted
-  // to owner since the look is not offboarded on a server's permission), and A6's ceiling on the
-  // target's CURRENT role. The flip and its `staff_audit` row commit together.
+  // themselves, a role that is no longer `seenRole` (the one the CONSOLE showed: a member promoted
+  // to owner since the screen loaded is not offboarded on a server's permission), and A6's ceiling
+  // on the target's CURRENT role. The flip and its `staff_audit` row commit together.
+  //
+  // ⚠️ `p_seen_role` is the console's value, never `target.role`: the read above is milliseconds
+  // old, so a guard fed from it could not fail (the blind pass on #366 — the claim was made, the
+  // wiring did not keep it). A `changed` answer asks the console to re-read the roster.
   //
   // The verdict is READ, never assumed: the RPC answers jsonb, and anything it does not say is `ok`
   // or `noop` — an error, an unknown status, a shape we cannot parse — reports a failure rather than
@@ -323,7 +327,7 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   const { data: verdictData, error } = await db.rpc("mms_staff_set", {
     p_caller: caller.staffId,
     p_target: parsed.data.userId,
-    p_seen_role: target.role,
+    p_seen_role: parsed.data.seenRole,
     p_active: parsed.data.active,
   });
   const verdict = error ? null : readSetVerdict(verdictData);
@@ -364,8 +368,9 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
  *     over from below.
  *
  * Since M208 · M210 all three are decided again — and finally — by `mms_staff_set`, in the same
- * transaction as the write, under the target's row lock: the role the console showed must still be
- * the role (`p_seen_role`), or the call answers `changed` and writes nothing. That is the statement
+ * transaction as the write, under the target's row lock: the role the console showed (`seenRole`,
+ * sent by the Team screen) must still be the role (`p_seen_role`), or the call answers `changed`,
+ * writes nothing, and the console re-reads the roster. That is the statement
  * guard the old `.eq("role", current)` was, moved to where nothing can change the row between the
  * decision and the write.
  */
@@ -382,7 +387,7 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   const db = serviceClient();
   const { data: target, error: targetError } = await db
     .from("staff")
-    .select("user_id,email,role")
+    .select("user_id,email")
     .eq("user_id", parsed.data.userId)
     .maybeSingle();
   // W10b — an unread row is not "no such staff member", and neither the self-check nor the ceiling
@@ -395,8 +400,11 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
     (!!target.email && !!caller.email && target.email.toLowerCase() === caller.email);
   if (isSelf) return { ok: false, error: "You can’t change your own role." };
 
-  const current = target.role as StaffRole;
-  if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
+  // A request that asks for the role the console already showed changes nothing — a no-op, not a
+  // failure, answered without a call. Decided on the CONSOLE's value, never the read above: a member
+  // whose role moved since the screen loaded is the database's `changed`, not a silent ok.
+  const seen: StaffRole = parsed.data.seenRole;
+  if (seen === parsed.data.role) return { ok: true };
 
   // M208 · M210 · M205 — ONE call decides and writes (see `setStaffActive` for the locks). The
   // ceiling is decided there on BOTH halves — the target's current role and the requested one — on
@@ -405,7 +413,7 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   const { data: verdictData, error } = await db.rpc("mms_staff_set", {
     p_caller: caller.staffId,
     p_target: parsed.data.userId,
-    p_seen_role: current,
+    p_seen_role: seen,
     p_role: parsed.data.role,
   });
   const verdict = error ? null : readSetVerdict(verdictData);
@@ -414,7 +422,7 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
 
   auditStaffAction("staff_role_changed", caller.staffId, {
     target_user_id: parsed.data.userId,
-    from_role: current,
+    from_role: seen, // `ok` proves the row WAS `seen` when the RPC wrote over it
     to_role: parsed.data.role,
   });
   revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen

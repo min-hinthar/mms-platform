@@ -334,13 +334,21 @@ export const staffReportInput = z.object({
     .strict(),
 });
 
+/** The role a Team console row DISPLAYED when the manager acted on it (M210 · `mms_staff_set`'s
+ *  `p_seen_role`). Required, and only the console can supply it: the action's own read of the row
+ *  happens milliseconds before the call, so it can never be stale, and a guard fed from it refuses
+ *  nothing. A screen loaded before someone else changed this member's role is what it catches. */
+const seenRole = z.enum(["server", "manager", "owner"]);
+
 /** setStaffActive (S1.1a) — a manager or owner offboards/reinstates a staff member (never deletes
  *  the audit trail; flips `active`, which is_staff/is_staff_at_least gate on). Gated server-side at
- *  `manager` since A6, and the ACTION additionally refuses a target who outranks the caller — a
- *  bound this transport shape cannot express, because the target's role is not in the input. */
+ *  `manager` since A6, and the ACTION additionally refuses a target who outranks the caller. The
+ *  `seenRole` here is what the screen showed, NOT an authority: the ceiling is decided on the row's
+ *  committed role by `mms_staff_set`, and a `seenRole` that differs from it only refuses (`changed`). */
 export const setStaffActiveInput = z.object({
   userId: uuid,
   active: z.boolean(),
+  seenRole,
 });
 
 /**
@@ -356,6 +364,8 @@ export const setStaffActiveInput = z.object({
 export const setStaffRoleInput = z.object({
   userId: uuid,
   role: z.enum(["server", "manager", "owner"]),
+  /** What the console showed for this member — see `seenRole` above. */
+  seenRole,
 });
 
 /**

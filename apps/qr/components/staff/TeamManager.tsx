@@ -171,9 +171,12 @@ export function TeamManager({
     setRolePendingUid(row.userId);
     say(null);
     try {
-      const res = await track(setStaffRole({ userId: row.userId, role: next }));
+      // M210 — `seenRole` is the role THIS row displayed: the database refuses (`changed`) when it
+      // is not the member's role any more, so a screen gone stale since it loaded never decides.
+      const res = await track(setStaffRole({ userId: row.userId, role: next, seenRole: row.role }));
       if (!res.ok) {
         say({ ok: false, m: res.error });
+        if (res.refresh) router.refresh(); // the refusal WAS the stale screen: show the real one
         // The <select> is CONTROLLED by `row.role` (server state), so a refused change snaps back
         // to the stored role on its own — no local mirror to unwind, and the console never shows a
         // role nobody saved. That holds for the throw below too.
@@ -195,9 +198,12 @@ export function TeamManager({
     setPendingUid(row.userId);
     say(null);
     try {
-      const res = await track(setStaffActive({ userId: row.userId, active: !row.active }));
+      const res = await track(
+        setStaffActive({ userId: row.userId, active: !row.active, seenRole: row.role }),
+      );
       if (!res.ok) {
         say({ ok: false, m: res.error });
+        if (res.refresh) router.refresh(); // the refusal WAS the stale screen: show the real one
         return;
       }
       router.refresh();

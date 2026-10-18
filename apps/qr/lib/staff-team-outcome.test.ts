@@ -78,7 +78,8 @@ describe("setOutcome — what the console says", () => {
     });
     expect(setOutcome("role", { status: "changed" })).toEqual({
       ok: false,
-      error: "That role just changed — reload and try again.",
+      error: "That role just changed — the list now shows it. Check it and try again.",
+      refresh: true, // the one refusal whose cause is the screen: the console re-reads the roster
     });
     expect(setOutcome("role", { status: "ceiling" })).toEqual({
       ok: false,
@@ -97,7 +98,8 @@ describe("setOutcome — what the console says", () => {
     });
     expect(setOutcome("active", { status: "changed" })).toEqual({
       ok: false,
-      error: "That member just changed — reload and try again.",
+      error: "That member’s role just changed — the list now shows it. Check it and try again.",
+      refresh: true,
     });
     expect(setOutcome("active", { status: "ceiling" })).toEqual({
       ok: false,
