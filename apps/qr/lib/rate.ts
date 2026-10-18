@@ -5,6 +5,8 @@ import {
   MUTATE_RATE,
   PEEK_RATE,
   RECEIPT_RATE,
+  RECOVER_CART_RATE,
+  RECOVER_RATE,
   STAFF_PROMO_RATE,
   STEPUP_RATE,
 } from "./limits";
@@ -80,6 +82,16 @@ export function withinStaffPromoRate(callerStaffId: string): Promise<boolean> {
     STAFF_PROMO_RATE.max,
     STAFF_PROMO_RATE.windowSeconds,
   );
+}
+
+/** M160(b) — gate a guest's stranded-payment ask per verified uid (see RECOVER_RATE). */
+export function withinRecoverRate(uid: string): Promise<boolean> {
+  return withinRate("recover", uid, RECOVER_RATE.max, RECOVER_RATE.windowSeconds);
+}
+
+/** M160(b) — gate every stranded-payment ask per CART, guest and staff alike (RECOVER_CART_RATE). */
+export function withinRecoverCartRate(cartId: string): Promise<boolean> {
+  return withinRate("recovercart", cartId, RECOVER_CART_RATE.max, RECOVER_CART_RATE.windowSeconds);
 }
 
 /**

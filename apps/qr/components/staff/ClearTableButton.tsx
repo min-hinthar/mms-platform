@@ -39,6 +39,8 @@ import { SealEcho } from "./HandoffCard";
 import type { FocusEvent } from "react";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
+// ── M160(b) ──
+import { CheckPaymentButton } from "./CheckPaymentButton";
 
 /**
  * Clear a table on turnover (S1.2). Two-step confirm (no accidental clear), and DISABLED with an honest
@@ -866,6 +868,26 @@ export function ClearTableButton({
           <ReloadButton lang={lang} />
         </div>
       )}
+      {/* M160(b) — the card_live refusal's own way out, BESIDE the alert (never inside it): the
+          server retrieves the card payment from Stripe and records the order only if it went
+          through. Its answer is said by the alert above, re-keyed so it is announced. Offered again
+          after a check that could not reach an answer; every other answer is final for this look. */}
+      {(notice?.k === "settle.clear.cardLive" || notice?.k === "settle.check.error") &&
+        !counterOrder && (
+          <div style={{ marginTop: "var(--s2)" }}>
+            <CheckPaymentButton
+              sessionId={sessionId}
+              lang={lang}
+              onAnswer={(k) => {
+                if (k === "out.stalled") {
+                  setNotice(null);
+                  setStalled(true);
+                } else setNotice({ k });
+                resay();
+              }}
+            />
+          </div>
+        )}
     </div>
   );
 }

@@ -114,6 +114,22 @@ export const TRACK = {
     en: "We’ll tell the counter in a few seconds.",
     my: "ခဏနေရင် ကောင်တာကို ပြောပေးပါမယ်", // DRAFT, post-pay
   },
+  // ── M160(b) — a stranded payment the recovery found charged with no order ──
+  // Said ONLY when the server retrieved the intent from Stripe, Stripe said `succeeded`, and the
+  // shared fulfillment wrote NO order (the cart was settled another way, or the charge no longer
+  // matches it) — so "charged" is Stripe's own word, never the redirect's. No ETA, no promised
+  // refund: the next step is a person. No spec string draws it (J29): the house's own words.
+  strandedHead: {
+    en: "Your card was charged, but the order didn’t go through",
+    // DRAFT, M160 — grounded: ငွေဖြတ်ပြီး … ဒါပေမဲ့ "charged, but" as the shipped
+    // `settle.reader.busyUnrecorded` (staff.ts) says it; အော်ဒါ မဝင် "the order didn't go in".
+    my: "ကတ်ထဲက ငွေ ဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မဝင်ခဲ့ပါ",
+  },
+  strandedBody: {
+    en: "Show this screen to a member of staff — they’ll sort out the payment with you.",
+    // DRAFT, M160 — grounded: `passSub`'s ပြလိုက်ပါ "show this" and ဝန်ထမ်း "staff".
+    my: "ဒီစခရင်ကို ဆိုင်ဝန်ထမ်းကို ပြလိုက်ပါ — ငွေချေတာကို အတူတူ ဖြေရှင်းပေးပါမယ်။",
+  },
   // ── the foot ──
   foot: {
     en: "This page catches up whenever you come back to it.",

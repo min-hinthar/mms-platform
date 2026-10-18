@@ -20,6 +20,11 @@ vi.mock("@/lib/floor", () => ({
   clearTable: (...a: unknown[]) => clearTable(...(a as [])),
   getClearPreview: (...a: unknown[]) => getClearPreview(...(a as [])),
 }));
+// M160(b) — the card_live refusal's "Check payment" door.
+const checkTablePayment = vi.fn();
+vi.mock("@/lib/payment-recovery-actions", () => ({
+  checkTablePayment: (...a: unknown[]) => checkTablePayment(...(a as [])),
+}));
 const replace = vi.fn();
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));
@@ -51,6 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   clearTable.mockReset();
   getClearPreview.mockReset();
+  checkTablePayment.mockReset();
   replace.mockReset();
   refresh.mockReset();
   resetWriteSignalsForTests();
@@ -580,6 +586,69 @@ describe("the server refuses — said in the dictionary's words, the table stays
     );
     expect(replace).not.toHaveBeenCalled();
     expect(floorLine()).toBe("");
+  });
+});
+
+describe("M160(b) — a card payment that didn't finish: Check payment, beside the refusal", () => {
+  const checkBtn = () => screen.queryByRole("button", { name: ts("en", "settle.check.btn") });
+  async function refusedCardLive() {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
+    clearTable.mockResolvedValue({ ok: false, error: "…", code: "card_live" });
+    mount();
+    await tap(trigger());
+    await flush(CLEAR_UNDO_MS + 500);
+  }
+
+  it("the refusal names the way out, and the button sits BESIDE the one alert, never inside it", async () => {
+    await refusedCardLive();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe(ts("en", "settle.clear.cardLive"));
+    // MUTATION clear-ui/check-payment-not-offered → the table has no way out but Help; red.
+    expect(checkBtn()).not.toBeNull();
+    expect(alert.contains(checkBtn())).toBe(false);
+  });
+
+  it("Stripe says it went through: the order is recorded, said in the alert, and the page re-reads", async () => {
+    await refusedCardLive();
+    checkTablePayment.mockResolvedValue({ kind: "recorded" });
+    await tap(checkBtn()!);
+    await flush();
+    expect(checkTablePayment).toHaveBeenCalledWith({ sessionId: "s4" });
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.check.recorded"));
+    expect(refresh).toHaveBeenCalled();
+    expect(checkBtn()).toBeNull();
+  });
+
+  it("not charged: said as not charged — never 'went through' — and nothing re-read", async () => {
+    await refusedCardLive();
+    checkTablePayment.mockResolvedValue({ kind: "not_paid" });
+    await tap(checkBtn()!);
+    await flush();
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.check.notPaid"));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("a check with no answer by the bound says it couldn't check, and offers the check again", async () => {
+    await refusedCardLive();
+    checkTablePayment.mockReturnValue(new Promise(() => {}));
+    await tap(checkBtn()!);
+    // Busy while it is out: aria-disabled + aria-busy, never native disabled.
+    const busy = screen.getByRole("button", { name: ts("en", "settle.check.checking") });
+    expect(busy.getAttribute("aria-busy")).toBe("true");
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    expect(busy.hasAttribute("disabled")).toBe(false);
+    await flush(STAFF_HANG_MS + 100);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.check.error"));
+    expect(checkBtn()).not.toBeNull();
+  });
+
+  it("is offered on the card_live refusal only", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
+    clearTable.mockResolvedValue({ ok: false, error: "…", code: "joined" });
+    mount();
+    await tap(trigger());
+    await flush(CLEAR_UNDO_MS + 500);
+    expect(checkBtn()).toBeNull();
   });
 });
 

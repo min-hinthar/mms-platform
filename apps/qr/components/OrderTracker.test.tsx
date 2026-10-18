@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import type { TrackedOrder } from "@/lib/track-order";
 import type { OrderKitchenView } from "@/lib/useOrderKitchen";
@@ -17,8 +17,25 @@ import type { OrderKitchenView } from "@/lib/useOrderKitchen";
  * Everything the tracker reaches over the network is a mock; the live read is the order under test.
  */
 let live: TrackedOrder | null = null;
+let refreshes = 0;
 vi.mock("@/lib/useOrderStatus", () => ({
-  useOrderStatus: () => ({ order: live, timedOut: false, refresh: () => {}, stale: false }),
+  useOrderStatus: () => ({
+    order: live,
+    timedOut: false,
+    refresh: () => {
+      refreshes++;
+    },
+    stale: false,
+  }),
+}));
+// M160(b) — the stranded-payment ask.
+const recoverAsks: unknown[] = [];
+let recoverAnswer: { kind: string } = { kind: "nothing" };
+vi.mock("@/lib/payment-recovery-actions", () => ({
+  recoverMyPayment: (input: unknown) => {
+    recoverAsks.push(input);
+    return Promise.resolve(recoverAnswer);
+  },
 }));
 let kitchen: OrderKitchenView = { status: "off" };
 const kitchenAsked: (string | null)[] = [];
@@ -123,8 +140,85 @@ beforeEach(() => {
   pickupProps.length = 0;
   noted.length = 0;
   linkMinted = false;
+  refreshes = 0;
+  recoverAsks.length = 0;
+  recoverAnswer = { kind: "nothing" };
 });
 afterEach(cleanup);
+
+describe("M160(b) — a fresh payment with no order asks the server to check it, twice", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const arrive = (over: Record<string, unknown> = {}) =>
+    render(<OrderTracker paymentIntent="pi_fresh" processing={false} justPaid {...over} />);
+  const wait = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  it("asks at 12 s and again at 40 s — never before, never a third time", async () => {
+    arrive();
+    await wait(11_900);
+    // RED when the ask fires at mount: it would race the webhook's ordinary 1–2 s.
+    expect(recoverAsks).toEqual([]);
+    await wait(200);
+    expect(recoverAsks).toEqual([{ paymentIntent: "pi_fresh" }]);
+    await wait(60_000);
+    expect(recoverAsks).toHaveLength(2);
+    await wait(10 * 60_000);
+    expect(recoverAsks).toHaveLength(2);
+  });
+
+  it("an order recorded by the check is re-read at once", async () => {
+    recoverAnswer = { kind: "recorded" };
+    arrive();
+    await wait(12_100);
+    expect(refreshes).toBeGreaterThan(0);
+  });
+
+  it("charged with no order: the stranded card, said in the one region, and the celebration withdrawn", async () => {
+    recoverAnswer = { kind: "refund_needed" };
+    const { container } = arrive();
+    await wait(12_100);
+    expect(container.textContent).toContain(
+      "Your card was charged, but the order didn’t go through",
+    );
+    expect(container.textContent).toContain("Show this screen to a member of staff");
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(region(container)).toContain("Your card was charged");
+    // The reference staff look it up by.
+    expect(container.textContent).toContain("pi_fresh".slice(-10));
+    // The Burmese line rides beside it, marked as Burmese.
+    expect(container.querySelector('[lang="my"]')).not.toBeNull();
+    // No further ask once the answer is in.
+    await wait(60_000);
+    expect(recoverAsks).toHaveLength(1);
+  });
+
+  it.each([
+    ["a resume (its order exists)", { resume: true }],
+    ["a processing payment (Stripe has not finished)", { processing: true }],
+    ["an authorized pickup hold (not charged yet)", { awaitingCapture: true }],
+  ])("never on %s", async (_label, over) => {
+    arrive(over);
+    await wait(60_000);
+    expect(recoverAsks).toEqual([]);
+  });
+
+  it("never once the order is on screen", async () => {
+    live = dineIn();
+    arrive();
+    await wait(60_000);
+    expect(recoverAsks).toEqual([]);
+  });
+
+  it("an answer that changes nothing leaves the page's own copy alone", async () => {
+    recoverAnswer = { kind: "not_paid" };
+    const { container } = arrive();
+    await wait(12_100);
+    expect(container.textContent).not.toContain("Your card was charged");
+  });
+});
 
 describe("C — a refunded order never reads 'Paid in full'", () => {
   it("a CASH refund to the last cent (status still 'paid') takes the refund arm, in cash words", () => {

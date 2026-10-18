@@ -78,6 +78,23 @@ export const RECEIPT_RATE = { max: 5, windowSeconds: 600 } as const;
 export const STAFF_PROMO_RATE = { max: 30, windowSeconds: 300 } as const;
 
 /**
+ * M160(b) — the stranded-payment recovery's two budgets. Each ask costs a Stripe `retrieve` (and
+ * may run a fulfillment), so both doors are bounded BEFORE Stripe is called:
+ *
+ *   • per CALLER (the guest's verified uid): /track asks at most twice per mount
+ *     (`TRACK_RECOVERY_ASK_MS`), so 6 per 10 minutes clears a guest who reloads a few times while
+ *     holding a scripted loop to noise;
+ *   • per CART, shared by the guest's door and staff's "Check payment": one stranded cart is one
+ *     question, however many devices ask it. 10 per 10 minutes leaves staff room to re-check after
+ *     the guest has spent theirs.
+ *
+ * Fail-open like every `mms_rate_limit` consumer — and harmless to be: the recovery is idempotent on
+ * the PaymentIntent id and only ever does what the signed webhook would.
+ */
+export const RECOVER_RATE = { max: 6, windowSeconds: 600 } as const;
+export const RECOVER_CART_RATE = { max: 10, windowSeconds: 600 } as const;
+
+/**
  * Staff-PIN policy (S1.1b). A PIN is a low-entropy shared-tablet fast-path, so the brute-force defense
  * is the lockout, enforced atomically in the SQL `mms_staff_verify_pin` (lib/staff-pin.ts is the app
  * mirror). KEEP THESE IN SYNC with the `v_max` (5) / `v_lockout` (15 min) constants in

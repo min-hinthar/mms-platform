@@ -4103,10 +4103,47 @@ export const STAFF = {
     en: "Someone just joined Table {id}, so it stayed open — check who’s sitting there before you clear it.",
     my: "စားပွဲ {id} မှာ တစ်ယောက် အခုလေးတင် ဝင်လာလို့ မရှင်းဘဲ ဖွင့်ထားပါတယ် — မရှင်းခင် ဘယ်သူ ထိုင်နေလဲ စစ်ပါ။",
   }, // K15-HIGH — misread, a party that just sat down is closed out
+  // M160(b) — the refusal now names its own way out, "Check payment", in the same PR as the control
+  // (m7-clearing-a-table.md: "Switch the copy to 'Check payment' in the same PR that ships that
+  // control"). Grounded: ငွေချေတာ (this key's own), စစ် (settle.clear.changed's ပြန်စစ်).
   "settle.clear.cardLive": {
-    en: "A card payment started here and didn’t finish — ask for help from Help before you clear it.",
-    my: "ဒီမှာ ကတ်နဲ့ ငွေချေတာ စပြီး မပြီးသေးပါ — မရှင်းခင် အကူအညီ ကနေ မေးပါ။",
+    en: "A card payment started here and didn’t finish — check the payment before you clear it.",
+    my: "ဒီမှာ ကတ်နဲ့ ငွေချေတာ စပြီး မပြီးသေးပါ — မရှင်းခင် ငွေချေတာကို စစ်ပါ။",
   }, // K15-HIGH — never "went through" before the server-side retrieve (m7 graft 8)
+  // ── M160(b) · "Check payment" — Stripe's own answer for the card the clear refused on ──
+  // Each outcome says only what the server's retrieve established: "went through" ONLY on an order
+  // written (or already on record); "charged, no order" ONLY when Stripe said succeeded and the shared
+  // fulfillment wrote none. K15 drafts, grounded in the shipped words named beside each.
+  "settle.check.btn": { en: "Check payment", my: "ငွေချေတာ စစ်မယ်" }, // grounded: cardLive's ငွေချေတာ · စစ်
+  "settle.check.checking": { en: "Checking the payment…", my: "ငွေချေတာ စစ်နေပါတယ်…" },
+  "settle.check.recorded": {
+    en: "The card payment went through — the order is recorded.",
+    my: "ကတ်နဲ့ ငွေချေတာ ပြီးပါပြီ — အော်ဒါ မှတ်ပြီးပါပြီ။",
+  }, // K15-HIGH — misread as not paid, the guest is charged again (grounded: busyUnrecorded's အော်ဒါ မှတ်)
+  "settle.check.notPaid": {
+    en: "The card hasn’t been charged — there’s no payment to record. Take payment another way, or ask for help from Help.",
+    my: "ကတ်ထဲက ငွေ မဖြတ်ရသေးပါ — မှတ်စရာ ငွေချေမှု မရှိပါ။ တခြားနည်းနဲ့ ငွေယူပါ၊ ဒါမှမဟုတ် အကူအညီ ကနေ မေးပါ။",
+  }, // K15-HIGH — misread as paid, a table leaves without paying (grounded: ငွေဖြတ် · အကူအညီ ကနေ မေးပါ)
+  "settle.check.refund": {
+    en: "The card was charged, but no order could be recorded — check the approvals screen before you take payment again.",
+    my: "ကတ်ထဲက ငွေဖြတ်ပြီးပေမဲ့ အော်ဒါ မမှတ်ရပါ — နောက်တစ်ခါ ငွေမယူခင် ခွင့်ပြုချက် စာမျက်နှာကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a guest already charged is charged again (grounded: settle.reader.busyUnrecorded · pilot.night.recovery.some)
+  "settle.check.refused": {
+    en: "This payment can’t be checked here — ask for help from Help.",
+    my: "ဒီငွေချေမှုကို ဒီမှာ မစစ်နိုင်ပါ — အကူအညီ ကနေ မေးပါ။",
+  },
+  "settle.check.nothing": {
+    en: "No card payment is waiting on this table now — try clearing it again.",
+    my: "ဒီစားပွဲမှာ စောင့်နေတဲ့ ကတ်ငွေချေမှု အခု မရှိတော့ပါ — ပြန်ရှင်းကြည့်ပါ။",
+  },
+  "settle.check.wait": {
+    en: "Checked a moment ago — try again in a few minutes.",
+    my: "ခုနလေးတင် စစ်ထားပါတယ် — မိနစ်အနည်းငယ်နေရင် ထပ်စမ်းပါ။",
+  },
+  "settle.check.error": {
+    en: "Couldn’t check the payment right now — try again in a moment.",
+    my: "ငွေချေတာကို အခု မစစ်နိုင်ပါ — ခဏနေ ထပ်စမ်းပါ။",
+  },
   "settle.clear.gone": { en: "That table is already cleared.", my: "ဒီစားပွဲ ရှင်းပြီးသားပါ။" },
   // Codex P1 on #341 — the clear's OWN changed line: the order moved after the look (a draft
   // re-counted, taken off, sent or turned to-go — not only the sent dishes), and nothing was cleared.
@@ -4808,6 +4845,10 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.clear.joined",
   "settle.clear.cardLive",
   "settle.clear.secureTab",
+  // ── M160(b) · "Check payment" ──
+  "settle.check.recorded",
+  "settle.check.notPaid",
+  "settle.check.refund",
   "settle.clear.windowLeft",
   // ── Codex r1 on #341 ──
   "settle.clear.changed",
