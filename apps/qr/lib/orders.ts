@@ -4,14 +4,25 @@ import { isTransportFailure } from "./authz";
 import { COUNTER_TENDERS } from "./counter-tender";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
-import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
-import { isFired } from "./pickup-promise";
+import {
+  liveOrderStatusWord,
+  liveWithoutSession,
+  type LiveOrder,
+  type LiveOrderKind,
+} from "./live-order";
+import { isFired, pickupDayBounds } from "./pickup-promise";
 import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
 import { settlementVerdict, type SettlementRead } from "./dropped-read";
+import { summarizeRefund } from "./refund-view";
+import { trackRefunded } from "./track-settled";
 import type { SettleCanceled } from "./dropped-view";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
 const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history (history lives on /account)
+/** The live read's columns, ONE literal (PostgREST's static type parser needs a literal), shared by its
+ *  recent-orders read and its slot-keyed pickup read (E). */
+const LIVE_SELECT =
+  "id,togo_status,table_number,pickup_slot,fire_at,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,total_cents,refunded_cents,qr_order_items(fulfillment)";
 
 /**
  * The diner's LIVE (in-flight) orders (K4) — powering the orders tray + /account "Today". Server-
@@ -21,7 +32,8 @@ const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history
  * (they earn nothing), so they're invisible here — the same attribution rule as rewards, stated in the UI.
  *
  * "Live" = status 'paid' (pending/failed aren't trackable) AND placed in the last 12h AND not terminal AND
- * its SESSION is still open. Two reasons the session gate applies to EVERY kind (not just dine-in):
+ * its SESSION is still open — except a PICKUP whose slot is on the restaurant's today or later (the
+ * lifecycle audit, 2026-10-13, E: below). Two reasons the session gate applies to every other kind:
  *   • /track can only READ the order while the session lives — its RLS is `is_member(session_id)`, which
  *     requires expires_at>now() + not-closed. An order past its ~4h session is unreadable on /track for the
  *     diner, so surfacing it in the tray would deep-link to a tracker that never resolves. The tray must
@@ -30,6 +42,15 @@ const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history
  *     nothing in the diner settle flow closes a session; a staff-close or the 4h sliding-TTL sweep do.
  * (to-go/pickup also carry togo_status 'picked_up' as an earlier terminal signal, checked below.) qr_orders
  * has no mode column, so kind is derived from the line fulfillments (+ pickup_slot). Newest-first.
+ *
+ * E — the PICKUP exemption. The first premise above stopped being true for the uid's own orders in
+ * PD3: /track now resolves an earned_by / payer order through `getMyOrderFallback` once the session
+ * has lapsed. And a pickup's session (touched by nothing after payment) lapses 2–4 h after the tap, so
+ * a 6 PM pickup paid at 11 AM — or one booked for tomorrow (the slot horizon is multi-day) — vanished
+ * from the tray and /account "Today" hours before its slot, taking the only in-app way back to its
+ * claim ticket and "I’m here" with it. So a pickup whose slot is on the restaurant's today or later
+ * stands without a live session (`liveWithoutSession`), and is windowed on that SLOT rather than on
+ * `created_at` (a second, slot-keyed read: a pickup booked yesterday for today is older than 12 h).
  */
 export async function getMyLiveOrders(): Promise<LiveOrder[]> {
   return (await readMyLiveOrders()).orders;
@@ -69,26 +90,50 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   let ok = !payerErr;
   const payerIds = (payerRows ?? []).map((r) => r.order_id);
 
-  let live = db
+  // M65 / E — ONE clock for the whole read (the restaurant's today is computed from it too), so two
+  // held pickups in the same tray cannot straddle a fire_at, nor a slot the start of today.
+  const nowMs = Date.now();
+  const todayStart = pickupDayBounds(nowMs).start;
+  // Both scope values are SERVER-derived (a verified auth uid; order ids read two lines up under that
+  // uid's own scope) — never client strings — so this `.or()` carries no injection risk. It is a
+  // SELECT, so the PostgREST-14 or+representation trap (mutations only) does not apply.
+  const payerScope = payerIds.length
+    ? `earned_by.eq.${user.id},id.in.(${payerIds.join(",")})`
+    : null;
+  const recent = db
     .from("qr_orders")
-    .select(
-      "id,togo_status,table_number,pickup_slot,fire_at,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,qr_order_items(fulfillment)",
-    )
+    .select(LIVE_SELECT)
     .eq("status", "paid")
     .gte("created_at", cutoff);
-  // Both values are SERVER-derived (a verified auth uid; order ids read two lines up under that uid's
-  // own scope) — never client strings — so this `.or()` carries no injection risk. It is a SELECT, so
-  // the PostgREST-14 or+representation trap (mutations only) does not apply.
-  live = payerIds.length
-    ? live.or(`earned_by.eq.${user.id},id.in.(${payerIds.join(",")})`)
-    : live.eq("earned_by", user.id);
-  const { data: rows, error } = await live
-    .order("created_at", { ascending: false })
-    .limit(LIVE_LIMIT);
+  // E — the pickups still to collect, windowed on their SLOT (today or later), whenever booked.
+  const pickups = db
+    .from("qr_orders")
+    .select(LIVE_SELECT)
+    .eq("status", "paid")
+    .gte("pickup_slot", todayStart);
+  const [recentRes, pickupRes] = await Promise.all([
+    (payerScope ? recent.or(payerScope) : recent.eq("earned_by", user.id))
+      .order("created_at", { ascending: false })
+      .limit(LIVE_LIMIT),
+    (payerScope ? pickups.or(payerScope) : pickups.eq("earned_by", user.id))
+      .order("created_at", { ascending: false })
+      .limit(LIVE_LIMIT),
+  ]);
   // A read FAILURE → no tray (the badge just won't show); never throw and never strand the header. Note
   // this is NOT filtered on togo_status at the DB: `togo_status <> 'picked_up'` is NULL for a dine-in
   // order (togo_status null) and would silently drop it — so the terminal check is done in JS below.
-  if (error || !rows) return { ok: false, orders: [] };
+  if (recentRes.error || !recentRes.data) return { ok: false, orders: [] };
+  // The slot read is the exemption's only source: a failure there is reported, never silent, and the
+  // recent read still stands.
+  if (pickupRes.error) {
+    console.error("[orders] pickup live read failed", pickupRes.error);
+    ok = false;
+  }
+  const byId = new Map<string, (typeof recentRes.data)[number]>();
+  for (const r of [...recentRes.data, ...(pickupRes.data ?? [])]) byId.set(r.id, r);
+  const rows = [...byId.values()]
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, LIVE_LIMIT);
 
   // Which referenced SESSIONS are still open? One extra query (vs. a per-row embed) keeps the gate explicit
   // and dependency-light. A session is live while not closed AND not past its sliding TTL — which is exactly
@@ -108,15 +153,12 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   }
 
   const out: LiveOrder[] = [];
-  // M65 — ONE clock for the whole read, so two held pickups in the same tray cannot straddle a
-  // fire_at and disagree about which side of "Scheduled" the read fell on.
-  const nowMs = Date.now();
   for (const r of rows) {
     if (r.togo_status === "picked_up") continue; // terminal (to-go / pickup collected)
-    // Session gate — EVERY kind: an order whose session has closed/expired is untrackable on /track (its
-    // is_member RLS has lapsed), so the tray must not deep-link to it. A missing session_id is likewise
-    // unreadable → drop it. (This subsumes the dine-in "the dinner's over" bound.)
-    if (!r.session_id || !liveSessions.has(r.session_id)) continue;
+    // Terminal too: every cent back (the blind pass on #359). A cash refund leaves `status` at 'paid'
+    // (M308), so the status filter above admits a pickup refunded in full — and E keeps a pickup
+    // without its session until the slot's day ends. The refund STATE decides, as on /track.
+    if (trackRefunded(summarizeRefund(r.total_cents, r.refunded_cents ?? 0, "paid"))) continue;
     const items = (r.qr_order_items ?? []) as { fulfillment: string }[];
     const hasTogoFood = items.some((i) => i.fulfillment === "togo");
     const hasGrocery = items.some((i) => i.fulfillment === "grocery");
@@ -130,12 +172,22 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
         : hasTogoFood
           ? "togo"
           : "grocery";
+    // Session gate: an order whose session has closed/expired is dropped — a dine-in's session closing
+    // IS the dinner's end — EXCEPT a pickup still to collect (E, `liveWithoutSession`): /track reaches
+    // it through the uid-scoped fallback. A missing session_id is likewise dropped unless exempt.
+    const sessionLive = !!r.session_id && liveSessions.has(r.session_id);
+    if (
+      !sessionLive &&
+      !liveWithoutSession({ kind, pickupSlot: r.pickup_slot ?? null }, todayStart)
+    )
+      continue;
     out.push({
       id: r.id,
       kind,
       togoStatus: r.togo_status ?? null,
       tableNumber: r.table_number ?? null,
       pickupSlot: r.pickup_slot ?? null,
+      fireAt: r.fire_at ?? null,
       createdAt: r.created_at,
       hasTogoFood,
       hasGrocery,

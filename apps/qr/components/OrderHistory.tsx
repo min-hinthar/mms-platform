@@ -318,7 +318,22 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       door (dine-in deliberately demoted: no phantom tables from home); a pure-grocery
                       order links to the market itself. Outside <details>, so the tap never toggles
                       the receipt. */}
-                  <p className="history-again">
+                  <p
+                    className="history-again"
+                    style={o.trackHref ? { gap: 16, flexWrap: "wrap" } : undefined}
+                  >
+                    {/* Lifecycle audit (2026-10-13), E — a pickup still to collect keeps its way
+                        back to the claim ticket and "I’m here" (`trackHref`, server-derived by
+                        `uncollectedPickupHref`): the pill forgets, a lapsed session hides it from
+                        nothing else, and the guest at the counter needs the code. */}
+                    {o.trackHref && (
+                      <Link href={o.trackHref} className="nav-link">
+                        Track this pickup{" "}
+                        <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                          →
+                        </span>
+                      </Link>
+                    )}
                     <Link href={again.href} className="nav-link">
                       {again.kind === "market" ? "Shop the market again" : "Order again"}{" "}
                       <span aria-hidden className="nav-arrow nav-arrow-fwd">
