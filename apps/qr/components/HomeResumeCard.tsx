@@ -1,5 +1,6 @@
 "use client";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
+import { liveOrderTrackHref } from "@/lib/live-order";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 
 /**
@@ -7,33 +8,25 @@ import { useActiveOrderStatus } from "./useActiveOrderStatus";
  * back to its tracker instead of only the mode picker. Live status (single-pay AND split-tender, via the
  * server-side split-id resolve) comes from `useActiveOrderStatus`; the homepage owns the subscription
  * (`track=true` — the header pill is hidden here). Renders nothing when there's no live order or it has
- * reached a terminal state (picked up / refunded / failed).
+ * reached a terminal state (picked up / refunded / failed / a dine-in table whose session has closed).
+ *
+ * Lifecycle audit (2026-10-13), D — the status is the hook's `statusWord`, the ONE derivation
+ * (`liveOrderStatusWord`) the header pill, the tray, /account "Today" and /track's chip all speak.
+ * This card used to re-derive its own ladder off the raw `togo_status` column and told the two lies
+ * W22b and M65 removed everywhere else: a HELD pickup (stamped 'preparing' at payment, fired hours
+ * later) read "Preparing your order", and a self-scanned grocery basket read "Preparing", then "Your
+ * order is ready" — and the card MORPHS into /track's chip on the tap, which said the opposite.
+ * Before the row lands the word is the hook's honest floor ("Confirming", then "Placed").
+ *
+ * I — the link is `liveOrderTrackHref`, the one resume link (`resume=1` on both branches): a tap here
+ * checks on an order, it does not arrive from a payment.
  */
 export function HomeResumeCard() {
-  const { order, tracked, statusWord, isDone } = useActiveOrderStatus(true);
+  const { order, statusWord, isDone } = useActiveOrderStatus(true);
   if (!order || isDone) return null;
 
-  const isPickup = order.mode === "pickup";
-  // W10a — `statusWord` is the hook's HONEST floor (W9c built it for the header pill; this card
-  // was the consumer that never adopted it): on a timed-out/unreachable status feed it says
-  // "Placed" — the one fact our client record proves — instead of this card's old hand-rolled
-  // "Confirming your order", which claimed active work FOREVER during the paused-DB outage.
-  const statusText = !tracked
-    ? (statusWord ?? "Order placed")
-    : tracked.togoStatus === "ready"
-      ? isPickup
-        ? "Ready for pickup"
-        : "Your order is ready"
-      : tracked.togoStatus === "preparing"
-        ? "Preparing your order"
-        : "Your order is in";
-  const href = order.paymentIntent
-    ? // `resume=1` — this is someone checking on an order, not arriving from a payment. Without it
-      // /track cannot tell this tap from Stripe's return and replays the whole arrival celebration
-      // (confetti, the celebrate haptic, "Payment confirmed", the pay chime) on an order placed
-      // hours ago. The Stripe-shaped params stay because they are what resolves the tracker.
-      `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded&resume=1${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
-    : `/track?cart=${encodeURIComponent(order.cartId ?? "")}&paid=1`;
+  const statusText = statusWord ?? "Order placed";
+  const href = liveOrderTrackHref(order);
 
   return (
     <Link href={href} className="home-resume" aria-label={`${statusText} — track your order`}>

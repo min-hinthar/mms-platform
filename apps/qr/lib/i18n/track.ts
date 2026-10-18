@@ -26,6 +26,21 @@ export const TRACK = {
     my: "သင့်အချိန်နီးလာမှ မီးဖိုချောင်က စချက်ပါမယ်", // DRAFT, guided (brief-m3.md:173)
   },
   // cooking: the SHIPPED `orderWithKitchen` pair (lib/i18n/cart.ts) — read from there, never copied.
+  // ── the kitchen's own taps under it (the post-order line read, lib/order-kitchen.ts) ──
+  // Said ONLY when the paid cart's lines say so: Mom's Start (`in_progress`) is the cooking line,
+  // and every to-go dish Served past her undo window is the done line. No spec string draws them
+  // (J29): the house's own words, decided under the owner's delegation (lifecycle audit, 2026-10-13).
+  kitchenCooking: {
+    en: "It’s cooking now.",
+    // DRAFT, lifecycle — grounded: ချက်နေ is the shipped stage word ချက်နေဆဲ (`table.line.state.inProgress`)
+    // and TableTimeline's "ချက်နေပါပြီနော်".
+    my: "အခု ချက်နေပါပြီ",
+  },
+  kitchenDone: {
+    en: "The kitchen’s done — we’re bagging it now.",
+    // DRAFT, lifecycle — grounded: ထုပ် "bag" is `late`'s own verb (မထုပ်ရသေးပါဘူး); ပြီးပါပြီ "done".
+    my: "မီးဖိုချောင်က ပြီးပါပြီ — အခု ထုပ်နေပါတယ်",
+  },
   late: {
     en: "Your {t} order isn’t bagged yet.",
     my: "{t} အော်ဒါကို မထုပ်ရသေးပါဘူး", // DRAFT, guided (brief-m3.md:169)

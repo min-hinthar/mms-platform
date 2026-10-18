@@ -20,7 +20,9 @@ export type OrderStatus = {
   timedOut: boolean;
   /** PD3 — re-read the order ONCE, now (the /track wake on `visibilitychange→visible` / `focus`:
    *  iOS suspends a hidden tab's socket, so the Ready edge usually lands on return, not while away).
-   *  A no-op before the subscription exists. */
+   *  A no-op before the subscription exists. Since the lifecycle audit (F) the hook ALSO catches up
+   *  on its own — on a return to the page and on the channel's re-join — so every consumer (the rail,
+   *  the header pill, the home card) inherits it; the pickup page's explicit wake stays. */
   refresh: () => void;
   /** PD3 (Codex r1 on #330, P1) — the live read HAD the row and a later read answered no row: the
    *  session lapsed and RLS hides it now. `order` keeps the last live snapshot, but it is no longer
@@ -41,7 +43,14 @@ export type OrderStatus = {
 export function useOrderStatus(
   paymentIntent: string | null,
   orderId: string | null = null,
+  /** F (the blind pass on #359) — the order is KNOWN to exist (its id came from a server resolve, or
+   *  /track has already seen its row): there is no webhook race to wait out, so a read that SUCCEEDS
+   *  with no row means "no longer this device's to read" (the session closed or lapsed) — `stale` at
+   *  once, on the FIRST read of a fresh subscription. Without it a header mounted after the table was
+   *  cleared polled ten times, timed out to "Placed", and kept the pointer for its whole TTL. */
+  opts?: { known?: boolean },
 ): OrderStatus {
+  const known = opts?.known === true;
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [exhausted, setExhausted] = useState(false);
@@ -96,8 +105,11 @@ export function useOrderStatus(
     let tries = 0;
     let errs = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // When the latest read began — the catch-up below skips one that would duplicate it.
+    let lastLoadAt = 0;
 
     async function load() {
+      lastLoadAt = Date.now();
       const { data, error } = await supa
         .from("qr_orders")
         .select(TRACK_ORDER_SELECT)
@@ -137,6 +149,11 @@ export function useOrderStatus(
         // (the 4-hour session swept, the table cleared). No poll — the host falls back to its
         // uid-scoped snapshot; a later authorized read (a rejoin) clears this again.
         setStale(true);
+      } else if (known && !error) {
+        // F — an order KNOWN to exist that a successful read cannot see is not "not fulfilled yet":
+        // there is no webhook to wait for. Same verdict as a row that went dark; a failed read
+        // falls through to the retry below instead (unknowable ≠ gone).
+        setStale(true);
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.
@@ -146,11 +163,38 @@ export function useOrderStatus(
       } else {
         // Poll exhausted without the order — don't strand the diner on a post-payment screen with no
         // feedback. `timedOut` (below) drives a Refresh prompt; the Realtime sub stays open, so a
-        // late INSERT still resolves `order` and clears it.
-        console.error("[useOrderStatus] polling exhausted without order", { key });
+        // late INSERT still resolves `order` and clears it. (Logged once per subscription: a later
+        // catch-up read that still finds nothing is the same fact, not a new failure.)
+        if (tries === 10)
+          console.error("[useOrderStatus] polling exhausted without order", { key });
+        tries += 1;
         setExhausted(true);
       }
     }
+
+    // F (lifecycle audit, 2026-10-13) — CATCH UP after a gap. Postgres Changes are not replayed: an
+    // UPDATE that lands while iOS has the tab's socket suspended, or during a Wi-Fi → LTE rejoin, is
+    // simply gone, and nothing re-read — the rail sat at "In the kitchen" with no "Your order’s ready"
+    // card, and the pill kept "Preparing", until a reload. One read on a return to the page and on a
+    // RE-join of the channel (never its first join — the read below covers that), skipped when a read
+    // began within the last second (the host's own wake, a Realtime event), so a return costs one.
+    const catchUp = () => {
+      if (!active || Date.now() - lastLoadAt < 1000) return;
+      if (timer) clearTimeout(timer);
+      void load();
+    };
+    let wake: ReturnType<typeof setTimeout> | undefined;
+    const onWake = () => {
+      if (document.visibilityState !== "visible" || wake) return;
+      // `visibilitychange` and `focus` arrive together: one read for both, a beat after the host's.
+      wake = setTimeout(() => {
+        wake = undefined;
+        catchUp();
+      }, 300);
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    let joined = false;
 
     // Subscribe BEFORE the initial load so an INSERT landing between the two isn't missed.
     // postgres_changes is RLS-gated by qr_order_read regardless of channel privacy, so this is safe
@@ -174,7 +218,12 @@ export function useOrderStatus(
           load();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        // F — a RE-join (the socket dropped and came back): catch up on what it missed.
+        if (joined) catchUp();
+        joined = true;
+      });
 
     load();
     loadRef.current = () => {
@@ -186,9 +235,12 @@ export function useOrderStatus(
       active = false;
       loadRef.current = null;
       if (timer) clearTimeout(timer);
+      if (wake) clearTimeout(wake);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
       supa.removeChannel(channel);
     };
-  }, [key, valid, byOrderId, anon]);
+  }, [key, valid, byOrderId, anon, known]);
 
   // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the key is
   // malformed", but only while no order has arrived.

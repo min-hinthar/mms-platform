@@ -6,6 +6,8 @@ import { withinMutationRate } from "./rate";
 import { safeImageUrl } from "./media-url";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
 import { parseDroppedLines, type DroppedSummary } from "./dropped-view";
+import { uncollectedPickupHref } from "./live-order";
+import { pickupDayBounds } from "./pickup-promise";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -387,6 +389,9 @@ export type OrderHistoryEntry = {
    *  for every automatic-capture order). The history card is where a guest goes days later to work
    *  out why a total looks small; without this the answer isn't on the screen. */
   dropped: DroppedSummary;
+  /** Lifecycle audit (2026-10-13), E — the /track resume link for a pickup still to collect
+   *  (`uncollectedPickupHref`), else null/absent: every other past order is a receipt. */
+  trackHref?: string | null;
 };
 
 export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] | null> {
@@ -417,7 +422,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   let history = db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,refunded_cents,dropped_lines,status,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+      "id,created_at,total_cents,refunded_cents,dropped_lines,status,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,togo_status,stripe_payment_intent_id,cart_id",
     )
     .eq("status", "paid");
   history = payerIds.length
@@ -479,6 +484,8 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
     });
     byOrder.set(it.order_id, arr);
   }
+  // Lifecycle audit (2026-10-13), E — the restaurant's today, read once, for the pickup's tracker door.
+  const todayStart = pickupDayBounds(Date.now()).start;
   return orders.map((o) => ({
     id: o.id,
     code: o.id.slice(-6).toUpperCase(),
@@ -501,6 +508,18 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
     // filter widens, and a receipt is the wrong place to carry a second copy of a query's predicate.
     refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
     dropped: parseDroppedLines(o.dropped_lines),
+    // E — a pickup still to collect links back to its claim ticket and "I’m here" (lib/live-order).
+    trackHref: uncollectedPickupHref(
+      {
+        pickupSlot: o.pickup_slot ?? null,
+        togoStatus: o.togo_status ?? null,
+        refundedInFull:
+          summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status).state === "full",
+        paymentIntent: o.stripe_payment_intent_id ?? null,
+        cartId: o.cart_id ?? null,
+      },
+      todayStart,
+    ),
   }));
 }
 
