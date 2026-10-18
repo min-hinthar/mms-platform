@@ -17,14 +17,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   owner. A hand-over (promote first, then step down) still goes through.
 - **A revocation can no longer land between the authority check and the write (M208).** The caller is
   read under a row lock in the same transaction as the write. An invite's staff row goes through
-  `mms_staff_provision` under the same rule, and the auth user it made is deleted when the database
-  refuses.
+  `mms_staff_provision` under the same team lock and caller rule, and the auth user it made is
+  deleted when the database refuses.
 - **Every invite, role change and deactivation leaves a durable `staff_audit` row (M205).** The row is
   written in the same transaction as the change, and managers and owners can read it. The PostHog event
   stays as the secondary record.
 - **Proof.** `supabase/tests/m210_team_safety_test.sql` covers each refusal next to the call it must
-  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs eight two-session orders,
-  and its `--mutants` mode catches all 29 mutants. Both run in CI's sql lane. verify:slice gains 17
+  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs ten two-session orders,
+  and its `--mutants` mode catches all 30 mutants. Order j measures the one lock cycle left: a direct
+  owner demotion (the old app during the deploy, a hand-run statement) against `mms_staff_set`.
+  Postgres aborts one side as a deadlock, the other lands, and one owner remains. Both run in CI's sql lane. verify:slice gains 17
   mutants over the actions and the new `lib/staff-team-outcome.ts`; 9 retired with the TypeScript
   checks they guarded.
 

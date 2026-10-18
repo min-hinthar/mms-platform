@@ -610,23 +610,26 @@ jobs:
       # M210 · M208 · M205 — the team writes (`mms_staff_set`, `mms_staff_provision`) decide the
       # caller, the target and the write under the team lock and two row locks, and the trigger
       # `staff_keep_an_owner` refuses any write that ends the last active owner — all invisible to
-      # one session. Eight orders, every wait read from pg_blocking_pids: two owners demoting each
+      # one session. Ten orders, every wait read from pg_blocking_pids: two owners demoting each
       # other (a) · a revocation through the app's own path mid-call (b) · the interleaving that would
       # deadlock without the team lock (c) · a hand-run revocation mid-call (d) · a hand-run promotion
       # mid-call (e) · two hand-run demotions of the last two owners (f) · a server's rename NOT
-      # queueing behind a team write (g, the control) · a revocation mid-invite (h). Commits `M210R`
+      # queueing behind a team write (g, the control) · a revocation mid-invite (h) · an invite queueing
+      # behind a team write (i) · a direct owner demotion against an RPC, the one accepted lock
+      # cycle: one side aborted as a deadlock, the other lands, one owner left (j). Commits `M210R`
       # fixtures, so the script refuses anything that is not the local stack — and any database with
-      # an active owner that is not its own fixture. ~4 s on a throwaway PG16 (2026-10-18).
+      # an active owner that is not its own fixture. ~4 s on a throwaway PG16; 8 s on the local
+      # supabase stack with order j's 1 s deadlock_timeout (2026-10-18).
       - name: Team race harness (two concurrent sessions)
         timeout-minutes: 3
         run: node scripts/verify-team-race.mjs
-      # Can it fail? Twenty-nine mutants over the whole file, each re-applying it with one edit: the
+      # Can it fail? Thirty mutants over the whole file, each re-applying it with one edit: the
       # twenty-one single-session rules judged by supabase/tests/m210_team_safety_test.sql (the case
-      # named, not just "red"), and the eight locks judged by the orders (the set that goes red must be
+      # named, not just "red"), and the nine locks judged by the orders (the set that goes red must be
       # exactly the one listed) — md5-checked apply, byte-identical restore. Its own battery rather than
       # a verify-mode-authority.mjs suite: that step replays a fifteen-file chain per mutant near its
-      # timeout, and this file restores alone. 59 s on a throwaway PG16, 84 s on the local supabase stack
-      # (PG17), both 2026-10-18.
+      # timeout, and this file restores alone. 59 s on a throwaway PG16 (29 mutants), 81 s on the local
+      # supabase stack (PG17, 30 mutants), both 2026-10-18.
       - name: Team race mutants (can the guards and locks fail?)
         timeout-minutes: 5
         run: node scripts/verify-team-race.mjs --mutants
