@@ -60,6 +60,7 @@ import {
   staffSendView,
   type HeldSendNote,
   type SendNotice,
+  type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendHold,
 } from "@/lib/staff-send-view";
@@ -672,6 +673,8 @@ export function FloorDetailLive({
     counterArm: detail.counterArm,
     hasName: (detail.customerName ?? "").trim() !== "",
     payAtPickup: detail.payAtPickup,
+    // P2ad — the lines, so the Send names a sold-out dish it would fire BEFORE the tap.
+    lines: detail.lines,
   });
   // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
   // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
@@ -767,6 +770,26 @@ export function FloorDetailLive({
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
     [setSendNote, setSettleGate, sessionId],
+  );
+  // P2ar (lifecycle residuals) — a line's AUTHORED notice (the note that missed its dish) through the
+  // same channel as `onWriteError`, rendered in the device's tongue (`<MsgText>`), the shape
+  // `StaffPromoControl`'s keyed refusals already take here.
+  // `null` WITHDRAWS it (the send was undone, the sentence is false) — only while it is still the
+  // region's line: a newer fact that replaced it is never wiped by a stale withdrawal.
+  const lineNoticeRef = useRef<ReactNode>(null);
+  const onLineNotice = useCallback(
+    (m: StaffKeyMsg | null) => {
+      if (m === null) {
+        const mine = lineNoticeRef.current;
+        lineNoticeRef.current = null;
+        if (mine !== null) setWriteError((e) => (e === mine ? null : e));
+        return;
+      }
+      const node = <MsgText lang={lang} msg={m} />;
+      lineNoticeRef.current = node;
+      onWriteError(node);
+    },
+    [onWriteError, lang],
   );
   // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
   // WRITE_WAITING here ("no answer yet — that change may still be saved") through `onError`; its
@@ -1312,6 +1335,7 @@ export function FloorDetailLive({
                   line={l}
                   disabled={false}
                   onError={onWriteError}
+                  onNotice={onLineNotice}
                   onEditState={onEditState}
                   onWaiting={onLineWaiting}
                   // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.

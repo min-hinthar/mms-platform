@@ -400,6 +400,7 @@ export function padSendView(
         staffAdded: 0,
         dinerUnits: 0,
         counter: true,
+        soldOut: null,
       },
       bare,
     };
@@ -413,6 +414,7 @@ export function padSendView(
       staffAdded: 0,
       dinerUnits: 0,
       counter: false,
+      soldOut: null,
     },
     bare,
   };

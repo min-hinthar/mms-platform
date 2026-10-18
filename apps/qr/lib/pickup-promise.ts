@@ -4,6 +4,7 @@ import type { Entry } from "./i18n/types";
 import { PICKED_UNDO_MS, pickedUndoOpen } from "./expo-rules";
 import { undoTapHeld } from "./send-grace";
 import { formatClock, formatSlot, RESTAURANT_TZ } from "./pickupTime";
+import { bagStarted, type BagKitchen } from "./order-kitchen";
 
 /**
  * PD3 — the pickup promise, ONE pure derivation (docs/path-design-2026-10-07/m3-pickup-promise.md).
@@ -17,7 +18,9 @@ import { formatClock, formatSlot, RESTAURANT_TZ } from "./pickupTime";
  *    pickup is HELD until `fire_at = slot − prep` (20260620000100_pickup_scheduling.sql), while
  *    `togo_status = 'preparing'` lands at PAYMENT — so without this gate a noon-paid 6 PM pickup
  *    read "Your order’s with the kitchen." for hours. An as-soon-as-possible order carries
- *    `fire_at = null` and fired at settlement (20260722000000_pickup_asap.sql).
+ *    `fire_at = null` and fired at settlement (20260722000000_pickup_asap.sql). Lifecycle residuals
+ *    (Theme 5): a bag the kitchen has STARTED (Mom's Start or Done, `bagStarted`) is fired too — Cook
+ *    now on a held card moves the lines first and the order's stamp after (`fireTicketNow`).
  *  - **Late is the slot alone (B6):** slot + `LATE_AFTER_MIN` with no bag yet. `fire_at ≤ slot` by
  *    construction, so a held order cannot be overdue, and requiring `fired` here would only strand
  *    a guest whose row carried no stamp.
@@ -70,6 +73,11 @@ export type PickupGuideInput = {
   togoStatus: string | null;
   arrivedAt: string | null;
   createdAt: string;
+  /** Lifecycle residuals (Theme 5) — the bag's kitchen state from the paid cart's own lines
+   *  (`bagKitchen`, lib/order-kitchen.ts), or null when unknown. A bag the kitchen has STARTED
+   *  (`bagStarted`) is fired whatever `fireAt` still says. REQUIRED, not defaulted: a caller that
+   *  forgot it would silently restore "You’re booked" over food Mom is cooking. */
+  kitchen: BagKitchen | null;
 };
 
 export type PickupGuide = {
@@ -91,7 +99,9 @@ export type PickupGuide = {
 
 export function pickupGuide(o: PickupGuideInput, nowMs: number): PickupGuide {
   const slot = slotLabel(o.pickupSlot, nowMs);
-  const fired = isFired(o.fireAt, nowMs);
+  // Theme 5 — the order's stamp, OR the kitchen's own Start/Done on the bag: Cook now moves the
+  // lines before the order row, and a failed order write must not leave the guest "booked".
+  const fired = isFired(o.fireAt, nowMs) || bagStarted(o.kitchen);
   const bagged = o.togoStatus === "ready";
   const collected = o.togoStatus === "picked_up";
   const overdue = nowMs >= Date.parse(o.pickupSlot) + LATE_AFTER_MIN * 60_000;

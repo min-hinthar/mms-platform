@@ -399,6 +399,7 @@ describe("counterSettleVariant — one filled pill on the table page", () => {
     staffAdded: 2,
     dinerUnits: 0,
     counter,
+    soldOut: null,
   });
 
   it("settle is primary under a secondary counter Send (walk-up)", () => {
