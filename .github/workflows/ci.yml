@@ -625,7 +625,8 @@ jobs:
       # named, not just "red"), and the eight locks judged by the orders (the set that goes red must be
       # exactly the one listed) — md5-checked apply, byte-identical restore. Its own battery rather than
       # a verify-mode-authority.mjs suite: that step replays a fifteen-file chain per mutant near its
-      # timeout, and this file restores alone. 59 s on a throwaway PG16 (2026-10-18).
+      # timeout, and this file restores alone. 59 s on a throwaway PG16, 84 s on the local supabase stack
+      # (PG17), both 2026-10-18.
       - name: Team race mutants (can the guards and locks fail?)
         timeout-minutes: 5
         run: node scripts/verify-team-race.mjs --mutants

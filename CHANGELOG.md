@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
+
+- **One migration, `20261018120000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
+  file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
+- **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role
+  change or an active flip is one call, `mms_staff_set`. It takes the team lock, then the caller's row
+  and the target's row, and decides the caller, the self rule, the role the console showed and A6's
+  ceiling before it writes. Two cross-demotions queue, and the second, by then a manager, is refused.
+  The trigger `staff_keep_an_owner` refuses any write, from any path, that would end the last active
+  owner. A hand-over (promote first, then step down) still goes through.
+- **A revocation can no longer land between the authority check and the write (M208).** The caller is
+  read under a row lock in the same transaction as the write. An invite's staff row goes through
+  `mms_staff_provision` under the same rule, and the auth user it made is deleted when the database
+  refuses.
+- **Every invite, role change and deactivation leaves a durable `staff_audit` row (M205).** The row is
+  written in the same transaction as the change, and managers and owners can read it. The PostHog event
+  stays as the secondary record.
+- **Proof.** `supabase/tests/m210_team_safety_test.sql` covers each refusal next to the call it must
+  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs eight two-session orders,
+  and its `--mutants` mode catches all 29 mutants. Both run in CI's sql lane. verify:slice gains 17
+  mutants over the actions and the new `lib/staff-team-outcome.ts`; 9 retired with the TypeScript
+  checks they guarded.
+
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 
 - **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only
