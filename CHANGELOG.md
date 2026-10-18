@@ -8,7 +8,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **`/api/cron/stranded-payments` is scheduled daily at 10:07 UTC** (`apps/qr/vercel.json` `crons`),
   now that `CRON_SECRET` is live in Production (no header → 401). Once its first run succeeds, a paid
-  card whose webhook never landed, with nobody on /track or at the table, is picked up within a day.
+  card whose webhook never landed, with nobody on /track or at the table, is picked up by the next daily run that finds it at least 3 minutes old (up to about 25 hours later, since a daily cron can fire anywhere within its hour).
   The window grows by a one-hour drift term (now 26 h 03 min), because a plan that allows only daily
   crons fires one anywhere inside its hour; a test now ties the schedule to that window.
 
