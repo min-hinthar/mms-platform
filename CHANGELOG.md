@@ -6,7 +6,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
 
-- **One migration, `20261018120000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
+- **One migration, `20261018130000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
   file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
   Apply it before the app merges. Until then the new actions' team writes fail closed.
 - **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role

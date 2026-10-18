@@ -2,7 +2,7 @@
 /**
  * M210 · M208 · M205 — the two-session harness for the team-safety migration, and its mutant battery.
  *
- * `20261018120000_m210_team_safety.sql` decides every team write under locks no single session can
+ * `20261018130000_m210_team_safety.sql` decides every team write under locks no single session can
  * observe: `supabase/tests/m210_team_safety_test.sql` runs in one transaction, where no second
  * demotion, no revocation and no promotion can land mid-call. This is the second session.
  *
@@ -87,7 +87,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRATION_FILE = "20261018120000_m210_team_safety.sql";
+const MIGRATION_FILE = "20261018130000_m210_team_safety.sql";
 const MIGRATION = path.join(ROOT, "supabase/migrations", MIGRATION_FILE);
 const SQL_TEST = path.join(ROOT, "supabase/tests/m210_team_safety_test.sql");
 const TAG = "M210R";

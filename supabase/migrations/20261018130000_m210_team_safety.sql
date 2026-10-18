@@ -1,4 +1,4 @@
--- 20261018120000_m210_team_safety.sql — M210 · M208 · M205: the team-safety migration.
+-- 20261018130000_m210_team_safety.sql — M210 · M208 · M205: the team-safety migration.
 --
 -- ⚠️ PROD: the third of the four files ruling #5 approved (OWNER_RULINGS_2026-10-07 #5 — "the
 -- team-safety file (M210 · M208 · M205)"). Applied ONE FILE AT A TIME through the Supabase MCP

@@ -1,6 +1,6 @@
 -- supabase/tests/m210_team_safety_test.sql  (M210 · M208 · M205 — the team-safety migration)
 --
--- Pins supabase/migrations/20261018120000_m210_team_safety.sql: privileges and RLS; every refusal of
+-- Pins supabase/migrations/20261018130000_m210_team_safety.sql: privileges and RLS; every refusal of
 -- `mms_staff_set` (a caller gone, off or below the floor; a target not there; yourself; a role that
 -- moved since the console showed it; the A6 ceiling on the target's current role and on the role
 -- requested) and of `mms_staff_provision` (the same caller rule, the ceiling, a duplicate) — each

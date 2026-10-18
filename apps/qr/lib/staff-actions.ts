@@ -45,7 +45,7 @@ function authorityRefusal(reason: "revoked" | "outage"): string {
  * A6 — RE-READ THE CALLER'S OWN AUTHORITY BEFORE THE INVITE'S SIDE EFFECT, AND RETURN THE ROLE IT
  * FOUND.
  *
- * ⚠️ M208 MOVED THE DECISION, AND THIS IS NOW A PRE-FLIGHT. Since `20261018120000_m210_team_safety
+ * ⚠️ M208 MOVED THE DECISION, AND THIS IS NOW A PRE-FLIGHT. Since `20261018130000_m210_team_safety
  * .sql` the database decides every team write — `mms_staff_set` and `mms_staff_provision` read the
  * caller's row under a lock, in the same transaction as the write — so no revocation can land between
  * the decision and the write. This re-read survives on ONE path, `provisionStaff`, for a reason the
@@ -141,7 +141,7 @@ function auditStaffAction(
  * may reach — nobody creates, promotes to, demotes from, or deactivates a role above their own, so
  * a manager can neither mint an owner nor unseat one, and cannot promote themselves.
  *
- * ⚠️ M208 · M210 MOVED BOTH HALVES INTO THE DATABASE. Until `20261018120000_m210_team_safety.sql`
+ * ⚠️ M208 · M210 MOVED BOTH HALVES INTO THE DATABASE. Until `20261018130000_m210_team_safety.sql`
  * they lived in TypeScript alone (`staff` carries one RLS policy, a SELECT, and these writes use the
  * service-role client), decided a round trip or more before the write — so a revocation could land
  * between them (M208), and two owners demoting each other could both pass and leave the restaurant

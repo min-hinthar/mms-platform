@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * A6 · M208 · M210 · M205 — THE THREE TEAM ACTIONS, AGAINST THE DATABASE THAT NOW DECIDES THEM.
  *
- * Since `20261018120000_m210_team_safety.sql` the caller's authority, the self rule, the role the
+ * Since `20261018130000_m210_team_safety.sql` the caller's authority, the self rule, the role the
  * console showed and A6's ceiling are decided by `mms_staff_set` / `mms_staff_provision`, in the same
  * transaction as the write and its `staff_audit` row — proved against the real database by
  * `supabase/tests/m210_team_safety_test.sql` and, for the orders, `scripts/verify-team-race.mjs`.

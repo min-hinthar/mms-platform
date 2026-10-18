@@ -1,7 +1,7 @@
 /**
  * M210 · M208 · M205 — what the console says after the database decided a team write.
  *
- * Since `20261018120000_m210_team_safety.sql` the AUTHORITY for a role change, an active flip and an
+ * Since `20261018130000_m210_team_safety.sql` the AUTHORITY for a role change, an active flip and an
  * invite's staff row is decided in SQL (`mms_staff_set`, `mms_staff_provision`), under the team lock
  * and both row locks, in the same transaction as the write and its `staff_audit` row. The server
  * actions in `lib/staff-actions.ts` only send the request and read the verdict back. This module is
