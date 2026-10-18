@@ -7,16 +7,24 @@ import { canActOn, getStaffAuth, roleAtLeast, STAFF_WRITE_OUTAGE } from "./staff
 import type { StaffRole } from "./staff";
 import { sendStaffInviteEmail, sendStaffDeactivatedEmail } from "./email";
 import { getPostHogClient } from "./posthog-server";
+import {
+  INVITE_CREATE_FAILED,
+  MANAGERS_ONLY,
+  provisionOutcome,
+  readProvisionVerdict,
+  readSetVerdict,
+  setOutcome,
+} from "./staff-team-outcome";
+import type { StaffActionResult } from "./staff-team-outcome";
 
 // Provisioning is rare + bursty (onboarding a few at once); 20/hour per CALLER bounds an
 // email-enumeration probe (S1-audit S7) without blocking legitimate team setup.
 const PROVISION_MAX = 20;
 const PROVISION_WINDOW_S = 3600;
 
-/** A6 — ONE floor-refusal sentence for all three team actions. Named once because it is the string a
- *  server sees when they POST at a screen they cannot open, and three hand-copied versions is how
- *  one of them ends up still saying "Owners only." after the floor moved. */
-const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
+// MANAGERS_ONLY — A6's ONE floor-refusal sentence — lives in `lib/staff-team-outcome.ts` since M210,
+// beside every other sentence a team write can end in, so the database's verdicts and this file's
+// own pre-checks speak with one voice.
 /**
  * M209 — the refusal for "we could not check", which is NOT the refusal for "you may not".
  * Naming the outage keeps a database hiccup from telling a manager they are not one, while still
@@ -34,11 +42,20 @@ function authorityRefusal(reason: "revoked" | "outage"): string {
 }
 
 /**
- * A6 — RE-READ THE CALLER'S OWN AUTHORITY IMMEDIATELY BEFORE AN AUTHORITY WRITE, AND RETURN THE
- * ROLE IT FOUND.
+ * A6 — RE-READ THE CALLER'S OWN AUTHORITY BEFORE THE INVITE'S SIDE EFFECT, AND RETURN THE ROLE IT
+ * FOUND.
  *
- * `getStaffAuth()` resolves the caller once, at the top of the action, and the writes below land
- * several round trips later. In that window an owner can demote or deactivate the caller.
+ * ⚠️ M208 MOVED THE DECISION, AND THIS IS NOW A PRE-FLIGHT. Since `20261018130000_m210_team_safety
+ * .sql` the database decides every team write — `mms_staff_set` and `mms_staff_provision` read the
+ * caller's row under a lock, in the same transaction as the write — so no revocation can land between
+ * the decision and the write. This re-read survives on ONE path, `provisionStaff`, for a reason the
+ * database cannot serve: the invite's auth user is created BEFORE its staff row (GoTrue is not SQL),
+ * so a refusal decided only in SQL would first mint an account and then delete it. Refusing here,
+ * before `createUser`, keeps a revoked or out-of-reach invite from ever creating one; the RPC then
+ * decides again, under its lock, and is the one that counts.
+ *
+ * `getStaffAuth()` resolves the caller once, at the top of the action, and the invite lands several
+ * round trips later. In that window an owner can demote or deactivate the caller.
  *
  * ⚠️ RETURNING THE REFRESHED ROLE IS THE WHOLE POINT, and the first version of this helper got it
  * wrong in a way that mattered: it answered a plain boolean, checked only the `manager` FLOOR, and
@@ -48,11 +65,8 @@ function authorityRefusal(reason: "revoked" | "outage"): string {
  * and a wider one on another. Every caller re-runs `canActOn` against `role` from here, never
  * against the session's copy.
  *
- * ⚠️ THIS NARROWS THE WINDOW, IT DOES NOT CLOSE IT, and saying otherwise would be the kind of
- * comment this repo has been burned by. The check and the write are still two statements, so a
- * revocation landing between them is unseen. Closing it properly means deciding the caller and the
- * target in ONE statement, which needs an RPC or an RLS UPDATE policy on `staff` — a prod
- * migration, blocked on the divergent history, and filed as OPEN-ITEMS M208.
+ * ⚠️ ON ITS OWN THIS NARROWS THE WINDOW, IT DOES NOT CLOSE IT: the check and `createUser` are still
+ * two statements. What closes it is the RPC's own decision behind it (M208, above).
  *
  * ⚠️ M209 — AND AN UNREADABLE ROW REFUSES RATHER THAN PROCEEDING. The first shipped version answered
  * `{ ok: true }` on a read error, on the reasoning that a hiccup is not a revocation. That reasoning
@@ -92,8 +106,13 @@ async function refreshCallerAuthority(
   return { ok: true, role };
 }
 
-/** Best-effort audit of an owner staff-management mutation (parity with clear/merge/settle telemetry —
- *  S1-audit S7). Decoupled via after(); never fails the action on a capture error. */
+/** Best-effort ANALYTICS of a staff-management mutation (parity with clear/merge/settle telemetry —
+ *  S1-audit S7). Decoupled via after(); never fails the action on a capture error.
+ *
+ *  M205 — this is the SECONDARY record now. The durable one is the `staff_audit` row the RPC writes
+ *  in the same transaction as the change, which exists whether or not analytics is configured; this
+ *  event still returns early without `NEXT_PUBLIC_POSTHOG_KEY`, and that is fine because nothing
+ *  depends on it any more. */
 function auditStaffAction(
   event: string,
   byStaffId: string,
@@ -120,17 +139,24 @@ function auditStaffAction(
  * ⚠️ A6 REPLACED A ROLE FLOOR WITH A ROLE CEILING, and the difference is the whole safety argument.
  * The floor (`manager`) says who may open the door; the ceiling (`canActOn`) says how far in they
  * may reach — nobody creates, promotes to, demotes from, or deactivates a role above their own, so
- * a manager can neither mint an owner nor unseat one, and cannot promote themselves. Both halves
- * live in TypeScript ALONE: `staff` carries exactly one RLS policy, a SELECT (`staff_read_self`),
- * and these writes go through the service-role client, so a missing check here is not caught
- * anywhere downstream. Every refusal below is the last line, not the first.
+ * a manager can neither mint an owner nor unseat one, and cannot promote themselves.
+ *
+ * ⚠️ M208 · M210 MOVED BOTH HALVES INTO THE DATABASE. Until `20261018130000_m210_team_safety.sql`
+ * they lived in TypeScript alone (`staff` carries one RLS policy, a SELECT, and these writes use the
+ * service-role client), decided a round trip or more before the write — so a revocation could land
+ * between them (M208), and two owners demoting each other could both pass and leave the restaurant
+ * with no owner (M210). Now `mms_staff_set` / `mms_staff_provision` decide the caller, the target,
+ * the ceiling and the write in ONE transaction under the team lock, write the `staff_audit` row in it
+ * (M205), and a trigger refuses any write that ends the last active owner. What remains here is the
+ * floor at the door (`getStaffAuth`), the session-aware self check (the e-mail arm only the session
+ * knows), the invite's pre-flight (`refreshCallerAuthority`), and reading the verdict back.
  *
  * Bootstrap note: the FIRST owner is created out-of-band (Supabase dashboard auth user + a one-time
  * `insert into staff … role='owner'`) — there is deliberately NO self-serve "claim the first owner"
  * code path, since that would let any visitor seize ownership before setup. See docs/HANDOFF.md.
  */
 
-export type StaffActionResult = { ok: true } | { ok: false; error: string };
+export type { StaffActionResult };
 
 /**
  * An owner provisions a staff account: the email is the magic-link / OTP login identity, created
@@ -155,8 +181,8 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   // a manager path, so the bucket is keyed per manager and the fleet-wide ceiling on the
   // email-existence oracle now scales with the number of managers rather than with one owner. Still
   // fail-open on an RPC error (defense-in-depth, and a hiccup must not block a real hire), and a
-  // hard `false` (over the cap) refuses without leaking why. The durable audit this leans on is
-  // OPEN-ITEMS A6b — today the only record is a best-effort PostHog event.
+  // hard `false` (over the cap) refuses without leaking why. The durable audit this leans on is the
+  // `staff_audit` row `mms_staff_provision` writes beside every staff row it creates (M205).
   const { data: allowed, error: rlErr } = await db.rpc("mms_rate_limit", {
     p_bucket: "staff_provision",
     p_key: caller.staffId,
@@ -201,19 +227,39 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   if (createErr || !created?.user) {
     // GENERIC message (S1-audit S7): do NOT reveal whether the email already exists — that's an account-
     // existence oracle (even owner-only, it's needless disclosure). One message for every create failure.
-    return { ok: false, error: "Couldn’t create that account. Check the email and try again." };
+    return { ok: false, error: INVITE_CREATE_FAILED };
   }
 
-  const { error: rowErr } = await db.from("staff").insert({
-    user_id: created.user.id,
-    email: parsed.data.email, // the allowlist key — matches a Google/magic-link sign-in by email
-    role: parsed.data.role,
-    display_name: parsed.data.displayName,
+  // M208 · M205 — the staff row through the RPC, which decides the caller and the ceiling AGAIN under
+  // the caller's row lock (the pre-flight above can be overtaken by a revocation; this cannot) and
+  // writes the `staff_audit` row in the same transaction. Anything but `ok` — a refusal, a duplicate,
+  // an outage, an answer we cannot read — rolls back the auth user, so a failed provision leaves
+  // nothing behind.
+  const { data: verdict, error: rowErr } = await db.rpc("mms_staff_provision", {
+    p_caller: caller.staffId,
+    p_user_id: created.user.id,
+    p_email: parsed.data.email, // the allowlist key — matches a Google/magic-link sign-in by email
+    p_role: parsed.data.role,
+    p_display_name: parsed.data.displayName,
   });
-  if (rowErr) {
-    // Roll back the orphan auth user so a failed provision leaves nothing behind.
-    await db.auth.admin.deleteUser(created.user.id).catch(() => {});
-    return { ok: false, error: "Couldn’t save the staff role. Try again." };
+  const status = rowErr ? null : readProvisionVerdict(verdict);
+  const outcome = provisionOutcome(status);
+  if (!outcome.ok) {
+    // An UNREADABLE answer (a transport drop, a shape we do not know) is not a refusal: the RPC may
+    // have committed and its reply been lost. Deleting the auth user then would cascade away a
+    // member who WAS added, leaving their `invited` ledger row and a console that says it failed.
+    // So the row decides — present, it is the success it was; absent or unreadable, nothing landed
+    // that we can see, and the account goes (if a row did land after all, the cascade's delete is
+    // itself recorded by `staff_audit_direct` as a removal, so the ledger still tells the truth).
+    // A READABLE refusal is the RPC saying it wrote nothing, and is never second-guessed.
+    const landed =
+      status === null &&
+      !!(await db.from("staff").select("user_id").eq("user_id", created.user.id).maybeSingle())
+        .data;
+    if (!landed) {
+      await db.auth.admin.deleteUser(created.user.id).catch(() => {});
+      return outcome;
+    }
   }
 
   auditStaffAction("staff_provisioned", caller.staffId, {
@@ -242,19 +288,19 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
  *
  * ⚠️ REINSTATEMENT RUNS THROUGH THE SAME ACTION AS OFFBOARDING, so a manager can switch a member
  * back on that another manager switched off. Within the ceiling that is intended — the rung manages
- * itself — but an OWNER's offboarding of a non-owner is reversible by a manager, and the only record
- * of either is a best-effort analytics event (OPEN-ITEMS M205, which is the durable audit row this
- * wants and needs a prod migration). Named here because the ceiling reasons about ROLES, and this is
- * the one authority question it does not answer.
+ * itself — but an OWNER's offboarding of a non-owner is reversible by a manager. Since M205 both
+ * leave a durable `staff_audit` row (who, whom, when), so the question is at least answerable. Named
+ * here because the ceiling reasons about ROLES, and this is the one authority question it does not
+ * answer.
  */
 export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   const parsed = setStaffActiveInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
 
   // Deliberate collapse of the 401/403 distinction (same rationale as provisionStaff); outage stays
-  // distinct (W10b). Note: two owners can deactivate EACH OTHER down to one (the last is
-  // self-protected below) — no full lockout, but recovery from an accidental over-deactivation is the
-  // out-of-band `update public.staff set active=true …` documented in the bootstrap notes.
+  // distinct (W10b). Two owners deactivating EACH OTHER at once can no longer reach zero (M210): the
+  // RPC serializes them under the team lock and the second, now off, is refused — and a trigger
+  // refuses any write, through any path, that ends the last active owner.
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, error: STAFF_WRITE_OUTAGE };
   const caller =
@@ -277,40 +323,39 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
     target.user_id === caller.uid ||
     (!!target.email && !!caller.email && target.email.toLowerCase() === caller.email);
   if (isSelf) return { ok: false, error: "You can’t deactivate your own account." };
-  // A6 — the ceiling, on the TARGET's CURRENT role, which is why the row has to be read first. The
-  // owner-on-owner precedent in the note above is exactly what makes this necessary once managers
-  // are through the door: without it, the same two taps that offboard a server would offboard every
-  // owner, and the account that could reinstate them is the one just switched off.
 
-  const fresh = await refreshCallerAuthority(db, caller);
-  if (!fresh.ok) return { ok: false, error: authorityRefusal(fresh.reason) };
-  // The ceiling AGAIN, on the REFRESHED role — see `refreshCallerAuthority`. An owner demoted to
-  // manager between the session read and here may no longer touch an owner's account.
-  if (!canActOn(fresh.role, target.role as StaffRole))
-    return { ok: false, error: "Only the owner can change an owner’s account." };
-  // A6 — the SAME two protections `setStaffRole` carries, and for the same reason: the ceiling above
-  // was decided against a role read a moment ago, so the write repeats it as `.eq("role", …)` in the
-  // STATEMENT. Without that, a target promoted to owner between the read and the write is
-  // deactivated by a manager whose permission was granted for a server. And `.select("user_id")`
-  // because `.update()` reports no row count — a write the guard refused would otherwise answer ok
-  // and the console would show a member switched off who is still on.
-  const { data: rows, error } = await db
-    .from("staff")
-    .update({ active: parsed.data.active, updated_at: new Date().toISOString() })
-    .eq("user_id", parsed.data.userId)
-    .eq("role", target.role)
-    .select("user_id");
-  if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
-  if (!rows || rows.length === 0)
-    return { ok: false, error: "That member just changed — reload and try again." };
+  // M208 · M210 · M205 — ONE call decides and writes. `mms_staff_set` takes the team lock, the
+  // caller's row FOR SHARE (their authority, which nothing can revoke mid-call) and the target's FOR
+  // UPDATE, then refuses — before any write — a caller gone, off or below the floor, the caller
+  // themselves, a role that is no longer `seenRole` (the one the CONSOLE showed: a member promoted
+  // to owner since the screen loaded is not offboarded on a server's permission), and A6's ceiling
+  // on the target's CURRENT role. The flip and its `staff_audit` row commit together.
+  //
+  // ⚠️ `p_seen_role` is the console's value, never `target.role`: the read above is milliseconds
+  // old, so a guard fed from it could not fail (the blind pass on #366 — the claim was made, the
+  // wiring did not keep it). A `changed` answer asks the console to re-read the roster.
+  //
+  // The verdict is READ, never assumed: the RPC answers jsonb, and anything it does not say is `ok`
+  // or `noop` — an error, an unknown status, a shape we cannot parse — reports a failure rather than
+  // a member switched off who is still on (the W17 rule, one layer up).
+  const { data: verdictData, error } = await db.rpc("mms_staff_set", {
+    p_caller: caller.staffId,
+    p_target: parsed.data.userId,
+    p_seen_role: parsed.data.seenRole,
+    p_active: parsed.data.active,
+  });
+  const verdict = error ? null : readSetVerdict(verdictData);
+  const outcome = setOutcome("active", verdict);
+  if (!outcome.ok || verdict?.status !== "ok") return outcome; // a no-op changed nothing to announce
 
   auditStaffAction(parsed.data.active ? "staff_reactivated" : "staff_deactivated", caller.staffId, {
     target_user_id: parsed.data.userId,
   });
 
-  // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled) to the row's stored email.
-  if (!parsed.data.active && target.email) {
-    const to = target.email;
+  // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled) to the address the row held
+  // when the RPC switched it off — its own answer, not the read above, which may be a moment stale.
+  if (!parsed.data.active && verdict.email) {
+    const to = verdict.email;
     after(() => sendStaffDeactivatedEmail({ to }));
   }
   revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen
@@ -336,10 +381,12 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
  *     checking only the requested role lets a manager demote the owner to server and take the place
  *     over from below.
  *
- * The write is status-guarded in the STATEMENT (`.eq("role", target.role)`), not merely in the code
- * above it: the ceiling was decided against the role read a moment earlier, and a concurrent change
- * in that window would apply this decision to a role it was never made about. `.select("id")`
- * because `.update()` reports success for a write that matched nothing (the W17 rule).
+ * Since M208 · M210 all three are decided again — and finally — by `mms_staff_set`, in the same
+ * transaction as the write, under the target's row lock: the role the console showed (`seenRole`,
+ * sent by the Team screen) must still be the role (`p_seen_role`), or the call answers `changed`,
+ * writes nothing, and the console re-reads the roster. That is the statement
+ * guard the old `.eq("role", current)` was, moved to where nothing can change the row between the
+ * decision and the write.
  */
 export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   const parsed = setStaffRoleInput.safeParse(raw);
@@ -354,7 +401,7 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   const db = serviceClient();
   const { data: target, error: targetError } = await db
     .from("staff")
-    .select("user_id,email,role")
+    .select("user_id,email")
     .eq("user_id", parsed.data.userId)
     .maybeSingle();
   // W10b — an unread row is not "no such staff member", and neither the self-check nor the ceiling
@@ -367,30 +414,29 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
     (!!target.email && !!caller.email && target.email.toLowerCase() === caller.email);
   if (isSelf) return { ok: false, error: "You can’t change your own role." };
 
-  const current = target.role as StaffRole;
-  if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
+  // A request for the role the console already showed is still ASKED: the database decides the
+  // ceiling before the no-op, so `ok` never answers for an account outside the caller's reach, and a
+  // member whose role moved since the screen loaded answers `changed`. The console never sends one
+  // (`TeamManager` returns before the call); a direct POST gets the database's answer.
+  const seen: StaffRole = parsed.data.seenRole;
 
-  const fresh = await refreshCallerAuthority(db, caller);
-  if (!fresh.ok) return { ok: false, error: authorityRefusal(fresh.reason) };
-  // BOTH halves again, on the REFRESHED role — the target's current role and the requested one.
-  if (!canActOn(fresh.role, current) || !canActOn(fresh.role, parsed.data.role))
-    return { ok: false, error: "Only the owner can change an owner’s role." };
-
-  const { data: rows, error } = await db
-    .from("staff")
-    .update({ role: parsed.data.role, updated_at: new Date().toISOString() })
-    .eq("user_id", parsed.data.userId)
-    .eq("role", current)
-    .select("user_id");
-  if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
-  // Zero rows means the guard in the statement refused: the role moved under us between the read and
-  // the write. Reporting `ok` here would show the console a role nobody stored.
-  if (!rows || rows.length === 0)
-    return { ok: false, error: "That role just changed — reload and try again." };
+  // M208 · M210 · M205 — ONE call decides and writes (see `setStaffActive` for the locks). The
+  // ceiling is decided there on BOTH halves — the target's current role and the requested one — on
+  // the caller's role as committed, so an owner demoted mid-request (or by a concurrent demotion from
+  // the co-owner they are demoting: M210) is a manager by then and meets it.
+  const { data: verdictData, error } = await db.rpc("mms_staff_set", {
+    p_caller: caller.staffId,
+    p_target: parsed.data.userId,
+    p_seen_role: seen,
+    p_role: parsed.data.role,
+  });
+  const verdict = error ? null : readSetVerdict(verdictData);
+  const outcome = setOutcome("role", verdict);
+  if (!outcome.ok || verdict?.status !== "ok") return outcome; // a no-op changed nothing to announce
 
   auditStaffAction("staff_role_changed", caller.staffId, {
     target_user_id: parsed.data.userId,
-    from_role: current,
+    from_role: seen, // `ok` proves the row WAS `seen` when the RPC wrote over it
     to_role: parsed.data.role,
   });
   revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen

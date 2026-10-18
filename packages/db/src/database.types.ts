@@ -1857,6 +1857,39 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_audit: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          from_role: string | null
+          id: string
+          source: string
+          target_id: string
+          to_role: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          from_role?: string | null
+          id?: string
+          source?: string
+          target_id: string
+          to_role?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          from_role?: string | null
+          id?: string
+          source?: string
+          target_id?: string
+          to_role?: string | null
+        }
+        Relationships: []
+      }
       staff_pins: {
         Row: {
           failed_attempts: number
@@ -2314,6 +2347,26 @@ export type Database = {
         Returns: number
       }
       mms_staff_clear_pin: { Args: { p_staff_id: string }; Returns: undefined }
+      mms_staff_provision: {
+        Args: {
+          p_caller: string
+          p_display_name: string
+          p_email: string
+          p_role: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      mms_staff_set: {
+        Args: {
+          p_active?: boolean
+          p_caller: string
+          p_role?: string
+          p_seen_role: string
+          p_target: string
+        }
+        Returns: Json
+      }
       mms_staff_set_pin: {
         Args: { p_pin: string; p_staff_id: string }
         Returns: undefined

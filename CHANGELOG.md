@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
+
+- **One migration, `20261018130000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
+  file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
+  Apply it before the app merges. Until then the new actions' team writes fail closed.
+- **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role
+  change or an active flip is one call, `mms_staff_set`. It takes the team lock, then the caller's row
+  and the target's row, and decides the caller, the self rule, the role the console showed and A6's
+  ceiling before it writes. Two cross-demotions queue, and the second, by then a manager, is refused.
+  "The role the console showed" is the role the Team screen DISPLAYED for that row, sent with the
+  request (`seenRole`). A manager acting on a screen that went stale (the member promoted since it
+  loaded) is told "That role just changed — the list now shows it", and the roster re-reads. The
+  ceiling is decided before the no-op, so a manager is never told ok about an owner's account.
+  Every lock wait gives up after five seconds (`lock_timeout`), so one stuck transaction costs one
+  call its answer instead of queueing the whole team behind it.
+  The trigger `staff_keep_an_owner` refuses any write, from any path, that would end the last active
+  owner. A hand-over (promote first, then step down) still goes through.
+- **A revocation can no longer land between the authority check and the write (M208).** The caller is
+  read under a row lock in the same transaction as the write. An invite's staff row goes through
+  `mms_staff_provision` under the same team lock and caller rule, and the auth user it made is
+  deleted when the database refuses. An answer lost in transit after the row landed keeps the member
+  (the row decides), so a dropped reply no longer deletes someone who was added.
+- **Every invite, role change, deactivation and removal leaves a durable `staff_audit` row (M205).**
+  The row is written in the same transaction as the change, and managers and owners can read it. A
+  change made through the console names who made it. A change made any other way (the old app during
+  the deploy, a preview built on an older base, a hand-run statement, a deleted auth user) is recorded
+  too, by the trigger `staff_audit_direct`, as a `direct` row that names nobody. No role the API serves,
+  service_role included, can write the ledger directly. The PostHog event stays as the secondary record.
+- **Proof.** `supabase/tests/m210_team_safety_test.sql` covers each refusal next to the call it must
+  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs eleven two-session orders,
+  and its `--mutants` mode catches all 43 mutants. Order j measures the one lock cycle left: a direct
+  owner demotion (the old app during the deploy, a hand-run statement) against `mms_staff_set`.
+  Postgres aborts one side as a deadlock, the other lands, and one owner remains. Order k holds a
+  staff row open and measures both functions giving up at the lock timeout. Both run in CI's sql
+  lane. verify:slice gains 25 mutants over the actions, the Team console and the new
+  `lib/staff-team-outcome.ts`; 9 retired with the TypeScript checks they guarded.
+
 ### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
 
 - **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook
