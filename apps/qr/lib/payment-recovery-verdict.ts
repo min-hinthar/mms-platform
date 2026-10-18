@@ -255,7 +255,9 @@ export function recoveryVerdict(input: {
    * from the database by the guest door; `null` when no merge exists or none was read. Codex on #365
    * @ 1b760cb (P2): a diner who paid anonymously and then signed into an existing account is the same
    * payer, and `mms_earn_on_fulfill` already credits the merged-into account. Resolved the same way
-   * — the redirect, when there is one, IS the payer: the orphaned anon uid no longer is.
+   * — when the door supplies a redirect, it IS the payer. The guest door reads one only when the
+   * caller is NOT the recorded uid (`recoverIntent`), so the original anonymous session itself still
+   * passes as the payer it was: the same person on the same device, never a third party.
    */
   mergedEarner?: string | null;
 }): { ok: true } | { ok: false; refusal: RecoveryRefusal } {

@@ -128,6 +128,16 @@ describe("recoverMyPayment — the guest's door on /track", () => {
     },
   );
 
+  // The cost of binding the short-circuit: the payer of their OWN order that `mms_earn_on_fulfill`
+  // did not attribute (`earned_by` null) is no longer told `recorded` from the read. With no cart
+  // still linking the intent, the door answers `nothing` — the order itself is still on /track.
+  it("an unattributed order with no linked cart answers nothing, never recorded, and asks Stripe nothing", async () => {
+    order = { id: "o-1", earned_by: null };
+    linkedCart = null;
+    expect(await recoverMyPayment({ paymentIntent: "pi_abc" })).toEqual({ kind: "nothing" });
+    expect(recovered).toEqual([]);
+  });
+
   it("no cart links the intent: nothing — a guest door never fulfills an unlinked intent", async () => {
     linkedCart = null;
     expect(await recoverMyPayment({ paymentIntent: "pi_abc" })).toEqual({ kind: "nothing" });

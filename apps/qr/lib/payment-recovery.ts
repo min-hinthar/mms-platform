@@ -113,8 +113,10 @@ export async function recoverRetrievedIntent(
     const log = verdict.refusal === "not_succeeded" ? console.warn : console.error;
     log("[payment-recovery] refused", {
       refusal: verdict.refusal,
-      // A succeeded charge this door will not touch, by name: an operator's to look at in Stripe.
-      chargedNoOrder: verdict.refusal !== "not_succeeded",
+      // A SUCCEEDED charge this door would not touch — an operator's to look at in Stripe AND in
+      // `qr_orders`: the refusal says nothing about whether an order exists (a probe of someone
+      // else's recorded order refuses `unbound`; a `refunded` charge already went back).
+      succeeded: verdict.refusal !== "not_succeeded",
       paymentIntent: intent.id,
       status: intent.status,
       kind: intent.metadata?.kind ?? null,

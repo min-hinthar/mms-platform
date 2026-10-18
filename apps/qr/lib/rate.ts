@@ -93,7 +93,8 @@ export function withinStaffPromoRate(callerStaffId: string): Promise<boolean> {
  * M160(b) — gate a guest's stranded-payment ask per verified uid (see RECOVER_RATE). FAIL-CLOSED,
  * unlike the rest of this module: the limiter stands in front of a Stripe `retrieve` and a
  * fulfillment, and a refused ask costs a guest nothing they can see (the /track copy is already the
- * honest one; the cron, which no limiter gates, is the backstop).
+ * honest one). The backstop during a limiter outage is Stripe's own webhook redelivery (retried for
+ * up to three days), and the cron once it is scheduled with `CRON_SECRET` — which no limiter gates.
  */
 export function withinRecoverRate(uid: string): Promise<boolean> {
   return withinRate("recover", uid, RECOVER_RATE.max, RECOVER_RATE.windowSeconds, "closed");
