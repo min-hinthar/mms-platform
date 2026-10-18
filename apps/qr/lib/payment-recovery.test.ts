@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -128,8 +130,10 @@ const {
   SWEEP_TIME_BUDGET_MS,
   SWEEP_MAX_RECOVER,
   SWEEP_MAX_PAGES,
+  SWEEP_CRON_DRIFT_MS,
   SWEEP_LOOKBACK_MS,
   SWEEP_MIN_AGE_MS,
+  SWEEP_OVERLAP_MS,
   SWEEP_SCHEDULE_INTERVAL_MS,
 } = await import("./payment-recovery");
 const { sweepWindow } = await import("./payment-recovery-verdict");
@@ -291,7 +295,8 @@ describe("sweepStrandedPayments", () => {
     await sweepStrandedPayments(NOW);
     expect(lists[0]).toEqual({
       created: {
-        gte: (NOW - (24 * 3600_000 + 3 * 60_000 + 3600_000)) / 1000,
+        // interval 24 h + cron drift 1 h + min-age 3 min + overlap 1 h = 26 h 03 min
+        gte: (NOW - (24 * 3600_000 + 3600_000 + 3 * 60_000 + 3600_000)) / 1000,
         lte: (NOW - 3 * 60_000) / 1000,
       },
       limit: 100,
@@ -307,6 +312,18 @@ describe("sweepStrandedPayments", () => {
     expect(next.gte).toBeLessThan(first.lte);
     // …by the stated margin, not by a rounding accident.
     expect(first.lte - next.gte).toBeGreaterThanOrEqual(30 * 60);
+  });
+
+  // The blind pass on #369: a plan that only allows daily crons fires one ANYWHERE inside its hour,
+  // so a 10:00 run can be followed by a 10:59 one. The windows must still overlap by the full slack.
+  it("two runs an interval PLUS the cron's full drift apart still overlap by the slack", () => {
+    const first = sweepWindow(NOW, SWEEP_LOOKBACK_MS, SWEEP_MIN_AGE_MS);
+    const next = sweepWindow(
+      NOW + SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_CRON_DRIFT_MS,
+      SWEEP_LOOKBACK_MS,
+      SWEEP_MIN_AGE_MS,
+    );
+    expect(first.lte - next.gte).toBeGreaterThanOrEqual(SWEEP_OVERLAP_MS / 1000);
   });
 
   it("recovers a stranded succeeded intent and skips everything already on record", async () => {
@@ -498,5 +515,59 @@ describe("sweepStrandedPayments", () => {
     expect(summary.truncated).toBe(false);
     expect(err.mock.calls.filter((c) => String(c[0]).includes("page cap"))).toEqual([]);
     err.mockRestore();
+  });
+});
+
+/**
+ * M160(b) · the blind pass on #369 — the stranded-payment sweep's window is sized for a cron that runs
+ * at least once every `SWEEP_SCHEDULE_INTERVAL_MS` (a day), and nothing else tied the schedule in
+ * `apps/qr/vercel.json` to it: a schedule edited to every other day, or a route renamed out from
+ * under its `path`, would leave the unattended recovery with gaps or never running, every check green.
+ * This reads the shipped JSON (parsed, never pattern-matched) and holds both to the window.
+ */
+const CRON_APP = path.resolve(__dirname, "..");
+const SWEEP_PATH = "/api/cron/stranded-payments";
+
+type Cron = { path: string; schedule: string };
+const crons = (): Cron[] =>
+  (JSON.parse(readFileSync(path.join(CRON_APP, "vercel.json"), "utf8")) as { crons?: Cron[] })
+    .crons ?? [];
+
+/** Does a 5-field cron expression fire at least once every calendar day? */
+function firesDaily(schedule: string): boolean {
+  const fields = schedule.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
+  // Day-of-month, month and day-of-week must not narrow the days; minute and hour may be any one
+  // value, a list or a step — each still fires at least once a day.
+  const anyDay = (f: string | undefined) => f === "*";
+  const fires = (f: string | undefined) => typeof f === "string" && /^[\d*,/-]+$/.test(f);
+  return anyDay(dayOfMonth) && anyDay(month) && anyDay(dayOfWeek) && fires(minute) && fires(hour);
+}
+
+describe("the stranded-payment cron is scheduled to fit its window", () => {
+  it("is registered, exactly once", () => {
+    expect(crons().filter((c) => c.path === SWEEP_PATH)).toHaveLength(1);
+  });
+
+  it("points at a route that exists", () => {
+    for (const c of crons()) {
+      expect(existsSync(path.join(CRON_APP, "app", c.path, "route.ts")), c.path).toBe(true);
+    }
+  });
+
+  it("fires at least once a day — the window covers one day, never more", () => {
+    expect(SWEEP_SCHEDULE_INTERVAL_MS).toBe(24 * 60 * 60 * 1000);
+    const sweep = crons().find((c) => c.path === SWEEP_PATH);
+    expect(sweep && firesDaily(sweep.schedule), sweep?.schedule).toBe(true);
+  });
+
+  it("refuses a schedule that skips days", () => {
+    expect(firesDaily("7 10 * * *")).toBe(true);
+    expect(firesDaily("0 * * * *")).toBe(true);
+    expect(firesDaily("7 10 */2 * *")).toBe(false);
+    expect(firesDaily("7 10 * * 1-5")).toBe(false);
+    expect(firesDaily("7 10 1 * *")).toBe(false);
+    expect(firesDaily("7 10 * *")).toBe(false);
   });
 });

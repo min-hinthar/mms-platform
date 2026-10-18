@@ -7,9 +7,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### The stranded-payment sweep runs every day (2026-10-18, M160(b) · owner ruling #13)
 
 - **`/api/cron/stranded-payments` is scheduled daily at 10:07 UTC** (`apps/qr/vercel.json` `crons`),
-  now that `CRON_SECRET` is live in Production (no header → 401). A paid card whose webhook never
-  landed, with nobody on /track or at the table, is brought home within a day; ENV.md's runbook step 5
-  is done.
+  now that `CRON_SECRET` is live in Production (no header → 401). Once its first run succeeds, a paid
+  card whose webhook never landed, with nobody on /track or at the table, is picked up within a day.
+  The window grows by a one-hour drift term (now 26 h 03 min), because a plan that allows only daily
+  crons fires one anywhere inside its hour; a test now ties the schedule to that window.
 
 ### A guest how-to in the README, and draft customer posts (2026-10-18, docs)
 

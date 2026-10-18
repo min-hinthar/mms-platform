@@ -215,18 +215,20 @@ secret below exists.
    - no header → **401**; `Authorization: Bearer <CRON_SECRET>` → **200** with a JSON count
      (`listed` · `candidates` · `foreign` · `answers` · `truncated`) and no ids.
    - before step 2 the same call answers **503** "Cron not configured": the fail-closed state.
-5. **The schedule is registered** in `apps/qr/vercel.json`: `{ "path": "/api/cron/stranded-payments",
-"schedule": "7 10 * * *" }`, daily at 10:07 UTC (2026-10-18, after the secret was probed live). Daily
-   fits every Vercel plan, including one that only allows daily crons and fires them anywhere inside
-   the scheduled hour; the window's one-hour overlap covers that drift. A plan that allows more
-   frequent crons may shorten it (hourly overlaps more, which is safe); never lengthen it. **The schedule must run at least once every 24 h**
-   (`SWEEP_SCHEDULE_INTERVAL_MS`, `lib/payment-recovery.ts`). The window is sized for that: two runs
-   24 h apart share an hour. A more frequent schedule just overlaps more, which is safe because
-   anything already on record is skipped. A less frequent one leaves a gap no run covers. A run that
-   fails (a 500) also leaves its own day uncovered, so watch the cron's log after a failure; the
-   guest's /track and staff's Check payment still cover the payments someone is watching.
+5. **The schedule is registered** in `apps/qr/vercel.json`, daily at 10:07 UTC
+   (`{ "path": "/api/cron/stranded-payments", "schedule": "7 10 * * *" }`, 2026-10-18, after the secret
+   was probed live). **It must fire every day** (`SWEEP_SCHEDULE_INTERVAL_MS`, `lib/payment-recovery.ts`),
+   and `lib/payment-recovery.test.ts` fails if the schedule skips a day or its route goes missing. A
+   plan that only allows daily crons fires one anywhere inside its hour, so two runs can be 24 h + 1 h
+   apart; the window carries a one-hour drift term (`SWEEP_CRON_DRIFT_MS`) for exactly that, plus a
+   one-hour overlap of slack on top. A more frequent schedule just overlaps more, which is safe because
+   anything already on record is skipped. A run that fails (a 500) leaves its own day uncovered, so
+   watch the cron's log after a failure; the guest's /track and staff's Check payment still cover the
+   payments someone is watching. **Step 4's authenticated call (`Bearer <CRON_SECRET>` → 200) is the
+   owner's**, since only the owner holds the secret: run it once, or use Vercel → Cron Jobs → **Run**,
+   and confirm the log shows a count rather than "Sweep failed".
 
-What one run does: it lists the Stripe account's PaymentIntents created between 25 h 03 min and 3 min
+What one run does: it lists the Stripe account's PaymentIntents created between 26 h 03 min and 3 min
 ago (at most ten pages of 100, each with its charge, so a refunded charge is refused), keeps the
 succeeded single-pay ones whose `cartId` metadata is cart-shaped, drops every one that already has an order or a `qr_refunds_needed` row, skips any whose
 cart is not in this database (the Stripe account is shared with the delivery app), and recovers at

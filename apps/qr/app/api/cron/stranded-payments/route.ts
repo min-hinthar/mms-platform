@@ -7,14 +7,16 @@ import { sweepStrandedPayments } from "@/lib/payment-recovery";
  * whose webhook never landed, and nobody on /track or at the table to ask.
  *
  * GET because that is what Vercel Cron sends. Guarded by `Authorization: Bearer ${CRON_SECRET}` and
- * FAIL-CLOSED: with the secret unset (today, until the owner adds it — ENV.md) every call is refused
- * with a 503 and a log line naming the missing variable, never run unauthenticated.
+ * FAIL-CLOSED: with the secret unset (or under 16 characters) every call is refused with a 503 and a
+ * log line naming the missing variable, never run unauthenticated.
  *
  * SCHEDULED DAILY at 10:07 UTC (`apps/qr/vercel.json` `crons`), the order ruling #13 set: M160
  * merged, the owner added `CRON_SECRET` in Vercel Production (probed 2026-10-18: no header → 401, not
  * the unconfigured 503), then this schedule. Daily is the longest interval the sweep's window allows
- * (`SWEEP_SCHEDULE_INTERVAL_MS`) and the tightest every Vercel plan accepts; a plan that runs a daily
- * cron anywhere inside its hour stays covered by the window's one-hour overlap.
+ * (`SWEEP_SCHEDULE_INTERVAL_MS`) and the tightest every Vercel plan accepts. A plan that fires a daily
+ * cron anywhere inside its hour is covered by the window's own drift term (`SWEEP_CRON_DRIFT_MS`), and
+ * `SWEEP_OVERLAP_MS` stays slack on top of it; lib/payment-recovery.test.ts holds the schedule here
+ * to that window (registered once, its route exists, it fires every day).
  *
  * verify:slice-exempt — glue: the door is `cronAuthVerdict` (lib/cron-auth.ts, mutated) and the
  * sweep is `sweepStrandedPayments` (lib/payment-recovery.ts, mutated); this handler only maps their
