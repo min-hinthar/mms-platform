@@ -102,8 +102,9 @@ export function StaffLineEditor({
   reroute?: boolean;
   /** P2ar (lifecycle residuals) — a DICTIONARY line for the host's ONE live region (`onError` carries
    *  a server sentence; this carries authored copy, rendered in the device's tongue). Said once, when
-   *  the line under an open, unsaved note leaves draft (`table.line.noteStranded`). */
-  onNotice?: (msg: StaffKeyMsg) => void;
+   *  the line under an open, unsaved note leaves draft (`table.line.noteStranded`); `null` withdraws
+   *  it when the send is undone and the line is a draft again (the sentence would be false). */
+  onNotice?: (msg: StaffKeyMsg | null) => void;
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -286,15 +287,32 @@ export function StaffLineEditor({
   const stranded = !isDraft && noteDraft !== null && noteDirty;
   const wasDraft = useRef(isDraft);
   const strandedRef = useRef<HTMLDivElement>(null);
+  const noteFieldRef = useRef<HTMLInputElement>(null);
+  // The notice is standing in the host's region (said, not yet withdrawn).
+  const strandedSaid = useRef(false);
   useEffect(() => {
     const was = wasDraft.current;
     wasDraft.current = isDraft;
+    const fell = document.activeElement === null || document.activeElement === document.body;
+    // The blind pass on #363 — the send was UNDONE (the host's phone took the round back inside its
+    // grace): the line is a draft again, so "…went to the kitchen before this note saved" is false.
+    // It is withdrawn (`onNotice(null)` — the host clears it only if it is still the region's line),
+    // and the field is back with the typed text, savable; focus lands on it if it fell with the kept
+    // block. A notice is withdrawn whether or not "Got it" was tapped: the sentence is false either way.
+    if (!was && isDraft) {
+      if (strandedSaid.current) {
+        strandedSaid.current = false;
+        onNotice?.(null);
+        if (fell) noteFieldRef.current?.focus();
+      }
+      return;
+    }
     if (!was || isDraft || !stranded) return;
     onNotice?.({ k: "table.line.noteStranded", vars: { x: dishLabel } });
+    strandedSaid.current = true;
     // Only when focus FELL (it was on the field or its Save): a control the person moved to is
     // never yanked — `landNote`'s rule.
-    if (document.activeElement === null || document.activeElement === document.body)
-      strandedRef.current?.focus();
+    if (fell) strandedRef.current?.focus();
   }, [isDraft, stranded, dishLabel, onNotice]);
 
   async function setQty(next: number) {
@@ -677,6 +695,7 @@ export function StaffLineEditor({
             // Phase 2a · send — the Send's note hold finds this field by the LINE, within the order
             // card, rather than by the id (which the order pad may re-mint with useId()).
             data-note-for={line.id}
+            ref={noteFieldRef}
             type="text"
             value={noteDraft}
             maxLength={160}

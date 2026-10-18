@@ -12,6 +12,8 @@ import { Chrome } from "@/components/staff/Chrome";
 import { MenuPriceEditor, type PricedItem } from "@/components/staff/MenuPriceEditor";
 import { MarketShelfEditor, type ShelfItem } from "@/components/staff/MarketShelfEditor";
 import { aisleBySlug } from "@/lib/grocery-aisles";
+import { shelfDetail } from "@/lib/market-shelf";
+import { queueEmptiness } from "@/lib/queue-window";
 import { sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 
@@ -153,10 +155,24 @@ async function MarketShelf({
 }) {
   const { data, error } = await publicClient()
     .from("grocery_items")
-    .select("barcode,name,name_my,category,available")
+    .select("barcode,name,name_my,brand,size_qty,size_unit,price_cents,category,available")
     .order("category", { ascending: true, nullsFirst: false })
-    .order("name", { ascending: true });
+    .order("name", { ascending: true })
+    // The barcode last: a total order, so a same-name pair keeps its place between renders.
+    .order("barcode", { ascending: true })
+    .limit(MARKET_SHELF_CAP);
   if (error) return <StaffOutageShell what="what.market" />;
+  // The blind pass on #363 — a read that came back FULL did not see the whole catalog (PostgREST
+  // answers at most `max_rows` = 1000 rows, `supabase/config.toml`, whatever was asked), and a list
+  // missing its tail would leave an item nobody can mark sold out or put back, with nothing on the
+  // screen to say so. So a full read is "cannot say" (`queueEmptiness`, the queues' rule): logged, and
+  // the outage shell rather than a partial list. Today's catalog is 405 rows; M191 is the grid's twin.
+  if (queueEmptiness((data ?? []).length, MARKET_SHELF_CAP) === "cannot-say") {
+    console.error("[staff/menu] market read saturated — refusing a partial list", {
+      cap: MARKET_SHELF_CAP,
+    });
+    return <StaffOutageShell what="what.market" />;
+  }
   const items: ShelfItem[] = (data ?? []).map((i) => {
     const aisle = i.category ? aisleBySlug.get(i.category) : undefined;
     return {
@@ -165,6 +181,13 @@ async function MarketShelf({
       nameMy: i.name_my,
       aisleEn: aisle?.en ?? i.category ?? "",
       aisleMy: aisle?.my ?? null,
+      detail: shelfDetail({
+        brand: i.brand,
+        sizeQty: i.size_qty === null ? null : Number(i.size_qty),
+        sizeUnit: i.size_unit,
+        priceCents: i.price_cents,
+        barcode: i.barcode,
+      }),
       available: i.available,
     };
   });
@@ -224,6 +247,9 @@ function ShelfSwitch({ lang, market }: { lang: StaffLang; market: boolean }) {
   );
 }
 
+/** PostgREST's `max_rows` (`supabase/config.toml`): a larger limit would be clamped to it silently,
+ *  and the saturation check would then never fire. */
+const MARKET_SHELF_CAP = 1000;
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 const lead: CSSProperties = {
   color: "var(--t2)",

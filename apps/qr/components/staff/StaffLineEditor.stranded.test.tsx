@@ -52,8 +52,8 @@ const draft: TableLineView = {
   fulfillment: "dinein",
   createdAt: null,
   stage: "unsent",
-} as unknown as TableLineView;
-const fired = { ...draft, state: "fired", sendable: false, stage: "sent" } as TableLineView;
+};
+const fired: TableLineView = { ...draft, state: "fired", sendable: false, stage: "sent" };
 
 /** The table page's shape: one region the row's notices land in, and the list. */
 function Page({ line, lang = "en" }: { line: TableLineView; lang?: "en" | "my" }) {
@@ -142,5 +142,22 @@ describe("StaffLineEditor — the note that missed its dish (P2ar)", () => {
     expect(screen.getByRole("status").textContent).toBe(
       STAFF["table.line.noteStranded"].my.replace("{x}", "မုန့်ဟင်းခါး"),
     );
+  });
+
+  it("an UNDONE send brings the field back with the text, withdraws the sentence, and lands focus on the field (the blind pass on #363)", () => {
+    const r = render(<Page line={draft} />);
+    typeANote("no peanuts — allergy");
+    r.rerender(<Page line={fired} />);
+    expect(screen.getByRole("status").textContent).toBe(STRANDED);
+    // The host's phone took the round back inside its grace: the line is a draft again.
+    r.rerender(<Page line={draft} />);
+    // "…went to the kitchen before this note saved" is false now — withdrawn from the one region.
+    expect(screen.getByRole("status").textContent).toBe("");
+    // The note is savable again: the field is back, holding what was typed, and focus is on it
+    // (the kept block it sat on is gone).
+    const field = screen.getByRole("textbox") as HTMLInputElement;
+    expect(field.value).toBe("no peanuts — allergy");
+    expect(document.activeElement).toBe(field);
+    expect(screen.queryByRole("group")).toBeNull();
   });
 });

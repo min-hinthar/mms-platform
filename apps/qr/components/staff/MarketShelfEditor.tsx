@@ -8,8 +8,10 @@ import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
 import { al, sx } from "@/lib/staff-labels";
 import { localizeCount } from "@/lib/i18n/fill";
+import { shelfWho } from "@/lib/market-shelf";
 
-/** One market item as the shelf list renders it — presentation fields only, never a price. */
+/** One market item as the shelf list renders it — presentation fields only; the price is SHOWN in
+ *  `detail` (to tell same-name rows apart), never edited here. */
 export type ShelfItem = {
   barcode: string;
   nameEn: string;
@@ -17,6 +19,8 @@ export type ShelfItem = {
   /** The aisle in both tongues (`lib/grocery-aisles.ts`), or the raw slug when it has none. */
   aisleEn: string;
   aisleMy: string | null;
+  /** Brand · size · price · barcode (`shelfDetail`) — what tells two same-name rows apart. */
+  detail: string;
   available: boolean;
 };
 
@@ -111,7 +115,7 @@ export function MarketShelfEditor({ items }: { items: ShelfItem[] }) {
         ok: false,
         kind: "item",
         k: "browse.market.err.flipUnknown",
-        x: i.nameEn,
+        x: shelfWho(i),
       });
       router.refresh();
       return;
@@ -134,7 +138,7 @@ export function MarketShelfEditor({ items }: { items: ShelfItem[] }) {
       ok: true,
       kind: "item",
       k: r.available ? "browse.market.live.back" : "browse.market.live.out",
-      x: i.nameEn,
+      x: shelfWho(i),
     });
     router.refresh();
   }
@@ -210,6 +214,7 @@ export function MarketShelfEditor({ items }: { items: ShelfItem[] }) {
                     {i.nameMy}
                   </p>
                 )}
+                {i.detail && <p style={cat}>{i.detail}</p>}
                 <p style={cat}>
                   {lang === "my" && i.aisleMy ? <span lang="my">{i.aisleMy}</span> : i.aisleEn}
                 </p>
@@ -230,14 +235,14 @@ export function MarketShelfEditor({ items }: { items: ShelfItem[] }) {
                         echo: "inline",
                         shown: echoes,
                         verb: "browse.price.verb.putBack",
-                        subject: i.nameEn,
+                        subject: shelfWho(i),
                       }).aria
                     : al(lang, {
                         kind: "verb",
                         echo: "inline",
                         shown: echoes,
                         verb: "browse.price.verb.eightySix",
-                        subject: i.nameEn,
+                        subject: shelfWho(i),
                       }).aria
                 }
               >

@@ -29,6 +29,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   kept text, and "Got it" lets it go.
 - Registry: M315–M318 and J66 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
   P2ar to the server-side signal; 18 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
+- **The blind pass and Codex on #363.** Cook now's order write is repairable: a Cook now on an
+  already-live ticket runs the same guarded write once no line of the cart is still held, so a write
+  that failed no longer leaves the bag off the wall and "Scheduled" for good (the tap-free repair is
+  M326, a migration); the guard reads the settled statuses (`paid` or `refunded`, #360 — a refund is a
+  tag, never a cancel), so a card-refunded bag cooked early moves like a cash-refunded one. The market
+  list names each SKU (brand · size · price · barcode, on the row and in the pill's name), since the
+  catalog carries same-name rows in one aisle, and its read is bounded with a full read refused rather
+  than shown partial. An undone send withdraws the stranded note's sentence and gives the field back,
+  focused. The market copy (EN, and its two Burmese drafts re-drafted for K15) promises the scan's
+  refusal at once and the aisles on the next load — the grid is one read per visit (M325). M323–M326
+  filed.
 
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 

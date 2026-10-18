@@ -726,6 +726,22 @@ describe("P2ad (lifecycle residuals) — a sold-out dish the Send would fire is 
     );
   });
 
+  it("two dishes say the ENGLISH plural — the Burmese one/many share a sentence, so only English can tell (the blind pass on #363)", async () => {
+    render(
+      <Host
+        view={soldOutSend([MOHINGA, { name: "Tea leaf salad", nameMy: null }], 3)}
+        seq={0}
+        lang="en"
+      />,
+    );
+    await flush();
+    const text = document.querySelector(".staff-send-hint-warn")!.textContent;
+    expect(text).toContain(
+      STAFF["table.send.soldOut.many"].en.replace("{x}", "Mohinga, Tea leaf salad"),
+    );
+    expect(text).not.toContain("remove it, or send it");
+  });
+
   it("no sold-out dish: no hint at all", async () => {
     render(<Host view={SEND} seq={0} />);
     await flush();

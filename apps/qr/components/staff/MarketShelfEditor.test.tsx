@@ -27,6 +27,7 @@ const jar = (over: Partial<ShelfItem> = {}): ShelfItem => ({
   nameMy: "လက်ဖက်",
   aisleEn: "Tea Leaf & Laphet",
   aisleMy: "လက်ဖက်",
+  detail: "",
   available: true,
   ...over,
 });
@@ -142,5 +143,45 @@ describe("MarketShelfEditor — the market's sold-out toggle", () => {
     fireEvent.change(screen.getByLabelText(/Find an item/), { target: { value: "ချက်ပြုတ်" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByText("Fish sauce")).toBeTruthy();
+  });
+
+  it("two rows with one name are told apart — on screen and in each control's name (Codex on #363)", async () => {
+    // The catalog carries same-name, same-aisle rows (three ThaNatKhar in home-personal): a list that
+    // printed the name alone let staff 86 the wrong SKU.
+    const name = "ThaNatKhar";
+    mount([
+      jar({
+        barcode: "2990160305030",
+        nameEn: name,
+        detail: "Shwe Pyi Nan · $3.36 · 2990160305030",
+      }),
+      jar({
+        barcode: "2990160305078",
+        nameEn: name,
+        detail: "Shwe Pyi Nan · $4.93 · 2990160305078",
+      }),
+    ]);
+    const a = screen.getByRole("button", {
+      name: `${MARK} — ${name} · Shwe Pyi Nan · $3.36 · 2990160305030`,
+    });
+    const b = screen.getByRole("button", {
+      name: `${MARK} — ${name} · Shwe Pyi Nan · $4.93 · 2990160305078`,
+    });
+    expect(a).not.toBe(b);
+    expect(screen.getByText("Shwe Pyi Nan · $3.36 · 2990160305030")).toBeTruthy();
+    expect(screen.getByText("Shwe Pyi Nan · $4.93 · 2990160305078")).toBeTruthy();
+    // The live line names the SKU that changed, not only the name both rows share.
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    expect(setGroceryAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ barcode: "2990160305078" }),
+    );
+    expect(screen.getByRole("status").textContent).toBe(
+      STAFF["browse.market.live.out"].en.replace(
+        "{x}",
+        `${name} · Shwe Pyi Nan · $4.93 · 2990160305078`,
+      ),
+    );
   });
 });

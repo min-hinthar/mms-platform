@@ -774,8 +774,21 @@ export function FloorDetailLive({
   // P2ar (lifecycle residuals) — a line's AUTHORED notice (the note that missed its dish) through the
   // same channel as `onWriteError`, rendered in the device's tongue (`<MsgText>`), the shape
   // `StaffPromoControl`'s keyed refusals already take here.
+  // `null` WITHDRAWS it (the send was undone, the sentence is false) — only while it is still the
+  // region's line: a newer fact that replaced it is never wiped by a stale withdrawal.
+  const lineNoticeRef = useRef<ReactNode>(null);
   const onLineNotice = useCallback(
-    (m: StaffKeyMsg) => onWriteError(<MsgText lang={lang} msg={m} />),
+    (m: StaffKeyMsg | null) => {
+      if (m === null) {
+        const mine = lineNoticeRef.current;
+        lineNoticeRef.current = null;
+        if (mine !== null) setWriteError((e) => (e === mine ? null : e));
+        return;
+      }
+      const node = <MsgText lang={lang} msg={m} />;
+      lineNoticeRef.current = node;
+      onWriteError(node);
+    },
     [onWriteError, lang],
   );
   // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
