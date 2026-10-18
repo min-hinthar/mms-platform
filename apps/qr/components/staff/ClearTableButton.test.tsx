@@ -20,6 +20,10 @@ vi.mock("@/lib/floor", () => ({
   clearTable: (...a: unknown[]) => clearTable(...(a as [])),
   getClearPreview: (...a: unknown[]) => getClearPreview(...(a as [])),
 }));
+// M160(b) — the card_live refusal's Check payment door (pinned in ClearTableButton.table.test.tsx).
+vi.mock("@/lib/payment-recovery-actions", () => ({
+  checkTablePayment: () => new Promise(() => {}),
+}));
 const replace = vi.fn();
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));

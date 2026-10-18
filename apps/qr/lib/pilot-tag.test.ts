@@ -62,11 +62,13 @@ describe("promoTag — the one normalizer behind every reported promo code", () 
  * check below walks the TypeScript AST to the `promo_code` property of the analytics payload and
  * demands its initializer be a CALL to `promoTag` — a name in a comment is not an AST node.
  *
- * `apps/qr/app/api/stripe/webhook/route.ts` carries `verify:slice-exempt`, so `check-money-coverage`
- * will never ask for a mutant there; this is the only thing standing under that call site.
+ * M160(b) moved the card capture site out of `apps/qr/app/api/stripe/webhook/route.ts` (which
+ * carries `verify:slice-exempt`) into `lib/fulfill-intent.ts`, the ONE fulfillment the webhook and
+ * the stranded-payment recovery share. The route keeps no `promo_code` at all now (its split arm
+ * deliberately carries none), so the site list follows the code rather than the old file.
  */
 describe("the capture sites normalize the code — proved against the AST, not the text", () => {
-  const SITES = ["app/api/stripe/webhook/route.ts", "lib/staff-cart.ts"] as const;
+  const SITES = ["lib/fulfill-intent.ts", "lib/staff-cart.ts"] as const;
 
   for (const rel of SITES) {
     it(`${rel} passes promo_code through promoTag()`, () => {
