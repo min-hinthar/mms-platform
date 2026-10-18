@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9075 qr tests + 428 ui tests · 4849 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** the live-payments cutover (OPEN-ITEMS C2) and the owner checklist ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9075 qr tests + 428 ui tests · 4849 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -26,6 +26,7 @@
 - [Architecture](#-architecture)
 - [Apps & packages](#-apps--packages)
 - [What it does today](#-what-it-does-today)
+- [For guests — how to use it](#-for-guests--how-to-use-it)
 - [Status & roadmap](#-status--roadmap)
 - [Tech stack](#-tech-stack)
 - [Quick start](#-quick-start)
@@ -114,6 +115,59 @@ The client **never computes a price**; the server re-derives every amount from t
 
 **Parked in production** (`SURFACES` in `apps/qr/lib/surfaces.ts`, Option A · A1) — self-serve split pay across phones, card-on-file tabs and the kiosk. Their code and mutants stay; no screen offers the door and the server refuses it. A dine-in guest can also ask to pay at the counter (A1), where staff settle by cash or Terminal (A3). Planned: PD2 puts phone pay on the dine-in Bill behind its own switch until live card keys (OPEN-ITEMS C2).
 
+## 🙋 For guests — how to use it
+
+The steps a guest takes today, in the words the screens use. Open the app at
+`qr.mandalaymorningstar.com` or scan a QR code at the restaurant. The home screen has three doors:
+**Dine-in**, **To-go** and **Grocery**. The menu, the buttons and the order screens show English and Burmese together (a few newer lines, like the first-visit guide, are English for now).
+
+**Dine-in at a table**
+
+1. **Scan the QR sticker on your table.** The menu opens for that table. No sticker? Tap **Dine-in**
+   and the app asks which table you're at when you first send. A friend already ordering? Tap
+   **Have a table code? Join a table** and enter their code.
+2. **Add dishes.** Tap a dish, pick its choices, and add **A note for the kitchen** for an allergy or
+   a request. Then tap **Add to order**.
+3. **Order together.** Everyone at the table adds to one shared order. Tap **Invite** to share a link
+   or the table code, or a tablemate can scan the table's sticker.
+4. **Send to the kitchen.** One phone at the table sends the table's order, and everyone's dishes go
+   with it. A short countdown lets you **Undo**. From any other phone, tap **Show a server** and show that screen to a server or at the counter, and our staff send it for you.
+5. **Follow your dishes.** Under **Order**, each dish moves on your pass when it's sent, then as the
+   kitchen starts it and finishes it. You can keep ordering.
+6. **Pay at the counter.** Open **View bill** and tap **Pay at the counter**. Your phone becomes a pass
+   to show at the register, and it says **All paid — thank you!** once the table is paid. Paying for a
+   table on your phone isn't offered yet.
+
+**To-go (pickup)**
+
+1. Tap **To-go**, add dishes the same way, then open **Order**.
+2. Choose **As soon as possible** or **Schedule** a pickup time. If the kitchen can't take an order
+   right away, the screen says so and asks you to pick a time.
+3. Add a first name and phone number for pickup, then pay by card on your phone.
+4. Your order page follows it: **Order placed → In the kitchen → Ready for pickup → Picked up**.
+5. From 30 minutes before your pickup time, tap **I'm here** and we tell the counter. When it reads
+   **Your order is ready.**, show the code on your ticket at the counter.
+
+**Grocery**
+
+1. Tap **Grocery**, then browse the aisles or scan the code on each package.
+2. Check your basket, change quantities, and tap **Check out** to pay by card on your phone. EBT/SNAP
+   can't be used to pay yet.
+
+**Stars, receipts and help**
+
+- **Stars:** one Star each time you order and pay on your phone, and a reward to use at checkout once
+  you have enough. Find them under **Account → Rewards**, and use **Save your Stars** to keep them with
+  your email.
+- **Receipts:** after you pay, your order page offers **View & print your full receipt**, and
+  **Email me this receipt** when email receipts are switched on. Orders you paid in the app sit under **Account → Orders**, where you can tap **Order again** (an order paid at the counter isn't listed there).
+- **Help:** **Account → You → How it works at a table** walks through dine-in. Or reach us at
+  (626) 665-5317 or admin@mandalaymorningstar.com, 750 Terrado Plaza, Suite 33, Covina, CA 91723.
+
+> For the team: card payments run on Stripe test keys until the live cutover (OPEN-ITEMS C2), so no
+> real card money moves today. The grocery catalog still needs real shelf codes and confirmed prices
+> (C6). The draft customer posts are in [`docs/marketing/SOCIAL_POSTS_2026-10-18.md`](docs/marketing/SOCIAL_POSTS_2026-10-18.md).
+
 ## 📊 Status & roadmap
 
 Tracked in [`ROADMAP.md`](ROADMAP.md) (milestones → phases → tasks), the single open-work registry [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md), and the pickup point [`docs/HANDOFF.md`](docs/HANDOFF.md). Changelog: [`CHANGELOG.md`](CHANGELOG.md).
@@ -130,7 +184,7 @@ Tracked in [`ROADMAP.md`](ROADMAP.md) (milestones → phases → tasks), the sin
 | **Tracks** S · R · J · W          | S1–S4 service model · R1–R9 richness · J0–J6 journey · W5–W23 polish arcs (W22d's light half open, M86)       | ✅ through W22f + W23                      |
 | **Option A** subtract to the core | park split pay · card-on-file tabs · kiosk; settlement = cash + Terminal; `/staff` to five screens            | ✅ A1–A7b                                  |
 | **Polish plan** Phase 0 → 4       | design system in code · the guest flow · staff · the journeys · production signals                            | 🟡 0–2 ✅ · 3a–3d (part) ✅ · 3e/3f/4 ⬜   |
-| **Path designs** PD1–PD13         | the owner's picks, 2026-10-07 — [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md)            | ⬜ next                                    |
+| **Path designs** PD1–PD13         | the owner's picks, 2026-10-07 — [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md)            | ✅ PD1–PD12 built (#326–#348) · PD13 gated |
 
 **Done** means the definition in [`docs/WORKFLOW.md`](docs/WORKFLOW.md) §Definition of done (with CLAUDE.md's "Gate before done"). Start any session with [`docs/HANDOFF.md`](docs/HANDOFF.md), then [`docs/context/INDEX.md`](docs/context/INDEX.md).
 

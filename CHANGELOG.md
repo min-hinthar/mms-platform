@@ -4,6 +4,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A guest how-to in the README, and draft customer posts (2026-10-18, docs)
+
+- **README gains "For guests — how to use it", and `docs/marketing/SOCIAL_POSTS_2026-10-18.md` holds
+  draft customer posts (dine-in, to-go, grocery, three steps, Stars, a reel script) for the owner's
+  review.** Every step is checked against the code on `main`, and any post that asks for a card
+  payment waits on the live-payments cutover (C2).
+
 ### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
 
 - **One migration, `20261018130000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
