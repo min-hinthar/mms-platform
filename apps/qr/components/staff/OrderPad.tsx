@@ -677,6 +677,8 @@ export function OrderPad({
     counterArm: detail.counterArm,
     hasName,
     payAtPickup: detail.payAtPickup,
+    // P2ad — the lines, so the Send names a sold-out dish it would fire BEFORE the tap.
+    lines: detail.lines,
   });
   // Where a Send can exist at all: an open dine-in table, or (Phase 2f) an open counter order while
   // pay-at-pickup is on — a counter order's Send fires unpaid, so the switch parks it here too.

@@ -663,6 +663,16 @@ export const setItemSoldOutInput = z.object({
   expectedSoldOut: z.boolean(),
 });
 
+/** setGroceryAvailable (M190, lifecycle residuals) — the market's out-of-stock toggle, the 86's twin
+ *  for `grocery_items.available`. The barcode is the catalog's primary key and takes `scanInput`'s
+ *  shape; `expectedAvailable` is the state the staff member's SCREEN showed, so a flip made against a
+ *  stale render is refused (the same window `expectedSoldOut` guards). */
+export const setGroceryAvailableInput = z.object({
+  barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),
+  available: z.boolean(),
+  expectedAvailable: z.boolean(),
+});
+
 /** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
  *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
  *  Empty clears — same semantics as the diner's create-intent name write. */
@@ -949,6 +959,7 @@ export type AckTableClearStopInput = z.infer<typeof ackTableClearStopInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
 export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;
+export type SetGroceryAvailableInput = z.infer<typeof setGroceryAvailableInput>;
 export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;

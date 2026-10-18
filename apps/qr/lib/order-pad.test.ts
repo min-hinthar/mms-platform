@@ -554,6 +554,7 @@ const SEND: StaffSendView = {
   staffAdded: 2,
   dinerUnits: 0,
   counter: false,
+  soldOut: null,
 };
 
 describe("padSendView — the Send while adds are in flight", () => {
@@ -763,6 +764,7 @@ describe("padCounterDock — one filled pill; the Send never jumps slot under th
     staffAdded: 2,
     dinerUnits: 0,
     counter: true,
+    soldOut: null,
   });
   const WALKUP = send("secondary");
   const PHONE = send("primary");
@@ -848,6 +850,7 @@ describe("padSendView — the bare Send on a counter order", () => {
       staffAdded: 0,
       dinerUnits: 0,
       counter: true,
+      soldOut: null,
     });
     expect(
       padSendView(

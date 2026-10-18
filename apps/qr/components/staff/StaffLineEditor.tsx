@@ -12,7 +12,7 @@ import { boundWrite } from "@/lib/bounded-write";
 import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 import { draftHeld } from "@/lib/reload-guard";
 import type { TableLineView } from "@/lib/floor-types";
-import type { StaffLineEdit } from "@/lib/staff-send-view";
+import type { StaffKeyMsg, StaffLineEdit } from "@/lib/staff-send-view";
 import { KitchenTrack, Stepper, useSheetSubject } from "@mms/ui";
 import { staffCanReroute } from "@/lib/staff-fulfillment";
 import { ts } from "@/lib/i18n/staff";
@@ -67,6 +67,7 @@ export function StaffLineEditor({
   leaving = false,
   unsentAge,
   reroute = false,
+  onNotice,
 }: {
   sessionId: string;
   line: TableLineView;
@@ -99,6 +100,11 @@ export function StaffLineEditor({
   /** The lifecycle audit (K18) — the table is a DINE-IN session, so a draft food line may be moved
    *  between For here and To go by staff (`staffCanReroute`). Absent: no control. */
   reroute?: boolean;
+  /** P2ar (lifecycle residuals) — a DICTIONARY line for the host's ONE live region (`onError` carries
+   *  a server sentence; this carries authored copy, rendered in the device's tongue). Said once, when
+   *  the line under an open, unsaved note leaves draft (`table.line.noteStranded`); `null` withdraws
+   *  it when the send is undone and the line is a draft again (the sentence would be false). */
+  onNotice?: (msg: StaffKeyMsg | null) => void;
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -267,6 +273,48 @@ export function StaffLineEditor({
   }, [onEditState, line.id, line.name, line.sendable, noteDirty, writing]);
   useEffect(() => () => onEditState?.(line.id, null), [onEditState, line.id]);
 
+  // ── Phase 2c · review fixes · pad2 ── ONE name for every control on the row (P12): the dish as it
+  // RENDERS — the same binding the stepper's Remove reads — never the English beside a Burmese one.
+  // (Declared above the hooks since P2ar: the stranded note's notice names the dish with it.)
+  const dishLabel = dishVisible(lang, line.name, line.nameMy);
+
+  // P2ar (lifecycle residuals) — the line left draft UNDER an open note with unsaved text (the host's
+  // phone sent the round; the 5 s re-read landed before Save). `setLineNotes` is draft-guarded, so the
+  // note cannot be saved any more — and it may be an allergy. The typed text is KEPT, read-only, in the
+  // post-fire branch (`stranded`), the one region is told once, and focus — if it fell with the field
+  // — lands on the kept text, never on a vanished field. "Got it" lets it go.
+  const isDraft = line.state === "draft";
+  const stranded = !isDraft && noteDraft !== null && noteDirty;
+  const wasDraft = useRef(isDraft);
+  const strandedRef = useRef<HTMLDivElement>(null);
+  const noteFieldRef = useRef<HTMLInputElement>(null);
+  // The notice is standing in the host's region (said, not yet withdrawn).
+  const strandedSaid = useRef(false);
+  useEffect(() => {
+    const was = wasDraft.current;
+    wasDraft.current = isDraft;
+    const fell = document.activeElement === null || document.activeElement === document.body;
+    // The blind pass on #363 — the send was UNDONE (the host's phone took the round back inside its
+    // grace): the line is a draft again, so "…went to the kitchen before this note saved" is false.
+    // It is withdrawn (`onNotice(null)` — the host clears it only if it is still the region's line),
+    // and the field is back with the typed text, savable; focus lands on it if it fell with the kept
+    // block. A notice is withdrawn whether or not "Got it" was tapped: the sentence is false either way.
+    if (!was && isDraft) {
+      if (strandedSaid.current) {
+        strandedSaid.current = false;
+        onNotice?.(null);
+        if (fell) noteFieldRef.current?.focus();
+      }
+      return;
+    }
+    if (!was || isDraft || !stranded) return;
+    onNotice?.({ k: "table.line.noteStranded", vars: { x: dishLabel } });
+    strandedSaid.current = true;
+    // Only when focus FELL (it was on the field or its Save): a control the person moved to is
+    // never yanked — `landNote`'s rule.
+    if (fell) strandedRef.current?.focus();
+  }, [isDraft, stranded, dishLabel, onNotice]);
+
   async function setQty(next: number) {
     if (next <= 0 && onRemove) {
       onRemove(); // the ticket owns the removal (focus, ghost, write, return on refusal)
@@ -345,9 +393,6 @@ export function StaffLineEditor({
   // focus lands on when a NEIGHBOURING line is removed (`data-line-name`, §24: it cannot be
   // activated, so a repeated Enter can never remove this dish).
   const dish = <DishName lang={lang} name={line.name} nameMy={line.nameMy} />;
-  // ── Phase 2c · review fixes · pad2 ── ONE name for every control on the row (P12): the dish as it
-  // RENDERS — the same binding the stepper's Remove reads — never the English beside a Burmese one.
-  const dishLabel = dishVisible(lang, line.name, line.nameMy);
   // The lifecycle audit — the kitchen note (an allergy) and the sold-out fact ride EVERY branch: a
   // sent, comped or removed dish lost both, so a server could not tell which bowl carried "no
   // peanuts", or that the kitchen had 86'd the dish since it was sent.
@@ -455,6 +500,52 @@ export function StaffLineEditor({
             </button>
           )}
         </span>
+        {stranded && (
+          // P2ar — the note that missed its dish, kept where it was typed: read-only text (never a
+          // field — `setLineNotes` refuses a sent line), the warn tag saying what to do, and the
+          // way to let it go. The focus target when the field vanished under the person.
+          <div
+            ref={strandedRef}
+            tabIndex={-1}
+            role="group"
+            aria-labelledby={`${noteId}-stranded`}
+            style={strandedBox}
+          >
+            <span id={`${noteId}-stranded`} style={strandedTag}>
+              <Chrome lang={lang} k="table.line.noteStranded.tag" />
+            </span>
+            <span style={noteText}>“{noteDraft}”</span>
+            <button
+              type="button"
+              className="staff-btn"
+              onClick={(e) => {
+                // Focus goes to this dish's NAME, never a control that acts (§24's rule).
+                const nameEl = e.currentTarget
+                  .closest("li")
+                  ?.querySelector<HTMLElement>("[data-line-name]");
+                setNoteDraft(null);
+                // Codex r2 on #363 — the note the region's sentence names is gone, so the sentence
+                // is withdrawn too (the host clears it only if it is still this line's — the undo
+                // path's rule), and the undo path then has nothing left to withdraw.
+                if (strandedSaid.current) {
+                  strandedSaid.current = false;
+                  onNotice?.(null);
+                }
+                nameEl?.focus();
+              }}
+              aria-label={
+                al(lang, {
+                  kind: "verb",
+                  verb: "table.line.verb.noteGotIt",
+                  subject: dishLabel,
+                }).aria
+              }
+              style={strandedDone}
+            >
+              <Chrome lang={lang} k="table.line.verb.noteGotIt" />
+            </button>
+          </div>
+        )}
         {/* Each open is a fresh sheet (resets reason/PIN, refetches managers) by REMOUNT — the
             `key` advances on every open — while the subject is HELD through the exit so the sheet
             can slide down instead of cutting (M76, `useSheetSubject`). */}
@@ -611,6 +702,7 @@ export function StaffLineEditor({
             // Phase 2a · send — the Send's note hold finds this field by the LINE, within the order
             // card, rather than by the id (which the order pad may re-mint with useId()).
             data-note-for={line.id}
+            ref={noteFieldRef}
             type="text"
             value={noteDraft}
             maxLength={160}
@@ -747,6 +839,37 @@ const noteText: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-semibold)",
+};
+// P2ar — the stranded note's block: a full-width line under the row (the row wraps), on the warn
+// hairline the console's re-warnings wear, the typed text at full ink (safety-adjacent, never muted).
+const strandedBox: CSSProperties = {
+  flexBasis: "100%",
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "var(--s2)",
+  padding: "var(--s2) var(--s3)",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--warn)",
+  background: "var(--warnb)",
+};
+const strandedTag: CSSProperties = {
+  color: "var(--warn)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+};
+const strandedDone: CSSProperties = {
+  minHeight: 44,
+  marginLeft: "auto",
+  padding: "0 14px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--tx)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 const soldOutStyle: CSSProperties = {
   color: "var(--t3)",

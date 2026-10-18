@@ -2,8 +2,14 @@
 import { useId } from "react";
 import { Button, Icon } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
-import { sendRefusalMsg, type StaffKeyMsg, type StaffSendHold } from "@/lib/staff-send-view";
+import {
+  sendRefusalMsg,
+  type SendSoldOut,
+  type StaffKeyMsg,
+  type StaffSendHold,
+} from "@/lib/staff-send-view";
 import type { StaffLang } from "@/lib/staff-lang";
+import { dishVisible } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import type { StaffSendController } from "./useStaffSend";
 
@@ -25,6 +31,19 @@ export function counterSentMsg(notSent: number): StaffKeyMsg {
       vars: { n: notSent },
     };
   return { k: "table.send.counterSent" };
+}
+
+/**
+ * P2ad (lifecycle residuals) — the Send's sold-out re-warning, as a dictionary line: the dishes the
+ * Send would fire that the kitchen has run out of (`sendSoldOut`), named in the console's tongue
+ * (`dishVisible`, the same names the rows draw), one sentence or its plural by DISH count. A
+ * re-warning, never a block — the sentence offers both ways out, and the Send stays live.
+ */
+export function sendSoldOutMsg(lang: StaffLang, s: SendSoldOut): StaffKeyMsg {
+  return {
+    k: plural(s.dishes.length, "table.send.soldOut.one", "table.send.soldOut.many"),
+    vars: { x: s.dishes.map((d) => dishVisible(lang, d.name, d.nameMy)).join(", ") },
+  };
 }
 
 /** The controller's STATE — its two refs arrive as their own props, so this view never reads a ref
@@ -169,7 +188,18 @@ export function StaffSendButton({
     ) : live && view.note === "unpaidMore" ? (
       <Chrome lang={lang} k="table.send.unpaidMoreNote" echo="stack" />
     ) : null;
-  const describedBy = [reason ? reasonId : null, note ? noteId : null].filter(Boolean).join(" ");
+  // P2ad — a sold-out dish this Send would fire, named BEFORE the tap and described by the control,
+  // like the other hints; never `aria-disabled` (a re-warning, never a block — the KDS line already
+  // wears its sold-out tag, and "tell the cook" is the way through).
+  const soldOutId = `${ids}-soldout`;
+  const soldOutMsg = live && view.soldOut ? sendSoldOutMsg(lang, view.soldOut) : null;
+  const describedBy = [
+    reason ? reasonId : null,
+    soldOutMsg ? soldOutId : null,
+    note ? noteId : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="staff-send">
@@ -232,6 +262,11 @@ export function StaffSendButton({
       {reason && (
         <p id={reasonId} className="staff-send-hint">
           {reason}
+        </p>
+      )}
+      {soldOutMsg && (
+        <p id={soldOutId} className="staff-send-hint staff-send-hint-warn">
+          <Chrome lang={lang} k={soldOutMsg.k} vars={soldOutMsg.vars} echo="stack" />
         </p>
       )}
       {note && (

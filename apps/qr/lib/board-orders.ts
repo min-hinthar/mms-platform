@@ -8,10 +8,12 @@ import { orderSettled } from "./refunded-cart";
  *
  * Four defects, one predicate:
  *  · a READY bag was hidden until its scheduled fire time: the read gated every order on
- *    `qr_orders.fire_at <= now`, and the KDS's Cook now moves only the CART lines' fire time — so a
+ *    `qr_orders.fire_at <= now`, and the KDS's Cook now moved only the CART lines' fire time — so a
  *    bag cooked early and bagged sat off the wall, uncalled, while the guest stood at the counter. The
  *    fire-time gate is for a bag still PREPARING (a held scheduled order is not being made yet); a
- *    ready bag is on the wall whatever the schedule said;
+ *    ready bag is on the wall whatever the schedule said. (Since the residuals PR Cook now moves the
+ *    order's stamp to the DB clock too — `fireTicketNow` — so a cooked-early bag is Preparing here
+ *    at once; the ready rule stays for a write that failed.);
  *  · the window was `created_at >= floor`, so a pickup booked more than a day ahead never reached the
  *    wall on the day it came up — the expo windows by DUE time since #275, and the wall now does too;
  *  · an order that never SETTLED could reach the wall (the read had no status filter). #360 (Codex
