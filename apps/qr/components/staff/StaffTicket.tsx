@@ -247,6 +247,8 @@ export function StaffTicket({
                     onEditState={onEditState}
                     rowProps={motion.rowProps(r.item.id, r.leaving)}
                     leaving={r.leaving}
+                    // The lifecycle audit (K18) — a dine-in table's draft dish: For here / To go.
+                    reroute={mode === "dinein"}
                     onRemove={() => {
                       // BEFORE the write: focus lands on the neighbouring dish while this control
                       // is still live, and what sits below is held from the next tap (§24).

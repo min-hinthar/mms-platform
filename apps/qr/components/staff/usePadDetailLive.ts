@@ -5,7 +5,7 @@ import { getTableDetail } from "@/lib/floor";
 import { nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
-import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { closedFloorHref } from "@/lib/floor-closed-note";
 import type { TableDetail } from "@/lib/floor-types";
 
 /**
@@ -141,8 +141,9 @@ export function usePadDetailLive({
             // session behind it, so it most likely went through — said in place, never a bounce.
             if (closedRef.current?.()) return;
             // Cleared or closed elsewhere: the floor BY NAME (a bare `/staff` resolves by the door
-            // cookie and can land a counter tablet on the kitchen board).
-            router.replace(STAFF_DOOR_TARGET.counter);
+            // cookie and can land a counter tablet on the kitchen board). The lifecycle audit — with
+            // the table's own name, which the floor says in its region (`closedFloorHref`).
+            router.replace(closedFloorHref(res));
           } else if (res.kind === "signin") {
             window.location.assign("/staff/login");
           } else {

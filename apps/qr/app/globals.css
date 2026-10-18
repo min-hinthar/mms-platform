@@ -8941,7 +8941,9 @@ a .chrome-en {
    can never swallow it again. The language switch, the Help sheet's size rows, (counter-4) the
    register's OPEN arm — `aria-expanded`, the state it already carries — (manager-7) every
    `.staff-chip` on the manager rails and the drill-down sheets, and (Phase 3d) the kitchen's sound
-   circle in the bar when it sounds (`.staff-circ[aria-pressed]`) share this rule
+   circle in the bar when it sounds (`.staff-circ[aria-pressed]`), and (M190) the menu screen's
+   Kitchen menu / Market switch (two links, `.staff-chip[aria-current="page"]` — a tab pair, the
+   picked view, not a door) share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
@@ -8978,6 +8980,7 @@ a .chrome-en {
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
 .staff-circ[aria-pressed="true"],
+.staff-chip[aria-current="page"],
 .staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label {
   border-color: transparent;
@@ -9418,21 +9421,24 @@ a .chrome-en {
   overflow-wrap: anywhere;
 }
 .kds-note > svg,
-.expo-note > svg {
+.expo-note > svg,
+.loss-note > svg {
   flex: none;
   width: 1em;
   height: 1em;
   margin-top: 0.15em;
 }
 .kds-note > .ticket-note-text,
-.expo-note > .ticket-note-text {
+.expo-note > .ticket-note-text,
+.loss-note > .ticket-note-text {
   flex: 1;
   min-width: 0;
 }
 /* A Burmese run of the note: Padauk at its heaviest cut (700 — a declared 800 resolves to the same
    face), never faux-bolded, at the Burmese leading (1.3 clips stacked marks; P1 measured it). */
 .kds-note [lang="my"],
-.expo-note [lang="my"] {
+.expo-note [lang="my"],
+.loss-note [lang="my"] {
   font-family: var(--font-my);
   font-weight: var(--fw-bold);
   font-synthesis: none;
@@ -9440,7 +9446,8 @@ a .chrome-en {
 }
 /* The expo bag line's note (a <span>: its parent is phrasing content). The ⚠ and the warn rule mark
    it as the diner's words, so the quotes are gone. */
-.expo-note {
+.expo-note,
+.loss-note {
   display: flex;
   gap: var(--s1);
   margin-top: var(--s1);
@@ -9449,6 +9456,10 @@ a .chrome-en {
   font-size: var(--fs-body);
   font-weight: var(--fw-bold);
   color: var(--tx);
+}
+/* The lifecycle audit — the loss sheet's note is a <p> under the line summary. */
+.loss-note {
+  margin-bottom: 0;
 }
 
 .kds-bump {
@@ -9487,7 +9498,8 @@ a .chrome-en {
   cursor: progress;
 }
 .kds-slot,
-.kds-unpaid {
+.kds-unpaid,
+.kds-refunded {
   margin: 0;
   padding: 8px 14px 0;
   font-size: var(--kfs-mod);
@@ -9788,6 +9800,84 @@ a .chrome-en {
   gap: var(--s2);
   font-size: var(--kfs-meta);
   color: var(--warn);
+}
+/* The lifecycle audit (2026-10-13) — a dish taken off the board without a bump (a server's Remove, a
+   refund): one marker per dish, "Removed: 1× Mohinga · Table 6 — stop", until Got it. The stop card's
+   vocabulary at row size — warn border, warn glyph, the words in --tx (never colour alone), the
+   stop card's own Got it — and no motion of its own beyond the kit's RM-escorted entrance. */
+.kds-removed-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s2);
+}
+.kds-removed {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 2px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+}
+.kds-removed > svg {
+  flex: none;
+  color: var(--warn);
+}
+.kds-removed-text {
+  flex: 1;
+  min-width: 0;
+}
+.kds-removed-ack {
+  flex: none;
+  min-height: 48px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--warn);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+/* The lifecycle audit — Cook now asks first ("Pickup Tomorrow 6:00 PM — cook it now?"): the question
+   over the card's foot, "Yes" in the 64px zone where Cook now stood, Cancel beside it (48px). */
+.kds-fire-confirm {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s2) 10px 0;
+}
+.kds-fire-q {
+  margin: 0;
+  font-size: var(--kfs-mod);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.kds-fire-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.kds-fire-actions > .kds-bump {
+  flex: 1;
+  margin: 0 0 10px;
+}
+.kds-fire-cancel {
+  flex: none;
+  min-height: 48px;
+  margin: 0 0 10px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
 }
 
 /* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits
@@ -14794,6 +14884,12 @@ a.aisle-tile {
   color: var(--t2);
   font-size: var(--fs-sm);
 }
+/* P2ad — the Send's sold-out re-warning: the warn ink the line's own "Not sent" tag wears (the
+   MARK tier staff act on), never a fill — the Send above it stays the one hero, and live. */
+.staff-send-hint-warn {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
+}
 /* The Undo's verb and its countdown on one row; the digits are tabular so the label does not jitter
    as the seconds fall. */
 .staff-send-undo {
@@ -16607,6 +16703,11 @@ html[data-reloading] body::after {
   font-weight: var(--fw-bold);
   color: var(--ok);
 }
+/* #360 (CRITICAL 1) — dishes still cooking on a cart refunded in full: the KDS's warn tag, here too
+   (a server may be the one asked "is this still going out?"). */
+.floor-kitchen-seg[data-seg="floor.kitchen.refunded"] {
+  color: var(--warn);
+}
 /* THE WAIT PILL — the kitchen's own clock and rule (`kdsUrgency`). ok is quiet; amber is the audited
    gold-tint pair with a gold edge (the edge is amber's SHAPE cue against ok); red is the warn pair
    with an edge and the alert glyph. Inline-flex so the one-shot `.mms-pop` can transform it (its RM
@@ -16956,10 +17057,16 @@ html[data-reloading] body::after {
 }
 /* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
    only the glyph beside it is its own. */
-.kds-unpaid {
+.kds-unpaid,
+.kds-refunded {
   display: flex;
   align-items: center;
   gap: var(--s2);
+}
+/* The lifecycle audit — a fully refunded order's card: the same line, in warn (it may change what is
+   cooked; Unpaid never does). */
+.kds-refunded {
+  color: var(--warn);
 }
 /* A counter order's floor card: its Unpaid flag and its kitchen row, one wrapping line. */
 .counter-card-kitchen {

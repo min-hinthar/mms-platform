@@ -136,6 +136,17 @@ let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
 let sessionMode: "pickup" | "dinein" = "pickup";
 /** Phase 2c · gate — what the unsent read answers: the dine-in dishes still to send. */
 let unsentUnits: number | null = 0;
+/** The lifecycle audit — what the sold-out read answers (`unavailableLines`). */
+let availability: { ok: true; lines: { id: string; name: string }[] } | { ok: false } = {
+  ok: true,
+  lines: [],
+};
+vi.mock("./availability-read", () => ({
+  unavailableLines: (cartId: string) => {
+    log("sold-out-read", { cartId });
+    return Promise.resolve(availability);
+  },
+}));
 /** PD8 — the cart's pending requests as the reader door reads them (`null` = unreadable). */
 let pendingFlags: PendingFlag[] | null = [];
 vi.mock("./approvals-read", () => ({
@@ -272,6 +283,7 @@ function mintedAttempt(): string {
 }
 
 beforeEach(() => {
+  availability = { ok: true, lines: [] };
   pendingFlags = [];
   inFlight = null;
   cartFreeze = { settle_at: null, settle_by: null };
@@ -466,6 +478,22 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
       attemptId: string;
     };
     expect(rel).toEqual({ cartId: "cart-1", attemptId: mintedAttempt() });
+  });
+
+  it("a hand-off failure whose cancel ALSO fails HOLDS the freeze and says the outcome is unknown (M287, Codex on #352)", async () => {
+    // `terminal_reader_timeout` can be a false negative: the reader may be showing the charge.
+    processFails = { code: "terminal_reader_timeout" };
+    piCancelFails = true;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r.ok).toBe(false);
+    const ops = calls.map((c) => c.op);
+    expect(ops).toContain("pi.cancel");
+    // MUTATION terminal/m287-failed-cancel-frees-the-table: red.
+    expect(ops).not.toContain("releaseFor");
+    if (r.ok) return;
+    expect(r.error).toMatch(/may still be taking this card/);
+    // Never the reader-fault copy that invites a retry or another tender.
+    expect(r.error).not.toMatch(/try again, or settle by cash/);
   });
 
   it("a PI-create failure releases the freeze (nothing to cancel), scoped", async () => {
@@ -1012,6 +1040,41 @@ describe("settleCard — refused mid-payment, TRUTHFULLY and as a typed code (P2
   });
 });
 
+describe("settleCard — the lifecycle audit: an UNSEEN sold-out draft is never charged on the reader", () => {
+  const MOHINGA = { id: "11111111-1111-4111-8111-111111111111", name: "Mohinga" };
+  it("refuses one the tap did not display BEFORE any PaymentIntent, and releases THIS attempt's freeze", async () => {
+    // lck/terminal/card-charges-an-unseen-sold-out-draft · card-sold-out-freeze-kept
+    availability = { ok: true, lines: [MOHINGA] };
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: false, code: "sold_out_unseen", dishes: [MOHINGA] });
+    expect(calls.map((c) => c.op)).toEqual(["acquire", "sold-out-read", "releaseFor"]);
+    const acq = calls.find((c) => c.op === "acquire")?.args as { uid: string };
+    expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
+      cartId: "cart-1",
+      attemptId: acq.uid,
+    });
+  });
+
+  it("an ACKNOWLEDGED one starts the reader — a re-warning, never a block", async () => {
+    availability = { ok: true, lines: [MOHINGA] };
+    expect(
+      (await settleCard({ sessionId: SESSION, acknowledgedSoldOutIds: [MOHINGA.id] })).ok,
+    ).toBe(true);
+    expect(calls.map((c) => c.op)).toContain("pi.create");
+  });
+
+  it("an unreadable read refuses before any PaymentIntent (PD8's unreadable rule) and releases", async () => {
+    // lck/terminal/card-sold-out-read-fails-open
+    availability = { ok: false };
+    expect(await settleCard({ sessionId: SESSION })).toMatchObject({
+      ok: false,
+      code: "sold_out_unreadable",
+    });
+    expect(calls.map((c) => c.op)).not.toContain("pi.create");
+    expect(calls.map((c) => c.op)).toContain("releaseFor");
+  });
+});
+
 // ── Phase 2c · gate ──
 describe("settleCard — the reader is a settle door too: refused while dine-in dishes are unsent", () => {
   it("refuses with the typed code BEFORE any PaymentIntent, and releases THIS attempt's freeze", async () => {
@@ -1026,7 +1089,7 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
     // Under the freeze, before the totals, and nothing on the wire to Stripe or the reader.
     // MUTATION (terminal/card-unsent-read-before-the-freeze): check above the acquire; red.
     // MUTATION (terminal/card-unsent-read-after-the-totals): read the totals first; red.
-    expect(ops).toEqual(["acquire", "unsent-read", "releaseFor"]);
+    expect(ops).toEqual(["acquire", "sold-out-read", "unsent-read", "releaseFor"]);
     // MUTATION (terminal/card-unsent-strands-freeze): drop the release — the reader's own table is
     // frozen for the TTL (no cash, no Send) over a refusal that charged nothing; red.
     const acq = calls.find((c) => c.op === "acquire")?.args as { uid: string };
@@ -1046,7 +1109,12 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
     const r = await settleCard({ sessionId: SESSION });
     // P2el — typed, so the reader button says it in the device language; never the write-outage line.
     expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
-    expect(calls.map((c) => c.op)).toEqual(["acquire", "unsent-read", "releaseFor"]);
+    expect(calls.map((c) => c.op)).toEqual([
+      "acquire",
+      "sold-out-read",
+      "unsent-read",
+      "releaseFor",
+    ]);
   });
 
   it("…a counter order's unreadable count changes nothing (the gate never applies there)", async () => {

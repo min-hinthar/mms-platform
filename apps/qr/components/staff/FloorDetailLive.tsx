@@ -1,5 +1,6 @@
 "use client";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { closedFloorHref } from "@/lib/floor-closed-note";
 import {
   useCallback,
   useEffect,
@@ -29,6 +30,10 @@ import { Badge, CounterPass, Icon, buttonClass } from "@mms/ui";
 import { ReceiptStack } from "./ReceiptStack";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
+import { PaidRoundKitchen } from "./PaidRoundKitchen";
+import { paidRoundDrawn } from "@/lib/paid-round";
+import { SoldOutDraftsWarning } from "./SoldOutDraftsWarning";
+import { displayedSoldOut } from "@/lib/settle-sold-out";
 import { CashSettleButton } from "./CashSettleButton";
 import { TerminalSettleButton, TerminalCollectPanel } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
@@ -55,6 +60,7 @@ import {
   staffSendView,
   type HeldSendNote,
   type SendNotice,
+  type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendHold,
 } from "@/lib/staff-send-view";
@@ -572,7 +578,9 @@ export function FloorDetailLive({
                   markHandoffFocus(sessionId, Date.now());
                 router.refresh();
               } else {
-                router.replace(STAFF_DOOR_TARGET.counter);
+                // The lifecycle audit — the floor BY NAME, carrying the table's own name: the
+                // floor's region says it closed (`closedFloorHref`), never a silent bounce.
+                router.replace(closedFloorHref(res));
                 router.refresh();
               }
             }
@@ -628,6 +636,12 @@ export function FloorDetailLive({
     [lang, onChange],
   );
   const acknowledgedApprovalIds = detail.pendingRequests.map((r) => r.id);
+  // #360 — the SOLD-OUT drafts the page names above the doors (PD8's pattern for an 86'd dish): the
+  // doors acknowledge exactly these dishes at their tap; the warning offers Remove first.
+  const acknowledgedSoldOutIds = displayedSoldOut(detail.lines);
+  const soldOutDrafts = detail.lines.filter(
+    (l) => l.state === "draft" && l.soldOut && l.menuItemId !== null,
+  );
 
   useEffect(() => {
     alive.current = true;
@@ -659,6 +673,8 @@ export function FloorDetailLive({
     counterArm: detail.counterArm,
     hasName: (detail.customerName ?? "").trim() !== "",
     payAtPickup: detail.payAtPickup,
+    // P2ad — the lines, so the Send names a sold-out dish it would fire BEFORE the tap.
+    lines: detail.lines,
   });
   // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
   // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
@@ -754,6 +770,26 @@ export function FloorDetailLive({
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
     [setSendNote, setSettleGate, sessionId],
+  );
+  // P2ar (lifecycle residuals) — a line's AUTHORED notice (the note that missed its dish) through the
+  // same channel as `onWriteError`, rendered in the device's tongue (`<MsgText>`), the shape
+  // `StaffPromoControl`'s keyed refusals already take here.
+  // `null` WITHDRAWS it (the send was undone, the sentence is false) — only while it is still the
+  // region's line: a newer fact that replaced it is never wiped by a stale withdrawal.
+  const lineNoticeRef = useRef<ReactNode>(null);
+  const onLineNotice = useCallback(
+    (m: StaffKeyMsg | null) => {
+      if (m === null) {
+        const mine = lineNoticeRef.current;
+        lineNoticeRef.current = null;
+        if (mine !== null) setWriteError((e) => (e === mine ? null : e));
+        return;
+      }
+      const node = <MsgText lang={lang} msg={m} />;
+      lineNoticeRef.current = node;
+      onWriteError(node);
+    },
+    [onWriteError, lang],
   );
   // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
   // WRITE_WAITING here ("no answer yet — that change may still be saved") through `onError`; its
@@ -1262,6 +1298,24 @@ export function FloorDetailLive({
             )}
           </div>
 
+          {/* The lifecycle audit — a round this table already PAID for, with food still in the kitchen
+              (or just out): the floor card counts it, so the page names it, dish by dish, with its
+              stage. Read-only; above the open round or the settled record. #360 (Codex P2): drawn
+              when it has a dish OR a cap to say (`paidRoundDrawn`) — a capped read with no dish in
+              the linger still says it is capped. */}
+          {detail.paidKitchen &&
+            paidRoundDrawn(
+              detail.paidKitchen,
+              detail.paidKitchenCapped === true,
+              detail.paidRoundsCapped === true,
+            ) && (
+              <PaidRoundKitchen
+                lang={lang}
+                lines={detail.paidKitchen}
+                capped={detail.paidKitchenCapped === true}
+                roundsCapped={detail.paidRoundsCapped === true}
+              />
+            )}
           {detail.lines.length === 0 ? (
             <p style={muted}>
               <Chrome lang={lang} k="table.detail.cart.empty" echo="stack" />
@@ -1281,10 +1335,13 @@ export function FloorDetailLive({
                   line={l}
                   disabled={false}
                   onError={onWriteError}
+                  onNotice={onLineNotice}
                   onEditState={onEditState}
                   onWaiting={onLineWaiting}
                   // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.
                   unsentAge={askLive ? { serverNow: detail.serverNow } : undefined}
+                  // The lifecycle audit (K18) — a dine-in table's draft dish: For here / To go.
+                  reroute={detail.mode === "dinein"}
                 />
               ))}
             </ul>
@@ -1628,6 +1685,17 @@ export function FloorDetailLive({
                 focusAfterDecision={focusSettleHeading}
               />
             )}
+            {/* #360 — a sold-out DRAFT: named above the doors, Remove first; the doors stay live and
+                tapping one acknowledges exactly these dishes (a re-warning, never a block). */}
+            {soldOutDrafts.length > 0 && canWrite && (
+              <SoldOutDraftsWarning
+                lang={lang}
+                sessionId={sessionId}
+                lines={soldOutDrafts}
+                onError={onWriteError}
+                onChanged={onChange}
+              />
+            )}
             {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
@@ -1638,6 +1706,7 @@ export function FloorDetailLive({
                 variant="primary"
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
@@ -1678,6 +1747,7 @@ export function FloorDetailLive({
               // PD8 — tapping Take cash with a flag up IS the acknowledgement: exactly these ids.
               // The trigger is never dimmed; it is described by the consequence sentence first.
               acknowledgedApprovalIds={acknowledgedApprovalIds}
+              acknowledgedSoldOutIds={acknowledgedSoldOutIds}
               onApprovalPending={onApprovalPending}
               totalPending={totalPending}
               describedBy={detail.pendingRequests.length > 0 ? FLAG_CONSEQUENCE_ID : undefined}
@@ -1732,6 +1802,7 @@ export function FloorDetailLive({
                 gateLive={settleGate !== null}
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 onSettleOutcome={onSettleOutcome}
               />

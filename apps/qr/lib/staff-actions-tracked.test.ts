@@ -65,6 +65,8 @@ const READS: ReadonlySet<string> = new Set([
   "getFloorView",
   "getTableDetail",
   "getKitchenQueue",
+  // #360 — the KDS's removal confirmation: one select of `qr_cart_items` by id (`lib/kitchen.ts`).
+  "readLineFates",
   "getMergeCandidates",
   // PD7 — the clear's fresh look: the session, `mms_now`, the open cart's lines and their names,
   // all selects (`lib/floor.ts` `getClearPreview`); the clear itself is `clearTable`, a write.

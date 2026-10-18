@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { KDS_UNDO_MS } from "./kds-undo";
 /**
  * Phase 2f · P2v — the FLOOR's half of "a counter order may cook before it is paid".
  *
@@ -379,8 +380,9 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
     expect(d.droppedLineIds).toEqual([]);
     expect(d.compedKitchenLineIds).toEqual([]);
     expect(d.mergeable).toBe(true);
-    // no DB clock read off a counter order
-    expect(rpcCalls).not.toContain("mms_now");
+    // #360 (question c) — the DB clock is read for EVERY table now: the page's kitchen stages are
+    // judged on the clock the floor card folds on. lck/floor/detail-clock-counter-only — red.
+    expect(rpcCalls).toContain("mms_now");
   });
 
   it("an unreadable DB clock falls back to the app clock (advisory — the SQL decides writes)", async () => {
@@ -595,6 +597,34 @@ describe("getFloorView — a register row's unpaid food and kitchen row", () => 
     const r = await getFloorView();
     if (!r.ok) throw new Error("expected a snapshot");
     expect(r.snapshot.counter[0]).toMatchObject({ unpaidSent: false });
+  });
+
+  it("a COUNTER-ONLY floor still schedules the settle re-read for a bump inside Mom's undo window (Codex on #360, P2)", async () => {
+    // No table session is open, so `getFloorView` takes its early return — which used to leave
+    // `settleInMs` off and the floor a poll behind the expo lane. lck/floor/counter-only-settle-unscheduled.
+    expect(floorSessions).toEqual([]);
+    const BUMP_AGO_MS = 2_000;
+    rq.value = {
+      ok: true,
+      rows: [row(REG, "register")],
+      truncated: false,
+      lines: new Map([
+        [
+          REG,
+          [
+            qline({
+              id: "r1",
+              state: "served",
+              bumped_at: new Date(DB_NOW_MS - BUMP_AGO_MS).toISOString(),
+            }),
+          ],
+        ],
+      ]),
+    };
+    const r = await getFloorView();
+    if (!r.ok) throw new Error("expected a snapshot");
+    expect(r.snapshot.tables).toEqual([]);
+    expect(r.snapshot.settleInMs).toBe(KDS_UNDO_MS - BUMP_AGO_MS);
   });
 });
 

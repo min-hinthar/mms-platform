@@ -27,6 +27,9 @@ export type ExpoLine = {
    *  line; it carries no amount and reaches no total. ABSENT on every chargeable line — an absent
    *  field reads as chargeable, never the other way round. */
   noCharge?: true;
+  /** The lifecycle audit — refunded after payment (`lineRefunded`): drawn "Refunded — don't bag".
+   *  ABSENT on every line whose money stands. */
+  refunded?: true;
 };
 
 /** One paid order's takeaway bag — an expo ticket. `status` is the order's togo_status (preparing → ready
@@ -70,6 +73,10 @@ export type ExpoTicket = {
   lines: ExpoLine[];
   /** When the order was paid (ISO) — the board shows its age so a forgotten bag surfaces. */
   createdAt: string;
+  /** #360 — the order's FOOD was refunded in full (`foodRefundedInFull`): the bag stays, TAGGED
+   *  "check with the counter", never hidden — A TAG, NEVER A CANCEL (`lib/refunded-cart.ts`).
+   *  Absent = not refunded in full. */
+  refunded?: true;
 };
 
 /** Phase 2f · P2v — an OPEN counter order whose food the kitchen has, before it is paid ("Unpaid —
@@ -111,6 +118,10 @@ export type ExpoQueue = {
   unpaidTruncated?: boolean;
   /** Server clock at snapshot (ISO) — the client seeds relative-time ticks from this (clock-skew safe). */
   serverNow: string;
+  /** The lifecycle audit — how long (ms, on the DB clock) until the earliest to-go bump on the lane
+   *  leaves Mom's undo window and turns into "Kitchen done" (`settleLeftMs`); the lane schedules ONE
+   *  re-read for it. Null/absent when no bump is inside the window. */
+  settleInMs?: number | null;
 };
 
 /** W3d (K10): poll gate discriminant — an expired staff cookie / locked console redirects instead of
