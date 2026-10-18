@@ -176,6 +176,50 @@ export function webhookCandidatesForMode(
   return candidates.filter(([name]) => !name.endsWith("_TEST"));
 }
 
+/**
+ * The staff badge's verdict on this deployment's Stripe setup (owner, 2026-10-18: read-only, no
+ * toggle — the mode lives in Vercel's environment and nowhere else).
+ *
+ *   - `live` / `test` — every credential resolved, the two keys agree, and the webhook has a signing
+ *     secret it is allowed to use in that mode.
+ *   - `mismatch` — the secret and publishable keys announce different modes. `getStripe()` refuses
+ *     on exactly this (`modeDisagreement`, the same function), so card payments are refused.
+ *   - `webhook_mismatch` — the keys agree, but the only signing secret set sits under a name the
+ *     webhook may not use in this mode (`webhookCandidatesForMode`, the same function the route
+ *     filters with): the live-cutover leftover. Cards are charged; deliveries are answered 500.
+ *   - `unconfigured` — a credential resolved to nothing: no secret key, no publishable key, or no
+ *     signing secret under any name.
+ *   - `unknown` — a key carries no mode marker, so nobody can say which Stripe account it talks to.
+ *     Never read as test (`resolvedStripeMode`'s own rule).
+ *
+ * VALUES in, an enum out: the caller resolves each credential through the resolvers checkout itself
+ * uses (`readPaymentMode` in `stripe.ts`), and nothing about a value — not even its prefix — leaves
+ * this function. Pure, so every branch is falsified by a value.
+ */
+export type PaymentModeStatus =
+  | "live"
+  | "test"
+  | "mismatch"
+  | "webhook_mismatch"
+  | "unconfigured"
+  | "unknown";
+
+export function paymentModeStatus(input: {
+  readonly secretKey: string | null | undefined;
+  readonly publishableKey: string | null | undefined;
+  /** The webhook's RAW candidate list — the filter is applied here, by the route's own rule. */
+  readonly webhookCandidates: readonly EnvCandidate[];
+}): PaymentModeStatus {
+  const { secretKey, publishableKey, webhookCandidates } = input;
+  if (!secretKey?.trim() || !publishableKey?.trim()) return "unconfigured";
+  if (modeDisagreement(secretKey, publishableKey)) return "mismatch";
+  const mode = keyMode(secretKey);
+  if (mode === "unknown" || keyMode(publishableKey) === "unknown") return "unknown";
+  if (!pickEnv(webhookCandidatesForMode(mode, webhookCandidates)))
+    return pickEnv(webhookCandidates) ? "webhook_mismatch" : "unconfigured";
+  return mode;
+}
+
 /** The publishable key this deployment should hand to Stripe.js, with the name it came from. */
 export function resolvePublishableKey(): ResolvedEnv {
   return pickEnv(publishableKeyCandidates());

@@ -34,6 +34,8 @@ import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
 import { counterAskingAtMount } from "@/lib/staff-guide";
+import { readPaymentMode } from "@/lib/stripe";
+import { PaymentModeBadge } from "@/components/staff/PaymentModeBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -175,7 +177,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   );
   // Phase 2d · bell — on the counter home the greeting line carries the bell's chip at its right
   // (the counter's own control, not a bar circle); the doors' greeting stays the plain line.
-  const greeting =
+  const greetLine =
     home.view === "floor" ? (
       <div className="staff-greet-row">
         {hello}
@@ -184,6 +186,16 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     ) : (
       hello
     );
+  // The payments badge (owner, 2026-10-18) — read-only: which Stripe mode this deployment runs in,
+  // from the resolvers checkout uses (`readPaymentMode`). Under the greeting on BOTH branches, so it
+  // is on the doors and on the counter's one screen (the register redirects here). Only the enum
+  // crosses to the client; it never throws.
+  const greeting = (
+    <>
+      {greetLine}
+      <PaymentModeBadge lang={lang} status={readPaymentMode()} />
+    </>
+  );
 
   if (home.view === "doors") {
     return (

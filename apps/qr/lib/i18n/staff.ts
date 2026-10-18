@@ -4689,6 +4689,43 @@ export const STAFF = {
     en: "The screen reloaded before these bags saved as picked up — mark them again: {x}",
     my: "ဒီထုပ်တွေ ယူသွားပြီလို့ မသိမ်းခင် စခရင် ပြန်ဖွင့်သွားပါတယ် — ထပ်မှတ်ပါ- {x}",
   }, // K15-HIGH — a bag the guest took reads "ready"
+
+  // ── payments badge (owner, 2026-10-18) ── the staff home's READ-ONLY line naming the Stripe mode
+  // this deployment runs in (`paymentModeStatus`, `components/staff/PaymentModeBadge.tsx`). There is
+  // no toggle: the mode lives in Vercel's environment only. The badge words are chips (no echo); the
+  // notes and the fix line echo. Every MY value is a Claude-authored K15 draft. Words: ငွေရှင်း
+  // (settle.reader.failedTitle ငွေရှင်းလို့ မရပါ), ငွေဖြတ် (the "charged" of settle.reader's
+  // busyUnrecorded), အော်ဒါ, ကတ်နဲ့ … မယူ (ditto), ပိုင်ရှင်ကို ပြောပါ (the cash-refund outage line),
+  // မသိရ (table.appr.amountUnknown). {x} is "Stripe" (table.appr.stripe), {y} "Vercel" (shell.pay.vercel).
+  "shell.pay.live": { en: "Payments: Live", my: "ငွေရှင်း- အစစ်" },
+  "shell.pay.test": { en: "Payments: Test", my: "ငွေရှင်း- စမ်းသပ်" },
+  "shell.pay.check": { en: "Payments: Check setup", my: "ငွေရှင်း- ပြင်ဆင်မှု စစ်ပါ" },
+  "shell.pay.unknown": { en: "Payments: Can’t tell", my: "ငွေရှင်း- မသိရ" },
+  "shell.pay.test.note": {
+    en: "Test payments — no real money is taken.",
+    my: "စမ်းသပ် ငွေရှင်းတာပါ — ငွေအစစ် မဖြတ်ပါ။",
+  }, // K15-HIGH — money: misread as live, food is handed over for a payment that collected nothing
+  "shell.pay.mismatch.note": {
+    en: "The payment keys don’t match — card payments are refused.",
+    my: "ငွေရှင်း ကီးတွေ မကိုက်ပါ — ကတ်နဲ့ ငွေရှင်းလို့ မရပါ။",
+  },
+  "shell.pay.webhook.note": {
+    en: "Cards would be charged, but the orders wouldn’t come through on their own — don’t take card payments.",
+    my: "ကတ်က ငွေဖြတ်ပေမဲ့ အော်ဒါ အလိုလို မဝင်လာပါ — ကတ်နဲ့ ငွေမယူပါနဲ့။",
+  }, // K15-HIGH — money: misread, guests are charged for orders the kitchen never sees
+  "shell.pay.unconfigured.note": {
+    en: "A payment setting is missing — don’t take card payments until it’s fixed.",
+    my: "ငွေရှင်း ဆက်တင် တစ်ခု မရှိပါ — မပြင်ရသေးခင် ကတ်နဲ့ ငွေမယူပါနဲ့။",
+  },
+  "shell.pay.unknown.note": {
+    en: "The payment keys don’t say whether they’re live or test.",
+    my: "ငွေရှင်း ကီးတွေက အစစ်လား စမ်းသပ်လား မသိရပါ။",
+  },
+  "shell.pay.fix": {
+    en: "Tell the owner to check the {x} settings in {y}.",
+    my: "ပိုင်ရှင်ကို {y} ထဲက {x} ဆက်တင်တွေ စစ်ဖို့ ပြောပါ။",
+  },
+  "shell.pay.vercel": { en: "Vercel", my: "Vercel" }, // LATIN BY DESIGN — the hosting service's own name
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4761,6 +4798,8 @@ export const STAFF_LATIN_BY_DESIGN: Readonly<Record<string, string>> = {
     "The product's own name for the grocery mode, printed on the aisle signage and the shelf tags — a brand term, not a sentence. Same treatment the diner surfaces already give it.",
   "table.appr.stripe":
     'The payment processor\'s own name — the word a manager types into a browser to find the refund screen, and the label on the screen they land on. It reaches the sentence through an {x} slot, so <Chrome> wraps it lang="en" inside the Burmese run rather than typesetting it in Padauk.',
+  "shell.pay.vercel":
+    "The hosting service's own name — where the owner sets the Stripe variables, and the word they type to find that screen. It reaches the payments badge's fix line through a {y} slot, so <Chrome> wraps it lang=\"en\" inside the Burmese run, like table.appr.stripe.",
 };
 
 /**
@@ -5083,6 +5122,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.clear.loss.bodyStop.many",
   "settle.clear.loss.tail",
   "settle.clear.loss.commit",
+  // ── payments badge (owner, 2026-10-18) — the two notes whose misread moves money ──
+  "shell.pay.test.note",
+  "shell.pay.webhook.note",
 ]);
 
 /**
