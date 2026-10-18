@@ -1,9 +1,9 @@
 # Decisions — the 2026-10-18 round
 
 **The session decided every open design question the owner delegated, and wrote up as recommendations
-every money or staff-authority call, which wait for the owner's sign-off.** The round covers 60 IDs
+every money or staff-authority call for the owner's sign-off, which the owner gave later the same day.** The round covers 60 IDs
 across three domains: diner (17), staff (32) and money / authority (11). After the critic's
-corrections, 40 are decided and 20 wait for the owner's sign-off.
+corrections, 40 are decided and 20 were recommendations, all signed on 2026-10-18 (The owner's words).
 
 This record follows the shape of [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md). The rulings
 in [`OWNER_RULINGS_2026-10-07.md`](OWNER_RULINGS_2026-10-07.md) still win on anything they rule, and
@@ -511,8 +511,12 @@ at a hostless table already reads "A server will send these to the kitchen — o
 
 - **Migration:** `session_members.joined_via text check (joined_via in ('sticker','invite','staff'))`,
   inside M168's file.
-- The claim also requires `joined_via <> 'invite'`.
-- A SQL test that a reload keeps the guest, plus a mutant.
+- The claim also requires `joined_via is distinct from 'invite'`. A row from before the migration is
+  backfilled `NULL`, read as "unknown": it may claim, the same as today, so a member who used the
+  sticker before the migration landed is never locked out by a reload (Codex on #357). Only rows minted
+  after it carry `invite`.
+- SQL tests: a reload keeps the invitee a guest, and an active pre-migration member (`joined_via` NULL)
+  can still claim; plus a mutant.
 
 **Carrier.** Durable (the member row). Today's carrier, the URL's `j`, is ephemeral, and that is the bug.
 
@@ -780,8 +784,10 @@ stale ticket still counts in `kdsLateCount` (res `lib/kds-urgency.ts:53`), re-ch
 
 **Spec.**
 
-- `STALE_TICKET_MS` and `staleTicket(dueIso, nowIso)`, measured on the due time, so held tickets are
-  never folded.
+- `STALE_TICKET_MS` and `staleTicket(dueIso, nowIso, held)`, measured on the due time, and `false`
+  whenever the ticket is held: a held pickup can sit past its scheduled time (`kdsTicketLevel` already
+  handles that case), and food the kitchen has never accepted is never folded out of the late count
+  (Codex on #357). A regression case: an overdue held ticket 13 h past due stays unfolded.
 - One `--t2` row, "Older than 12 hours · {n}" (`kds.fold.old`, MY: K15 draft grounded on `kds.age.hm`).
   Tap to expand.
 - Folded tickets are excluded from the late count, the chime, Oldest and Avg, and `kitchenIdle`.
@@ -835,8 +841,14 @@ activity. An open card-on-file bill blocks it, and so does any pending approval 
 
 - One migration: the sweeper's dine-in arm, `SETTLED_IDLE` named once, and a NEW `closed_reason` column
   with `paid_idle`.
+- **The close is atomic with cart creation** (Codex on #357). The sweeper's `FOR NO KEY UPDATE` does not
+  block a new `qr_carts` insert (the FK takes only a key-share lock), so a point-in-time predicate can
+  close a session while a diner starts a round. The cart insert path takes the session row
+  `FOR UPDATE` and refuses a closed session, and the sweeper re-checks "no open cart" under its own
+  `FOR UPDATE` on that row, so one of the two always wins cleanly.
 - SQL tests: close at 20, not at 19, and not with a draft, an open card-on-file bill, a dish cooking, or a
-  pending approval.
+  pending approval; plus a two-connection race (start a round while the sweeper closes) in the
+  `verify-*-race` harness shape, red-first.
 - The mode-authority mutants move to the new file (C20). No UI copy.
 
 **Carrier.** Durable and server-only (cron).
@@ -932,8 +944,12 @@ ladder note. Until then: **1**.
 
 **Pick.** **2**.
 
-**Spec.** In `ReadyBoard.tsx:560`, add `preparing.length === 0`, derived from the board's own orders.
-Re-anchor the two board-wall mutants, and add one more (C2).
+**Spec.** In `ReadyBoard.tsx:560`, add `preparing.length === 0`. The board's own orders are capped
+(`BOARD_ORDER_CAP`), and M330 shows an older real bag can fall outside the cap, so a derived empty list
+is not proof (Codex on #357). **M330 lands first** (baskets excluded in the query, so the cap holds
+real bags), and `/api/board` also returns an uncapped `preparingExists` verdict (a `count` with
+`head: true`) that the wall reads instead of its list. Re-anchor the two board-wall mutants, and add one
+for the verdict (C2).
 
 **Carrier.** Server-backed poll.
 
@@ -1020,15 +1036,20 @@ sitting.
 ### M308 — the cash full refund's status (recommendation, owner sign-off)
 
 **Recommendation.** No flip. A fully refunded tipped cash order never reaches `total_cents`, because the
-refund pool excludes the tip, so a flip would not fix it anyway. Readers left on `status` read
-`summarizeRefund` instead. Today `mms_refund_cash_line` leaves the status `paid`
+refund pool excludes the tip, so a flip would not fix it anyway. Every reader left on `status` moves to
+`summarizeRefund` in the same PR. That includes the nightly pilot count: `bucketByChannel`
+(`lib/pilot.ts`) takes only `{status, mode}` and counts every `paid` row, though its own contract excludes
+fully refunded orders (Codex on #357). The PR audits every status-only consumer and gives each the
+refund state. Today `mms_refund_cash_line` leaves the status `paid`
 (`20260916000000_m218_cash_refund_line.sql`).
 
 **Carrier.** Durable rows; the state is derived on read.
 
-## Money and authority recommendations (each waits for the owner's sign-off)
+## Money and authority recommendations (signed off 2026-10-18)
 
-Until the owner signs, every item keeps its behaviour today.
+The owner signed every recommendation below on 2026-10-18 ("go ahead with all recommended decisions
+and migrations", The owner's words). Build them; each migration still goes to prod one file at a time
+(ruling #5). Where a section names a "today" behaviour, that is the state the build replaces, not a hold.
 
 ### M315 — what the $20 PIN ceiling counts
 
@@ -1181,7 +1202,8 @@ No migration.
 
 ## What still goes to the owner
 
-**The sign-offs (20).** Each takes its "today" default until the owner answers.
+**The sign-offs (20) — signed 2026-10-18.** The owner's sign-off covers all twenty (The owner's words).
+They are listed here as the record of what was signed, not as open questions.
 
 1. **M315:** the per-table running total and the partial-qty void.
 2. **M322:** the refund path for card doors.
@@ -1214,7 +1236,7 @@ and it decides whether C applies on top of RULING#24's B.
   - M316, the note columns and `mms_add_line_note`;
   - J64's end state, M300 (`menu_items` on the publication);
   - T43's later idempotency key on add.
-- **Gated on their sign-off:**
+- **Signed 2026-10-18 (the go covers them; still one file at a time):**
   - J58, inside M168's file;
   - M262, the sweeper arm and `closed_reason`;
   - M288 (a) and (b), applied together;
