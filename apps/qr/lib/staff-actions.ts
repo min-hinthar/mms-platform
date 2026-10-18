@@ -414,11 +414,11 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
     (!!target.email && !!caller.email && target.email.toLowerCase() === caller.email);
   if (isSelf) return { ok: false, error: "You can’t change your own role." };
 
-  // A request that asks for the role the console already showed changes nothing — a no-op, not a
-  // failure, answered without a call. Decided on the CONSOLE's value, never the read above: a member
-  // whose role moved since the screen loaded is the database's `changed`, not a silent ok.
+  // A request for the role the console already showed is still ASKED: the database decides the
+  // ceiling before the no-op, so `ok` never answers for an account outside the caller's reach, and a
+  // member whose role moved since the screen loaded answers `changed`. The console never sends one
+  // (`TeamManager` returns before the call); a direct POST gets the database's answer.
   const seen: StaffRole = parsed.data.seenRole;
-  if (seen === parsed.data.role) return { ok: true };
 
   // M208 · M210 · M205 — ONE call decides and writes (see `setStaffActive` for the locks). The
   // ceiling is decided there on BOTH halves — the target's current role and the requested one — on

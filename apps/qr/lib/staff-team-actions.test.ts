@@ -541,10 +541,22 @@ describe("setStaffRole — one RPC call decides and writes", () => {
     expect(teamCalls()).toEqual([]);
   });
 
-  it("treats a no-op change as success without asking", async () => {
+  it("asks the database about a no-op too, and passes its `noop` on as ok", async () => {
+    setVerdict = { status: "noop", role: "server" };
     const res = await setStaffRole({ userId: TARGET, role: "server", seenRole: "server" });
     expect(res).toEqual({ ok: true });
-    expect(teamCalls()).toEqual([]);
+    expect(teamCalls()).toEqual([
+      [
+        "mms_staff_set",
+        { p_caller: CALLER_STAFF, p_target: TARGET, p_seen_role: "server", p_role: "server" },
+      ],
+    ]);
+  });
+
+  it("refuses a no-op on an account above the caller — the ceiling precedes the no-op", async () => {
+    setVerdict = { status: "ceiling" };
+    const res = await setStaffRole({ userId: TARGET, role: "owner", seenRole: "owner" });
+    expect(res).toEqual(refused({ status: "ceiling" }, "Only the owner can change an owner’s role."));
   });
 
   it("refuses a member who is not there at all", async () => {
