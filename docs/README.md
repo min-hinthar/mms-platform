@@ -9,6 +9,7 @@ gets a line here in the PR that adds it.
 - [HANDOFF.md](HANDOFF.md) — the pickup point: where the build stands and the next tasks.
 - [RETRO_PATH_DESIGN_WAVE_2026-10-11.md](RETRO_PATH_DESIGN_WAVE_2026-10-11.md) — the path-design wave measured: baselines, what to keep, what hurt, the next ten PRs, and the staff and guest feedback → issues → fixes loop.
 - [OPEN-ITEMS.md](OPEN-ITEMS.md) — the single open-work registry; sweep it in every PR. IDs never change.
+- [OPEN-ITEMS_TRIAGE_2026-10-12.md](OPEN-ITEMS_TRIAGE_2026-10-12.md) — a snapshot, not the registry: one read of every open, gated, planned or parked row against the code at `02bf46c`, sorted into fixable · owner-gated · keep open · closed, with each row's next step.
 - [WORKFLOW.md](WORKFLOW.md) — the loop, the CI lanes, the review and the merge ritual (§Review step 5 is normative, the Codex-out-of-quota rule included).
 - [OWNER_RULINGS_2026-10-07.md](OWNER_RULINGS_2026-10-07.md) — the owner's binding rulings (the 2026-10-07 brief and later gate decisions); they win over a stream card.
 - [PATH_DESIGN_2026-10-07.md](PATH_DESIGN_2026-10-07.md) — the owner's path-design picks: the build source for PD1–PD13. One spec per moment in [path-design-2026-10-07/](path-design-2026-10-07/):
