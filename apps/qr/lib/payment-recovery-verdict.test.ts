@@ -100,7 +100,7 @@ describe("recoveryVerdict", () => {
     ).toEqual({ ok: false, refusal: "refunded" });
   });
 
-  it.each([
+  it.each<[string, unknown]>([
     ["an unexpanded charge id", "ch_123"],
     ["no charge at all", null],
     ["a missing field", undefined],
@@ -110,7 +110,8 @@ describe("recoveryVerdict", () => {
   ])("%s cannot prove no refund — refused, fail closed", (_l, latest_charge) => {
     expect(
       recoveryVerdict({
-        intent: intent({ latest_charge }),
+        // A malformed charge is exactly what the type does not admit — Stripe's JSON can still say it.
+        intent: intent({ latest_charge } as Partial<RecoveryIntent>),
         expect: guest,
         cart: openLinked,
       }),
