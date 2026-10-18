@@ -15,7 +15,8 @@
 -- ('manager')`), and no INSERT / UPDATE / DELETE privilege for anon or authenticated. Deploy order:
 -- migration first, app second — the old app's direct `.update()`s keep working (the trigger refuses
 -- only a write that would leave no active owner), and until the new app ships nothing writes the
--- audit table.
+-- audit table. In that window a direct demotion of an owner can deadlock against an RPC call; one of
+-- the two is aborted cleanly (## THE ONE LOCK CYCLE LEFT below).
 --
 -- ## THE THREE DEFECTS
 --   M210 — two owners demoting (or deactivating) each other at once could leave the restaurant with
@@ -30,8 +31,8 @@
 --
 -- ## THE DESIGN — ONE statement decides, under ONE lock
 -- `mms_staff_set` (a role change OR an active flip) decides the caller, the target and the write in
--- one transaction, in this order (`mms_staff_provision`, the invite's staff row, takes (2) and the
--- ceiling on the role granted — section 3 says why it needs no (1)):
+-- one transaction, in this order (`mms_staff_provision`, the invite's staff row, takes (1), (2) and
+-- the ceiling on the role granted, in that order):
 --   1. the TEAM LOCK — `pg_advisory_xact_lock(hashtext('mms_staff_team'))`, first, before any row.
 --      Every team write takes it, so two of them never interleave: the second waits for the first to
 --      COMMIT and then decides on what it committed. Taken before the row locks so two calls that
@@ -74,6 +75,21 @@
 -- level every app and RPC write runs at. Under REPEATABLE READ or SERIALIZABLE the recount reads the
 -- transaction's snapshot and cannot see the other commit — no writer here runs at either level, and
 -- this header says so rather than claiming otherwise.
+-- ## THE ONE LOCK CYCLE LEFT — a direct write against an RPC, accepted and measured
+-- A direct UPDATE / DELETE that ends an active owner locks that ROW first; its AFTER trigger asks for
+-- the team lock only at the end of the statement. `mms_staff_set` takes the team lock first and then
+-- that row. When the two meet (the RPC holds the team lock and wants the row the direct write holds,
+-- while that write's trigger waits for the team lock), the order is inverted and Postgres's deadlock
+-- detector aborts ONE of them after `deadlock_timeout` (40P01). Nothing takes the team lock ahead of
+-- the row on the direct path: a BEFORE ROW trigger also runs after the row is locked, and a statement
+-- trigger has no WHEN clause, so it would queue every staff write behind every team write (order g's
+-- control). Accepted because an abort is a rollback: the other side lands, the table keeps its owner
+-- and the ledger holds only committed writes (verify-team-race.mjs order j; measured, the direct
+-- write — whose wait began first — is the one aborted), and an aborted RPC reads as the app's
+-- ordinary failure ("Couldn't update that member"). The new app writes `staff` only through the two
+-- RPCs, so the cycle needs a direct writer: the old app in the minutes between this migration and
+-- the deploy (or a preview of this PR beside prod's old app — they share the project), a hand-run
+-- statement, or an owner's auth user deleted. OPEN-ITEMS M210 records it.
 -- A row the trigger refuses is a statement that fails: the INSERT of the first owner is never
 -- touched (the trigger is UPDATE / DELETE only, and only for a row that WAS an active owner), so the
 -- bootstrap (`insert into staff … role='owner'`) is unchanged, and a database with no owner at all is
@@ -253,10 +269,15 @@ begin
     raise exception 'mms_staff_provision: unknown role %', p_role;
   end if;
 
-  -- The caller's row FOR SHARE, and no team lock: every revocation of this caller (mms_staff_set's
-  -- target FOR UPDATE, a hand-run UPDATE) conflicts with it, so either it commits first and is read
-  -- here, or it waits for this insert. This call touches no other existing row, so it cannot close
-  -- a lock cycle with mms_staff_set and needs no queue to avoid one (verify-team-race.mjs order h).
+  -- (1) the team lock, FIRST, as in mms_staff_set: an invite is a team write, so it queues behind
+  -- any other one and decides on what that one committed (verify-team-race.mjs order i). Taken
+  -- before the caller's row, never after: a FOR SHARE held while waiting here would close a cycle
+  -- with an mms_staff_set that holds the team lock and wants this caller's row FOR UPDATE.
+  perform pg_advisory_xact_lock(hashtext('mms_staff_team'));
+
+  -- (2) the caller's row FOR SHARE: a revocation of this caller by a writer that takes no team lock
+  -- (a hand-run UPDATE of a manager) conflicts with it, so either it commits first and is read
+  -- here, or it waits for this insert (order h).
   select s.role, s.active into v_caller_role, v_caller_active
     from public.staff s where s.user_id = p_caller
     for share;
