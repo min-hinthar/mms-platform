@@ -19,6 +19,11 @@ import { UNSENT_SETTLE_REFUSAL, UNSENT_UNREADABLE_REFUSAL } from "./settle-refus
  */
 
 vi.mock("server-only", () => ({}));
+// The lifecycle audit — the settle doors' sold-out read, mocked by module: nothing is sold out here;
+// the gate itself is pinned in `settle-sold-out.test.ts`.
+vi.mock("./availability-read", () => ({
+  unavailableLines: () => Promise.resolve({ ok: true, lines: [] }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 vi.mock("./staff", () => ({

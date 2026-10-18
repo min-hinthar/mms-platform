@@ -817,3 +817,24 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(reloadBtn()).toBeNull();
   });
 });
+
+describe("the lifecycle audit — the sheet says WHICH bowl", () => {
+  it("shows the line's options and its kitchen note under the summary", async () => {
+    // lck/loss-sheet/which-bowl-unsaid — two "1× Mohinga" rows, one with "no peanuts — allergy":
+    // the sheet repeated only the name and the price, and the wrong bowl was voided.
+    render(
+      <StaffLangProvider lang="en">
+        <LossActionSheet
+          open
+          onOpenChange={() => {}}
+          sessionId="s1"
+          line={{ ...line, modifiers: ["No egg", "Extra spicy"], notes: "no peanuts — allergy" }}
+          onDone={() => {}}
+        />
+      </StaffLangProvider>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("No egg · Extra spicy");
+    expect(dialog.querySelector(".loss-note")?.textContent).toContain("no peanuts — allergy");
+  });
+});
