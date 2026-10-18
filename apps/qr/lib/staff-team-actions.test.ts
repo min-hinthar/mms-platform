@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * A6 · M208 · M210 · M205 — THE THREE TEAM ACTIONS, AGAINST THE DATABASE THAT NOW DECIDES THEM.
@@ -33,8 +33,16 @@ const CALLER_STAFF = "55555555-5555-4555-8555-555555555555";
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: (fn: () => unknown) => void fn() }));
+// The SECONDARY record (M205 made `staff_audit` the durable one). Recorded so a no-op can be shown
+// to announce nothing — the heads-up e-mail alone cannot show it: a no-op carries no address.
+let analytics: string[] = [];
 vi.mock("./posthog-server", () => ({
-  getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
+  getPostHogClient: () => ({
+    capture({ event }: { event: string }) {
+      analytics.push(event);
+    },
+    flush: () => Promise.resolve(),
+  }),
 }));
 let deactivationEmails: string[] = [];
 vi.mock("./email", () => ({
@@ -184,6 +192,14 @@ beforeEach(() => {
   createUserCalls = 0;
   deletedUsers = [];
   deactivationEmails = [];
+  analytics = [];
+  process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test"; // the analytics event fires only with a key
+});
+const POSTHOG_KEY_BEFORE = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+afterEach(() => {
+  // Never leak the key into another file sharing this worker.
+  if (POSTHOG_KEY_BEFORE === undefined) delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  else process.env.NEXT_PUBLIC_POSTHOG_KEY = POSTHOG_KEY_BEFORE;
 });
 
 const invite = (role: Role = "server") =>
@@ -306,6 +322,11 @@ describe("setStaffActive — one RPC call decides and writes", () => {
     ]);
   });
 
+  it("records the change it made as the secondary analytics event", async () => {
+    await setStaffActive({ userId: TARGET, active: false });
+    expect(analytics).toEqual(["staff_deactivated"]);
+  });
+
   it("tells the address the RPC switched off, not the one read a moment earlier", async () => {
     setVerdict = { status: "ok", email: "current@example.com" };
     await setStaffActive({ userId: TARGET, active: false });
@@ -322,6 +343,7 @@ describe("setStaffActive — one RPC call decides and writes", () => {
     const res = await setStaffActive({ userId: TARGET, active: false });
     expect(res).toEqual({ ok: true });
     expect(deactivationEmails).toEqual([]);
+    expect(analytics).toEqual([]);
   });
 
   const refusals: [unknown, string][] = [
