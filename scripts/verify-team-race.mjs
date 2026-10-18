@@ -36,6 +36,13 @@
  *       trigger takes the team lock only for a write that ends an active owner.
  *   (h) W demotes manager M by hand and HOLDS → M's invite BLOCKS on W, then `not_authorized`; no
  *       staff row, no audit row (`mms_staff_provision`'s caller lock).
+ *   (i) O promotes a server and HOLDS → manager M's invite BLOCKS on O, then `ok` — the invite takes
+ *       the team lock like every other team write (`mms_staff_provision`'s step 1).
+ *   (j) THE MIXED ORDER. B (owner) promotes a server through mms_staff_set and HOLDS the team lock →
+ *       W's hand demotion of owner A locks A's row and its trigger BLOCKS on B → B's demotion of A
+ *       wants A's row: a cycle. Postgres's deadlock detector aborts one side (measured: the direct
+ *       write, whose wait began first); the other lands, one owner remains, and the ledger holds
+ *       exactly the committed RPC writes. The migration header says why this is accepted.
  *
  * Every wait is observed: a statement is polled until it is either in `pg_blocking_pids` behind the
  * named peer ("blocked") or its completion marker lands ("done"). Never a sleep.
@@ -376,10 +383,17 @@ const handWrite = (sql) => attempt(`${sql} returning 'ok'`);
 async function withSessions(names, body) {
   const ss = [];
   try {
-    for (const n of names) ss.push(await new Session(n).open());
+    for (const n of names) {
+      const s = new Session(n);
+      LIVE_SESSIONS.add(s);
+      ss.push(await s.open());
+    }
     return await body(...ss);
   } finally {
-    for (const s of ss) await s.close();
+    for (const s of ss) {
+      await s.close();
+      LIVE_SESSIONS.delete(s);
+    }
   }
 }
 
@@ -554,9 +568,72 @@ const ORDERS = {
       ];
     });
   },
+  i: () => {
+    const f = fixture("i", { O: "owner", M: "manager", S: "server" });
+    const fresh = q(`select gen_random_uuid();`);
+    q(`insert into auth.users (id, email) values ('${fresh}', '${fresh}@m210r.test');`);
+    return withSessions(["o", "m"], async (o, m) => {
+      await o.run("begin;");
+      const r1 = await o.run(setRole(f.O, f.S, "server", "manager"));
+      m.fire(
+        attempt(
+          `select (public.mms_staff_provision('${f.M}', '${fresh}', '${fresh}@m210r.test', 'server', '${TAG} i-invite'))->>'status'`,
+        ),
+      );
+      const how = await blockedOrDone(m, o);
+      await o.run("commit;");
+      const r = await m.collect();
+      return [
+        ["O promoted S", r1, "ok"],
+        ["M's invite queued behind O's team write", how, "blocked"],
+        ["M's invite landed after it", r, "ok"],
+        ["one invite audit row", auditsOf([fresh]), "1"],
+      ];
+    });
+  },
+  j: () => {
+    // THE MIXED ORDER — a direct UPDATE (the old app, a hand-run statement) against mms_staff_set.
+    // The direct write locks the owner's ROW first and its AFTER trigger asks for the team lock at
+    // the end of the statement; mms_staff_set holds the team lock and then asks for that row. That
+    // is a lock cycle, and no trigger can take the team lock before the row (a BEFORE ROW trigger
+    // also runs after the row is locked; a statement trigger has no WHEN and would queue every
+    // staff write — order g's control). Postgres detects it and aborts ONE side. What this order
+    // pins is that the abort is the whole outcome: the other side lands, the table keeps its owner,
+    // and the ledger holds exactly the writes that committed.
+    const f = fixture("j", { A: "owner", B: "owner", X: "server" });
+    return withSessions(["s", "w"], async (s, w) => {
+      await s.run("begin;");
+      const r1 = await s.run(setRole(f.B, f.X, "server", "manager"));
+      w.fire(handWrite(`update public.staff set role = 'manager' where user_id = '${f.A}'`));
+      const howW = await blockedOrDone(w, s);
+      s.fire(setRole(f.B, f.A, "owner", "manager"));
+      const rW = await w.collect();
+      const rS = await s.collect();
+      await s.run("commit;");
+      const dead = (r) => String(r).startsWith("ERR:deadlock detected");
+      const loser = dead(rW) && rS === "ok" ? "direct" : dead(rS) && rW === "ok" ? "rpc" : "?";
+      console.log(dim(`      order j: the deadlock aborted the ${loser} write`));
+      return [
+        ["B's first team write landed", r1, "ok"],
+        ["the direct demotion's trigger waited for B's team lock", howW, "blocked"],
+        ["exactly one side was aborted as a deadlock; the other landed", loser !== "?", true],
+        ["A ends a manager (whichever side wrote it)", roleOf(f.A), "manager:true"],
+        ["B is still the owner", roleOf(f.B), "owner:true"],
+        ["exactly one owner remains", owners(), "1"],
+        // B's promotion of X always commits; B's demotion of A is in the ledger only if it landed.
+        [
+          "the ledger holds the committed RPC writes",
+          auditsOf([f.X, f.A]),
+          loser === "direct" ? "2" : "1",
+        ],
+      ];
+    });
+  },
 };
 
 let lockOwned = false;
+/** Every open Session, so a signal can end their backends before the restore needs their locks. */
+const LIVE_SESSIONS = new Set();
 /** Sweep every fixture: audit rows, staff rows (the owner trigger off for THIS transaction only — a
  *  fixture owner may be the last one), then their auth users. */
 function cleanup() {
@@ -836,7 +913,7 @@ const MUTANTS = [
   {
     id: "set/team-lock-dropped",
     fn: SET,
-    expect: ["c"],
+    expect: ["c", "i", "j"],
     why: "two cross-demotions that lock each other's rows deadlock instead of queueing",
     find: "  -- (1) the team lock: every team write queues here, before any row lock.\n  perform pg_advisory_xact_lock(hashtext('mms_staff_team'));\n",
     replace: "",
@@ -862,7 +939,7 @@ const MUTANTS = [
   {
     id: "set/both-function-locks-dropped",
     fn: SET,
-    expect: ["a", "b", "c", "d"],
+    expect: ["a", "b", "c", "d", "i", "j"],
     why: "A6's shape: the decision read with no lock at all — the loser of a cross-demotion is stopped only by the trigger, as an error, and a revocation by the function itself is not seen",
     edits: [
       {
@@ -885,6 +962,14 @@ const MUTANTS = [
     replace: "    from public.staff s where s.user_id = p_target;",
   },
   {
+    id: "provision/team-lock-dropped",
+    fn: PROV,
+    expect: ["i"],
+    why: "the invite skips the queue every other team write stands in: it decides beside a team write instead of after it",
+    find: "  perform pg_advisory_xact_lock(hashtext('mms_staff_team'));\n\n  -- (2) the caller's row FOR SHARE: a revocation",
+    replace: "  -- (2) the caller's row FOR SHARE: a revocation",
+  },
+  {
     id: "provision/caller-lock-dropped",
     fn: PROV,
     expect: ["h"],
@@ -896,7 +981,7 @@ const MUTANTS = [
   {
     id: "keep-owner/team-lock-dropped",
     fn: TRIG,
-    expect: ["f"],
+    expect: ["f", "j"],
     why: "M210 against hand-run writers: two demotions of the last two owners each count the other, and both land",
     find: "  -- commits, never before (the header's ## THE TABLE-LEVEL INVARIANT).\n  perform pg_advisory_xact_lock(hashtext('mms_staff_team'));\n",
     replace: "  -- commits, never before (the header's ## THE TABLE-LEVEL INVARIANT).\n",
@@ -947,7 +1032,7 @@ async function runMutants() {
     );
   }
   console.log(
-    `  ${green("baseline")} ${dim("the SQL test and all eight orders green on the real definitions")}`,
+    `  ${green("baseline")} ${dim("the SQL test and all ${Object.keys(ORDERS).length} orders green on the real definitions")}`,
   );
 
   let bad = 0;
@@ -966,9 +1051,35 @@ async function runMutants() {
       live_ = false;
       apply(MIGRATION_TEXT, "restore");
     };
+    // A signal must END the run, not only restore: a listener replaces Node's default exit, so a
+    // handler that restored and returned handed control back to this loop, which judged the
+    // restored file and then applied the next mutant (measured: a SIGTERM after mutant 23 of 30
+    // ran the last 7 and exited 0). So: end every order session first — one idle in a transaction
+    // holds the row lock the restore's CREATE OR REPLACE TRIGGER waits for — restore, sweep, exit.
+    const onSignal = (signal) => {
+      for (const s of LIVE_SESSIONS) {
+        try {
+          if (s.pid) q(`select pg_terminate_backend(${Number(s.pid)});`, "reaper");
+        } catch {
+          /* deliberate: that backend may already be gone; the restore below is what matters */
+        }
+      }
+      try {
+        restoreNow();
+        cleanup();
+      } catch (e) {
+        console.error(
+          red(`${TAG} restore after ${signal} FAILED — re-apply ${MIGRATION_FILE}: ${e.message}`),
+        );
+      }
+      console.error(red(`\n${TAG} stopped by ${signal}; ${m.id} restored\n`));
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    };
+    const onInt = () => onSignal("SIGINT");
+    const onTerm = () => onSignal("SIGTERM");
     process.once("exit", restoreNow);
-    process.once("SIGINT", restoreNow);
-    process.once("SIGTERM", restoreNow);
+    process.once("SIGINT", onInt);
+    process.once("SIGTERM", onTerm);
     try {
       apply(mutated, "mutate");
       if (identityRows(q(IDENTITY)) === live) {
@@ -1010,8 +1121,8 @@ async function runMutants() {
     } finally {
       restoreNow();
       process.removeListener("exit", restoreNow);
-      process.removeListener("SIGINT", restoreNow);
-      process.removeListener("SIGTERM", restoreNow);
+      process.removeListener("SIGINT", onInt);
+      process.removeListener("SIGTERM", onTerm);
     }
     if (identityRows(q(IDENTITY)) !== live) {
       throw new Error(`${TAG} FATAL — the restore after ${m.id} is not byte-identical.`);
