@@ -318,7 +318,8 @@ export async function sweepStrandedPayments(
     if (page === SWEEP_MAX_PAGES - 1) {
       summary.truncated = true;
       // LOUD: the intents older than this one were not examined by this run, and the next run's
-      // window overlaps this one by only `SWEEP_OVERLAP_MS` — see `SWEEP_MAX_PAGES`.
+      // window overlaps this one by `SWEEP_CRON_DRIFT_MS + SWEEP_OVERLAP_MS` on time and only
+      // `SWEEP_OVERLAP_MS` at the cron's worst drift — see `SWEEP_MAX_PAGES`.
       console.error("[payment-recovery] sweep hit the page cap — older intents NOT examined", {
         pages: SWEEP_MAX_PAGES,
         reachedCreated: res.data.at(-1)?.created ?? null,

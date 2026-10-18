@@ -538,11 +538,12 @@ function firesDaily(schedule: string): boolean {
   const fields = schedule.trim().split(/\s+/);
   if (fields.length !== 5) return false;
   const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
-  // Day-of-month, month and day-of-week must not narrow the days; minute and hour may be any one
-  // value, a list or a step — each still fires at least once a day.
+  // Day-of-month, month and day-of-week must not narrow the days; minute and hour are `*` or ONE
+  // in-range value (the blind pass on #369: a character check let "99 25 * * *" through).
   const anyDay = (f: string | undefined) => f === "*";
-  const fires = (f: string | undefined) => typeof f === "string" && /^[\d*,/-]+$/.test(f);
-  return anyDay(dayOfMonth) && anyDay(month) && anyDay(dayOfWeek) && fires(minute) && fires(hour);
+  const at = (f: string | undefined, max: number) =>
+    f === "*" || (typeof f === "string" && /^\d{1,2}$/.test(f) && Number(f) <= max);
+  return anyDay(dayOfMonth) && anyDay(month) && anyDay(dayOfWeek) && at(minute, 59) && at(hour, 23);
 }
 
 describe("the stranded-payment cron is scheduled to fit its window", () => {
@@ -569,5 +570,8 @@ describe("the stranded-payment cron is scheduled to fit its window", () => {
     expect(firesDaily("7 10 * * 1-5")).toBe(false);
     expect(firesDaily("7 10 1 * *")).toBe(false);
     expect(firesDaily("7 10 * *")).toBe(false);
+    expect(firesDaily("99 25 * * *")).toBe(false);
+    expect(firesDaily("7 ,,, * * *")).toBe(false);
+    expect(firesDaily("59 23 * * *")).toBe(true);
   });
 });
