@@ -86,6 +86,7 @@ export function AddButton({
     settling,
     isGroup,
     me,
+    ended,
   } = useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
@@ -124,7 +125,9 @@ export function AddButton({
   // are disabled (a disabled control, not a missing one). `blocked` adds the in-flight `busy` window and
   // gates only the Add PILL (double-create guard) + the focus effects. Crucially the stepper does NOT gate
   // on `busy`, so rapid +/− taps stay live and never freeze mid-write — the "cart actions feel delayed" fix.
-  const frozen = !cartId || locked || settling;
+  // Session truth — a table that ENDED is frozen too, and for good: unlike a lock or a settle it
+  // never heals by waiting, so gating on it can hide no correction (the card above is the way on).
+  const frozen = !cartId || locked || settling || !!ended;
   const blocked = frozen || busy;
   // W9b — the mint window. `loading` has been on the cart context since M3 with ZERO consumers, so
   // for the second or two before the session resolves every pill on the menu is simply dead: no
@@ -136,7 +139,7 @@ export function AddButton({
   // the same frozen cart. Precedence + copy are pinned by `inert-reason.test.ts`.
   // T20 — the FACT, not the label. `lockedByName` is peer-supplied presence text, so a tablemate
   // named "You" used to make their lock read as this viewer's own.
-  const reason = inertReason({ minting, locked, lockedByYou, settling });
+  const reason = inertReason({ minting, locked, lockedByYou, settling, ended: !!ended });
 
   // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST

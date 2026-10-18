@@ -266,6 +266,10 @@ export const sessionMintOutput = z.object({
   // resume-intent client (the home card) tell the diner honestly when their old table had ended
   // and a fresh empty session was started, instead of silently landing them in an empty cart.
   created: z.boolean().default(false),
+  // Session truth (finding 4's narrow case): the claim took a table a server had STARTED (J40's
+  // `takeShell`) — the row existed, so `created` stays false for analytics, but for THIS diner it is
+  // a fresh start, and a home-card resume must say their earlier visit had ended.
+  fresh: z.boolean().default(false),
 });
 
 /**

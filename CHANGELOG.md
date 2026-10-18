@@ -85,6 +85,80 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   Under owner ruling #13 the owner adds the secret (ENV.md _The stranded-payment cron_), and then the
   follow-up registers the schedule in `apps/qr/vercel.json`. No migration.
 
+### Session truth — a diner is never silently cut off, frozen or re-minted (2026-10-13, `claude/fix/lifecycle-session-truth`)
+
+- **A table that ends says so, on every phone at it.** A staff Clear, a Merge and the 4-hour sweep close
+  the session in the transaction that ends the cart, so no Realtime event reaches a phone and /menu
+  used to sit frozen ("Mohinga is being made" over a voided dish) until a tap re-minted it and said
+  "Your table sat idle too long". Now every failed read — an echo, focus, a reconnect, the freeze
+  re-check, a write's diagnosis — and a visible-only one-minute poll ask `counterPayOutcome` why. It
+  answers a proven member with `paid` (and whether the table is still seated), `ended` (`cleared` from
+  its `qr_table_clears` record, `expired`, or the neutral `closed` a merge reads as) or `unknown`; the
+  classification is `cartFate` in the new pure `lib/session-truth.ts`. A dine-in end is HELD: one
+  bilingual card (`TableEndedCard`) names the cause, the order controls go inert ("this order has
+  closed"), and nothing re-mints until "Start a new order". A paid table keeps its last kitchen view,
+  captioned with when it was read ("Last updated 7:42 PM"), with "Track your order"; /cart shows the
+  same card in place of a stale, editable bill, runs the same visible-only probe while it stays open,
+  and drops its freeze bar under the card. A write whose answer was lost when the table ended is
+  said UNCONFIRMED ("ask our staff whether it made it onto your order before you add it again"),
+  never "didn't go through" — a racing merge can have landed it on the other table. No sentence says
+  "idle" any more.
+- **M172 closed:** the URL credential is single-use (`dineinMintEntry`), so no re-mint can re-host a
+  table staff just freed. **J18 closed:** the solo recovery banner keeps its place through a retry.
+- **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
+  share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
+- A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
+  is told before "Leave this table" that the Send leaves with it (read from the table's durable
+  party, not presence); the guest's nudge confirmation and the tablemate line claim only what the
+  code keeps ("We’ve let Aye know — if they’re away, Show a server sends it too.", never "can see");
+  a thrown Send re-reads.
+- `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
+- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
+  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (9 Burmese
+  drafts and 3 re-worded lines for the native sitting, 3 of them HIGH).
+- **Codex round 2 on #361 (five findings, all fixed).**
+  - A paid answer whose order read, or whose order-visibility read, FAILED is now INCOMPLETE
+    (`complete: false`), never "no order". The menu and the Bill keep the one-minute probe going, and
+    the held card gains its tender or "Track your order" when the read comes back (`endComplete`,
+    `heldEndUpgrade`). The gate's own 403 on a closed session is still an answer.
+  - A read in flight when the end was held no longer lands on the held cart. It used to put
+    `locked`/`settling` back and announce the register over the paid card.
+  - The Bill's probe answer no longer acts after the Bill unmounts: a late `paid` used to push /track
+    over the page the diner had moved to. The probe now reads the cart view's own mode, so a degraded
+    render at a table (no split context) still learns of a clear.
+  - Opening the leave flow re-reads the durable party. Until that read lands, the host gets a hedged
+    note ("…once you leave, anyone else at your table will need a server to send theirs.") instead
+    of the silence that read as "alone".
+  - Filed: M294. `getCartOrderRef` still reads a failed read as "no order" inside the resolver that
+    /track shares.
+- **The capped blind pass on #361 (REJECT on `7a2961b`; both blockers fixed).**
+  - The host of a table that ENDED is no longer told that leaving strands the others' Send
+    (`leaveWarning` takes the end, and the menu stops reading the party of a closed session).
+  - A paid card keeps "Track your order" through a "Start a new order" whose mint fails: the link is
+    built from the ENDED cart's id (`endedCartId`), not the live one the mint nulls.
+  - /cart treats a paid cart with no readable paid order row (a full refund turns the order
+    `refunded`; the cart stays `paid`) as the bare "Paid" close the menu shows. It used to keep an
+    editable bill and probe once a minute forever.
+  - The party read re-fires on a seat presence has never shown, not on every presence flap.
+  - Filed: M327 (a seat that left can still ask `counterPayOutcome` about its old table).
+- **The review of #361's head `c064bb6` (four findings, all fixed).**
+  - A fully refunded order no longer reads "All paid — thank you!" on /cart or the menu's card.
+    `counterPayOutcome` reads the cart's `refunded` orders as well as its `paid` ones, and
+    `orderTender` answers a new tender, `refunded`, when every settled order was returned in full
+    (`summarizeRefund`'s "full"). It gets its own close, "This order was refunded", which says
+    nothing about paying or where. Any order on the cart that is still paid wins, so a refunded share
+    beside a paid one still reads as paid. A solo re-mint after a refund says "That order was refunded
+    — this is a new one." One new Burmese draft, listed under K15 · session-truth.
+  - A host at a paid table that is still seated is warned again before "Leave this table".
+    "Start a new order" there re-joins the same session (the host seat is unchanged), so the next
+    round still needs the host's Send. `sessionTakesNoOrder` now decides both the warning and the
+    party read. Every other end stays silent.
+  - /cart's paid closes are announced through the view's one live region, as the ended closes are.
+    Each close is said once, even while an incomplete answer is asked about again.
+  - New guards: the unknown-tender close at a closed session shows "Ask our staff", and an incomplete
+    unknown answer draws its card and keeps asking. Ten new `lcs/` mutants;
+    `counter/outcome-calls-a-card-the-counter` now anchors on `orderTender`.
+
 ### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
 
 - **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook

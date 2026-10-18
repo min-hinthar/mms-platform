@@ -12,6 +12,15 @@ import {
 } from "react";
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterDock, PayAtCounterPass } from "./PayAtCounter";
+import { TableEndedCard } from "./TableEnded";
+import {
+  endComplete,
+  endedNewsKey,
+  endPollDelayMs,
+  tableEnded,
+  type TableEndReason,
+} from "@/lib/session-truth";
+import { useEndPoll } from "@/lib/end-poll";
 import { LivePass } from "./LivePass";
 import { PayDock } from "./PayDock";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
@@ -550,6 +559,10 @@ export function Checkout({
   // PD10 — ONE binding for that authoritative mode: the parked door, the served gate and the pay
   // flow's post-drain re-ask all read it, so the three can never ask different modes.
   const gateMode = doorMode(viewMode, sessionMode);
+  // Session truth (Codex round 2 on #361) — the terminal-state probe (`onReadFailed`, its poll) asks
+  // only at a TABLE, and reads the same authoritative mode: a dine-in Bill rendered without its split
+  // context is still a table a clear can end.
+  const tableProbe = gateMode === "dinein";
   const phonePayOff = phonePayParked(gateMode, surfaceOpen("dineInPhonePay"));
   // PD2 (m2 decision 7) — the tender truth, DERIVED: the counter is cash-only unless a reader is
   // configured (or the owner names a card taken outside the app — a parked constant).
@@ -761,9 +774,38 @@ export function Checkout({
   // without the stamp inside it is a stale read, not a withdrawal — `ownAsk` survives it.
   const askInFlight = useRef(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
-  // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
-  const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
+  // (`cart_closed`), and this is the close the diner sees instead of a stale bill. Session truth —
+  // or the table ENDED under it (a staff Clear, a merge into another table, the sweep): the same
+  // finished surface, with the cause named (`TableEndedCard`) instead of a stale, editable bill whose
+  // every edit snapped back silently and whose Send said "try again" forever.
+  // `"paid"` is a paid cart whose tender is not readable to this seat (no settled `qr_orders` row
+  // visible, or the read failed): the menu's bare "Paid" card, nothing claimed about where (the blind
+  // pass on #361). `"refunded"` is a paid cart whose every order was refunded in full (the order
+  // turns `refunded`, the cart stays `paid`): the refund close, never "All paid" (#361 review (1)).
+  const [settledClose, setSettledClose] = useState<
+    "counter" | "card" | "paid" | "refunded" | TableEndReason | null
+  >(null);
+  // Whether the table is still seated, for the bare "Paid" card's "Ask our staff" line (`endCardWords`).
+  const [closeSessionLive, setCloseSessionLive] = useState(true);
+  // Codex round 2 on #361 — the close on screen came from a COMPLETE answer (`endComplete`). A paid
+  // answer whose tender or order read FAILED is drawn as far as it is known and the probe keeps
+  // asking, so the receipt arrives with the read that failed (M116: unknowable ≠ "no order").
+  const [closeComplete, setCloseComplete] = useState(true);
   const settleCheckRef = useRef(false);
+  // #361 review (3) — the paid close last said through the one region: an incomplete answer is asked
+  // again every minute, and the same close is never said twice.
+  const closeSaidRef = useRef<string | null>(null);
+  // Codex round 2 on #361 — the cart this Bill is probing FOR, nulled on unmount (the provider's
+  // `cartIdRef` rule): `useEndPoll` clears its interval, but an ask already out still resolves, and
+  // its `paid` arm pushed /track over whatever page the diner had moved to. A continuation acts only
+  // while the Bill that asked is still on screen, for the same cart.
+  const probeCartRef = useRef<string | null>(null);
+  useEffect(() => {
+    probeCartRef.current = cartId;
+    return () => {
+      probeCartRef.current = null;
+    };
+  }, [cartId]);
   // Refs, not deps: `useJourneyRouter` returns a fresh object per render and `step` changes on
   // every view flip — either in `refresh`'s deps would recreate it each render and re-register the
   // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
@@ -782,18 +824,27 @@ export function Checkout({
    * pending read with nothing armed in its place. `check:echo-coalesce` finding #18 does NOT enforce
    * that: `isStableReader` ends in `isUseCallback(init, ctx.react)`, which matches the CALL SHAPE,
    * and nothing in that guard reads `arguments[1]`. Adding a per-render value to this dep array
-   * would keep the guard green while re-breaking the coalescer. Keep it `[cartId, isDineIn]`. Per-instance by construction: `view-seq.ts` holds
-   * no module state, so /cart and /menu get their own counters and a remount gets a fresh one.
+   * would keep the guard green while re-breaking the coalescer. Keep `onReadFailed`'s deps at
+   * `[cartId]`: everything else it reads comes through a ref (`stepRef`, `tableProbeRef`).
+   * Per-instance by construction: `view-seq.ts` holds no module state, so /cart and /menu get their
+   * own counters and a remount gets a fresh one.
    */
   const viewSeqRef = useRef<ViewSeq>(newViewSeq());
   const stepRef = useRef<"review" | "pay">("review");
+  // Session truth (Codex round 2 on #361) — the probe's mode, read through a ref like the step.
+  // `tableProbe` comes from the cart VIEW (`gateMode`) and can flip when the first view lands; as a
+  // dep of `onReadFailed` it re-created `refresh`, which re-armed the freeze re-check and dropped
+  // the coalescer's pending read over a mode change nothing on screen needed
+  // (`m227/freeze-recheck-stops-re-arming` SURVIVED behind exactly that re-arm).
+  const tableProbeRef = useRef(tableProbe);
   // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
-  // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
-  // always runs after the effect that commits the latest values.
+  // on a render-time `ref.current =`). All three are read only inside `refresh`'s async catch or
+  // the probe's tick, which always run after the effect that commits the latest values.
   useEffect(() => {
     journeyRef.current = journey;
     stepRef.current = step;
-  }, [journey, step]);
+    tableProbeRef.current = tableProbe;
+  }, [journey, step, tableProbe]);
   // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
   // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
   // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
@@ -986,19 +1037,42 @@ export function Checkout({
     // gets the settled close; anything else keeps the last good bill (the swallow below).
     // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
     // and the Payment Element's return_url is the right exit for the payer, not a close card.
-    if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
+    if (tableProbeRef.current && stepRef.current !== "pay" && !settleCheckRef.current) {
       settleCheckRef.current = true;
       void counterPayOutcome({ cartId })
         .then((o) => {
-          if (o.kind !== "paid") return;
+          // The Bill that asked has gone (or moved to another cart): the answer is not its to act on.
+          if (probeCartRef.current !== cartId) return;
+          if (!tableEnded(o)) return;
+          setCloseComplete(endComplete(o));
+          // Session truth (finding 3) — `ended` is member-proven (no oracle): the close card names
+          // the cause and takes the editing surface's place; the one region says its title.
+          if (o.kind === "ended") {
+            setSettledClose(o.why);
+            setStatus(T(endedNewsKey(o)));
+            return;
+          }
           if (o.orderId) {
             journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
             return;
           }
-          // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
-          // says "paid on a phone at your table" — never "at the counter"; an unknown tender
-          // (the order row not yet readable) keeps the last good bill rather than guessing.
-          if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
+          // No order this seat may see — or none KNOWN yet (an incomplete answer, which the probe
+          // asks again). A COUNTER settle says so honestly; a tablemate's CARD says "paid on a
+          // phone at your table" — never "at the counter"; an UNKNOWN tender (no paid order row is
+          // readable — a full refund, or a read that failed) is still a PAID cart, so it gets the
+          // bare "Paid" close that names no tender, as the menu's card does (the blind pass on
+          // #361: keeping the last good bill left an editable bill on a paid cart, and a COMPLETE
+          // answer of this shape kept the probe asking once a minute forever).
+          // A REFUNDED cart gets its own close (#361 review (1)) — "refunded", nothing about paying.
+          setCloseSessionLive(o.sessionLive);
+          setSettledClose(o.tender === "unknown" ? "paid" : o.tender);
+          // #361 review (3) — said through the view's ONE region, as the ended arm says its title
+          // (neither card is a live region, by design): the card's own title, once per close.
+          const said = T(endedNewsKey(o));
+          if (closeSaidRef.current !== said) {
+            closeSaidRef.current = said;
+            setStatus(said);
+          }
         })
         .catch(() => {
           /* unknowable — the bill stays as it was, which is the honest floor */
@@ -1018,7 +1092,7 @@ export function Checkout({
     // whole job is to re-read on demand ("Check again") must be able to tell "the server says
     // still locked" from "we never heard back", or it silently repeats the defect it was added to
     // fix.
-  }, [cartId, isDineIn]);
+  }, [cartId]);
 
   const refresh = useCallback(async () => {
     const outcome = await readTicketed(
@@ -1029,6 +1103,25 @@ export function Checkout({
     if (outcome === "failed") onReadFailed();
     return outcome;
   }, [cartId, applyCartView, onReadFailed]);
+
+  // Session truth (Codex round 1 on #361) — the terminal-state probe while the Bill stays OPEN. A
+  // staff Clear or a Merge closes the session in the transaction that ends the cart, so no Realtime
+  // event reaches this phone, and a Bill nobody taps stayed stale and editable for as long as it was
+  // open. So a dine-in Bill asks the failed read's own question (`onReadFailed`: the pay step is
+  // skipped, one ask at a time) once a minute while visible — the menu's cadence and tick, shared
+  // (`endPollDelayMs`, `useEndPoll`), never copied — and stops once a close is drawn.
+  // Codex round 2 on #361 — gated on the AUTHORITATIVE mode (`gateMode`, the cart view's), never the
+  // split's best-effort one: `cart/page.tsx` nulls the split context on any read failure, and a
+  // degraded Bill at a table then never learned of a clear. A close drawn from an INCOMPLETE answer
+  // keeps the probe (`closeComplete`).
+  useEndPoll(
+    endPollDelayMs({
+      isGroup: tableProbe,
+      hasCart: true,
+      ended: settledClose !== null && closeComplete,
+    }),
+    onReadFailed,
+  );
 
   /**
    * M224 — DIAGNOSE a refused cart write from ONE ticketed re-read, and say what it found.
@@ -3778,11 +3871,37 @@ export function Checkout({
             {/* A1 — the register settled this bill while it was open here: the cart read is gone
                 for good, so this is what the diner sees instead of a frozen bill or "isn't
                 available on this device". */}
-            {settledClose && (
+            {(settledClose === "counter" || settledClose === "card") && (
               <CounterSettledCard
                 by={settledClose}
                 menuHref={menuHref(sessionMode)}
                 menuText={menuLinkText(sessionMode, "browse")}
+              />
+            )}
+            {/* A paid cart whose tender this seat cannot read: "Paid", and nothing said about where.
+                A cart refunded in full: the refund, and nothing said about paying (#361 review). */}
+            {(settledClose === "paid" || settledClose === "refunded") && (
+              <TableEndedCard
+                end={{
+                  kind: "paid",
+                  tender: settledClose === "refunded" ? "refunded" : "unknown",
+                  orderId: null,
+                  sessionLive: closeSessionLive,
+                  complete: closeComplete,
+                }}
+                trackHref={null}
+                start={{ kind: "link", href: menuHref(sessionMode) }}
+              />
+            )}
+            {/* Session truth — the table ENDED under the Bill: the cause, and a new order on the
+                menu (a fresh mint by this phone's last code under J15 — never the sticker). */}
+            {(settledClose === "cleared" ||
+              settledClose === "closed" ||
+              settledClose === "expired") && (
+              <TableEndedCard
+                end={{ kind: "ended", why: settledClose }}
+                trackHref={null}
+                start={{ kind: "link", href: menuHref(sessionMode) }}
               />
             )}
             {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the
@@ -3833,7 +3952,10 @@ export function Checkout({
                 (`releasePayAttempt` is scoped to `locked_by = uid` and would match nothing), and
                 offering a button that silently does nothing is the defect this row is about, one
                 layer up. `held` gets no action either: we do not know the lock is ours. */}
-            {freezeMessage && (
+            {/* Session truth (Codex round 1 on #361) — never beside a close: a table that ended
+                (or paid) has no freeze left to wait on, and "Check again" / "Reopen the order"
+                next to the card that says it closed would offer a door that does not exist. */}
+            {freezeMessage && settledClose === null && (
               <div
                 style={{
                   display: "flex",

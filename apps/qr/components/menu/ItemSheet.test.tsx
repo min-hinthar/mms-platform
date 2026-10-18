@@ -34,6 +34,7 @@ type Ctx = {
   locked: boolean;
   lockedByYou: boolean;
   settling: boolean;
+  ended?: unknown;
 };
 const ctx = vi.hoisted(() => ({ current: {} as Ctx }));
 vi.mock("@/components/TableCartProvider", () => ({ useCart: () => ctx.current }));
@@ -110,5 +111,26 @@ describe("ItemSheet — the add names the dish, visibly, and hands the provider 
     // Separating: the pill's claim is the quiet one, and must not be what the sheet sends.
     expect(sent).not.toEqual(pillAddClaim("Mohinga"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ItemSheet — session truth: a table that ENDED", () => {
+  it("holds its add inert with the reason in its name, and sends nothing", () => {
+    // MUTATION (lcs/item-sheet-ignores-the-end): drop `ended` from `blocked` — the sheet adds to a
+    // closed table and its visible claim is retracted a beat later, every time.
+    ctx.current = { ...ctx.current, ended: { kind: "ended", why: "closed" } };
+    render(
+      <ItemSheet
+        open
+        item={MOHINGA}
+        allItems={[MOHINGA]}
+        diets={[]}
+        onClose={() => {}}
+        onSelectItem={() => {}}
+      />,
+    );
+    const cta = screen.getByRole("button", { name: /Mohinga — this order has closed/ });
+    fireEvent.click(cta);
+    expect(ctx.current.add).not.toHaveBeenCalled();
   });
 });
