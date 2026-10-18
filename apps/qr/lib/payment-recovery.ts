@@ -9,10 +9,12 @@ import {
   fulfillAnswer,
   isCartIdShape,
   isRecoverableKind,
+  RECOVERY_EXPAND,
   recoveryVerdict,
   refusalAnswer,
   sweepWindow,
   type RecoveryAnswer,
+  type RecoveryCart,
   type RecoveryExpect,
 } from "./payment-recovery-verdict";
 
@@ -32,18 +34,31 @@ import {
  * Not a Server Action file: nothing here is callable from a browser. The actions module wraps it.
  */
 
-/** Read the cart a verdict needs. `undefined` is an unreadable row — never "no cart". */
-async function readRecoveryCart(cartId: string) {
+/**
+ * Read the cart a verdict needs. `undefined` is an unreadable row — never "no cart". The freeze
+ * columns are what binds a secure-tab close (`secureTabBound`): one row, one snapshot, so the
+ * owner, its time and the pay lock are judged against each other as stored.
+ */
+async function readRecoveryCart(cartId: string): Promise<RecoveryCart | undefined> {
   const { data, error } = await serviceClient()
     .from("qr_carts")
-    .select("status,live_payment_intent_id")
+    .select("status,live_payment_intent_id,settle_by,settle_at,locked,locked_at")
     .eq("id", cartId)
     .maybeSingle();
   if (error) {
     console.error("[payment-recovery] cart read failed", { cartId, error: error.message });
     return undefined;
   }
-  return data ? { status: data.status, linkedIntent: data.live_payment_intent_id } : null;
+  return data
+    ? {
+        status: data.status,
+        linkedIntent: data.live_payment_intent_id,
+        settleBy: data.settle_by,
+        settleAt: data.settle_at,
+        locked: data.locked,
+        lockedAt: data.locked_at,
+      }
+    : null;
 }
 
 /**
@@ -107,7 +122,8 @@ export async function recoverIntent(
 ): Promise<RecoveryAnswer> {
   let intent: Stripe.PaymentIntent;
   try {
-    intent = await getStripe().paymentIntents.retrieve(intentId);
+    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.
+    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });
   } catch (e) {
     console.error("[payment-recovery] retrieve failed", {
       paymentIntent: intentId,
@@ -121,13 +137,33 @@ export async function recoverIntent(
 
 // ── The cron's sweep ──────────────────────────────────────────────────────────────────────────────
 
-/** How far back the sweep looks. A day covers a night nobody watched; Stripe's own webhook retries
- *  run for 72 h, so anything older has had every delivery Stripe will ever make. */
-export const SWEEP_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 /** How old a charge must be before the sweep touches it: the webhook's own window first. */
 export const SWEEP_MIN_AGE_MS = 3 * 60 * 1000;
-/** Pages of 100 the sweep reads at most — the bound on one run's Stripe calls. */
-export const SWEEP_MAX_PAGES = 5;
+/**
+ * The LONGEST interval the cron may be scheduled at — daily, the tightest a Vercel plan allows
+ * (ENV.md _The stranded-payment cron_). A more frequent schedule only overlaps more (the sweep is
+ * idempotent: anything on record is skipped); a LESS frequent one leaves a gap between runs.
+ */
+export const SWEEP_SCHEDULE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** How much two consecutive runs share, past the min-age — slack for a late or slow cron start. */
+export const SWEEP_OVERLAP_MS = 60 * 60 * 1000;
+/**
+ * How far back the sweep looks: one schedule interval, plus the min-age the previous run left
+ * unexamined at its own `now`, plus the overlap (Codex on #365 @ a2636db: a bare 24 h minus the
+ * 3 min floor left every intent created in the 3 minutes before a daily run in NO run's window).
+ * Stripe's own webhook retries run for 72 h, so the window never outlives a delivery Stripe owes.
+ */
+export const SWEEP_LOOKBACK_MS = SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;
+/**
+ * Pages of 100 the sweep reads at most — the bound on one run's Stripe calls, and the one gap this
+ * sweep cannot close by itself. The list is newest-first and every run starts over, so on a window
+ * holding more than `SWEEP_MAX_PAGES × 100` intents (the account is shared with the delivery app)
+ * the OLDEST part is never examined. Splitting the window into slices would not change that — each
+ * run's capacity is the same — so the bound is set well above this account's volume, and a run that
+ * hits it says so at error level, naming how far back it reached (OPEN-ITEMS M160: a persisted
+ * cursor is the follow-up the day that line appears).
+ */
+export const SWEEP_MAX_PAGES = 10;
 /** Recoveries one run attempts at most; the next run picks up the rest. */
 export const SWEEP_MAX_RECOVER = 25;
 
@@ -169,6 +205,8 @@ export async function sweepStrandedPayments(nowMs: number = Date.now()): Promise
     const res = await stripe.paymentIntents.list({
       created,
       limit: 100,
+      // Each charge expanded, as `recoverIntent`'s retrieve does: the refund rule reads it.
+      expand: RECOVERY_EXPAND.map((f) => `data.${f}`),
       ...(startingAfter && { starting_after: startingAfter }),
     });
     summary.listed += res.data.length;
@@ -182,7 +220,16 @@ export async function sweepStrandedPayments(nowMs: number = Date.now()): Promise
     }
     if (!res.has_more) break;
     startingAfter = res.data.at(-1)?.id;
-    if (page === SWEEP_MAX_PAGES - 1) summary.truncated = true;
+    if (page === SWEEP_MAX_PAGES - 1) {
+      summary.truncated = true;
+      // LOUD: the intents older than this one were not examined by this run, and the next run's
+      // window overlaps this one by only `SWEEP_OVERLAP_MS` — see `SWEEP_MAX_PAGES`.
+      console.error("[payment-recovery] sweep hit the page cap — older intents NOT examined", {
+        pages: SWEEP_MAX_PAGES,
+        reachedCreated: res.data.at(-1)?.created ?? null,
+        windowGte: created.gte,
+      });
+    }
   }
   if (succeeded.length === 0) return summary;
 

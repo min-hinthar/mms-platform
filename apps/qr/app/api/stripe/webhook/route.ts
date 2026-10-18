@@ -63,6 +63,8 @@ const WEBHOOK_RETRY_BODY: Record<Extract<FulfillIntentOutcome, { kind: "retry" }
     cart_lookup: "Cart lookup failed; will retry",
     totals: "Totals lookup failed; will retry",
     fulfill: "Fulfillment failed; will retry",
+    // M160(b) — new: the charge reached neither an order nor the refund-needed ledger (Codex on #365).
+    refund_ledger: "Refund-needed record failed; will retry",
   };
 
 export async function POST(req: NextRequest) {

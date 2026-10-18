@@ -35,7 +35,14 @@ export type RecoveryRefusal =
   | "no_cart"
   /** The cart is still OPEN and its `live_payment_intent_id` does not name this intent — a later
    *  attempt owns it (M151), or nothing does. Fulfilling here would price a superseded attempt. */
-  | "superseded";
+  | "superseded"
+  /** The charge has been refunded, in full or in part (Codex on #365 @ a2636db). A PaymentIntent
+   *  stays `succeeded` after a refund, and `charge.refunded` for a charge with no order writes no
+   *  row — so an operator who refunds a stranded charge in Stripe would otherwise get an order fired
+   *  for money that already went back. */
+  | "refunded"
+  /** The intent's charge was not read (not expanded, or none): nothing proves it was not refunded. */
+  | "charge_unread";
 
 /** What a recovery door tells its caller. Serializable: it crosses the Server Action boundary. */
 export type RecoveryAnswer =
@@ -63,16 +70,37 @@ export type RecoveryExpect = {
   payerUid: string | null;
 };
 
-/** The cart as the verdict needs it: null when no row exists. */
-export type RecoveryCart = { status: string; linkedIntent: string | null } | null;
+/**
+ * The cart as the verdict needs it: null when no row exists. The settlement-freeze fields are what
+ * binds a secure-tab close (`secureTabBound`); a read that leaves them out can never bind by them.
+ */
+export type RecoveryCart = {
+  status: string;
+  linkedIntent: string | null;
+  /** `qr_carts.settle_by` — the request-unique owner of the settlement freeze (A3 · M201). */
+  settleBy?: string | null;
+  /** `qr_carts.settle_at` — when that freeze was written. */
+  settleAt?: string | null;
+  /** `qr_carts.locked` / `locked_at` — the pay lock a diner's attempt takes (`acquireCartLock`). */
+  locked?: boolean | null;
+  lockedAt?: string | null;
+} | null;
 
-/** The intent as the verdict reads it — the fields Stripe's `retrieve` returns. */
+/** The charge, as far as the refund rule reads it — `latest_charge` EXPANDED. */
+export type RecoveryCharge = { amount_refunded: number; refunded: boolean };
+
+/** The intent as the verdict reads it — the fields Stripe's `retrieve` returns, with
+ *  `expand: ["latest_charge"]` (a bare id, or nothing, refuses as `charge_unread`). */
 export type RecoveryIntent = {
   id: string;
   status: string;
   currency: string;
   metadata: Record<string, string | undefined> | null | undefined;
+  latest_charge?: string | RecoveryCharge | null;
 };
+
+/** What every recovery read of an intent must expand, named ONCE: the refund rule reads it. */
+export const RECOVERY_EXPAND = ["latest_charge"] as const;
 
 /** Kinds a recovery door may fulfill: a diner's automatic-capture card (no `kind`), or a pickup
  *  hold the webhook captured (`pickup_manual`, which reaches `succeeded` only once captured). */
@@ -93,9 +121,57 @@ export function isCartIdShape(id: string | undefined | null): id is string {
 }
 
 /**
+ * Codex on #365 @ a2636db (P1) — a secure-tab close's off-session charge (`closeSecureTab`) is
+ * minted under the table's settlement freeze and NEVER written to `live_payment_intent_id`, so the
+ * link rule alone calls every one of them superseded and a charged tab whose webhook was lost had
+ * no way home. Its binding is the freeze it was minted under, read from the DATABASE:
+ *
+ *   • the intent is a staff close's shape — `closedBy: "staff"` and a `settleAttempt` (only
+ *     `closeSecureTab` writes both on a kind-less intent; the Terminal's carries `kind: "terminal"`
+ *     and was refused above);
+ *   • the cart's `settle_by` is still THAT attempt — a later close, a Terminal settle or a cash
+ *     settle writes its own owner, and a release nulls it;
+ *   • the cart names no live intent — a guest's attempt that took the cart since links its own;
+ *   • and no pay lock was taken after the freeze (`not locked or locked_at < settle_at`, the same
+ *     stored-values term as `readLiveIntentUnderFreeze`): `acquireCartLock` admits under a stale
+ *     freeze and leaves `settle_by` behind, so the owner alone cannot prove nobody came after.
+ *
+ * Freshness is deliberately NOT required: the freeze's 10-minute TTL is how long it BLOCKS other
+ * doors, and a lost webhook is by definition older than that. A cart someone settled since is not
+ * open, so it skips this rule and lands on the refund-needed ledger like every other.
+ *
+ * The one thing the row cannot say: a pay lock taken AFTER the freeze and then RELEASED (a diner's
+ * "Edit order" nulls `locked_at` with the lock). The cart then reads as never touched. That is
+ * safe, not merely tolerated: the shared fulfillment reconciles the CAPTURED amount against the
+ * cart as it now stands, so an edited cart is `amount_mismatch` → a refund-needed row and no order,
+ * and an unedited one is exactly the bill this charge paid.
+ *
+ * Which door: only the cron. The guest door needs an `earnerUid` this intent never carries, and
+ * staff's Check payment reads the cart's link, which this intent never wrote (OPEN-ITEMS M160).
+ */
+export function secureTabBound(intent: RecoveryIntent, cart: NonNullable<RecoveryCart>): boolean {
+  const meta = intent.metadata ?? {};
+  const attempt = meta.settleAttempt;
+  if (meta.closedBy !== "staff" || typeof attempt !== "string" || attempt === "") return false;
+  if (cart.settleBy !== attempt || cart.linkedIntent !== null) return false;
+  if (typeof cart.settleAt !== "string") return false;
+  if (!cart.locked) return true;
+  return cart.lockedAt != null && Date.parse(cart.lockedAt) < Date.parse(cart.settleAt);
+}
+
+/** The refund rule: refused on ANY refund, and on a charge it could not read. */
+function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
+  const charge = intent.latest_charge;
+  if (charge == null || typeof charge === "string") return "charge_unread";
+  if (charge.refunded || charge.amount_refunded > 0) return "refunded";
+  return null;
+}
+
+/**
  * May a recovery door fulfill this intent? The order of the checks is the order of what can be
  * known: Stripe's status first (the only proof money moved), then what the intent IS, then whom it
- * belongs to, then whether the cart still names it.
+ * belongs to, then whether the cart still names it — or, for a secure-tab close, still holds the
+ * freeze it was charged under (`secureTabBound`).
  *
  * ⚠️ THE LINK RULE APPLIES ONLY TO AN OPEN CART. A cart that is `paid` (another tender) or
  * `cancelled` (cleared) can never take an order from this intent — `fulfillSucceededIntent` records
@@ -111,6 +187,8 @@ export function recoveryVerdict(input: {
 }): { ok: true } | { ok: false; refusal: RecoveryRefusal } {
   const { intent, expect, cart } = input;
   if (intent.status !== "succeeded") return { ok: false, refusal: "not_succeeded" };
+  const charge = chargeRefusal(intent);
+  if (charge) return { ok: false, refusal: charge };
   const meta = intent.metadata ?? {};
   if (!isRecoverableKind(meta.kind)) return { ok: false, refusal: "unsupported_kind" };
   if (intent.currency !== "usd") return { ok: false, refusal: "wrong_currency" };
@@ -119,7 +197,7 @@ export function recoveryVerdict(input: {
   if (expect.payerUid !== null && meta.earnerUid !== expect.payerUid)
     return { ok: false, refusal: "unbound" };
   if (!cart) return { ok: false, refusal: "no_cart" };
-  if (cart.status === "open" && cart.linkedIntent !== intent.id)
+  if (cart.status === "open" && cart.linkedIntent !== intent.id && !secureTabBound(intent, cart))
     return { ok: false, refusal: "superseded" };
   return { ok: true };
 }

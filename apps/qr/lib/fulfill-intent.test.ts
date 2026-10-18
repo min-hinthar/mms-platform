@@ -85,6 +85,7 @@ let fulfillAnswer: { data: string | null; error: { message: string } | null } = 
 };
 const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 const upserts: Record<string, unknown>[] = [];
+let upsertError: { message: string } | null = null;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     rpc: (fn: string, args: Record<string, unknown>) => {
@@ -109,7 +110,7 @@ vi.mock("@mms/db/server", () => ({
       }),
       upsert: (row: Record<string, unknown>) => {
         upserts.push({ table, ...row });
-        return Promise.resolve({ error: null });
+        return Promise.resolve({ error: upsertError });
       },
     }),
   }),
@@ -143,6 +144,7 @@ beforeEach(() => {
   totalsAsked.length = 0;
   rpcCalls.length = 0;
   upserts.length = 0;
+  upsertError = null;
   totals = {
     totalCents: 5200,
     subtotalCents: 4600,
@@ -203,6 +205,18 @@ describe("the cross-tender guard (S1.3) — and M160's cancelled cart", () => {
     },
   );
 
+  it("a refund-needed row that could NOT be written is retry — never a settled answer (M160(b))", async () => {
+    // Codex on #365 @ a2636db: the webhook answered 200 off a failed ledger write, so Stripe stopped
+    // redelivering with the charge in neither the order table nor the refund ledger.
+    cartRow = { status: "paid", tab_type: "none", promo_code: null };
+    upsertError = { message: "connection reset" };
+    const out = await fulfillSucceededIntent(intent(), "webhook");
+    expect(out).toEqual({ kind: "retry", step: "refund_ledger" });
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
+    // Counted on the delivery that WROTE the row, never on one that failed to.
+    expect(captures).toEqual([]);
+  });
+
   it("an UNREADABLE cart is retry, never a fulfillment past the guard (W10c M30)", async () => {
     cartError = { message: "connection reset" };
     const out = await fulfillSucceededIntent(intent(), "webhook");
@@ -233,6 +247,14 @@ describe("the reconcile — against what was CAPTURED (W23c)", () => {
         reason: "reconcile_mismatch",
       },
     ]);
+  });
+
+  it("a reconcile-mismatch row that could NOT be written is retry, not amount_mismatch", async () => {
+    totals = { ...totals, totalCents: 5000 };
+    upsertError = { message: "connection reset" };
+    const out = await fulfillSucceededIntent(intent(), "cron");
+    expect(out).toEqual({ kind: "retry", step: "refund_ledger" });
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
   });
 
   it("a PARTIAL capture reconciles on amount_received, and the order records that figure", async () => {

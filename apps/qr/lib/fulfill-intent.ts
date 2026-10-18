@@ -44,7 +44,10 @@ export type FulfillIntentOutcome =
   /** A succeeded charge with no `cartId` metadata — nothing to fulfill, and a retry cannot help. */
   | { kind: "no_cart_metadata" }
   /** A read or the fulfillment itself failed — nothing written; the caller retries later. */
-  | { kind: "retry"; step: "order_lookup" | "cart_lookup" | "totals" | "fulfill" };
+  | {
+      kind: "retry";
+      step: "order_lookup" | "cart_lookup" | "totals" | "fulfill" | "refund_ledger";
+    };
 
 /** Who asked. `webhook` is the signed event; the rest are M160(b)'s three recovery doors. */
 export type FulfillVia = "webhook" | "track" | "staff" | "cron";
@@ -128,8 +131,13 @@ export async function fulfillSucceededIntent(
     });
     // Durable recovery ledger (S1-audit S3): the card was CAPTURED but no order is recorded, so a
     // log alone strands the customer's money. Record it for an operator / S4.3 auto-refund.
-    // Idempotent on the PI (redelivery, or a recovery door asking again); best-effort — never
-    // fail the outcome on it.
+    // Idempotent on the PI (redelivery, or a recovery door asking again).
+    //
+    // ⚠️ NOT best-effort (Codex on #365 @ a2636db). The inline webhook arm logged a failed write and
+    // answered 200, so Stripe stopped redelivering with the charge in NEITHER the order table nor
+    // this ledger — the one state nobody can find. A failed write is `retry`: the webhook answers
+    // 5xx and Stripe redelivers (the upsert no-ops once it lands), a recovery door says `error`, and
+    // the analytics below wait for the delivery that actually wrote the row.
     const { error: refundErr } = await db.from("qr_refunds_needed").upsert(
       {
         payment_intent: intent.id,
@@ -140,11 +148,14 @@ export async function fulfillSucceededIntent(
       },
       { onConflict: "payment_intent", ignoreDuplicates: true },
     );
-    if (refundErr)
+    if (refundErr) {
       console.error(`${tag} failed to record refund-needed`, {
         paymentIntent: intent.id,
+        via,
         message: refundErr.message,
       });
+      return { kind: "retry", step: "refund_ledger" };
+    }
     posthog.capture({
       distinctId: cartId,
       event: "double_tender_card_after_settle",
@@ -191,11 +202,16 @@ export async function fulfillSucceededIntent(
       },
       { onConflict: "payment_intent", ignoreDuplicates: true },
     );
-    if (refundErr)
+    // Same rule as the card-after-settle row above: an unwritten ledger row is `retry`, never an
+    // answer that reads as "recorded for a refund".
+    if (refundErr) {
       console.error(`${tag} failed to record reconcile-mismatch refund-needed`, {
         paymentIntent: intent.id,
+        via,
         message: refundErr.message,
       });
+      return { kind: "retry", step: "refund_ledger" };
+    }
     console.error(`${tag} amount mismatch — no order written`, {
       cartId,
       paymentIntent: intent.id,

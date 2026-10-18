@@ -31,6 +31,7 @@ const intent = (
   status: "succeeded",
   currency: "usd",
   metadata: { cartId: CART, earnerUid: PAYER, tipRate: "0.2", ...meta },
+  latest_charge: { amount_refunded: 0, refunded: false },
   ...over,
 });
 const guest = { cartId: CART, payerUid: PAYER };
@@ -72,6 +73,38 @@ describe("recoveryVerdict", () => {
         cart: openLinked,
       }),
     ).toEqual({ ok: true });
+  });
+
+  // Codex on #365 @ a2636db (P1): a PaymentIntent stays `succeeded` after its charge is refunded,
+  // and `charge.refunded` for a charge with no order leaves no row. An operator who refunds a
+  // stranded charge in Stripe before recovery runs must not get an order fired for money that went
+  // back.
+  it.each([
+    ["a full refund", { amount_refunded: 5200, refunded: true }],
+    ["a PARTIAL refund (refunded stays false)", { amount_refunded: 100, refunded: false }],
+    ["refunded flagged with no amount yet", { amount_refunded: 0, refunded: true }],
+  ])("%s on the charge is refused as refunded — never fulfilled", (_l, charge) => {
+    expect(
+      recoveryVerdict({
+        intent: intent({ latest_charge: charge }),
+        expect: guest,
+        cart: openLinked,
+      }),
+    ).toEqual({ ok: false, refusal: "refunded" });
+  });
+
+  it.each([
+    ["an unexpanded charge id", "ch_123"],
+    ["no charge at all", null],
+    ["a missing field", undefined],
+  ])("%s cannot prove no refund — refused, fail closed", (_l, latest_charge) => {
+    expect(
+      recoveryVerdict({
+        intent: intent({ latest_charge }),
+        expect: guest,
+        cart: openLinked,
+      }),
+    ).toEqual({ ok: false, refusal: "charge_unread" });
   });
 
   it("a non-dollar charge is refused", () => {
@@ -144,6 +177,72 @@ describe("recoveryVerdict", () => {
     ).toEqual({ ok: false, refusal: "superseded" });
   });
 
+  // Codex on #365 @ a2636db (P1): `closeSecureTab`'s off-session charge never names itself on the
+  // cart's link — its binding is the settlement freeze it was minted under (`settle_by`, the
+  // request-unique attempt stamped on the intent as `settleAttempt`).
+  describe("a secure-tab close (bound by its settlement freeze, not the link)", () => {
+    const ATTEMPT = "66666666-6666-4666-8666-666666666666";
+    const tabMeta = { closedBy: "staff", settleAttempt: ATTEMPT, earnerUid: undefined };
+    const staff = { cartId: CART, payerUid: null };
+    const SETTLE_AT = "2026-10-18T12:00:00.000Z";
+    const frozen = {
+      status: "open",
+      linkedIntent: null,
+      settleBy: ATTEMPT,
+      settleAt: SETTLE_AT,
+      locked: false,
+      lockedAt: null,
+    };
+    const verdict = (
+      cart: Record<string, unknown>,
+      meta: Record<string, string | undefined> = {},
+    ) =>
+      recoveryVerdict({
+        intent: intent({}, { ...tabMeta, ...meta }),
+        expect: staff,
+        cart: cart as never,
+      });
+
+    it("an open cart still frozen under THIS attempt, naming no live intent, may be fulfilled", () => {
+      expect(verdict(frozen)).toEqual({ ok: true });
+    });
+
+    it("a stale freeze still binds — a lost webhook outlives the 10-minute TTL by design", () => {
+      expect(verdict({ ...frozen, settleAt: "2026-10-01T00:00:00.000Z" })).toEqual({ ok: true });
+    });
+
+    it("a pay lock that PREDATES the freeze does not unbind it", () => {
+      expect(verdict({ ...frozen, locked: true, lockedAt: "2026-10-18T11:00:00.000Z" })).toEqual({
+        ok: true,
+      });
+    });
+
+    it.each([
+      ["a LATER attempt holds the freeze", { settleBy: "77777777-7777-4777-8777-777777777777" }],
+      ["the freeze was released", { settleBy: null, settleAt: null }],
+      ["a live intent is linked (a guest's attempt took the cart)", { linkedIntent: "pi_guest" }],
+      ["a pay lock taken AFTER the freeze", { locked: true, lockedAt: "2026-10-18T12:05:00.000Z" }],
+      ["a pay lock that cannot be ordered against the freeze", { locked: true, lockedAt: null }],
+      ["a freeze with no time on it", { settleAt: null }],
+    ])("superseded when %s", (_l, over) => {
+      expect(verdict({ ...frozen, ...over })).toEqual({ ok: false, refusal: "superseded" });
+    });
+
+    it("the freeze binds only a staff close's shape — a guest's intent with a forged attempt does not", () => {
+      expect(verdict(frozen, { closedBy: undefined })).toEqual({
+        ok: false,
+        refusal: "superseded",
+      });
+    });
+
+    it("a cart read with no freeze fields never binds by freeze", () => {
+      expect(verdict({ status: "open", linkedIntent: null })).toEqual({
+        ok: false,
+        refusal: "superseded",
+      });
+    });
+  });
+
   it.each(["cancelled", "paid"])(
     "a %s cart passes the link rule — the shared fulfillment records the charge as refund-needed",
     (status) => {
@@ -163,6 +262,8 @@ describe("the answers", () => {
       "unbound",
       "no_cart",
       "superseded",
+      "refunded",
+      "charge_unread",
     ] as const)
       expect(refusalAnswer(r)).toEqual({ kind: "refused" });
   });
