@@ -28,8 +28,14 @@ import { describe, expect, it } from "vitest";
  * `serviceClient(…)` bound in scope, or a parameter typed `ReturnType<typeof serviceClient>` (directly
  * or through a same-file `type` alias) — and anything else (a `useMemo` binding, a destructured or
  * chained receiver, an untyped parameter) fails the suite instead of being skipped. Staff are
- * `authenticated` too, so this is also the proof that no staff read rides a staff JWT. And every
- * EMBED of `qr_orders(…)` in a select string, on any client, names only granted columns (never `*`).
+ * `authenticated` too, so this is also the check that no staff `.from("qr_orders")` rides a staff JWT.
+ * And every literal EMBED of `qr_orders(…)` / `qr_orders!hint(…)` in a select string, on any client,
+ * names only granted columns (never `*`).
+ * NOT PARSED (the capped pass over #364's fix commits; none of these exists in the app today):
+ * Realtime `postgres_changes` subscriptions, RPCs, a non-literal `.from(…)` argument, spread
+ * (`...qr_orders(…)`) and FK-column (`order:order_id(…)`) embeds, a `let` client reassigned between
+ * kinds, and a diner client passed to a parameter typed as the service client (the factories share
+ * one client type, so `tsc` would not refuse it). A new read in one of those shapes is reviewed by hand.
  */
 const QR = join(__dirname, "..");
 const REPO = join(QR, "..", "..");
