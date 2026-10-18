@@ -6,6 +6,7 @@ import type { StaffLang } from "./staff-lang";
 import type { KitchenSegment } from "./floor-kitchen";
 import type { RefundState } from "./refund-view";
 import type { RelativeAge } from "./relative-time";
+import { surfaceOpen } from "./surfaces";
 
 /**
  * P2 — accessible names for the staff controls that HAVE a visible label.
@@ -365,9 +366,14 @@ export const FLOOR_STATUS_KEY = {
 export function floorStatusKey(
   status: FloorStatus,
   refundState: RefundState | null | undefined,
+  splitOpen: boolean = surfaceOpen("selfServeSplit"),
 ): StaffKey {
   if (status === "paid" && refundState === "full") return "floor.status.refunded";
   if (status === "paid" && refundState === "partial") return "floor.status.partlyRefunded";
+  // The lifecycle audit — while the self-serve split is parked, the settlement freeze is the
+  // REGISTER's alone (counter-pay-state's REGISTER_SETTLING_COPY): "Splitting" named a state no phone
+  // can be in, on the chip, the tile and the card's name, during the counter's own cash or reader take.
+  if (status === "settling" && !splitOpen) return "floor.status.takingPayment";
   return FLOOR_STATUS_KEY[status];
 }
 

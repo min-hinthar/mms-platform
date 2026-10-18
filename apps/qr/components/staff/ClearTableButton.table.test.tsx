@@ -682,3 +682,35 @@ describe("Seat next party — under the screen's ONE mint lock (Codex correction
     expect(within(windowGroup()!).getAllByRole("button")).toHaveLength(1);
   });
 });
+
+describe("the lifecycle audit — a free clear's window SAYS the guests' unsent dishes go with it", () => {
+  const DRAFTS: ClearPreview = { ...FREE, droppedUnits: 2, lines: ["d1:2:dinein:draft"] };
+  const draftsSaid = tf("en", "table.noshow.body.drafts.many", { n: 2 });
+
+  it("opens the window at once — 'clearing a table never waits' (ruling #6) — naming the drafts while Undo is live", async () => {
+    // lck/clear-ui/window-hides-the-drafts — "Clearing Table 4" committed over a party's whole
+    // order and never said the unsent dishes went with it; red.
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: DRAFTS });
+    clearTable.mockResolvedValue({ ok: true });
+    mount();
+    await tap(trigger());
+    expect(windowGroup()).not.toBeNull();
+    expect(windowGroup()!.textContent).toContain(draftsSaid);
+    // never a question first: the window commits itself, as it always has
+    expect(
+      screen.queryByRole("heading", { name: tf("en", "settle.clear.question", { id: "4" }) }),
+    ).toBeNull();
+    await walk(CLEAR_UNDO_MS + 500);
+    expect(clearTable).toHaveBeenCalledTimes(1);
+  });
+
+  it("a table with nothing unsent says nothing of drafts", async () => {
+    getClearPreview.mockResolvedValue({ kind: "preview", preview: FREE });
+    mount();
+    await tap(trigger());
+    expect(windowGroup()!.textContent).not.toContain(
+      tf("en", "table.noshow.body.drafts.one", { n: 1 }),
+    );
+    expect(windowGroup()!.querySelector(".clear-slip-drafts")).toBeNull();
+  });
+});

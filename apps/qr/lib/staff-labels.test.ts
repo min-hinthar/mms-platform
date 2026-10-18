@@ -307,17 +307,32 @@ describe("a table's name says the word the chip shows, never the database's", ()
     opened: { k: "time.justNow" },
   } as const satisfies StaffControl;
 
-  it("en: the visible word is 'Splitting' and the raw key never appears", () => {
+  // The lifecycle audit — the word a `settling` table wears depends on whether the self-serve split
+  // is open (`floorStatusKey`): "Splitting" when it is, "Taking payment" while it is parked (only the
+  // register holds the freeze then). The name says whichever the CHIP shows — never the raw key.
+  const word = floorStatusKey("settling", null);
+
+  it("en: the visible word is the chip's and the raw key never appears", () => {
     const { aria } = al("en", splitting);
-    expect(aria).toContain("Splitting");
+    expect(aria).toContain(STAFF[word].en);
     expect(aria).not.toContain("settling");
   });
 
   it("my: the name carries the Burmese status word, not the English one and not the key", () => {
     const { aria } = al("my", splitting);
-    expect(aria).toContain(STAFF["floor.status.settling"].my);
+    expect(aria).toContain(STAFF[word].my);
     expect(aria).not.toContain("settling");
-    expect(aria).not.toContain("Splitting");
+    expect(aria).not.toContain(STAFF[word].en);
+  });
+
+  it("a settling table is 'Splitting' only while the self-serve split is open — else the counter's take", () => {
+    // lck/staff-labels/splitting-while-parked — the floor named a state no phone can be in during the
+    // register's own cash or reader take.
+    expect(floorStatusKey("settling", null, true)).toBe("floor.status.settling");
+    expect(floorStatusKey("settling", null, false)).toBe("floor.status.takingPayment");
+    // no other status moves with it
+    expect(floorStatusKey("paying", null, false)).toBe("floor.status.paying");
+    expect(floorStatusKey("paid", "full", false)).toBe("floor.status.refunded");
   });
 
   it("every FloorStatus resolves to a key that exists, and no two share one", () => {

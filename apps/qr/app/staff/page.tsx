@@ -12,6 +12,7 @@ import { listApprovers } from "@/lib/voids";
 import { getSettledToday } from "@/lib/refunds";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
+import { closedNoteOf } from "@/lib/floor-closed-note";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { DayCash } from "@/components/staff/DayCash";
@@ -36,7 +37,11 @@ import { counterAskingAtMount } from "@/lib/staff-guide";
 
 export const dynamic = "force-dynamic";
 
-type StaffHomeProps = { searchParams: Promise<{ doors?: string; floor?: string }> };
+// The lifecycle audit — `closed` is the name of a table that closed under a server's page or pad
+// (`closedFloorHref`): the floor says it once in its region (`closedNoteOf` refuses anything else).
+type StaffHomeProps = {
+  searchParams: Promise<{ doors?: string; floor?: string; closed?: string | string[] }>;
+};
 
 /**
  * The one decision, read once per request (Next memoizes `cookies()`/`headers()`/`searchParams`
@@ -91,7 +96,11 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // W10b: an unknowable gate renders the outage shell in place (URL kept) — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.floor" />;
   const isManager = roleAtLeast(caller.role, "manager");
-  const [lang, { door, home }] = await Promise.all([readStaffLang(), staffHomeFor(searchParams)]);
+  const [lang, { door, home }, sp] = await Promise.all([
+    readStaffLang(),
+    staffHomeFor(searchParams),
+    searchParams,
+  ]);
   if ("redirect" in home) redirect(home.redirect);
 
   // PD8 — the count is a VERDICT (`pendingCountVerdict`): a count, or unknown — never a false 0. A
@@ -285,7 +294,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
               one list keyed by session; the board owns its heading. */}
             <div id="floor-zone">
               <ZoneFocus id="floor-zone" focus="floor-h" />
-              <FloorBoard initial={floor.snapshot} />
+              <FloorBoard initial={floor.snapshot} closedTable={closedNoteOf(sp.closed)} />
             </div>
 
             {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
