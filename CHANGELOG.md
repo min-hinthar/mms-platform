@@ -37,6 +37,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   sold-out reading is stamped on the database clock. /grocery reads a refusal `setQty` names as a
   failed write. 103 `lcb/` mutants; J65 and M302 filed; K15 · diner-changes lists the new Burmese.
 
+### The stranded-payment sweep runs every day (2026-10-18, M160(b) · owner ruling #13)
+
+- **`/api/cron/stranded-payments` is scheduled daily at 10:07 UTC** (`apps/qr/vercel.json` `crons`),
+  now that `CRON_SECRET` is live in Production (no header → 401). Once its first run succeeds, a paid
+  card whose webhook never landed, with nobody on /track or at the table, is picked up by the next daily run that finds it at least 3 minutes old (up to about 25 hours later, since a daily cron can fire anywhere within its hour).
+  The window grows by a one-hour drift term (now 26 h 03 min), because a plan that allows only daily
+  crons fires one anywhere inside its hour; a test now ties the schedule to that window.
+
 ### A guest how-to in the README, and draft customer posts (2026-10-18, docs)
 
 - **README gains "For guests — how to use it", and `docs/marketing/SOCIAL_POSTS_2026-10-18.md` holds

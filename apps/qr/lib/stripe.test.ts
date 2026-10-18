@@ -353,29 +353,35 @@ function scanRetryOverrides(rel: string, text: string) {
 }
 
 describe("a call that lowers the SDK's retries must carry its own idempotency key (M72c)", () => {
-  it("every per-call `maxNetworkRetries` below one sits beside an `idempotencyKey`", () => {
-    // The reason is the SDK fact above: below one retry it stops generating a key, yet still resends
-    // a first-attempt connection reset. Parsed, so a comment or a string cannot satisfy it; a value
-    // that is not a numeric literal is treated as possibly zero rather than guessed at.
-    const overrides: string[] = [];
-    const unkeyed: string[] = [];
-    const constructions: string[] = [];
-    for (const file of sourceFiles()) {
-      const found = scanRetryOverrides(path.relative(APP, file), readFileSync(file, "utf8"));
-      overrides.push(...found.overrides);
-      unkeyed.push(...found.unkeyed);
-      constructions.push(...found.constructions);
-    }
-    // Not vacuous: the pickup capture is the override this rule was written for.
-    expect(overrides.some((w) => w.startsWith(path.join("lib", "manual-capture-run.ts")))).toBe(
-      true,
-    );
-    expect(unkeyed).toEqual([]);
-    // ONE client, built where the budget is: a second one would take the SDK's defaults (or any
-    // budget of its own) with no rule above seeing it. Not vacuous: getStripe's own is found.
-    expect(constructions.length).toBe(1);
-    expect(constructions[0]!.startsWith(`${CLIENT_FILE}:`)).toBe(true);
-  });
+  // Parses every source file under app/ and lib/, so it is sized like the fulfill-intent call-site
+  // walk (30 s): under a loaded full run the 5 s default timed it out three times on 2026-10-18.
+  it(
+    "every per-call `maxNetworkRetries` below one sits beside an `idempotencyKey`",
+    { timeout: 30_000 },
+    () => {
+      // The reason is the SDK fact above: below one retry it stops generating a key, yet still resends
+      // a first-attempt connection reset. Parsed, so a comment or a string cannot satisfy it; a value
+      // that is not a numeric literal is treated as possibly zero rather than guessed at.
+      const overrides: string[] = [];
+      const unkeyed: string[] = [];
+      const constructions: string[] = [];
+      for (const file of sourceFiles()) {
+        const found = scanRetryOverrides(path.relative(APP, file), readFileSync(file, "utf8"));
+        overrides.push(...found.overrides);
+        unkeyed.push(...found.unkeyed);
+        constructions.push(...found.constructions);
+      }
+      // Not vacuous: the pickup capture is the override this rule was written for.
+      expect(overrides.some((w) => w.startsWith(path.join("lib", "manual-capture-run.ts")))).toBe(
+        true,
+      );
+      expect(unkeyed).toEqual([]);
+      // ONE client, built where the budget is: a second one would take the SDK's defaults (or any
+      // budget of its own) with no rule above seeing it. Not vacuous: getStripe's own is found.
+      expect(constructions.length).toBe(1);
+      expect(constructions[0]!.startsWith(`${CLIENT_FILE}:`)).toBe(true);
+    },
+  );
 
   it("a SECOND client built elsewhere at zero retries is caught, not exempted as a client config", () => {
     // The blind pass on #352: the client-config exemption matched `new Stripe(...)` in any file, so
