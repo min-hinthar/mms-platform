@@ -54,6 +54,8 @@ const STRIPE_ENV = [
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST",
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_Production",
+  "STRIPE_WEBHOOK_SECRET_TEST",
+  "STRIPE_WEBHOOK_SECRET",
 ] as const;
 
 function env(values: Partial<Record<(typeof STRIPE_ENV)[number], string>>) {
@@ -155,6 +157,74 @@ describe("getStripe — the one constructor every server-side Stripe call goes t
     const { getStripe } = await load();
     expect(getStripe()).toBe(getStripe());
     expect(ctor.calls).toHaveLength(1);
+  });
+});
+
+describe("readPaymentMode — the staff badge reads the resolvers checkout uses", () => {
+  // Obviously fake values: Stripe's prefixes, never a key.
+  it("live: the cutover done — live keys under the base names, the live signing secret", async () => {
+    env({
+      STRIPE_SECRET_KEY: "sk_live_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_live_fake",
+      STRIPE_WEBHOOK_SECRET: "whsec_fake_live",
+    });
+    expect((await load()).readPaymentMode()).toBe("live");
+  });
+
+  it("test: with BOTH sets present, every _TEST name wins — the badge says test, as checkout runs", async () => {
+    // Production today: the _TEST variables are still set beside the live ones, and each resolver
+    // takes _TEST first. The badge must say test, because that is what a card is charged in.
+    env({
+      STRIPE_SECRET_KEY_TEST: "sk_test_fake",
+      STRIPE_SECRET_KEY: "sk_live_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST: "pk_test_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_live_fake",
+      STRIPE_WEBHOOK_SECRET_TEST: "whsec_fake_test",
+      STRIPE_WEBHOOK_SECRET: "whsec_fake_live",
+    });
+    expect((await load()).readPaymentMode()).toBe("test");
+  });
+
+  it("mismatch: the secret key cut over, the publishable _TEST left behind — and getStripe agrees", async () => {
+    // The half-done cutover: STRIPE_SECRET_KEY_TEST removed, NEXT_PUBLIC_..._TEST not. The
+    // publishable resolver still takes _TEST first, so the pair disagrees — and the badge's verdict
+    // is the refusal getStripe() itself makes on the same environment.
+    env({
+      STRIPE_SECRET_KEY: "sk_live_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST: "pk_test_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_live_fake",
+      STRIPE_WEBHOOK_SECRET: "whsec_fake_live",
+    });
+    const mod = await load();
+    expect(mod.readPaymentMode()).toBe("mismatch");
+    expect(() => mod.getStripe()).toThrow(/mode mismatch/);
+  });
+
+  it("webhook_mismatch: live keys, only the _TEST signing secret left", async () => {
+    env({
+      STRIPE_SECRET_KEY: "sk_live_fake",
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_live_fake",
+      STRIPE_WEBHOOK_SECRET_TEST: "whsec_fake_test",
+    });
+    expect((await load()).readPaymentMode()).toBe("webhook_mismatch");
+  });
+
+  it("unconfigured: nothing set — and it answers rather than throwing", async () => {
+    const mod = await load();
+    expect(() => mod.readPaymentMode()).not.toThrow();
+    expect(mod.readPaymentMode()).toBe("unconfigured");
+  });
+
+  it("the signing-secret list puts _TEST first, each name bound to its own read (M165)", async () => {
+    // Executed, beside the structural pin in stripe-env.test.ts: the route and the badge share it.
+    env({
+      STRIPE_WEBHOOK_SECRET_TEST: "whsec_fake_test",
+      STRIPE_WEBHOOK_SECRET: "whsec_fake_live",
+    });
+    expect((await load()).webhookSecretCandidates()).toEqual([
+      ["STRIPE_WEBHOOK_SECRET_TEST", "whsec_fake_test"],
+      ["STRIPE_WEBHOOK_SECRET", "whsec_fake_live"],
+    ]);
   });
 });
 
