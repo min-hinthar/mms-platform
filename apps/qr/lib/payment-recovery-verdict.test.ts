@@ -23,6 +23,13 @@ const OTHER_CART = "33333333-3333-4333-8333-333333333333";
 const PAYER = "payer-uid-1";
 const PI = "pi_live_1";
 
+/** A fully captured, unrefunded $52.00 charge — the fixture every rule but the refund rule reads. */
+const FULL = { amount: 5200, amount_captured: 5200, amount_refunded: 0, refunded: false };
+/** A refund list as `latest_charge.refunds` expands it. */
+const refundList = (...rows: { amount: number; status: string }[]) => ({
+  data: rows,
+  has_more: false,
+});
 const intent = (
   over: Partial<RecoveryIntent> = {},
   meta: Record<string, string | undefined> = {},
@@ -31,7 +38,7 @@ const intent = (
   status: "succeeded",
   currency: "usd",
   metadata: { cartId: CART, earnerUid: PAYER, tipRate: "0.2", ...meta },
-  latest_charge: { amount_refunded: 0, refunded: false },
+  latest_charge: FULL,
   ...over,
 });
 const guest = { cartId: CART, payerUid: PAYER };
@@ -80,9 +87,9 @@ describe("recoveryVerdict", () => {
   // stranded charge in Stripe before recovery runs must not get an order fired for money that went
   // back.
   it.each([
-    ["a full refund", { amount_refunded: 5200, refunded: true }],
-    ["a PARTIAL refund (refunded stays false)", { amount_refunded: 100, refunded: false }],
-    ["refunded flagged with no amount yet", { amount_refunded: 0, refunded: true }],
+    ["a full refund", { ...FULL, amount_refunded: 5200, refunded: true }],
+    ["a PARTIAL refund (refunded stays false)", { ...FULL, amount_refunded: 100 }],
+    ["refunded flagged with no amount yet", { ...FULL, refunded: true }],
   ])("%s on the charge is refused as refunded — never fulfilled", (_l, charge) => {
     expect(
       recoveryVerdict({
@@ -97,6 +104,9 @@ describe("recoveryVerdict", () => {
     ["an unexpanded charge id", "ch_123"],
     ["no charge at all", null],
     ["a missing field", undefined],
+    // A charge read without the fields the rule compares cannot say what was refunded.
+    ["a charge without amount_captured", { amount: 5200, amount_refunded: 0, refunded: false }],
+    ["a charge whose capture exceeds its amount", { ...FULL, amount_captured: 5300 }],
   ])("%s cannot prove no refund — refused, fail closed", (_l, latest_charge) => {
     expect(
       recoveryVerdict({
@@ -105,6 +115,89 @@ describe("recoveryVerdict", () => {
         cart: openLinked,
       }),
     ).toEqual({ ok: false, refusal: "charge_unread" });
+  });
+
+  /**
+   * M160(b) blind pass on #365 @ 1b760cb (CRITICAL) — a PARTIALLY captured pickup hold (W23c: the
+   * kitchen ran out, `amount_to_capture` < the hold). Stripe releases the uncaptured remainder, and
+   * whether the charge reports that release in `amount_refunded` is not something the docs pin for
+   * this API version — so the rule is written to be right either way: the remainder alone, with no
+   * Refund object behind it, is NOT a refund; any money back out of what was CAPTURED is. Hold
+   * $60.00, captured $52.00, remainder $8.00.
+   */
+  describe("a partially captured hold (amount_captured < amount)", () => {
+    const PARTIAL = { amount: 6000, amount_captured: 5200, refunded: false };
+    const pickup = (latest_charge: unknown) =>
+      recoveryVerdict({
+        intent: intent({ latest_charge } as Partial<RecoveryIntent>, { kind: "pickup_manual" }),
+        expect: guest,
+        cart: openLinked,
+      });
+
+    it("unrefunded, remainder NOT reported as refunded — recovers", () => {
+      expect(pickup({ ...PARTIAL, amount_refunded: 0 })).toEqual({ ok: true });
+    });
+
+    it("unrefunded, remainder reported in amount_refunded with no Refund behind it — recovers", () => {
+      expect(pickup({ ...PARTIAL, amount_refunded: 800, refunds: refundList() })).toEqual({
+        ok: true,
+      });
+    });
+
+    it("a FAILED refund in the list is not money back — still recovers", () => {
+      expect(
+        pickup({
+          ...PARTIAL,
+          amount_refunded: 800,
+          refunds: refundList(
+            { amount: 800, status: "failed" },
+            { amount: 300, status: "canceled" },
+          ),
+        }),
+      ).toEqual({ ok: true });
+    });
+
+    it("the remainder figure with its refund list UNREAD cannot be told apart — fail closed", () => {
+      expect(pickup({ ...PARTIAL, amount_refunded: 800 })).toEqual({
+        ok: false,
+        refusal: "charge_unread",
+      });
+      expect(
+        pickup({ ...PARTIAL, amount_refunded: 800, refunds: { ...refundList(), has_more: true } }),
+      ).toEqual({ ok: false, refusal: "charge_unread" });
+    });
+
+    it("partially captured, then refunded beyond the remainder — refused", () => {
+      expect(pickup({ ...PARTIAL, amount_refunded: 1300, refunds: refundList() })).toEqual({
+        ok: false,
+        refusal: "refunded",
+      });
+    });
+
+    it("partially captured, then refunded EXACTLY the remainder's figure (a real Refund) — refused", () => {
+      // amount_refunded == the remainder by coincidence; the Refund object says it is money back.
+      expect(
+        pickup({
+          ...PARTIAL,
+          amount_refunded: 800,
+          refunds: refundList({ amount: 800, status: "succeeded" }),
+        }),
+      ).toEqual({ ok: false, refusal: "refunded" });
+      expect(
+        pickup({
+          ...PARTIAL,
+          amount_refunded: 800,
+          refunds: refundList({ amount: 800, status: "pending" }),
+        }),
+      ).toEqual({ ok: false, refusal: "refunded" });
+    });
+
+    it("a fully captured charge reporting any refund is refused, list or no list", () => {
+      expect(pickup({ ...FULL, amount_refunded: 800, refunds: refundList() })).toEqual({
+        ok: false,
+        refusal: "refunded",
+      });
+    });
   });
 
   it("a non-dollar charge is refused", () => {

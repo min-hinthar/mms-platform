@@ -120,7 +120,7 @@ const pi = (
   status: "succeeded",
   currency: "usd",
   metadata: { cartId: CART, earnerUid: "payer-1", ...meta },
-  latest_charge: { amount_refunded: 0, refunded: false },
+  latest_charge: { amount: 5200, amount_captured: 5200, amount_refunded: 0, refunded: false },
   ...over,
 });
 
@@ -150,11 +150,13 @@ describe("recoverIntent", () => {
 
   it("retrieves with the charge EXPANDED — the refund rule cannot read a bare id", async () => {
     await recoverIntent("pi_1", { cartId: CART, payerUid: "payer-1" }, "track");
-    expect(retrieveParams).toEqual([{ expand: ["latest_charge"] }]);
+    expect(retrieveParams).toEqual([{ expand: ["latest_charge", "latest_charge.refunds"] }]);
   });
 
   it("a charge refunded in Stripe before recovery ran is refused — no order for money that went back", async () => {
-    retrieved = pi("pi_1", { latest_charge: { amount_refunded: 5200, refunded: true } });
+    retrieved = pi("pi_1", {
+      latest_charge: { amount: 5200, amount_captured: 5200, amount_refunded: 5200, refunded: true },
+    });
     const out = await recoverIntent("pi_1", { cartId: CART, payerUid: null }, "staff");
     expect(out).toEqual({ kind: "refused" });
     expect(fulfilled).toEqual([]);
@@ -230,7 +232,7 @@ describe("sweepStrandedPayments", () => {
         lte: (NOW - 3 * 60_000) / 1000,
       },
       limit: 100,
-      expand: ["data.latest_charge"],
+      expand: ["data.latest_charge", "data.latest_charge.refunds"],
     });
   });
 

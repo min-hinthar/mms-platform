@@ -86,8 +86,15 @@ export type RecoveryCart = {
   lockedAt?: string | null;
 } | null;
 
-/** The charge, as far as the refund rule reads it — `latest_charge` EXPANDED. */
-export type RecoveryCharge = { amount_refunded: number; refunded: boolean };
+/** The charge, as far as the refund rule reads it — `latest_charge` EXPANDED, with its `refunds`. */
+export type RecoveryCharge = {
+  amount: number;
+  amount_captured: number;
+  amount_refunded: number;
+  refunded: boolean;
+  /** `latest_charge.refunds`, expanded (`RECOVERY_EXPAND`): the Refund objects themselves. */
+  refunds?: { data: { amount: number; status: string | null }[]; has_more: boolean } | null;
+};
 
 /** The intent as the verdict reads it — the fields Stripe's `retrieve` returns, with
  *  `expand: ["latest_charge"]` (a bare id, or nothing, refuses as `charge_unread`). */
@@ -99,8 +106,8 @@ export type RecoveryIntent = {
   latest_charge?: string | RecoveryCharge | null;
 };
 
-/** What every recovery read of an intent must expand, named ONCE: the refund rule reads it. */
-export const RECOVERY_EXPAND = ["latest_charge"] as const;
+/** What every recovery read of an intent must expand, named ONCE: the refund rule reads both. */
+export const RECOVERY_EXPAND = ["latest_charge", "latest_charge.refunds"] as const;
 
 /** Kinds a recovery door may fulfill: a diner's automatic-capture card (no `kind`), or a pickup
  *  hold the webhook captured (`pickup_manual`, which reaches `succeeded` only once captured). */
@@ -159,12 +166,60 @@ export function secureTabBound(intent: RecoveryIntent, cart: NonNullable<Recover
   return cart.lockedAt != null && Date.parse(cart.lockedAt) < Date.parse(cart.settleAt);
 }
 
-/** The refund rule: refused on ANY refund, and on a charge it could not read. */
+const isCents = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0;
+
+/** Refund objects that are money back (or on its way): everything but `failed` and `canceled`. */
+function refundedByObjects(refunds: RecoveryCharge["refunds"]): number | null {
+  if (!refunds || !Array.isArray(refunds.data) || refunds.has_more !== false) return null;
+  let sum = 0;
+  for (const r of refunds.data) {
+    if (!isCents(r.amount)) return null;
+    if (r.status !== "failed" && r.status !== "canceled") sum += r.amount;
+  }
+  return sum;
+}
+
+/**
+ * The refund rule: refused on ANY money back out of what was CAPTURED, and on a charge it cannot read.
+ *
+ * M160(b) blind pass on #365 @ 1b760cb (CRITICAL) — a PARTIALLY captured pickup hold (W23c,
+ * `amount_to_capture` below the hold) is the one charge where `amount_refunded > 0` is not proof of a
+ * refund. Stripe releases the uncaptured remainder, and neither its docs nor the pinned SDK's types
+ * (`stripe@22`, API `2026-05-27.dahlia`: `amount_captured` "can be less than the amount attribute on the
+ * charge if a partial capture was made") pin whether that release is reported in `amount_refunded`,
+ * nor whether a Refund object stands behind it; this account holds no partially captured intent to
+ * measure (test mode, 2026-10-18: none). So the rule is written to be right in every one of those
+ * shapes, and to refuse wherever two of them read the same:
+ *
+ *   • `refunded` → refused. Nothing captured stayed.
+ *   • `amount_refunded === 0` → not refunded, whatever the capture was.
+ *   • a FULL capture with `amount_refunded > 0` → refused (the original rule).
+ *   • a partial capture whose `amount_refunded` is EXACTLY the uncaptured remainder → the release
+ *     alone, or a real refund of that same figure. The Refund objects decide: none that moved money
+ *     → the release → recoverable; any → refused; the list unread (not expanded, or `has_more`) →
+ *     `charge_unread`. (If Stripe did create a Refund for the release, an unrefunded partial capture
+ *     refuses here — fail closed: a logged refusal, the webhook still redelivering, staff still able
+ *     to act. Never the reverse.)
+ *   • anything above the remainder → refused: money came back out of the captured part.
+ *
+ * Every field it compares must be a whole, non-negative number of cents, and the capture can never
+ * exceed the charge (this app never over-captures); anything else is `charge_unread`.
+ */
 function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
   const charge = intent.latest_charge;
   if (charge == null || typeof charge === "string") return "charge_unread";
-  if (charge.refunded || charge.amount_refunded > 0) return "refunded";
-  return null;
+  if (charge.refunded) return "refunded";
+  const { amount, amount_captured: captured, amount_refunded: back } = charge;
+  if (!isCents(amount) || !isCents(captured) || !isCents(back) || captured > amount)
+    return "charge_unread";
+  if (back === 0) return null;
+  const remainder = amount - captured;
+  if (remainder > 0 && back === remainder) {
+    const moved = refundedByObjects(charge.refunds);
+    if (moved === null) return "charge_unread";
+    return moved === 0 ? null : "refunded";
+  }
+  return "refunded";
 }
 
 /**
