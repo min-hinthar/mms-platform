@@ -48,6 +48,9 @@ import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 import { isFired } from "@/lib/pickup-promise";
 import { orderOnScreen, pickupFootPromised, pickupPageShown } from "@/lib/pickup-view";
 import { TRACK } from "@/lib/i18n/track";
+// ── M160(b) ──
+import { recoverMyPayment } from "@/lib/payment-recovery-actions";
+import { TRACK_RECOVERY_ASK_MS, trackRecoveryShows } from "@/lib/payment-recovery-verdict";
 import { useOrderKitchen } from "@/lib/useOrderKitchen";
 import { bagKitchen, kitchenRows, railKitchenSub } from "@/lib/order-kitchen";
 import { refundArmCopy, settledFoot, settledSpoken, trackRefunded } from "@/lib/track-settled";
@@ -195,6 +198,55 @@ export function OrderTracker({
   // The "isn't updating" notice: a snapshot on screen because the live read is GONE (stale, given up)
   // or never applies (a counter order). A resume's at-mount snapshot is not that while the live read
   // may still land (~30 s): it is the order, and the notice waits for the give-up like any other.
+  // ── M160(b) — the stranded-payment ask ──────────────────────────────────────────────────────────
+  //
+  // The order lands 1–2 s after a charge when the webhook works (measured, C18). When it does not —
+  // C18's test pass: five charged cards, zero orders — nothing on this page could ever bring it
+  // home. So a FRESH single-pay arrival with no order asks the server, twice and only twice
+  // (`TRACK_RECOVERY_ASK_MS`: 12 s, then past the ~30 s give-up), to retrieve the payment from Stripe
+  // and run the webhook's own fulfillment if Stripe says it went through (`recoverMyPayment`).
+  //
+  // Gated on "no order on screen" (`hasOrder`), NEVER on the URL's `resume=1` (Codex on #365 @
+  // a2636db): `ActiveOrderProvider` keeps a succeeded intent's pointer before any order exists, and
+  // every link it feeds — the home card, the pill, the tray — is a resume link, so a guest who left
+  // before the 12 s ask and came back that way was never asked for. A resume whose order exists has
+  // it on screen from the at-mount snapshot long before 12 s, and the server answers `recorded`
+  // before any Stripe call either way. Not while `processing` (Stripe has not finished),
+  // and not under manual capture (the card is only authorized until the hold is captured; the cron
+  // covers a capture whose webhook is lost). The answer changes the screen in exactly two ways
+  // (`trackRecoveryShows`): an order now exists → re-read it; or Stripe said charged and no order
+  // could be written → say so, and send the guest to a person. Every other answer leaves the page's
+  // own honest copy alone.
+  const [stranded, setStranded] = useState(false);
+  const hasOrder = !!order;
+  const recoveryArmed = !!paymentIntent && !processing && !awaitingCapture;
+  const wakeRef = useRef(wake);
+  useEffect(() => {
+    wakeRef.current = wake;
+  }, [wake]);
+  useEffect(() => {
+    if (!recoveryArmed || hasOrder || stranded || !paymentIntent) return;
+    let active = true;
+    const timers = TRACK_RECOVERY_ASK_MS.map((at) =>
+      setTimeout(() => {
+        void recoverMyPayment({ paymentIntent })
+          .then((answer) => {
+            if (!active) return;
+            const shows = trackRecoveryShows(answer);
+            if (shows === "refresh") wakeRef.current();
+            else if (shows === "stranded") setStranded(true);
+          })
+          .catch(() => {
+            // Deliberate: a failed ask is not an answer. The page keeps its own copy, the next ask
+            // (or the cron) tries again, and nothing on screen claims either way.
+          });
+      }, at),
+    );
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [recoveryArmed, hasOrder, stranded, paymentIntent]);
   const staleSnapshot = !!fallback?.ok && (liveStale || (!liveOrder && (timedOut || counterPaid)));
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
 
@@ -600,7 +652,7 @@ export function OrderTracker({
     // <html>, so the fixed z:-1 layer is visible without trapping the confetti/celebrations).
     <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
       <PaperAmbient />
-      {settleCanceled ? null : justPaid ? (
+      {settleCanceled ? null : justPaid && !(stranded && !order) ? (
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
         // ride a compact row below it, and the timeline follows.
         //
@@ -677,26 +729,29 @@ export function OrderTracker({
                         : togo === "preparing"
                           ? "Your order is being prepared."
                           : "Payment confirmed — your order is in."
-                      : timedOut
-                        ? sharePayer
-                          ? "Your share is paid. The table’s bill is saved under whoever started splitting it — details below."
-                          : weDown
-                            ? // W10c — the escalation is announced too. The reference itself is spelled
-                              // out character by character in its own sr-only sibling below.
-                              `We’re having trouble on our end. ${safeClaim(notYetCharged)} — show this screen to staff and we’ll match it up.`
-                            : youOffline
-                              ? `You look offline. ${paidClaim(notYetCharged)} — reconnect and you can check again from this screen.`
-                              : "Your order is taking longer than expected — use the Refresh button to check."
-                        : justPaid
-                          ? notYetCharged
-                            ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
-                              // headline beside it now says so. Announcing "Payment confirmed" here
-                              // put the screen's two money claims in direct contradiction.
-                              "Card approved — we’re confirming your order."
-                            : "Payment confirmed — finishing your order."
-                          : processing
-                            ? "Confirming your payment."
-                            : "Confirming your order."}
+                      : stranded
+                        ? // M160(b) — Stripe's own word (the server retrieved it), never the redirect's.
+                          `${TRACK.strandedHead.en}. ${TRACK.strandedBody.en}`
+                        : timedOut
+                          ? sharePayer
+                            ? "Your share is paid. The table’s bill is saved under whoever started splitting it — details below."
+                            : weDown
+                              ? // W10c — the escalation is announced too. The reference itself is spelled
+                                // out character by character in its own sr-only sibling below.
+                                `We’re having trouble on our end. ${safeClaim(notYetCharged)} — show this screen to staff and we’ll match it up.`
+                              : youOffline
+                                ? `You look offline. ${paidClaim(notYetCharged)} — reconnect and you can check again from this screen.`
+                                : "Your order is taking longer than expected — use the Refresh button to check."
+                          : justPaid
+                            ? notYetCharged
+                              ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
+                                // headline beside it now says so. Announcing "Payment confirmed" here
+                                // put the screen's two money claims in direct contradiction.
+                                "Card approved — we’re confirming your order."
+                              : "Payment confirmed — finishing your order."
+                            : processing
+                              ? "Confirming your payment."
+                              : "Confirming your order."}
           {/* W23d — the partial fact, spoken. The visible notice lives on the receipt slip below,
             which is a visual artifact; without this a screen-reader user is told "your order is in"
             and never learns the basket changed. A second child of the SAME region, so the view
@@ -1036,7 +1091,44 @@ export function OrderTracker({
       {/* W23d — `!settleCanceled`: this banner's every arm asserts a payment, and the terminal card
           above has already said the true thing. Two contradictory answers on one screen is worse
           than the original silence. */}
-      {timedOut && !arrived && !settleCanceled && (
+      {/* M160(b) — the recovery retrieved this payment from Stripe: charged, and no order could be
+          written (the table was settled another way, or the charge no longer matches the order). Not
+          a live region — the one role="status" above says it. It REPLACES the timed-out banner,
+          whose every arm says "we just can't reach the order from this screen", which is no longer
+          the true sentence. The payment reference is shown with it: it is what staff look it up by,
+          and `stranded` is only ever set by a recovery that ran on a `paymentIntent`, which is
+          exactly when `counterRef` is non-null — the guard below is for the type, not a case. */}
+      {stranded && !arrived && !settleCanceled && (
+        <div
+          style={{
+            padding: 14,
+            marginTop: 8,
+            borderRadius: "var(--r-card)",
+            border: "1px solid var(--warn)",
+            background: "var(--warnb)",
+          }}
+        >
+          <h2 style={{ margin: 0, fontWeight: "var(--fw-bold)", fontSize: "var(--fs-sm)" }}>
+            {TRACK.strandedHead.en}
+            <span lang="my" style={{ display: "block", fontWeight: "var(--fw-semibold)" }}>
+              {TRACK.strandedHead.my}
+            </span>
+          </h2>
+          <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
+            {TRACK.strandedBody.en}
+            <span lang="my" style={{ display: "block", color: "var(--t3)" }}>
+              {TRACK.strandedBody.my}
+            </span>
+          </p>
+          {counterRef && (
+            <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--tx)" }}>
+              <span style={{ color: "var(--t3)" }}>{counterRef.label}: </span>
+              <strong style={{ letterSpacing: "var(--track-caps)" }}>{counterRef.value}</strong>
+            </p>
+          )}
+        </div>
+      )}
+      {timedOut && !arrived && !settleCanceled && !stranded && (
         <div
           style={{
             padding: 14,

@@ -210,6 +210,10 @@ export async function POST(req: NextRequest) {
   // took. A refused claim is re-read by number and said by name: this seat's other tab already
   // hosting it → rejoin; a still-hostless (touched) shell → `held`; a party → `seated`; nobody →
   // "try again". (A STICKER scan keeps W6a's own claim below: the table's physical code.)
+  // Session truth (finding 4's narrow case) — the claim TOOK a server-started table: the row
+  // existed (so `created` stays false — analytics counts a join), but nothing on it was this
+  // diner's, so the answer's `fresh` lets a home-card resume say their earlier visit had ended.
+  let tookShell = false;
   const takeShell = async (sh: Sess, n: number): Promise<Sess | NextResponse> => {
     const { data: claimed, error: claimErr } = await db.rpc("mms_claim_untouched_shell", {
       p_shell: sh.id,
@@ -217,7 +221,10 @@ export async function POST(req: NextRequest) {
     });
     if (claimErr && isTransportFailure(claimErr)) return unavailable();
     if (claimErr) return refuse(500, "try_again", TRY_AGAIN);
-    if (claimed === true) return { ...sh, host_seat: seat };
+    if (claimed === true) {
+      tookShell = true;
+      return { ...sh, host_seat: seat };
+    }
     let now: Sess | null;
     try {
       now = await seatedSessionFor(db, n, resolvedQr);
@@ -802,5 +809,7 @@ export async function POST(req: NextRequest) {
     tableNumber: sess.table_number,
     // W5a: fresh-session signal for resume-intent honesty (see sessionMintOutput).
     created,
+    // Session truth — a server-started table this claim took is a fresh start for this diner.
+    fresh: created || tookShell,
   });
 }

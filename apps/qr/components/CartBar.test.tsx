@@ -24,6 +24,7 @@ type Ctx = {
   mode?: string;
   role?: "host" | "guest" | null;
   sendNudge?: { seat: string; at: string } | null;
+  ended?: unknown;
 };
 const ctx = vi.hoisted(() => ({ current: {} as Ctx, push: vi.fn() }));
 vi.mock("@/components/TableCartProvider", () => ({ useCart: () => ctx.current }));
@@ -205,5 +206,20 @@ describe("PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a shared table's bar name
       "View order, someone’s waiting — subtotal $12.00",
     );
     expect(document.querySelector(".cartbar-line2")!.textContent).toContain("Someone’s waiting");
+  });
+});
+
+describe("CartBar — session truth", () => {
+  it("offers no bar to an order that ENDED — the card on the menu says what became of it", async () => {
+    // MUTATION (lcs/cart-bar-offers-an-ended-order): drop the `ended` gate — "View order" opens a
+    // bill nobody can add to, under a card that says the table closed.
+    const CartBar = await freshCartBar();
+    ctx.current = { ...CONFIRMED, ended: { kind: "ended", why: "closed" } };
+    const { container } = render(<CartBar />);
+    expect(container.textContent).toBe("");
+    cleanup();
+    ctx.current = CONFIRMED;
+    const shown = render(<CartBar />);
+    expect(shown.container.textContent).not.toBe("");
   });
 });

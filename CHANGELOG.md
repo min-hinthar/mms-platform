@@ -4,6 +4,161 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
+
+- **One migration, `20261018130000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
+  file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
+  Apply it before the app merges. Until then the new actions' team writes fail closed.
+- **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role
+  change or an active flip is one call, `mms_staff_set`. It takes the team lock, then the caller's row
+  and the target's row, and decides the caller, the self rule, the role the console showed and A6's
+  ceiling before it writes. Two cross-demotions queue, and the second, by then a manager, is refused.
+  "The role the console showed" is the role the Team screen DISPLAYED for that row, sent with the
+  request (`seenRole`). A manager acting on a screen that went stale (the member promoted since it
+  loaded) is told "That role just changed — the list now shows it", and the roster re-reads. The
+  ceiling is decided before the no-op, so a manager is never told ok about an owner's account.
+  Every lock wait gives up after five seconds (`lock_timeout`), so one stuck transaction costs one
+  call its answer instead of queueing the whole team behind it.
+  The trigger `staff_keep_an_owner` refuses any write, from any path, that would end the last active
+  owner. A hand-over (promote first, then step down) still goes through.
+- **A revocation can no longer land between the authority check and the write (M208).** The caller is
+  read under a row lock in the same transaction as the write. An invite's staff row goes through
+  `mms_staff_provision` under the same team lock and caller rule, and the auth user it made is
+  deleted when the database refuses. An answer lost in transit after the row landed keeps the member
+  (the row decides), so a dropped reply no longer deletes someone who was added.
+- **Every invite, role change, deactivation and removal leaves a durable `staff_audit` row (M205).**
+  The row is written in the same transaction as the change, and managers and owners can read it. A
+  change made through the console names who made it. A change made any other way (the old app during
+  the deploy, a preview built on an older base, a hand-run statement, a deleted auth user) is recorded
+  too, by the trigger `staff_audit_direct`, as a `direct` row that names nobody. No role the API serves,
+  service_role included, can write the ledger directly. The PostHog event stays as the secondary record.
+- **Proof.** `supabase/tests/m210_team_safety_test.sql` covers each refusal next to the call it must
+  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs eleven two-session orders,
+  and its `--mutants` mode catches all 43 mutants. Order j measures the one lock cycle left: a direct
+  owner demotion (the old app during the deploy, a hand-run statement) against `mms_staff_set`.
+  Postgres aborts one side as a deadlock, the other lands, and one owner remains. Order k holds a
+  staff row open and measures both functions giving up at the lock timeout. Both run in CI's sql
+  lane. verify:slice gains 25 mutants over the actions, the Team console and the new
+  `lib/staff-team-outcome.ts`; 9 retired with the TypeScript checks they guarded.
+
+### M160(b) — a paid card whose webhook never lands now finds its way home (2026-10-18, money-rails)
+
+- **Three doors ask Stripe itself, and only Stripe's `succeeded` lets an order be written.** C18's
+  test pass charged five cards and wrote zero orders, and nothing could bring them back. Now `/track`
+  asks the server 12 s and 40 s after a fresh card payment that has no order; staff get **Check
+  payment** beside the clear's "A card payment started here and didn’t finish" (the refusal now names
+  it); and `/api/cron/stranded-payments` sweeps the last 25 h for a payment nobody is watching. Each
+  retrieves the PaymentIntent with the secret key and runs the webhook's OWN fulfillment.
+- **One fulfillment, not two.** The webhook's single-pay arm moved unchanged into
+  `lib/fulfill-intent.ts`; the route only maps its outcome to the statuses it always answered. An AST
+  guard pins one `mms_fulfill_order` call site in the app, and the moved rules have their first
+  mutants (they lived in a `verify:slice-exempt` route before).
+- **Fail-closed rules** (`lib/payment-recovery-verdict.ts`): succeeded only; a diner card or a captured
+  pickup hold only; dollars; metadata bound to the cart and, at the guest door, to the payer's own uid;
+  an open cart must still link this intent, so a superseded attempt is never fulfilled. A cancelled
+  or already-paid cart gets a `qr_refunds_needed` row and no order. Every refusal is logged by name.
+- **Codex on #365 — five holes closed before merge.** A charge with ANY refund on it is refused (a
+  PaymentIntent stays `succeeded` after a refund, so an operator's refund in Stripe would otherwise
+  have been followed by an order). A charged secure tab, which never names itself on the cart's link,
+  is bound by the settlement freeze it was charged under, read from the database. /track asks on a
+  resume too, because the pill and the home card link a paid card as a resume before any order exists.
+  A refund-needed row that cannot be written now makes the webhook answer 500 so Stripe retries;
+  before, the charge was acknowledged with no order and no ledger row (that one predates this PR).
+  Two daily runs now overlap by an hour, and a run cut short by the page cap logs how far back it got.
+- **Bounded:** per-guest (6 per 10 min) and per-cart (10 per 10 min) budgets before any Stripe call;
+  the cron reads at most ten pages and attempts at most 25 recoveries a run, skipping anything already on record
+  and other apps' intents on the shared Stripe account.
+- **Honest copy.** A guest charged with no order is told exactly that ("Your card was charged, but the
+  order didn’t go through"), with the payment reference and a person as the next step. There's no ETA
+  and no promised refund. Staff hear "went through" only for an order actually recorded. The Burmese
+  lines are K15 drafts (two on /track, eight on the floor).
+- **The blind pass and Codex on #365 @ `1b760cb` — seven more holes closed.** A refund-needed row is
+  never written before a second read of the order table: a concurrent delivery could fulfill the
+  charge between this caller's first read and its ledger write, and the paid cart then read as another
+  tender's settle — a refund ask for a correctly fulfilled order. A partially captured pickup hold is
+  no longer refused as "refunded" for its released remainder (the Refund objects decide). /track
+  answers "recorded" early only for the caller's own order. The recovery limiters fail closed. A
+  diner who paid anonymously and then signed into an existing account is recognised through the
+  identity merge. A refused charge no longer spends the sweep's recovery cap, the ledger reads go in
+  chunks of 100, and the sweep stops at a 45 s budget and says what it did not reach.
+- **The cron fails closed:** without `CRON_SECRET` every call answers 503. It is not scheduled yet.
+  Under owner ruling #13 the owner adds the secret (ENV.md _The stranded-payment cron_), and then the
+  follow-up registers the schedule in `apps/qr/vercel.json`. No migration.
+
+### Session truth — a diner is never silently cut off, frozen or re-minted (2026-10-13, `claude/fix/lifecycle-session-truth`)
+
+- **A table that ends says so, on every phone at it.** A staff Clear, a Merge and the 4-hour sweep close
+  the session in the transaction that ends the cart, so no Realtime event reaches a phone and /menu
+  used to sit frozen ("Mohinga is being made" over a voided dish) until a tap re-minted it and said
+  "Your table sat idle too long". Now every failed read — an echo, focus, a reconnect, the freeze
+  re-check, a write's diagnosis — and a visible-only one-minute poll ask `counterPayOutcome` why. It
+  answers a proven member with `paid` (and whether the table is still seated), `ended` (`cleared` from
+  its `qr_table_clears` record, `expired`, or the neutral `closed` a merge reads as) or `unknown`; the
+  classification is `cartFate` in the new pure `lib/session-truth.ts`. A dine-in end is HELD: one
+  bilingual card (`TableEndedCard`) names the cause, the order controls go inert ("this order has
+  closed"), and nothing re-mints until "Start a new order". A paid table keeps its last kitchen view,
+  captioned with when it was read ("Last updated 7:42 PM"), with "Track your order"; /cart shows the
+  same card in place of a stale, editable bill, runs the same visible-only probe while it stays open,
+  and drops its freeze bar under the card. A write whose answer was lost when the table ended is
+  said UNCONFIRMED ("ask our staff whether it made it onto your order before you add it again"),
+  never "didn't go through" — a racing merge can have landed it on the other table. No sentence says
+  "idle" any more.
+- **M172 closed:** the URL credential is single-use (`dineinMintEntry`), so no re-mint can re-host a
+  table staff just freed. **J18 closed:** the solo recovery banner keeps its place through a retry.
+- **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
+  share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
+- A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
+  is told before "Leave this table" that the Send leaves with it (read from the table's durable
+  party, not presence); the guest's nudge confirmation and the tablemate line claim only what the
+  code keeps ("We’ve let Aye know — if they’re away, Show a server sends it too.", never "can see");
+  a thrown Send re-reads.
+- `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
+- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
+  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (9 Burmese
+  drafts and 3 re-worded lines for the native sitting, 3 of them HIGH).
+- **Codex round 2 on #361 (five findings, all fixed).**
+  - A paid answer whose order read, or whose order-visibility read, FAILED is now INCOMPLETE
+    (`complete: false`), never "no order". The menu and the Bill keep the one-minute probe going, and
+    the held card gains its tender or "Track your order" when the read comes back (`endComplete`,
+    `heldEndUpgrade`). The gate's own 403 on a closed session is still an answer.
+  - A read in flight when the end was held no longer lands on the held cart. It used to put
+    `locked`/`settling` back and announce the register over the paid card.
+  - The Bill's probe answer no longer acts after the Bill unmounts: a late `paid` used to push /track
+    over the page the diner had moved to. The probe now reads the cart view's own mode, so a degraded
+    render at a table (no split context) still learns of a clear.
+  - Opening the leave flow re-reads the durable party. Until that read lands, the host gets a hedged
+    note ("…once you leave, anyone else at your table will need a server to send theirs.") instead
+    of the silence that read as "alone".
+  - Filed: M294. `getCartOrderRef` still reads a failed read as "no order" inside the resolver that
+    /track shares.
+- **The capped blind pass on #361 (REJECT on `7a2961b`; both blockers fixed).**
+  - The host of a table that ENDED is no longer told that leaving strands the others' Send
+    (`leaveWarning` takes the end, and the menu stops reading the party of a closed session).
+  - A paid card keeps "Track your order" through a "Start a new order" whose mint fails: the link is
+    built from the ENDED cart's id (`endedCartId`), not the live one the mint nulls.
+  - /cart treats a paid cart with no readable paid order row (a full refund turns the order
+    `refunded`; the cart stays `paid`) as the bare "Paid" close the menu shows. It used to keep an
+    editable bill and probe once a minute forever.
+  - The party read re-fires on a seat presence has never shown, not on every presence flap.
+  - Filed: M327 (a seat that left can still ask `counterPayOutcome` about its old table).
+- **The review of #361's head `c064bb6` (four findings, all fixed).**
+  - A fully refunded order no longer reads "All paid — thank you!" on /cart or the menu's card.
+    `counterPayOutcome` reads the cart's `refunded` orders as well as its `paid` ones, and
+    `orderTender` answers a new tender, `refunded`, when every settled order was returned in full
+    (`summarizeRefund`'s "full"). It gets its own close, "This order was refunded", which says
+    nothing about paying or where. Any order on the cart that is still paid wins, so a refunded share
+    beside a paid one still reads as paid. A solo re-mint after a refund says "That order was refunded
+    — this is a new one." One new Burmese draft, listed under K15 · session-truth.
+  - A host at a paid table that is still seated is warned again before "Leave this table".
+    "Start a new order" there re-joins the same session (the host seat is unchanged), so the next
+    round still needs the host's Send. `sessionTakesNoOrder` now decides both the warning and the
+    party read. Every other end stays silent.
+  - /cart's paid closes are announced through the view's one live region, as the ended closes are.
+    Each close is said once, even while an incomplete answer is asked about again.
+  - New guards: the unknown-tender close at a closed session shows "Ask our staff", and an incomplete
+    unknown answer draws its card and keeps asking. Ten new `lcs/` mutants;
+    `counter/outcome-calls-a-card-the-counter` now anchors on `orderTender`.
+
 ### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
 
 - **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook
@@ -45,6 +200,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   that is gone; and the market toggle's outage ("Can’t reach the market shelf right now — nothing
   changed.") is the dictionary's sentence with a Burmese twin at the render site, so a Burmese tablet
   no longer shows it in English (one more K15 draft).
+
+### The next party at a table no longer reads the last party's order, and no diner reads a receipt address (2026-10-18, M309)
+
+- **The order read is scoped to the party at the table when it paid, and `receipt_email` leaves the
+  diner's grant.** `20261018120000_m309_order_read_scope.sql`: `authenticated` swaps its table-level
+  select on `qr_orders` for a column grant of every column but `receipt_email` and `receipt_sent_at`
+  (anon: none), and `qr_order_read`'s member arm becomes `is_member_seated_by(session_id,
+created_at)`, which admits a seat taken no later than the order (the rule the server arms already
+  use since #359). The next party at an uncleared sticker no longer reads the previous party's
+  order, its lines or its email. Diner screens are unchanged: the live /track read and the kitchen
+  read name only granted columns, and the receipt actions already read the address with the service
+  role, and every staff `.from("qr_orders")` read runs on the service role (which keeps its
+  table-level grant, restated in the migration). Proven by `supabase/tests/m309_order_read_scope_test.sql`
+  (in CI's required list) and `lib/track-order-grants.test.ts`, which parses the grant against every
+  diner-client `.from("qr_orders")` select and every literal `qr_orders(…)` embed, pins the diner
+  reads to their two files, and fails on any `.from("qr_orders")` whose client it cannot classify
+  (`m309/*` mutants). What it does not parse: Realtime subscriptions (`useOrderStatus` and the staff
+  `useFloorRealtime` watch `qr_orders`, both as a re-read trigger only, never reading the payload),
+  RPCs, a non-literal `.from(…)`, spread or FK-column embeds, a reassigned client, or a client passed
+  to a service-typed parameter — none exists today (measured), and none is proven absent tomorrow. **Still open under M309:** the paid cart's rows stay
+  `is_member`-scoped; an earlier member who never left still reads a later party's orders (minus the
+  two columns) until staff clear the table; an order fulfilled late (a webhook retry, M160(b)'s
+  recovery) is readable by a party seated between the charge and the insert; and no test yet reads
+  a Realtime broadcast as a member.
 
 ### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
 

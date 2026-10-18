@@ -37,6 +37,16 @@ describe("inertReason — each state names itself", () => {
     expect(inertReason(state({ lockedByYou: true }))).toBeNull();
   });
 
+  it("session truth — an ENDED table names the close, ahead of every freeze it last showed", () => {
+    // MUTATION (lcs/inert-ended-ranks-below-a-freeze): settling first — a table the register paid
+    // while its freeze was on screen keeps telling the diner the order is "locked while your table
+    // pays", forever, under a card that says the bill is paid.
+    expect(inertReason(state({ ended: true }))).toBe("this order has closed");
+    expect(inertReason(state({ ended: true, settling: true, locked: true }))).toBe(
+      "this order has closed",
+    );
+  });
+
   it("minting is the mint window — a wait, not a refusal", () => {
     expect(inertReason(state({ minting: true }))).toBe("setting up your table…");
   });
@@ -49,6 +59,7 @@ describe("inertReason — each state names itself", () => {
       { locked: true },
       { locked: true, lockedByYou: true },
       { minting: true },
+      { ended: true },
     ] as const) {
       const r = inertReason(state(s));
       expect(r).not.toBeNull();

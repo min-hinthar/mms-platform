@@ -236,7 +236,11 @@ describe("§17 on the roster's three controls", () => {
     const select = screen.getByRole("combobox", { name: "Ko Ko" }) as HTMLSelectElement;
     select.focus();
     fireEvent.change(select, { target: { value: "manager" } });
-    expect(setStaffRole).toHaveBeenCalledWith({ userId: "u2", role: "manager" });
+    expect(setStaffRole).toHaveBeenCalledWith({
+      userId: "u2",
+      role: "manager",
+      seenRole: "server",
+    });
     expect(select.getAttribute("aria-busy")).toBe("true");
     expect(select.getAttribute("aria-disabled")).toBe("true");
     expect(select.hasAttribute("disabled")).toBe(false);
@@ -257,7 +261,11 @@ describe("§17 on the roster's three controls", () => {
     const b = screen.getByRole("button", { name: "Deactivate — Ko Ko" });
     b.focus();
     fireEvent.click(b);
-    expect(setStaffActive).toHaveBeenCalledWith({ userId: "u2", active: false });
+    expect(setStaffActive).toHaveBeenCalledWith({
+      userId: "u2",
+      active: false,
+      seenRole: "server",
+    });
     expect(b.getAttribute("aria-busy")).toBe("true");
     expect(b.getAttribute("aria-disabled")).toBe("true");
     expect(b.hasAttribute("disabled")).toBe(false);
@@ -269,6 +277,52 @@ describe("§17 on the roster's three controls", () => {
     settle({ ok: true });
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     expect(b.getAttribute("aria-busy")).toBeNull();
+  });
+
+  // M210 — the role each row DISPLAYED is what the database compares (`p_seen_role`); a screen gone
+  // stale since it loaded is refused as `changed`, and that refusal re-reads the roster.
+  it("sends the role the row SHOWS with both writes — the value a stale screen is caught by", async () => {
+    mount([{ ...ROW, role: "manager" }]);
+    fireEvent.change(screen.getByRole("combobox", { name: "Ko Ko" }), {
+      target: { value: "server" },
+    });
+    expect(setStaffRole).toHaveBeenCalledWith({
+      userId: "u2",
+      role: "server",
+      seenRole: "manager",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Deactivate — Ko Ko" }));
+    expect(setStaffActive).toHaveBeenCalledWith({
+      userId: "u2",
+      active: false,
+      seenRole: "manager",
+    });
+  });
+
+  it("a `changed` refusal says so AND re-reads the roster; any other refusal leaves it", async () => {
+    const stale = "That role just changed — the list now shows it. Check it and try again.";
+    setStaffRole.mockResolvedValueOnce({ ok: false, error: stale, refresh: true });
+    mount([ROW]);
+    const select = screen.getByRole("combobox", { name: "Ko Ko" });
+    fireEvent.change(select, { target: { value: "manager" } });
+    await waitFor(() => expect(region().textContent).toBe(stale));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    setStaffActive.mockResolvedValueOnce({
+      ok: false,
+      error: "That member’s role just changed — the list now shows it. Check it and try again.",
+      refresh: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Deactivate — Ko Ko" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    setStaffRole.mockResolvedValueOnce({
+      ok: false,
+      error: "Only the owner can change an owner’s role.",
+    });
+    fireEvent.change(select, { target: { value: "manager" } });
+    await waitFor(() =>
+      expect(region().textContent).toBe("Only the owner can change an owner’s role."),
+    );
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("an inactive member is marked by INK and a tag, never by dimming the row — the Reactivate control is at full contrast", () => {

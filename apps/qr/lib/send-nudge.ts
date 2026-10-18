@@ -57,7 +57,10 @@ const CLOSED = "This order has moved or closed — there’s nothing to send.";
 /** No dine-in draft is left: the dishes went with a Send, or were taken off. */
 const NOTHING = "There’s nothing waiting to send right now.";
 /** Fallback for `taken` when the Bill cannot name the seat (it names it when it can). */
-const TAKEN = "Someone at your table already let them know — they can see the table’s waiting.";
+// Session truth (the lead's call, m1 §H item 3) — claims only what the code keeps, as the Bill's
+// named line does (`alreadyNudgedCopy`): never "they can see the table's waiting".
+const TAKEN =
+  "Someone at your table already let them know — if they’re away, Show a server sends it too.";
 
 export async function nudgeHost(raw: unknown): Promise<NudgeHostResult> {
   const parsed = nudgeHostInput.safeParse(raw);
