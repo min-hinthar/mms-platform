@@ -36,6 +36,10 @@ const REPO = join(QR, "..", "..");
 const MIGRATIONS = join(REPO, "supabase", "migrations");
 const DINER_FACTORIES = new Set(["browserClient", "serverClient", "sessionClient"]);
 const SERVICE_FACTORY = "serviceClient";
+/** The ONLY files that may read `qr_orders` on a diner (RLS) client — Codex on #364: a staff read
+ *  added on `serverClient()` would otherwise pass as a "diner read". A new diner read is added here
+ *  on purpose, with the review that it is a diner's. */
+const DINER_READ_FILES = ["lib/order-kitchen-read.ts", "lib/useOrderStatus.ts"];
 const SERVICE_TYPE = `ReturnType<typeof ${SERVICE_FACTORY}>`;
 const WITHHELD = ["receipt_email", "receipt_sent_at"];
 
@@ -191,11 +195,23 @@ function appFiles(): string[] {
   ];
 }
 
-/** The column lists of every `qr_orders(…)` / `qr_orders!hint(…)` embed in a select string. */
+/** The column lists of every `qr_orders(…)` / `qr_orders!hint(…)` embed in a select string, read
+ *  to its BALANCED close paren (a nested embed inside it stays in the list, and `topLevelColumns`
+ *  skips it). An unbalanced embed throws — refused, never skipped. */
 function embeddedOrderColumns(select: string): string[] {
-  return [...select.matchAll(/(?:^|[,(\s:])qr_orders(?:![\w]+)?\s*\(([^()]*)\)/g)].map(
-    (m) => m[1] ?? "",
-  );
+  const out: string[] = [];
+  for (const m of select.matchAll(/(?:^|[,(\s:])qr_orders(?:![\w]+)?\s*\(/g)) {
+    const open = (m.index ?? 0) + m[0].length;
+    let depth = 1;
+    let i = open;
+    for (; i < select.length && depth > 0; i++) {
+      if (select[i] === "(") depth += 1;
+      if (select[i] === ")") depth -= 1;
+    }
+    if (depth !== 0) throw new Error(`unbalanced qr_orders embed in select: ${select}`);
+    out.push(select.slice(open, i - 1));
+  }
+  return out;
 }
 
 /** Every `.from("qr_orders")` in the app, classified, plus every embed of `qr_orders(…)`. */
@@ -274,10 +290,8 @@ describe("M309 — diner qr_orders reads name only granted columns", () => {
     for (const c of WITHHELD) expect(grant.cols.has(c), `${grant.file} grants ${c}`).toBe(false);
   });
 
-  it("finds the diner reads it exists to check (never vacuous)", () => {
-    const files = new Set(reads.map((r) => r.file));
-    expect(files.has("lib/useOrderStatus.ts")).toBe(true);
-    expect(files.has("lib/order-kitchen-read.ts")).toBe(true);
+  it("diner-client qr_orders reads sit only in the allowlisted diner files (never vacuous)", () => {
+    expect([...new Set(reads.map((r) => r.file))].sort()).toEqual(DINER_READ_FILES);
   });
 
   it("every diner select names only granted columns", () => {
@@ -317,6 +331,7 @@ describe("M309 — diner qr_orders reads name only granted columns", () => {
         'async function d(x) { return (await serverClient(x)).from("qr_orders").select("*"); }',
         'function e() { const { supa } = ctx(); return supa.from("qr_orders").select("*"); }',
         'const E = "id,qr_orders(receipt_email)";',
+        'const N = "id,qr_orders(table_number,qr_order_items(id),receipt_sent_at)";',
       ].join("\n"),
     );
     try {
@@ -330,7 +345,11 @@ describe("M309 — diner qr_orders reads name only granted columns", () => {
         "5",
         "6",
       ]);
-      expect(probe.embeds.map((e) => e.select)).toEqual(["receipt_email"]);
+      expect(probe.embeds.map((e) => e.select)).toEqual([
+        "receipt_email",
+        "table_number,qr_order_items(id),receipt_sent_at",
+      ]);
+      expect(topLevelColumns(probe.embeds[1]!.select)).toEqual(["table_number", "receipt_sent_at"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
