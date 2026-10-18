@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { getStripe, resolvedStripeMode } from "@/lib/stripe";
+import { getStripe, resolvedStripeMode, webhookSecretCandidates } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { releaseByIntent, releaseSettlementFor } from "@/lib/lock";
 import { settleReleaseOwner } from "@/lib/settle-release-scope";
@@ -10,12 +10,7 @@ import {
   describeUnverifiedEvent,
   signatureTimestamp,
 } from "@/lib/webhook-signature-failure";
-import {
-  webhookSecretDiagnostic,
-  pickEnv,
-  webhookCandidatesForMode,
-  type EnvCandidate,
-} from "@/lib/stripe-env";
+import { webhookSecretDiagnostic, pickEnv, webhookCandidatesForMode } from "@/lib/stripe-env";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
 import { fulfillSucceededIntent, type FulfillIntentOutcome } from "@/lib/fulfill-intent";
@@ -35,22 +30,8 @@ import {
 // metadata kind/cartId/tipRate shape the terminal arm keys on; split-settle.test.ts pins the share
 // arms). A route-level mutant would need constructEvent + every DB read mocked into scripted
 // answers — the degenerate-fixture class the mutant harness exists to avoid.
-/**
- * Every name the webhook signing secret may live under, most specific first — `_TEST` wins, the same
- * rule the secret and publishable keys follow (`stripe-env.ts` carries the reasoning and the cutover
- * warning). The literal reads stay here rather than in `stripe-env.ts` so no secret's variable name
- * sits in a module a client component may import.
- *
- * ⚠️ A signing secret carries no mode marker of its own (`whsec_…` is the same shape in test and
- * live), so nothing in THIS file can tell which mode it belongs to. That is why the mode check lives
- * in `getStripe()`, where the two keys that DO announce their mode can be compared.
- */
-function webhookSecretCandidates(): readonly EnvCandidate[] {
-  return [
-    ["STRIPE_WEBHOOK_SECRET_TEST", process.env.STRIPE_WEBHOOK_SECRET_TEST],
-    ["STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET],
-  ];
-}
+// The signing-secret candidate list is `webhookSecretCandidates` in `lib/stripe.ts` (server-only):
+// it lives there so the staff payments badge reads the very list this route signs with.
 
 /**
  * The 500 bodies the inline arm answered, one per step that can fail before an order is written —

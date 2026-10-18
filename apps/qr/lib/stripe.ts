@@ -4,9 +4,11 @@ import {
   keyMode,
   missingEnvMessage,
   modeDisagreement,
+  paymentModeStatus,
   pickEnv,
   resolvePublishableKey,
   type EnvCandidate,
+  type PaymentModeStatus,
   type StripeMode,
 } from "./stripe-env";
 
@@ -68,6 +70,43 @@ function secretKeyCandidates(): readonly EnvCandidate[] {
     ["STRIPE_SECRET_KEY_TEST", process.env.STRIPE_SECRET_KEY_TEST],
     ["STRIPE_SECRET_KEY", process.env.STRIPE_SECRET_KEY],
   ];
+}
+
+/**
+ * Every name the webhook signing secret may live under, most specific first — `_TEST` wins, the same
+ * rule the secret and publishable keys follow (`stripe-env.ts` carries the reasoning and the cutover
+ * warning). Here, in this `server-only` module, rather than in `stripe-env.ts`: no secret's variable
+ * name sits in a module a client component may import.
+ *
+ * It moved here from the webhook route (which a Next route file may not export) so the staff badge
+ * reads the SAME list the route signs with — `readPaymentMode` below. One list, two readers.
+ *
+ * ⚠️ A signing secret carries no mode marker of its own (`whsec_…` is the same shape in test and
+ * live), so nothing in this list can tell which mode it belongs to. That is why the mode check lives
+ * in `getStripe()`, where the two keys that DO announce their mode can be compared, and why the
+ * route filters this list by NAME (`webhookCandidatesForMode`).
+ */
+export function webhookSecretCandidates(): readonly EnvCandidate[] {
+  return [
+    ["STRIPE_WEBHOOK_SECRET_TEST", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+    ["STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET],
+  ];
+}
+
+/**
+ * The staff badge's reading of this deployment's Stripe setup (`paymentModeStatus`).
+ *
+ * Fed by the very resolvers the money path uses — the secret key `getStripe()` constructs with, the
+ * publishable key it compares against (and the browser mounts), and the signing-secret list the
+ * webhook route filters — so the badge cannot disagree with what checkout actually does. It never
+ * throws: a missing credential is a status, not an error. Only the enum leaves; no value does.
+ */
+export function readPaymentMode(): PaymentModeStatus {
+  return paymentModeStatus({
+    secretKey: pickEnv(secretKeyCandidates())?.value,
+    publishableKey: resolvePublishableKey()?.value,
+    webhookCandidates: webhookSecretCandidates(),
+  });
 }
 
 /**

@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The staff home shows which Stripe mode payments run in (2026-10-18, owner ask · C2)
+
+- **A read-only "Payments: Live / Test" badge sits under the greeting on `/staff`** (the doors and the
+  counter's one screen, where the register lands). There is no toggle — the mode lives in Vercel
+  only. A half-done cutover shows loudly: keys from different modes, or live keys with only the
+  `_TEST` signing secret left, read "Payments: Check setup" with what is wrong and "Tell the owner to
+  check the Stripe settings in Vercel." The verdict is `paymentModeStatus` (`lib/stripe-env.ts`), fed
+  by `readPaymentMode` (`lib/stripe.ts`) from the same resolvers checkout and the webhook use — the
+  signing-secret list moved from the webhook route into `lib/stripe.ts` so both read one list. Only
+  the state reaches the page, never a credential. Eleven new staff strings (ten Burmese K15 drafts,
+  two of them HIGH, ledgered as K15 · payments-badge; one Latin by design), eleven new
+  `verify:slice` mutants.
+
 ### A guest how-to in the README, and draft customer posts (2026-10-18, docs)
 
 - **README gains "For guests — how to use it", and `docs/marketing/SOCIAL_POSTS_2026-10-18.md` holds

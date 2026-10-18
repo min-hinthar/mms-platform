@@ -6,6 +6,7 @@ import {
   keyMode,
   missingEnvMessage,
   modeDisagreement,
+  paymentModeStatus,
   pickEnv,
   publishableKeyCandidates,
   webhookCandidatesForMode,
@@ -207,6 +208,78 @@ describe("webhookCandidatesForMode", () => {
   });
 });
 
+describe("paymentModeStatus — the staff payments badge's verdict", () => {
+  // Obviously fake values throughout: the shapes are Stripe's prefixes, the tails are not keys.
+  const WEBHOOK_BASE: EnvCandidate[] = [
+    ["STRIPE_WEBHOOK_SECRET_TEST", undefined],
+    ["STRIPE_WEBHOOK_SECRET", "whsec_fake_base"],
+  ];
+  const WEBHOOK_TEST_ONLY: EnvCandidate[] = [
+    ["STRIPE_WEBHOOK_SECRET_TEST", "whsec_fake_leftover"],
+    ["STRIPE_WEBHOOK_SECRET", undefined],
+  ];
+  const WEBHOOK_NONE: EnvCandidate[] = [
+    ["STRIPE_WEBHOOK_SECRET_TEST", undefined],
+    ["STRIPE_WEBHOOK_SECRET", "   "],
+  ];
+  const status = (
+    secretKey: string | undefined,
+    publishableKey: string | undefined,
+    webhookCandidates: EnvCandidate[],
+  ) => paymentModeStatus({ secretKey, publishableKey, webhookCandidates });
+
+  it("live: a live pair with a live-eligible signing secret", () => {
+    expect(status("sk_live_fake", "pk_live_fake", WEBHOOK_BASE)).toBe("live");
+  });
+
+  it("test: a test pair, signing with either name", () => {
+    expect(status("sk_test_fake", "pk_test_fake", WEBHOOK_BASE)).toBe("test");
+    // In test mode the _TEST name is legitimate — the asymmetry of webhookCandidatesForMode.
+    expect(status("rk_test_fake", "pk_test_fake", WEBHOOK_TEST_ONLY)).toBe("test");
+  });
+
+  it("mismatch: the half-done cutover — a LIVE secret beside the TEST publishable", () => {
+    // Production's concrete case: the bundle still resolves NEXT_PUBLIC_..._TEST first.
+    expect(status("sk_live_fake", "pk_test_fake", WEBHOOK_BASE)).toBe("mismatch");
+    expect(status("sk_test_fake", "pk_live_fake", WEBHOOK_BASE)).toBe("mismatch");
+  });
+
+  it("webhook_mismatch: live keys agree but only the _TEST signing secret is left", () => {
+    // getStripe() raises nothing here, so this is the state that charges cards with no order.
+    expect(status("sk_live_fake", "pk_live_fake", WEBHOOK_TEST_ONLY)).toBe("webhook_mismatch");
+  });
+
+  it("unconfigured: any credential that resolved to nothing", () => {
+    expect(status(undefined, "pk_live_fake", WEBHOOK_BASE)).toBe("unconfigured");
+    expect(status("sk_live_fake", undefined, WEBHOOK_BASE)).toBe("unconfigured");
+    expect(status("  ", "pk_live_fake", WEBHOOK_BASE)).toBe("unconfigured");
+    // No signing secret under ANY name is a missing credential, not a leftover.
+    expect(status("sk_live_fake", "pk_live_fake", WEBHOOK_NONE)).toBe("unconfigured");
+    expect(status("sk_test_fake", "pk_test_fake", WEBHOOK_NONE)).toBe("unconfigured");
+  });
+
+  it("unknown: a key with no mode marker is never read as a mode", () => {
+    expect(status("sk_mock_fake", "pk_live_fake", WEBHOOK_BASE)).toBe("unknown");
+    expect(status("sk_live_fake", "pk_mock_fake", WEBHOOK_BASE)).toBe("unknown");
+    // …and an unreadable mode wins over the webhook verdict (which would treat it as live).
+    expect(status("sk_mock_fake", "pk_test_fake", WEBHOOK_TEST_ONLY)).toBe("unknown");
+  });
+
+  it("returns only the enum — no value, prefix or tail of any credential", () => {
+    const all = [
+      status("sk_live_fake", "pk_live_fake", WEBHOOK_BASE),
+      status("sk_live_fake", "pk_test_fake", WEBHOOK_TEST_ONLY),
+      status("sk_mock_fake", "pk_mock_fake", WEBHOOK_NONE),
+    ];
+    for (const s of all) {
+      expect(["live", "test", "mismatch", "webhook_mismatch", "unconfigured", "unknown"]).toContain(
+        s,
+      );
+      expect(s).not.toMatch(/sk_|pk_|rk_|whsec_|fake/);
+    }
+  });
+});
+
 describe("missingEnvMessage", () => {
   it("names every place it looked, not just the first", () => {
     // "STRIPE_SECRET_KEY is not set" sends an operator to check the one name they just moved away
@@ -384,8 +457,17 @@ describe("the three call sites still read every candidate name", () => {
         "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_Production",
       ],
     ],
-    ["lib/stripe.ts", ["STRIPE_SECRET_KEY_TEST", "STRIPE_SECRET_KEY"]],
-    ["app/api/stripe/webhook/route.ts", ["STRIPE_WEBHOOK_SECRET_TEST", "STRIPE_WEBHOOK_SECRET"]],
+    // The webhook's signing-secret list moved from the route into `stripe.ts` (the payments badge
+    // reads it too), so both server-only lists are read there now.
+    [
+      "lib/stripe.ts",
+      [
+        "STRIPE_SECRET_KEY_TEST",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET_TEST",
+        "STRIPE_WEBHOOK_SECRET",
+      ],
+    ],
   ])("%s", (rel, expected) => {
     const reads = envReads(parse(rel));
     for (const name of expected) expect(reads).toContain(name);
@@ -395,14 +477,15 @@ describe("the three call sites still read every candidate name", () => {
     // The sentence `publishableKeyCandidates` is pinned by — "the order decides which mode the
     // deployment runs in" — is equally true here, and nothing pinned it. Reversed, a TEST
     // deployment holding both names signs with the base secret, and a deliberate test setup
-    // fails every delivery. The webhook route is a Next handler a suite cannot import cheaply,
-    // so this reads the literal: ONE function, whose body is ONE return of an array literal, each
-    // entry a [name, process.env.NAME] pair with the name and the read spelling the same variable.
-    const route = parse("app/api/stripe/webhook/route.ts");
+    // fails every delivery. The list lives in `stripe.ts` (server-only; the webhook route imports
+    // it), so this reads the literal: ONE function, whose body is ONE return of an array literal,
+    // each entry a [name, process.env.NAME] pair with the name and the read spelling the same variable.
+    const lists = [parse("lib/stripe.ts"), parse("app/api/stripe/webhook/route.ts")];
     const fns: ts.FunctionDeclaration[] = [];
-    walk(route, (n) => {
-      if (ts.isFunctionDeclaration(n) && n.name?.text === "webhookSecretCandidates") fns.push(n);
-    });
+    for (const file of lists)
+      walk(file, (n) => {
+        if (ts.isFunctionDeclaration(n) && n.name?.text === "webhookSecretCandidates") fns.push(n);
+      });
     expect(fns).toHaveLength(1);
     const body = fns[0]!.body!.statements;
     expect(body).toHaveLength(1);
