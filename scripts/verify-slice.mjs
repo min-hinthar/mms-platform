@@ -37956,8 +37956,16 @@ const MUTANTS = [
     file: "apps/qr/lib/payment-recovery.ts",
     suite: "lib/payment-recovery.test.ts",
     why: "M160(b) · Codex on #365 — a lookback of exactly one interval minus the min-age leaves the minutes before each run in no run's window",
-    find: "export const SWEEP_LOOKBACK_MS = SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;",
-    replace: "export const SWEEP_LOOKBACK_MS = SWEEP_SCHEDULE_INTERVAL_MS;",
+    find: "  SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_CRON_DRIFT_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;",
+    replace: "  SWEEP_SCHEDULE_INTERVAL_MS;",
+  },
+  {
+    id: "payment-recovery/sweep-lookback-ignores-cron-drift",
+    file: "apps/qr/lib/payment-recovery.ts",
+    suite: "lib/payment-recovery.test.ts",
+    why: "M160(b) · the blind pass on #369 — a daily cron may fire anywhere in its hour, so two runs can be an interval plus an hour apart; a lookback without the drift term leaves a gap of seconds",
+    find: "  SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_CRON_DRIFT_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;",
+    replace: "  SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_MIN_AGE_MS + SWEEP_OVERLAP_MS;",
   },
   {
     id: "payment-recovery/sweep-truncation-silent",

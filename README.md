@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** the live-payments cutover (OPEN-ITEMS C2) and the owner checklist ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9075 qr tests + 428 ui tests · 4849 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** the live-payments cutover (OPEN-ITEMS C2) and the owner checklist ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 9080 qr tests + 428 ui tests · 4850 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
