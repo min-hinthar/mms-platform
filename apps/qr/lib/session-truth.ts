@@ -1,5 +1,7 @@
 import type { DictKey } from "./i18n";
 import { REGISTER_SETTLING_COPY } from "./counter-pay-state";
+import { COUNTER_TENDERS } from "./counter-tender";
+import { summarizeRefund } from "./refund-view";
 
 /**
  * Session truth (the order-lifecycle audit's session stream, 2026-10-13): a diner is never silently
@@ -37,8 +39,38 @@ import { REGISTER_SETTLING_COPY } from "./counter-pay-state";
 /** Why a table's order ended, as far as the rows can tell (a merge is `closed` — no migration). */
 export type TableEndReason = "cleared" | "expired" | "closed";
 
-/** How a paid cart was paid (`counterPayOutcome`'s order read; `unknown` = no order row visible). */
-export type PaidTender = "counter" | "card" | "unknown";
+/**
+ * How a paid cart was paid (`counterPayOutcome`'s order read, classified by `orderTender`):
+ * `counter` / `card` for an order that still stands, `refunded` when every settled order on the cart
+ * was returned in full (the cart stays `paid`; CLAUDE.md: a refunded order must never read "Paid in
+ * full"), `unknown` when no settled order row is visible.
+ */
+export type PaidTender = "counter" | "card" | "refunded" | "unknown";
+
+/** The `qr_orders` columns `orderTender` reads (rows already filtered to `paid` / `refunded`). */
+export type SettledOrderRow = {
+  status: string;
+  tender: string;
+  total_cents: number;
+  refunded_cents: number | null;
+};
+
+/**
+ * #361 review (1) — the tender a cart's settled orders name. An order that still stands wins (a
+ * cart with a refunded share beside a paid one is still a paid bill, whatever order the rows come
+ * in); a cart whose every settled order was returned in full is `refunded` — "full" as
+ * `summarizeRefund` reads it, so an amount that reached the total a beat before the webhook flips
+ * the status counts too; and no row is `unknown`. A PARTIAL refund leaves the order standing: the
+ * bill was paid, and its receipt shows what came back.
+ */
+export function orderTender(rows: readonly SettledOrderRow[]): PaidTender {
+  const standing = rows.find(
+    (r) => summarizeRefund(r.total_cents, r.refunded_cents ?? 0, r.status).state !== "full",
+  );
+  if (standing)
+    return (COUNTER_TENDERS as readonly string[]).includes(standing.tender) ? "counter" : "card";
+  return rows.length > 0 ? "refunded" : "unknown";
+}
 
 /**
  * What became of a cart, answered to a PROVEN MEMBER only (lib/counter-pay `counterPayOutcome`).
@@ -268,6 +300,16 @@ export function focusOrphaned(active: Element | null, body: Element | null): boo
 }
 
 /**
+ * #361 review (2) — can this session take NO further order? True for every end but one: a PAID table
+ * whose session is still seated. Its "Start a new order" re-joins the SAME session (the session
+ * route's J15 persisted re-join keeps a member of a live session in it, `host_seat` unchanged) and
+ * opens the next cart there, so the next round still goes out on the host's Send.
+ */
+export function sessionTakesNoOrder(end: TableEnd | null): boolean {
+  return end !== null && !(end.kind === "paid" && end.sessionLive);
+}
+
+/**
  * Finding 5 — what "Leave this table" must say about the Send. Only the host sends, so only the
  * host's leave strands a round, and only when the table's DURABLE party (`session_members`, via
  * `getSplitContext`) holds another seat. Presence is not the party: it is empty before the first
@@ -277,9 +319,12 @@ export function focusOrphaned(active: Element | null, body: Element | null): boo
  *    so ANY answer that saw one still holds, even while a fresher read is out — for the same cart:
  *    the party is keyed by cart (`useDurableParty`), and the one way the table stops being that party's
  *    is the table ENDING, which is the first arm below.
- *  - `null`  — nothing to say: the table ENDED (a clear, a merge, the sweep, the bill paid — the held
- *    session keeps role host and the last party read, but there is no Send left to strand; the blind
- *    pass on #361), a guest (only the host sends), or a host the CURRENT read found alone.
+ *  - `null`  — nothing to say: the session can take NO further order (`sessionTakesNoOrder`: a clear,
+ *    a merge, the sweep, or a paid table whose session closed — the held session keeps role host and
+ *    the last party read, but there is no Send left to strand; the blind pass on #361), a guest (only
+ *    the host sends), or a host the CURRENT read found alone. A paid table still SEATED is not this
+ *    arm (#361 review (2)): its "Start a new order" re-joins the same session, whose next round only
+ *    the host can Send — so the host's leave still strands it.
  *  - `maybe` — a host whose party is not established right now: never read, the read asked when the
  *    leave flow opened still out (Codex round 2 on #361), or failed. Saying nothing then would claim
  *    the host is alone — the one claim no read made — so the sheet says the hedged sentence.
@@ -289,7 +334,7 @@ export type LeaveWarning = "sends" | "maybe" | null;
 export function leaveWarning(s: {
   role: "host" | "guest" | null;
   mySeat: string | null;
-  /** The table's order has ENDED (`useCart().ended` non-null). */
+  /** The session can take no further order (`sessionTakesNoOrder(useCart().ended)`). */
   ended: boolean;
   /** The durable party's seats, and whether that answer is the one asked for the CURRENT epoch. */
   party: { seats: readonly string[]; current: boolean } | null;
@@ -317,6 +362,11 @@ export function endCardWords(end: TableEnd): {
   staffLine: boolean;
 } {
   if (end.kind === "paid") {
+    // #361 review (1) — a cart whose every order was returned in full: the refund, and nothing about
+    // paying or where (CLAUDE.md: a refunded order must never read "Paid in full"). The staff line
+    // always shows: a refund is exactly the moment "Not what you expected?" is for.
+    if (end.tender === "refunded")
+      return { eyebrow: "Refunded", title: "billRefundedTitle", body: null, staffLine: true };
     const staffLine = !end.sessionLive;
     if (end.tender === "counter")
       return {
@@ -401,7 +451,9 @@ export function mintNotice(s: {
       c === null
         ? "We couldn’t reach your last order — this is a new one."
         : c.kind === "paid"
-          ? "That order’s already paid — this is a new one."
+          ? c.tender === "refunded"
+            ? "That order was refunded — this is a new one."
+            : "That order’s already paid — this is a new one."
           : c.why === "expired"
             ? "Your last order timed out — this is a new one."
             : "Your last order was closed — this is a new one.";

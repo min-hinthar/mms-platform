@@ -74,16 +74,18 @@ let countFails = false;
 let updateFails = false;
 let readFails = false;
 
-type Filter = { kind: "eq" | "is" | "neq"; col: string; val: unknown };
+type Filter = { kind: "eq" | "is" | "neq" | "in"; col: string; val: unknown };
 const matches = (r: Row, filters: Filter[]) =>
   filters.every((f) =>
-    f.kind === "eq"
-      ? r[f.col] === f.val
-      : f.kind === "neq"
-        ? r[f.col] !== f.val
-        : f.val === null
-          ? r[f.col] === null || r[f.col] === undefined
-          : r[f.col] === f.val,
+    f.kind === "in"
+      ? (f.val as unknown[]).includes(r[f.col])
+      : f.kind === "eq"
+        ? r[f.col] === f.val
+        : f.kind === "neq"
+          ? r[f.col] !== f.val
+          : f.val === null
+            ? r[f.col] === null || r[f.col] === undefined
+            : r[f.col] === f.val,
   );
 const rowsFor = (table: string): Row[] =>
   table === "qr_cart_items"
@@ -112,6 +114,10 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
     },
     neq(col: string, val: unknown) {
       filters.push({ kind: "neq", col, val });
+      return api;
+    },
+    in(col: string, val: unknown[]) {
+      filters.push({ kind: "in", col, val });
       return api;
     },
     limit() {
@@ -152,6 +158,10 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
         const hit = cart !== null && matches(cart, filters);
         if (hit && values) Object.assign(cart as Row, values);
         resolve({ data: hit ? [{ id: cart!.id }] : [], count: null, error: null });
+        return;
+      }
+      if (readFails || failTable === table) {
+        resolve({ data: null, count: null, error: { message: "read failed" } });
         return;
       }
       resolve({
@@ -456,6 +466,38 @@ describe("counterPayOutcome", () => {
       sessionLive: true,
       complete: true,
     });
+  });
+  it("#361 review (1) — a FULLY REFUNDED order answers tender refunded, never a paid close; a paid share beside it still wins", async () => {
+    // `mms_apply_refund_reconcile` turns the order `refunded` and leaves the cart `paid`: read as
+    // "no paid order" it answered `unknown`, which every close drew as "All paid — thank you!".
+    // MUTATION (lcs/outcome-reads-only-paid-orders): read `status = 'paid'` alone again.
+    cart!.status = "paid";
+    orders = [
+      {
+        cart_id: "c-1",
+        status: "refunded",
+        tender: "cash",
+        total_cents: 1200,
+        refunded_cents: 1200,
+      },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "refunded",
+      orderId: null,
+      sessionLive: true,
+      complete: true,
+    });
+    orders = [
+      { cart_id: "c-1", status: "refunded", tender: "card", total_cents: 500, refunded_cents: 500 },
+      { cart_id: "c-1", status: "paid", tender: "card", total_cents: 700, refunded_cents: 0 },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "card" });
+    // A failed or pending order is not a settlement of this cart.
+    orders = [
+      { cart_id: "c-1", status: "failed", tender: "card", total_cents: 700, refunded_cents: 0 },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "unknown" });
   });
   it("Codex round 2 on #361 — a FAILED order read is an incomplete answer, never 'no order'", async () => {
     // MUTATION (lcs/outcome-failed-tender-read-is-complete): the failed read is cached as the

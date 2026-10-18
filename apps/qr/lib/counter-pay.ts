@@ -2,7 +2,6 @@
 import { serviceClient } from "@mms/db/server";
 import { counterPayInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError, getCallerUid } from "./authz";
-import { COUNTER_TENDERS } from "./counter-tender";
 import {
   counterPayRefusal,
   counterPayRefusalCopy,
@@ -10,7 +9,13 @@ import {
 } from "./counter-pay-state";
 import { surfaceOpen } from "./surfaces";
 import { getCartOrderId } from "./order";
-import { cartFate, sessionLive, type CartOutcome } from "./session-truth";
+import {
+  cartFate,
+  orderTender,
+  sessionLive,
+  type CartOutcome,
+  type PaidTender,
+} from "./session-truth";
 
 /**
  * A1 — the diner's "Pay at the counter" ask, and its withdrawal.
@@ -164,7 +169,8 @@ export async function withdrawCounterPay(raw: unknown): Promise<CounterPayResult
  *
  * `tender` says HOW it settled, because the close the diner sees depends on it (blind audit on
  * this diff, CRITICAL 1): a tablemate's CARD flips the cart to `paid` too, and calling that
- * "settled at the counter" is a false sentence on every other phone at the table. `orderId` is
+ * "settled at the counter" is a false sentence on every other phone at the table — and a cart whose
+ * every order was refunded in full answers `refunded`, never a paid close (#361 review). `orderId` is
  * set only when the CALLER may see that order (`getCartOrderId`, member-gated for counter
  * tenders; the payer's own proofs for a card); a paid cart with no visible order carries null and
  * the caller shows the tender's close rather than a tracker it cannot load. `sessionLive` says
@@ -222,19 +228,18 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
   }
   const fate = cartFate({ cartStatus: cart.status, session, cleared, nowMs });
   if (fate.kind !== "paid") return fate;
-  const { data: order, error: orderError } = await db
+  // #361 review (1) — the cart's SETTLED orders, `refunded` among them: `mms_apply_refund_reconcile`
+  // turns a fully refunded order `refunded` and leaves the cart `paid`, and a read of `paid` alone
+  // answered `unknown` for it — drawn everywhere as "All paid — thank you!" over a charge that went
+  // back. `orderTender` names the tender (an order still standing wins; refunded-only is `refunded`).
+  // A cart's settled orders are its shares at most, so the read is unbounded on purpose: a limit
+  // could cut the one standing order off behind refunded ones.
+  const { data: orders, error: orderError } = await db
     .from("qr_orders")
-    .select("tender")
+    .select("tender,status,total_cents,refunded_cents")
     .eq("cart_id", cartId)
-    .eq("status", "paid")
-    .limit(1)
-    .maybeSingle();
-  const tender: "counter" | "card" | "unknown" =
-    orderError || !order
-      ? "unknown"
-      : (COUNTER_TENDERS as readonly string[]).includes(order.tender)
-        ? "counter"
-        : "card";
+    .in("status", ["paid", "refunded"]);
+  const tender: PaidTender = orderError || !orders ? "unknown" : orderTender(orders);
   // Codex round 2 on #361 — a FAILED read is not an answer (M116). `tender: "unknown"` from a read
   // that errored and `orderId: null` from a visibility read that threw are "not known yet", so the
   // answer says it is INCOMPLETE and its holder asks again on the poll's cadence. The one throw that

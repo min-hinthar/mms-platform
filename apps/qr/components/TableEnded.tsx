@@ -48,6 +48,8 @@ export function TableEndedCard({
       headingRef.current?.focus({ preventScroll: true });
   }, []);
   const startPrimary = trackHref === null;
+  // The "paid" tick and its colour belong to a bill that stands — never to a refund (#361 review).
+  const paidMark = end.kind === "paid" && end.tender !== "refunded";
   const startLabel = (
     <>
       {t("en", "startNewOrder")}
@@ -58,8 +60,8 @@ export function TableEndedCard({
   );
   return (
     <section className="card card-textured mms-rise" style={card} aria-labelledby="table-ended-h">
-      <p style={{ ...eyebrow, color: end.kind === "paid" ? "var(--ok)" : "var(--t2)" }}>
-        <Icon name={end.kind === "paid" ? "check" : "receipt"} size={14} /> {words.eyebrow}
+      <p style={{ ...eyebrow, color: paidMark ? "var(--ok)" : "var(--t2)" }}>
+        <Icon name={paidMark ? "check" : "receipt"} size={14} /> {words.eyebrow}
       </p>
       <h2 id="table-ended-h" ref={headingRef} tabIndex={-1} style={title}>
         {t("en", words.title)}

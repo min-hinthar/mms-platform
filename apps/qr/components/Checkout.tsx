@@ -778,11 +778,12 @@ export function Checkout({
   // or the table ENDED under it (a staff Clear, a merge into another table, the sweep): the same
   // finished surface, with the cause named (`TableEndedCard`) instead of a stale, editable bill whose
   // every edit snapped back silently and whose Send said "try again" forever.
-  // `"paid"` is a paid cart whose tender is not readable to this seat (no `qr_orders` row with
-  // `status = 'paid'` — a full refund turns the order `refunded` and leaves the cart `paid`): the
-  // menu's bare "Paid" card, nothing claimed about where (the blind pass on #361).
+  // `"paid"` is a paid cart whose tender is not readable to this seat (no settled `qr_orders` row
+  // visible, or the read failed): the menu's bare "Paid" card, nothing claimed about where (the blind
+  // pass on #361). `"refunded"` is a paid cart whose every order was refunded in full (the order
+  // turns `refunded`, the cart stays `paid`): the refund close, never "All paid" (#361 review (1)).
   const [settledClose, setSettledClose] = useState<
-    "counter" | "card" | "paid" | TableEndReason | null
+    "counter" | "card" | "paid" | "refunded" | TableEndReason | null
   >(null);
   // Whether the table is still seated, for the bare "Paid" card's "Ask our staff" line (`endCardWords`).
   const [closeSessionLive, setCloseSessionLive] = useState(true);
@@ -791,6 +792,9 @@ export function Checkout({
   // asking, so the receipt arrives with the read that failed (M116: unknowable ≠ "no order").
   const [closeComplete, setCloseComplete] = useState(true);
   const settleCheckRef = useRef(false);
+  // #361 review (3) — the paid close last said through the one region: an incomplete answer is asked
+  // again every minute, and the same close is never said twice.
+  const closeSaidRef = useRef<string | null>(null);
   // Codex round 2 on #361 — the cart this Bill is probing FOR, nulled on unmount (the provider's
   // `cartIdRef` rule): `useEndPoll` clears its interval, but an ask already out still resolves, and
   // its `paid` arm pushed /track over whatever page the diner had moved to. A continuation acts only
@@ -1059,8 +1063,16 @@ export function Checkout({
           // bare "Paid" close that names no tender, as the menu's card does (the blind pass on
           // #361: keeping the last good bill left an editable bill on a paid cart, and a COMPLETE
           // answer of this shape kept the probe asking once a minute forever).
+          // A REFUNDED cart gets its own close (#361 review (1)) — "refunded", nothing about paying.
           setCloseSessionLive(o.sessionLive);
           setSettledClose(o.tender === "unknown" ? "paid" : o.tender);
+          // #361 review (3) — said through the view's ONE region, as the ended arm says its title
+          // (neither card is a live region, by design): the card's own title, once per close.
+          const said = T(endedNewsKey(o));
+          if (closeSaidRef.current !== said) {
+            closeSaidRef.current = said;
+            setStatus(said);
+          }
         })
         .catch(() => {
           /* unknowable — the bill stays as it was, which is the honest floor */
@@ -3866,12 +3878,13 @@ export function Checkout({
                 menuText={menuLinkText(sessionMode, "browse")}
               />
             )}
-            {/* A paid cart whose tender this seat cannot read: "Paid", and nothing said about where. */}
-            {settledClose === "paid" && (
+            {/* A paid cart whose tender this seat cannot read: "Paid", and nothing said about where.
+                A cart refunded in full: the refund, and nothing said about paying (#361 review). */}
+            {(settledClose === "paid" || settledClose === "refunded") && (
               <TableEndedCard
                 end={{
                   kind: "paid",
-                  tender: "unknown",
+                  tender: settledClose === "refunded" ? "refunded" : "unknown",
                   orderId: null,
                   sessionLive: closeSessionLive,
                   complete: closeComplete,

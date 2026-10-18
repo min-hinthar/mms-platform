@@ -60,6 +60,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     editable bill and probe once a minute forever.
   - The party read re-fires on a seat presence has never shown, not on every presence flap.
   - Filed: M327 (a seat that left can still ask `counterPayOutcome` about its old table).
+- **The review of #361's head `c064bb6` (four findings, all fixed).**
+  - A fully refunded order no longer reads "All paid — thank you!" on /cart or the menu's card.
+    `counterPayOutcome` reads the cart's `refunded` orders as well as its `paid` ones, and
+    `orderTender` answers a new tender, `refunded`, when every settled order was returned in full
+    (`summarizeRefund`'s "full"). It gets its own close, "This order was refunded", which says
+    nothing about paying or where. Any order on the cart that is still paid wins, so a refunded share
+    beside a paid one still reads as paid. A solo re-mint after a refund says "That order was refunded
+    — this is a new one." One new Burmese draft, listed under K15 · session-truth.
+  - A host at a paid table that is still seated is warned again before "Leave this table".
+    "Start a new order" there re-joins the same session (the host seat is unchanged), so the next
+    round still needs the host's Send. `sessionTakesNoOrder` now decides both the warning and the
+    party read. Every other end stays silent.
+  - /cart's paid closes are announced through the view's one live region, as the ended closes are.
+    Each close is said once, even while an incomplete answer is asked about again.
+  - New guards: the unknown-tender close at a closed session shows "Ask our staff", and an incomplete
+    unknown answer draws its card and keeps asking. Ten new `lcs/` mutants;
+    `counter/outcome-calls-a-card-the-counter` now anchors on `orderTender`.
 
 ### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
 

@@ -18,7 +18,7 @@ import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { MenuTableEnded } from "@/components/MenuTableEnded";
 import { useDurableParty } from "@/lib/durable-party";
-import { leaveWarning } from "@/lib/session-truth";
+import { leaveWarning, sessionTakesNoOrder } from "@/lib/session-truth";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -236,10 +236,12 @@ export function MenuBrowser({
   const [seenSeats, setSeenSeats] = useState<ReadonlySet<string>>(() => new Set());
   if (members.some((m) => !seenSeats.has(m.seat)))
     setSeenSeats(new Set([...seenSeats, ...members.map((m) => m.seat)]));
-  // A table that ENDED has no Send to strand, and its party can only be read off a closed session —
-  // neither the read nor the warning (the blind pass on #361: "the others will need a server" was
-  // drawn under "this table closed").
-  const tableEnded = ended !== null;
+  // A table whose session can take no further order has no Send to strand, and its party can only be
+  // read off a closed session — neither the read nor the warning (the blind pass on #361: "the
+  // others will need a server" was drawn under "this table closed"). A PAID table still seated is
+  // not one (#361 review (2)): "Start a new order" re-joins the same session, and only the host
+  // Sends its next round — so the warning stands, and the party is still asked (`sessionTakesNoOrder`).
+  const tableEnded = sessionTakesNoOrder(ended);
   const party = useDurableParty(
     cartId,
     mode === "dinein" && role === "host" && !tableEnded,

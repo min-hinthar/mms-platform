@@ -14,7 +14,9 @@ import {
   heldEndUpgrade,
   leaveWarning,
   mintNotice,
+  orderTender,
   sessionLive,
+  sessionTakesNoOrder,
   settleEdgeNotice,
   staleCaption,
   tableEnded,
@@ -209,6 +211,18 @@ describe("an INCOMPLETE paid answer is not a final one (Codex round 2 on #361)",
     });
   });
 
+  it("#361 review (1) — a later 'refunded' replaces a held tender; 'unknown' never replaces a known one", () => {
+    expect(
+      heldEndUpgrade({ ...PENDING, tender: "counter" }, { ...PENDING, tender: "refunded" }),
+    ).toMatchObject({ tender: "refunded" });
+    expect(
+      heldEndUpgrade({ ...PENDING, tender: "card" }, { ...PAID, tender: "refunded" }),
+    ).toMatchObject({ tender: "refunded", complete: true });
+    expect(heldEndUpgrade({ ...PENDING, tender: "refunded" }, PENDING)).toMatchObject({
+      tender: "refunded",
+    });
+  });
+
   it("a complete end is final, and only a paid answer can fill a paid end", () => {
     // MUTATION (lcs/complete-end-reopens): a final end is replaced by a later answer — a table held
     // with its receipt link flips back to an incomplete one on the next blip.
@@ -343,6 +357,11 @@ describe("the words — never 'idle', always the cause we know", () => {
       mintNotice({ ...base, recovering: true, newCart: true, cause })?.text;
     expect(say(null)).toBe("We couldn’t reach your last order — this is a new one.");
     expect(say(PAID)).toBe("That order’s already paid — this is a new one.");
+    // A refunded order is never "already paid" (#361 review (1)).
+    // MUTATION (lcs/remint-refund-reads-as-paid)
+    expect(say({ ...PAID, tender: "refunded" })).toBe(
+      "That order was refunded — this is a new one.",
+    );
     expect(say(EXPIRED)).toBe("Your last order timed out — this is a new one.");
     expect(say(CLOSED)).toBe("Your last order was closed — this is a new one.");
   });
@@ -455,12 +474,76 @@ describe("the words — never 'idle', always the cause we know", () => {
     ).toBe("sends");
   });
 
+  it("#361 review (2) — a PAID table still SEATED takes the next round on the same session: the host's leave still strands its Send", () => {
+    // "Start a new order" on a paid, still-seated table re-joins the SAME session (the route's J15
+    // persisted re-join: a member of a live session keeps it, `host_seat` unchanged) and opens a
+    // new cart there — so only the host can Send the next round, as before.
+    // MUTATION (lcs/paid-seated-takes-no-order): every end suppresses the warning again.
+    const seated: TableEnd = { ...PAID, sessionLive: true };
+    expect(sessionTakesNoOrder(null)).toBe(false);
+    expect(sessionTakesNoOrder(seated)).toBe(false);
+    expect(sessionTakesNoOrder({ ...seated, tender: "refunded" })).toBe(false);
+    expect(sessionTakesNoOrder({ ...PAID, sessionLive: false })).toBe(true);
+    for (const end of [CLEARED, CLOSED, EXPIRED]) expect(sessionTakesNoOrder(end)).toBe(true);
+    const party = { seats: ["me", "aye"], current: false };
+    expect(
+      leaveWarning({ role: "host", mySeat: "me", ended: sessionTakesNoOrder(seated), party }),
+    ).toBe("sends");
+    expect(
+      leaveWarning({
+        role: "host",
+        mySeat: "me",
+        ended: sessionTakesNoOrder({ ...PAID, sessionLive: false }),
+        party,
+      }),
+    ).toBeNull();
+  });
+
   it("the blind pass on #361 (B1) — a table that ENDED gives no leave warning: the Send is gone with the order, so nothing is stranded", () => {
     // MUTATION (lcs/leave-warning-ignores-the-end): a host held on "this table closed" (a clear, a
     // merge) keeps role host and the last party read, and was told leaving strands the others' Send.
     const party = (seats: string[], current = true) => ({ seats, current });
     for (const p of [party(["me", "aye"]), party(["me", "aye"], false), party(["me"], false), null])
       expect(leaveWarning({ role: "host", mySeat: "me", ended: true, party: p })).toBeNull();
+  });
+
+  it("#361 review (1) — a FULLY REFUNDED order is its own close: refunded, never 'All paid', nothing said about where", () => {
+    // MUTATION (lcs/refunded-reads-as-paid): the refunded arm falls through to the bare "Paid"
+    // close — "All paid — thank you!" over an order whose money went back (CLAUDE.md: a refunded
+    // order must never read "Paid in full").
+    const REFUNDED: TableEnd = { ...PAID, tender: "refunded" };
+    const w = endCardWords(REFUNDED);
+    expect(w).toMatchObject({ title: "billRefundedTitle", body: null, staffLine: true });
+    expect(endedNewsKey(REFUNDED)).toBe("billRefundedTitle");
+    for (const s of [w.eyebrow, t("en", w.title)]) expect(s).not.toMatch(/paid|counter|phone/i);
+    expect(t("en", "billRefundedTitle")).toBe("This order was refunded");
+    expect(t("my", "billRefundedTitle")).toMatch(/[က-႟]/);
+    // Still seated or not, the staff line shows: a refund is the moment "not what you expected?".
+    expect(endCardWords({ ...REFUNDED, sessionLive: true }).staffLine).toBe(true);
+  });
+
+  it("#361 review (1) — the order rows name the tender: any order still PAID wins, a refunded-only cart is refunded", () => {
+    const row = (status: string, tender: string, total = 1000, refunded = 0) => ({
+      status,
+      tender,
+      total_cents: total,
+      refunded_cents: refunded,
+    });
+    expect(orderTender([])).toBe("unknown");
+    expect(orderTender([row("paid", "cash")])).toBe("counter");
+    expect(orderTender([row("paid", "terminal")])).toBe("counter");
+    expect(orderTender([row("paid", "card")])).toBe("card");
+    // MUTATION (lcs/outcome-refund-reads-as-the-tender): a refunded row answers its tender — the
+    // close says "paid at the counter" over a charge that was returned.
+    expect(orderTender([row("refunded", "cash")])).toBe("refunded");
+    expect(orderTender([row("refunded", "card")])).toBe("refunded");
+    // The amount reaches the total a beat BEFORE the webhook flips the status (`summarizeRefund`).
+    expect(orderTender([row("paid", "card", 1000, 1000)])).toBe("refunded");
+    // A partial refund leaves the order paid: the bill was paid, and the receipt shows the return.
+    expect(orderTender([row("paid", "card", 1000, 400)])).toBe("card");
+    // A cart with a refunded share AND a paid one is still a paid bill — whichever row comes first.
+    expect(orderTender([row("refunded", "card"), row("paid", "cash")])).toBe("counter");
+    expect(orderTender([row("paid", "cash"), row("refunded", "card")])).toBe("counter");
   });
 
   it("the card names each end by its own words, and the paid arms reuse the Bill's close", () => {

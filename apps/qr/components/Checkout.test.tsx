@@ -1017,18 +1017,18 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     }
   });
 
-  it("the blind pass on #361 (Q6a) — a paid cart with no PAID order row (a full refund flips it to 'refunded') is a paid close, not an editable bill, and the probe stops", async () => {
-    // `counterPayOutcome` answers `tender: "unknown"` + `complete: true` when the cart is `paid`
-    // and no `qr_orders` row is (`mms_apply_refund_reconcile` turns a fully refunded order to
-    // `refunded`; the cart stays `paid`). The Bill drew nothing for it: the bill stayed editable on a
-    // paid cart and its probe asked once a minute forever.
-    // MUTATION (lcs/bill-ignores-a-paid-unknown-tender).
+  it("#361 review (1) — a FULLY REFUNDED order (cart paid, order 'refunded') is the refund close: never 'All paid', said once, and the probe stops", async () => {
+    // `counterPayOutcome` answered `tender: "unknown"` for it (no `status = 'paid'` order row —
+    // `mms_apply_refund_reconcile` turns the order `refunded` and leaves the cart `paid`), and the
+    // Bill drew "All paid — thank you!" over a charge that went back. CLAUDE.md: a refunded order
+    // must never read "Paid in full". It now answers `tender: "refunded"`, with its own close.
+    // MUTATION (lcs/bill-ignores-a-paid-unknown-tender) · (lcs/bill-refund-reads-as-paid)
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       mount({ splitContext: DINE_IN });
       h.counterPayOutcome.mockResolvedValue({
         kind: "paid",
-        tender: "unknown",
+        tender: "refunded",
         orderId: null,
         sessionLive: true,
         complete: true,
@@ -1037,17 +1037,108 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       await waitFor(() =>
-        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+        expect(screen.getByRole("heading", { name: /This order was refunded/ })).toBeTruthy(),
       );
-      // Nothing claimed about WHERE it was paid (the menu's card for the same answer).
-      expect(document.body.textContent).not.toMatch(/at the counter|on a phone at your table/);
+      // Nothing claimed about paying, nor WHERE.
+      expect(document.body.textContent).not.toMatch(
+        /All paid|at the counter|on a phone at your table/,
+      );
       expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
+      // #361 review (3) — the close is said through the view's one region, as the ended arm is.
+      // MUTATION (lcs/bill-paid-close-is-silent)
+      expect(regionText()).toContain("This order was refunded");
       expect(h.push).not.toHaveBeenCalled();
       const asked = h.counterPayOutcome.mock.calls.length;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(180_000);
       });
       expect(h.counterPayOutcome).toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#361 review (3) — every paid close is announced once: a counter settle says its title through the one region", async () => {
+    // MUTATION (lcs/bill-paid-close-is-silent): the paid arms set state only — the card appears
+    // with no announcement (`TableEndedCard` / `CounterSettledCard` carry no live region by design).
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: null,
+      tender: "counter",
+      sessionLive: true,
+      complete: true,
+    });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+    );
+    expect(regionText()).toContain("All paid — thank you!");
+  });
+
+  it("#361 review (4) — a paid cart whose tender is unknown, at a table whose session CLOSED: the bare paid close with the 'Ask our staff' line", async () => {
+    // MUTATION (lcs/bill-close-ignores-the-session): `setCloseSessionLive` never runs — the line
+    // that sends a diner who may be at a table no longer theirs to staff is dropped.
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({
+      kind: "paid",
+      orderId: null,
+      tender: "unknown",
+      sessionLive: false,
+      complete: true,
+    });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+    );
+    expect(screen.getByText("Not what you expected? Ask our staff.")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/at the counter|on a phone at your table/);
+  });
+
+  it("#361 review (4) — an INCOMPLETE answer with an unknown tender (the order read failed) draws the paid close AND keeps asking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount({ splitContext: DINE_IN });
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "unknown",
+        orderId: null,
+        sessionLive: true,
+        complete: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /All paid — thank you!/ })).toBeTruthy(),
+      );
+      expect(screen.queryByText("Not what you expected? Ask our staff.")).toBeNull();
+      expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
+      const asked = h.counterPayOutcome.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() => expect(h.counterPayOutcome.mock.calls.length).toBeGreaterThan(asked));
+      // The later read lands whole: the refund close replaces the bare paid one.
+      h.counterPayOutcome.mockResolvedValue({
+        kind: "paid",
+        tender: "refunded",
+        orderId: null,
+        sessionLive: true,
+        complete: true,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /This order was refunded/ })).toBeTruthy(),
+      );
     } finally {
       vi.useRealTimers();
     }

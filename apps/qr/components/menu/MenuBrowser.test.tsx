@@ -311,6 +311,22 @@ describe("session truth (finding 5) — the host's leave warning is read when th
     expect(partyCalls.at(-1)?.[1]).toBe(false);
   });
 
+  it("#361 review (2) — a PAID table still SEATED keeps the host's leave warning and its party read; a paid table whose session closed does not", () => {
+    // "Start a new order" re-joins the SAME session at a paid, still-seated table, so the host's
+    // leave still strands the next round's Send. MUTATION (lcs/menu-paid-seated-silences-the-leave).
+    const paid = { kind: "paid", tender: "counter", orderId: null, complete: true };
+    cartOver = { ...HOST, ended: { ...paid, sessionLive: true } };
+    partyAnswer = { seats: ["me", "aye"], current: false };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBe("sends");
+    expect(partyCalls.at(-1)?.[1]).toBe(true);
+    cleanup();
+    cartOver = { ...HOST, ended: { ...paid, sessionLive: false } };
+    render(<Page />);
+    expect(doorProps.leaveWarning).toBeNull();
+    expect(partyCalls.at(-1)?.[1]).toBe(false);
+  });
+
   it("the blind pass on #361 (A4) — a presence FLAP never re-reads the party; a seat presence has never seen does", () => {
     // MUTATION (lcs/leave-party-reads-on-every-flap): the epoch keyed on the presence COUNT — a
     // face-down phone dropping out and back fired the durable-party read on every flap.

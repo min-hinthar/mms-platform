@@ -181,6 +181,14 @@ export const CART = {
     en: "This bill was paid on a phone at your table. There’s nothing left to pay here.",
     my: "ဒီဘောက်ချာကို သင့်စားပွဲက ဖုန်းတစ်လုံးကနေ ရှင်းပြီးပါပြီ — ဒီမှာ ဘာမှ ရှင်းစရာ မကျန်တော့ပါဘူး",
   },
+  // #361 review (1) — the close for a cart whose every order was refunded in full (the cart stays
+  // `paid`, the order turns `refunded`): it says the refund and nothing about paying or where — a
+  // refunded order must never read "All paid" (CLAUDE.md). Listed under OPEN-ITEMS "K15 ·
+  // session-truth"; MY grounded in floor.status.refunded ပြန်အမ်းပြီး and အော်ဒါ.
+  billRefundedTitle: {
+    en: "This order was refunded",
+    my: "ဒီအော်ဒါကို ပြန်အမ်းပြီးပါပြီ", // K15 draft (session truth) — HIGH: money (a refund read as paid)
+  },
   // ── session truth (the order-lifecycle audit, 2026-10-13) — the card a table that ENDED shows on
   // /menu and /cart (`TableEndedCard`, words chosen by lib/session-truth `endCardWords`). Every MY
   // value below is a Claude-authored draft, grounded in shipped words (ဝန်ထမ်း · စားပွဲ · အော်ဒါ ·

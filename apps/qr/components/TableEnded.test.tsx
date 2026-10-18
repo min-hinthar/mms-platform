@@ -66,6 +66,19 @@ describe("TableEndedCard — the cause, in both tongues, and the way on", () => 
     expect(track.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("#361 review (1) — a cart REFUNDED in full: the refund in both tongues, never 'All paid', no paid tick, and the staff line", () => {
+    // MUTATION (lcs/refund-card-wears-the-paid-tick): the paid tick and colour on a refund.
+    const { container } = render(
+      <TableEndedCard end={{ ...PAID, tender: "refunded" }} trackHref={null} start={mint()} />,
+    );
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toContain(
+      "This order was refunded",
+    );
+    expect(container.textContent).not.toMatch(/All paid|Paid/);
+    expect(container.innerHTML).not.toContain("var(--ok)");
+    expect(screen.getByText("Not what you expected? Ask our staff.")).toBeTruthy();
+  });
+
   it("'Start a new order' calls once; busy, it holds its place (aria-busy, re-entry refused); a failure is said beside it", () => {
     const onStart = vi.fn();
     const { rerender } = render(
