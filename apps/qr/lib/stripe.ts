@@ -140,8 +140,10 @@ export function getStripe(): Stripe {
   const key = resolved.value;
   // The mode gate, on the one path every server-side Stripe call already goes through. Both keys are
   // readable here (a NEXT_PUBLIC_* var is an ordinary runtime read on the server), and refusing to
-  // construct the client is the only place that can stop a LIVE charge whose fulfilment webhook is
-  // signed by a TEST secret — the failure C18 was, with real money instead of test cards.
+  // construct the client is the only place that can stop a LIVE charge made beside TEST-mode keys
+  // (the webhook route picks its signing-secret NAME by this mode) — the C18 shape, with real money.
+  // It cannot catch a test endpoint's secret stored under the live NAME: `whsec_…` carries no mode,
+  // so only a delivered live event proves that (ENV.md cutover step 6; `readPaymentMode` above).
   const mismatch = modeDisagreement(key, resolvePublishableKey()?.value);
   if (mismatch) throw new Error(mismatch);
   _stripe = new Stripe(key, {
