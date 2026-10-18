@@ -200,6 +200,34 @@ describe("recoveryVerdict", () => {
     });
   });
 
+  // Codex on #365 @ 1b760cb (P2) — the K3b identity redirect, resolved by the door from the DB.
+  describe("the payer binding through an identity merge", () => {
+    const ANON = "88888888-8888-4888-8888-888888888888";
+    const viaMerge = (payerUid: string, mergedEarner: string | null) =>
+      recoveryVerdict({
+        intent: intent({}, { earnerUid: ANON }),
+        expect: { cartId: CART, payerUid },
+        cart: openLinked,
+        mergedEarner,
+      });
+
+    it("the account the anon payer merged into IS the payer", () => {
+      expect(viaMerge("account-uid", "account-uid")).toEqual({ ok: true });
+    });
+
+    it("no merge: the account is a stranger to this intent", () => {
+      expect(viaMerge("account-uid", null)).toEqual({ ok: false, refusal: "unbound" });
+    });
+
+    it("a merge into SOMEONE ELSE does not admit the caller", () => {
+      expect(viaMerge("account-uid", "other-account")).toEqual({ ok: false, refusal: "unbound" });
+    });
+
+    it("once merged, the orphaned anon uid is no longer the payer (the redirect wins, as at the earn)", () => {
+      expect(viaMerge(ANON, "account-uid")).toEqual({ ok: false, refusal: "unbound" });
+    });
+  });
+
   it("a non-dollar charge is refused", () => {
     expect(
       recoveryVerdict({ intent: intent({ currency: "eur" }), expect: guest, cart: openLinked }),

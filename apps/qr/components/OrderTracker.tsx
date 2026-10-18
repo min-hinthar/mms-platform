@@ -1095,7 +1095,9 @@ export function OrderTracker({
           written (the table was settled another way, or the charge no longer matches the order). Not
           a live region — the one role="status" above says it. It REPLACES the timed-out banner,
           whose every arm says "we just can't reach the order from this screen", which is no longer
-          the true sentence. The payment reference is always shown: it is what staff look it up by. */}
+          the true sentence. The payment reference is shown with it: it is what staff look it up by,
+          and `stranded` is only ever set by a recovery that ran on a `paymentIntent`, which is
+          exactly when `counterRef` is non-null — the guard below is for the type, not a case. */}
       {stranded && !arrived && !settleCanceled && (
         <div
           style={{

@@ -5,10 +5,12 @@ import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 import { fulfillSucceededIntent, type FulfillVia } from "./fulfill-intent";
+import { chunkIds } from "./kitchen-stop-read";
 import {
   fulfillAnswer,
   isCartIdShape,
   isRecoverableKind,
+  isUuidShape,
   RECOVERY_EXPAND,
   recoveryVerdict,
   refusalAnswer,
@@ -62,6 +64,24 @@ async function readRecoveryCart(cartId: string): Promise<RecoveryCart | undefine
 }
 
 /**
+ * The account an anonymous payer merged into (K3b, `mms_identity_merges`): the target uid, `null`
+ * when no merge exists, `undefined` when the read failed — fail closed, never "no merge" (a guest
+ * would read "we can't check this" for a payment that is theirs; the webhook and the cron still can).
+ */
+async function readMergedEarner(anonUid: string): Promise<string | null | undefined> {
+  const { data, error } = await serviceClient()
+    .from("mms_identity_merges")
+    .select("target_uid")
+    .eq("anon_uid", anonUid)
+    .maybeSingle();
+  if (error) {
+    console.error("[payment-recovery] identity-merge read failed", { error: error.message });
+    return undefined;
+  }
+  return data?.target_uid ?? null;
+}
+
+/**
  * Run the recovery for an intent Stripe has just handed back. `expect.cartId` is the cart the door
  * found the intent on; for the cron it is the intent's own metadata (the cron's binding is the
  * cart's link, which the verdict checks).
@@ -75,7 +95,17 @@ export async function recoverRetrievedIntent(
   // An unshaped id never reaches the uuid column (the verdict refuses it as `unbound` below).
   const cart = isCartIdShape(metaCart) ? await readRecoveryCart(metaCart) : null;
   if (cart === undefined) return { kind: "error" };
-  const verdict = recoveryVerdict({ intent, expect, cart });
+  // Codex on #365 @ 1b760cb (P2) — the guest door's payer binding resolves the metadata uid through
+  // the durable identity redirect, read HERE (never from the caller), and only when it could matter:
+  // a guest door, and a metadata uid that is not already the caller's.
+  const earner = intent.metadata?.earnerUid;
+  let mergedEarner: string | null = null;
+  if (expect.payerUid !== null && earner !== expect.payerUid && isUuidShape(earner)) {
+    const merged = await readMergedEarner(earner);
+    if (merged === undefined) return { kind: "error" };
+    mergedEarner = merged;
+  }
+  const verdict = recoveryVerdict({ intent, expect, cart, mergedEarner });
   if (!verdict.ok) {
     // FAIL CLOSED, AND SAY SO. Every refusal is logged by name with the intent and the door, so an
     // operator can find a charge the recovery would not touch. `not_succeeded` is the ordinary case
@@ -83,6 +113,8 @@ export async function recoverRetrievedIntent(
     const log = verdict.refusal === "not_succeeded" ? console.warn : console.error;
     log("[payment-recovery] refused", {
       refusal: verdict.refusal,
+      // A succeeded charge this door will not touch, by name: an operator's to look at in Stripe.
+      chargedNoOrder: verdict.refusal !== "not_succeeded",
       paymentIntent: intent.id,
       status: intent.status,
       kind: intent.metadata?.kind ?? null,
@@ -164,8 +196,43 @@ export const SWEEP_LOOKBACK_MS = SWEEP_SCHEDULE_INTERVAL_MS + SWEEP_MIN_AGE_MS +
  * cursor is the follow-up the day that line appears).
  */
 export const SWEEP_MAX_PAGES = 10;
-/** Recoveries one run attempts at most; the next run picks up the rest. */
+/**
+ * Recoveries one run attempts at most — the ones that can make PROGRESS (reach the fulfillment: an
+ * order, a refund-needed row, or an error worth retrying); the next run picks up the rest. A refusal
+ * does not count (Codex on #365 @ 1b760cb, P2): a refunded or superseded charge never gets an order or
+ * a ledger row, so it is a candidate on every run, and newest-first a handful of them used to spend
+ * the whole cap before any older recoverable payment was reached. Refusals are bounded instead by
+ * `SWEEP_MAX_EXAMINE`, and each is logged at error level by name (`recoverRetrievedIntent`).
+ */
 export const SWEEP_MAX_RECOVER = 25;
+/** Candidates one run examines at most, refused or not: each costs a cart read, never a Stripe call
+ *  (the listed object is the fresh read). */
+export const SWEEP_MAX_EXAMINE = 200;
+/**
+ * Wall-clock budget for one run, from its start: checked before each page and each candidate, so the
+ * worst case (10 expanded pages, then 25 serial fulfillments) stops early and SAYS what it did not
+ * reach rather than being killed by the route's `maxDuration` (60 s) mid-fulfillment with nothing
+ * logged. 45 s leaves one slow fulfillment's worth of room under that ceiling.
+ */
+export const SWEEP_TIME_BUDGET_MS = 45_000;
+/** Ids per `.in()` read: up to 1000 ids in one GET is a ~30 KB URL, past what a gateway admits
+ *  (blind pass + Codex on #365 @ 1b760cb) — the sweep would 500 exactly at volume. */
+export const SWEEP_ID_CHUNK = 100;
+
+/** Read one ledger in `SWEEP_ID_CHUNK`-id chunks; any chunk's error is the WHOLE read's (throws). */
+async function readInChunks<T>(
+  ids: readonly string[],
+  read: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  what: string,
+): Promise<T[]> {
+  const results = await Promise.all(chunkIds(ids, SWEEP_ID_CHUNK).map((chunk) => read(chunk)));
+  const out: T[] = [];
+  for (const r of results) {
+    if (r.error) throw new Error(`${what} unreadable: ${r.error.message}`);
+    out.push(...(r.data ?? []));
+  }
+  return out;
+}
 
 export type SweepSummary = {
   listed: number;
@@ -187,7 +254,12 @@ export type SweepSummary = {
  * Throws on an unreadable order/refund ledger: the cron route answers 500 and the next run retries,
  * rather than recovering blind against a ledger it could not read.
  */
-export async function sweepStrandedPayments(nowMs: number = Date.now()): Promise<SweepSummary> {
+export async function sweepStrandedPayments(
+  nowMs: number = Date.now(),
+  clock: () => number = Date.now,
+): Promise<SweepSummary> {
+  const startedAt = clock();
+  const overBudget = () => clock() - startedAt > SWEEP_TIME_BUDGET_MS;
   const stripe = getStripe();
   const db = serviceClient();
   const created = sweepWindow(nowMs, SWEEP_LOOKBACK_MS, SWEEP_MIN_AGE_MS);
@@ -202,6 +274,17 @@ export async function sweepStrandedPayments(nowMs: number = Date.now()): Promise
   const succeeded: Stripe.PaymentIntent[] = [];
   let startingAfter: string | undefined;
   for (let page = 0; page < SWEEP_MAX_PAGES; page++) {
+    if (page > 0 && overBudget()) {
+      summary.truncated = true;
+      console.error(
+        "[payment-recovery] sweep hit its time budget while listing — older intents NOT examined",
+        {
+          budgetMs: SWEEP_TIME_BUDGET_MS,
+          pagesRead: page,
+        },
+      );
+      break;
+    }
     const res = await stripe.paymentIntents.list({
       created,
       limit: 100,
@@ -235,39 +318,66 @@ export async function sweepStrandedPayments(nowMs: number = Date.now()): Promise
 
   const ids = succeeded.map((pi) => pi.id);
   const [orders, refunds] = await Promise.all([
-    db.from("qr_orders").select("stripe_payment_intent_id").in("stripe_payment_intent_id", ids),
-    db.from("qr_refunds_needed").select("payment_intent").in("payment_intent", ids),
+    readInChunks(
+      ids,
+      (chunk) =>
+        db
+          .from("qr_orders")
+          .select("stripe_payment_intent_id")
+          .in("stripe_payment_intent_id", chunk),
+      "order ledger",
+    ),
+    readInChunks(
+      ids,
+      (chunk) => db.from("qr_refunds_needed").select("payment_intent").in("payment_intent", chunk),
+      "refund ledger",
+    ),
   ]);
-  if (orders.error) throw new Error(`order ledger unreadable: ${orders.error.message}`);
-  if (refunds.error) throw new Error(`refund ledger unreadable: ${refunds.error.message}`);
   const onRecord = new Set<string>([
-    ...(orders.data ?? []).map((o) => o.stripe_payment_intent_id ?? ""),
-    ...(refunds.data ?? []).map((r) => r.payment_intent),
+    ...orders.map((o) => o.stripe_payment_intent_id ?? ""),
+    ...refunds.map((r) => r.payment_intent),
   ]);
   const stranded = succeeded.filter((pi) => !onRecord.has(pi.id));
   summary.candidates = stranded.length;
   if (stranded.length === 0) return summary;
 
   const cartIds = [...new Set(stranded.map((pi) => pi.metadata.cartId as string))];
-  const { data: carts, error: cartsErr } = await db.from("qr_carts").select("id").in("id", cartIds);
-  if (cartsErr) throw new Error(`cart read failed: ${cartsErr.message}`);
-  const ours = new Set((carts ?? []).map((c) => c.id));
+  const carts = await readInChunks(
+    cartIds,
+    (chunk) => db.from("qr_carts").select("id").in("id", chunk),
+    "cart",
+  );
+  const ours = new Set(carts.map((c) => c.id));
 
   let attempted = 0;
-  for (const pi of stranded) {
+  let examined = 0;
+  for (const [i, pi] of stranded.entries()) {
     const cartId = pi.metadata.cartId as string;
     if (!ours.has(cartId)) {
       summary.foreign++;
       continue;
     }
-    if (attempted >= SWEEP_MAX_RECOVER) {
+    if (attempted >= SWEEP_MAX_RECOVER || examined >= SWEEP_MAX_EXAMINE) {
       summary.truncated = true;
       break;
     }
-    attempted++;
+    if (overBudget()) {
+      summary.truncated = true;
+      // LOUD, and counted: what this run did not reach is the next run's — or, past the lookback,
+      // nobody's (SWEEP_MAX_PAGES says why that bound stands).
+      console.error("[payment-recovery] sweep hit its time budget — candidates NOT examined", {
+        budgetMs: SWEEP_TIME_BUDGET_MS,
+        examined,
+        notReached: stranded.slice(i).filter((p) => ours.has(p.metadata.cartId as string)).length,
+      });
+      break;
+    }
+    examined++;
     // The listed object is a fresh read from Stripe (this request), so it is not re-retrieved.
     const answer = await recoverRetrievedIntent(pi, { cartId, payerUid: null }, "cron");
     summary.answers[answer.kind] = (summary.answers[answer.kind] ?? 0) + 1;
+    // Only an attempt that can make progress spends the recovery cap (SWEEP_MAX_RECOVER).
+    if (answer.kind !== "refused" && answer.kind !== "not_paid") attempted++;
   }
   return summary;
 }

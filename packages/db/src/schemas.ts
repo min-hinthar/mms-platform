@@ -92,12 +92,6 @@ export const reorderInput = z.object({ cartId: uuid, orderId: uuid });
 export const announceArrivalInput = z.object({ orderId: uuid });
 
 /**
- * W9c — the /track post-session fallback lookup. EXACTLY ONE key: a split order is keyed by its
- * resolved order id, a single-pay order by its Stripe PaymentIntent. Neither key AUTHORIZES anything
- * — the read is additionally scoped to `earned_by = auth.uid()` — but bounding the shape here keeps a
- * garbage value out of the query in the first place.
- */
-/**
  * M160(b) — a guest's "is my payment stuck?" ask from /track. The PaymentIntent id is the same shape
  * `trackFallbackInput` admits (bounded, Stripe's `pi_` alphabet); it is an ADDRESS, never a proof —
  * the recovery retrieves the intent itself and binds it to the cart and to the caller's own uid.
@@ -112,6 +106,12 @@ export const recoverPaymentInput = z.object({
 /** M160(b) — staff's "Check payment" on a table: the session; its open cart's link names the intent. */
 export const checkTablePaymentInput = z.object({ sessionId: uuid });
 
+/**
+ * W9c — the /track post-session fallback lookup. EXACTLY ONE key: a split order is keyed by its
+ * resolved order id, a single-pay order by its Stripe PaymentIntent. Neither key AUTHORIZES anything
+ * — the read is additionally scoped to `earned_by = auth.uid()` — but bounding the shape here keeps a
+ * garbage value out of the query in the first place.
+ */
 export const trackFallbackInput = z
   .object({
     orderId: uuid.nullish(),

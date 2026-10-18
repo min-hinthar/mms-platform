@@ -124,6 +124,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** True when `id` is shaped like a cart id — checked BEFORE it reaches a `uuid` column (a non-uuid
  *  `.eq` is a Postgres 22P02, which would read as an outage rather than as "not ours"). */
 export function isCartIdShape(id: string | undefined | null): id is string {
+  return isUuidShape(id);
+}
+
+/** The same shape test for any uuid column (a uid read from intent metadata, before it reaches
+ *  `mms_identity_merges.anon_uid`). */
+export function isUuidShape(id: string | undefined | null): id is string {
   return typeof id === "string" && UUID.test(id);
 }
 
@@ -145,7 +151,12 @@ export function isCartIdShape(id: string | undefined | null): id is string {
  *
  * Freshness is deliberately NOT required: the freeze's 10-minute TTL is how long it BLOCKS other
  * doors, and a lost webhook is by definition older than that. A cart someone settled since is not
- * open, so it skips this rule and lands on the refund-needed ledger like every other.
+ * open, so it skips this rule and lands on the refund-needed ledger like every other. The call, made
+ * explicitly (blind pass on #365 @ 1b760cb): a DAYS-old freeze nobody touched since still binds, and
+ * the recovery then prices the charge against the cart as it stands. That is accepted, not missed —
+ * the sweep's lookback (~25 h) bounds how old a recovered charge can be, the cart reads as untouched
+ * by every stored field above, and the shared fulfillment reconciles the CAPTURED amount against the
+ * re-derived total, so any drift is `amount_mismatch` → a refund-needed row and no order.
  *
  * The one thing the row cannot say: a pay lock taken AFTER the freeze and then RELEASED (a diner's
  * "Edit order" nulls `locked_at` with the lock). The cart then reads as never touched. That is
@@ -239,6 +250,14 @@ export function recoveryVerdict(input: {
   intent: RecoveryIntent;
   expect: RecoveryExpect;
   cart: RecoveryCart;
+  /**
+   * The account the intent's `earnerUid` MERGED into (`mms_identity_merges.target_uid`, K3b), read
+   * from the database by the guest door; `null` when no merge exists or none was read. Codex on #365
+   * @ 1b760cb (P2): a diner who paid anonymously and then signed into an existing account is the same
+   * payer, and `mms_earn_on_fulfill` already credits the merged-into account. Resolved the same way
+   * — the redirect, when there is one, IS the payer: the orphaned anon uid no longer is.
+   */
+  mergedEarner?: string | null;
 }): { ok: true } | { ok: false; refusal: RecoveryRefusal } {
   const { intent, expect, cart } = input;
   if (intent.status !== "succeeded") return { ok: false, refusal: "not_succeeded" };
@@ -249,7 +268,8 @@ export function recoveryVerdict(input: {
   if (intent.currency !== "usd") return { ok: false, refusal: "wrong_currency" };
   if (!isCartIdShape(meta.cartId) || meta.cartId !== expect.cartId)
     return { ok: false, refusal: "unbound" };
-  if (expect.payerUid !== null && meta.earnerUid !== expect.payerUid)
+  const payer = input.mergedEarner ?? meta.earnerUid;
+  if (expect.payerUid !== null && payer !== expect.payerUid)
     return { ok: false, refusal: "unbound" };
   if (!cart) return { ok: false, refusal: "no_cart" };
   if (cart.status === "open" && cart.linkedIntent !== intent.id && !secureTabBound(intent, cart))

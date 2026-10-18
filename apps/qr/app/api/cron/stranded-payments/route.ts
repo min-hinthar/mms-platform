@@ -20,7 +20,10 @@ import { sweepStrandedPayments } from "@/lib/payment-recovery";
  * answers to a status and counts. No money decision lives here.
  */
 export const dynamic = "force-dynamic";
-// The sweep reads up to five Stripe pages and recovers at most 25 intents; give it room.
+// The sweep reads up to SWEEP_MAX_PAGES (10) expanded Stripe pages and attempts at most
+// SWEEP_MAX_RECOVER (25) fulfillments. That worst case can outrun 60 s, so the sweep carries its own
+// SWEEP_TIME_BUDGET_MS (45 s) — it stops early and logs what it did not reach, rather than being
+// killed here mid-fulfillment with nothing said (lib/payment-recovery.ts).
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {

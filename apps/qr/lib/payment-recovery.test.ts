@@ -65,23 +65,43 @@ let ordersOnRecord: string[] = [];
 let refundsOnRecord: string[] = [];
 let ledgerError: { message: string } | null = null;
 let ourCarts: string[] = [];
+/** `mms_identity_merges`: anon uid → the account it merged into (K3b). */
+let merges: Record<string, string> = {};
+let mergeError: { message: string } | null = null;
+const mergeReads: unknown[] = [];
+/** Every `.in()` the sweep sent, by table, with how many ids it carried. */
+const inCalls: { table: string; n: number }[] = [];
+/** Fail the order ledger's Nth `.in()` read (1-based) — a chunk error mid-sweep. */
+let ledgerErrorOnCall = 0;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
       select: (cols: string) => {
-        cartSelects.push(cols);
+        if (table !== "mms_identity_merges") cartSelects.push(cols);
         return {
-          eq: () => ({
-            maybeSingle: () => Promise.resolve({ data: cartError ? null : cart, error: cartError }),
+          eq: (_col: string, v: string) => ({
+            maybeSingle: () => {
+              if (table === "mms_identity_merges") {
+                mergeReads.push(v);
+                return Promise.resolve({
+                  data: mergeError || !merges[v] ? null : { target_uid: merges[v] },
+                  error: mergeError,
+                });
+              }
+              return Promise.resolve({ data: cartError ? null : cart, error: cartError });
+            },
           }),
           in: (_col: string, ids: string[]) => {
-            if (table === "qr_orders")
+            inCalls.push({ table, n: ids.length });
+            if (table === "qr_orders") {
+              const nth = inCalls.filter((c) => c.table === "qr_orders").length;
               return Promise.resolve({
                 data: ordersOnRecord
                   .filter((id) => ids.includes(id))
                   .map((id) => ({ stripe_payment_intent_id: id })),
-                error: ledgerError,
+                error: ledgerErrorOnCall === nth ? { message: "URI too long" } : ledgerError,
               });
+            }
             if (table === "qr_refunds_needed")
               return Promise.resolve({
                 data: refundsOnRecord
@@ -103,6 +123,9 @@ vi.mock("@mms/db/server", () => ({
 const {
   recoverIntent,
   sweepStrandedPayments,
+  SWEEP_ID_CHUNK,
+  SWEEP_MAX_EXAMINE,
+  SWEEP_TIME_BUDGET_MS,
   SWEEP_MAX_RECOVER,
   SWEEP_MAX_PAGES,
   SWEEP_LOOKBACK_MS,
@@ -138,6 +161,11 @@ beforeEach(() => {
   refundsOnRecord = [];
   ledgerError = null;
   ourCarts = [CART];
+  merges = {};
+  mergeError = null;
+  mergeReads.length = 0;
+  inCalls.length = 0;
+  ledgerErrorOnCall = 0;
 });
 
 describe("recoverIntent", () => {
@@ -205,6 +233,41 @@ describe("recoverIntent", () => {
     const out = await recoverIntent("pi_1", { cartId: CART, payerUid: "not-the-payer" }, "track");
     expect(out).toEqual({ kind: "refused" });
     expect(fulfilled).toEqual([]);
+  });
+
+  // Codex on #365 @ 1b760cb (P2): a diner who paid anonymously and then signed into an existing
+  // account is the same payer — K3b's durable redirect (`mms_identity_merges`) says so, and the late
+  // earn already resolves through it. The guest door resolves the metadata uid the same way, from the
+  // DATABASE (never the caller), before it compares.
+  it("a payer whose anon uid MERGED into the caller's account is recovered (K3b redirect)", async () => {
+    retrieved = pi("pi_1", {}, { earnerUid: "77777777-7777-4777-8777-777777777777" });
+    merges = { "77777777-7777-4777-8777-777777777777": "account-uid" };
+    const out = await recoverIntent("pi_1", { cartId: CART, payerUid: "account-uid" }, "track");
+    expect(out).toEqual({ kind: "recorded" });
+    expect(mergeReads).toEqual(["77777777-7777-4777-8777-777777777777"]);
+  });
+
+  it("an unmerged stranger is still refused, and an unreadable merge read is error", async () => {
+    retrieved = pi("pi_1", {}, { earnerUid: "77777777-7777-4777-8777-777777777777" });
+    expect(await recoverIntent("pi_1", { cartId: CART, payerUid: "account-uid" }, "track")).toEqual(
+      { kind: "refused" },
+    );
+    mergeError = { message: "timeout" };
+    expect(await recoverIntent("pi_1", { cartId: CART, payerUid: "account-uid" }, "track")).toEqual(
+      { kind: "error" },
+    );
+    expect(fulfilled).toEqual([]);
+  });
+
+  it("the merge is read only at the guest door, and only when the uids differ", async () => {
+    retrieved = pi("pi_1", {}, { earnerUid: "77777777-7777-4777-8777-777777777777" });
+    await recoverIntent("pi_1", { cartId: CART, payerUid: null }, "staff");
+    await recoverIntent(
+      "pi_1",
+      { cartId: CART, payerUid: "77777777-7777-4777-8777-777777777777" },
+      "track",
+    );
+    expect(mergeReads).toEqual([]);
   });
 
   it("an unreadable cart is error, not 'no cart' — and nothing runs", async () => {
@@ -292,15 +355,110 @@ describe("sweepStrandedPayments", () => {
   it(`recovers at most ${SWEEP_MAX_RECOVER} per run and says it was truncated`, async () => {
     const many = Array.from({ length: SWEEP_MAX_RECOVER + 3 }, (_, i) => pi(`pi_${i}`));
     pages = [{ data: many, has_more: false }];
-    // What each attempt answers is not what is measured here (the cart read says no cart, so each
-    // is refused); the COUNT of attempts is, and every attempt lands in `answers`.
-    cart = null;
+    // A cancelled cart passes the verdict, so every attempt reaches the (mocked) fulfillment.
+    cart = { status: "cancelled", live_payment_intent_id: null };
     const summary = await sweepStrandedPayments(NOW);
     expect(summary.candidates).toBe(SWEEP_MAX_RECOVER + 3);
-    expect(Object.values(summary.answers).reduce((a, b) => a + (b ?? 0), 0)).toBe(
-      SWEEP_MAX_RECOVER,
-    );
+    expect(fulfilled).toHaveLength(SWEEP_MAX_RECOVER);
     expect(summary.truncated).toBe(true);
+  });
+
+  // Codex on #365 @ 1b760cb (P2): a refused candidate (refunded, superseded) never gets an order or a
+  // ledger row, so it is a candidate on EVERY run — newest-first, a handful of them spent the whole
+  // recovery cap and an older recoverable payment was never reached.
+  it("refusals do not spend the recovery cap — an older recoverable payment is still reached", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const refunded = { amount: 5200, amount_captured: 5200, amount_refunded: 5200, refunded: true };
+    const stuck = Array.from({ length: SWEEP_MAX_RECOVER + 5 }, (_, i) =>
+      pi(`pi_refunded_${i}`, { latest_charge: refunded }),
+    );
+    pages = [{ data: [...stuck, pi("pi_older_recoverable")], has_more: false }];
+    cart = { status: "cancelled", live_payment_intent_id: null };
+    const summary = await sweepStrandedPayments(NOW);
+    expect(fulfilled).toEqual([{ id: "pi_older_recoverable", via: "cron" }]);
+    expect(summary.answers).toEqual({ refused: SWEEP_MAX_RECOVER + 5, recorded: 1 });
+    expect(summary.truncated).toBe(false);
+    // Each refusal is at error level, by name: a charged intent the cron will not recover.
+    const refusals = err.mock.calls.filter((c) => String(c[0]).includes("refused"));
+    expect(refusals).toHaveLength(SWEEP_MAX_RECOVER + 5);
+    expect(refusals[0]?.[1]).toMatchObject({ refusal: "refunded", via: "cron" });
+    err.mockRestore();
+  });
+
+  it(`examines at most ${SWEEP_MAX_EXAMINE} candidates per run, refused or not`, async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const refunded = { amount: 5200, amount_captured: 5200, amount_refunded: 5200, refunded: true };
+    pages = [
+      {
+        data: Array.from({ length: SWEEP_MAX_EXAMINE + 4 }, (_, i) =>
+          pi(`pi_r${i}`, { latest_charge: refunded }),
+        ),
+        has_more: false,
+      },
+    ];
+    cart = { status: "cancelled", live_payment_intent_id: null };
+    const summary = await sweepStrandedPayments(NOW);
+    expect(summary.answers.refused).toBe(SWEEP_MAX_EXAMINE);
+    expect(summary.truncated).toBe(true);
+    err.mockRestore();
+  });
+
+  it("stops at the time budget, says so at error level, and names what it did not reach", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    pages = [{ data: [pi("pi_a"), pi("pi_b"), pi("pi_c")], has_more: false }];
+    cart = { status: "cancelled", live_payment_intent_id: null };
+    // The clock: read at the start (0), before the first candidate (inside the budget), then before
+    // the second (past it). One page, so the listing never reads it.
+    const ticks = [0, 0, SWEEP_TIME_BUDGET_MS + 1];
+    const clock = () => ticks.shift() ?? SWEEP_TIME_BUDGET_MS + 1;
+    const summary = await sweepStrandedPayments(NOW, clock);
+    expect(fulfilled).toEqual([{ id: "pi_a", via: "cron" }]);
+    expect(summary.truncated).toBe(true);
+    const budget = err.mock.calls.filter((c) => String(c[0]).includes("time budget"));
+    expect(budget).toHaveLength(1);
+    expect(budget[0]?.[1]).toMatchObject({ notReached: 2 });
+    err.mockRestore();
+  });
+
+  it("the time budget also stops the LISTING, and says so", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    pages = Array.from({ length: 3 }, (_, p) => ({
+      data: [pi(`pi_p${p}`, { status: "canceled" })],
+      has_more: true,
+    }));
+    const ticks = [0, SWEEP_TIME_BUDGET_MS + 1];
+    const summary = await sweepStrandedPayments(
+      NOW,
+      () => ticks.shift() ?? SWEEP_TIME_BUDGET_MS + 1,
+    );
+    expect(lists).toHaveLength(1);
+    expect(summary.truncated).toBe(true);
+    expect(err.mock.calls.filter((c) => String(c[0]).includes("time budget"))).toHaveLength(1);
+    err.mockRestore();
+  });
+
+  // Blind pass + Codex on #365 @ 1b760cb: up to 1000 ids in ONE `.in()` is a ~30 KB GET URL, past
+  // what a gateway takes — the sweep would 500 exactly at volume. Chunked, and any chunk's error is
+  // the whole ledger's (fail closed: never recover against a ledger half-read).
+  it(`reads the ledgers in chunks of at most ${SWEEP_ID_CHUNK} ids`, async () => {
+    const n = SWEEP_ID_CHUNK * 2 + 7;
+    pages = [{ data: Array.from({ length: n }, (_, i) => pi(`pi_${i}`)), has_more: false }];
+    ordersOnRecord = Array.from({ length: n }, (_, i) => `pi_${i}`);
+    const summary = await sweepStrandedPayments(NOW);
+    expect(summary.candidates).toBe(0);
+    for (const table of ["qr_orders", "qr_refunds_needed"]) {
+      const sizes = inCalls.filter((c) => c.table === table).map((c) => c.n);
+      expect(sizes.reduce((a, b) => a + b, 0)).toBe(n);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(SWEEP_ID_CHUNK);
+    }
+  });
+
+  it("one unreadable ledger chunk fails the whole sweep — never a half-read ledger", async () => {
+    const n = SWEEP_ID_CHUNK + 1;
+    pages = [{ data: Array.from({ length: n }, (_, i) => pi(`pi_${i}`)), has_more: false }];
+    ledgerErrorOnCall = 2;
+    await expect(sweepStrandedPayments(NOW)).rejects.toThrow(/order ledger unreadable/);
+    expect(fulfilled).toEqual([]);
   });
 
   it(`reads at most ${SWEEP_MAX_PAGES} pages, paging by the last id`, async () => {
