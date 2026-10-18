@@ -59,6 +59,7 @@ import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
 import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
+import { soldOutWarned } from "@/lib/settle-sold-out";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -79,6 +80,10 @@ type SheetError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
   | { kind: "unreadable" }
+  // The lifecycle audit (#360) — a sold-out draft THIS tap did not display (PD8's pattern: a
+  // re-warning, never a block): named; the next Take passes. Or the availability read failed.
+  | { kind: "soldOut"; dishes: string }
+  | { kind: "soldOutUnreadable" }
   // PD8 — a request this tap did not display (a re-warning, never a block): the page re-draws the
   // flag card naming it when it can; with no page, the sheet says it and the next tap passes.
   | { kind: "approvalPending"; dish: string }
@@ -95,6 +100,9 @@ type SettleTap = {
   tenderAtTap: number | null;
   /** PD8 — the pending request ids the trigger DISPLAYED when it was tapped: the acknowledgement. */
   acked: string[];
+  /** #360 — the sold-out draft dishes (menu ids) the page displayed at the tap, plus what this door's
+   *  own last re-warning carried (`ackForTap`). */
+  soldOutAcked: string[];
 };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
@@ -193,6 +201,7 @@ export function CashSettleButton({
   door,
   openRef,
   acknowledgedApprovalIds,
+  acknowledgedSoldOutIds,
   onApprovalPending,
   totalPending = false,
   describedBy,
@@ -263,6 +272,9 @@ export function CashSettleButton({
    *  trigger. Captured at the TAP that opens the sheet and sent with the settle: tapping Take cash
    *  with a flag up IS the acknowledgement. Nothing here is read into an amount. */
   acknowledgedApprovalIds?: readonly string[];
+  /** #360 — the SOLD-OUT draft dishes (menu ids) the page shows above this trigger
+   *  (`displayedSoldOut`): captured at the tap and sent, PD8's acknowledgement. */
+  acknowledgedSoldOutIds?: readonly string[];
   /** PD8 — the server re-warned (`approval_pending`): a request this tap did not display. The sheet
    *  closes and the page re-draws the flag card with the server's list and says `dishes` — the
    *  ones this tap did NOT acknowledge (`reWarning`); the next tap acknowledges what the card shows.
@@ -506,6 +518,10 @@ export function CashSettleButton({
   // The blind pass on #333 — with NO page to re-draw the flag, what this door's own re-warning
   // carried, so its next Take passes (`ackForTap`): never a block. With a page, the page owns it.
   const warned = useRef<string[]>([]);
+  // #360 — the same two halves for a sold-out draft: what the page displayed at the tap, and what
+  // this door's own last re-warning named (so the next Take passes — a re-warning, never a block).
+  const soldOutAckedAtTap = useRef<string[]>([]);
+  const soldOutWarnedIds = useRef<string[]>([]);
   const settleRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!openRef) return;
@@ -594,6 +610,20 @@ export function CashSettleButton({
         // P2dc · P2el — nothing recorded, the freeze released: said in the dictionary's words,
         // and Take stays armed in the open sheet — the retry is the same tap.
         setError({ kind: "unreadable" });
+        return;
+      }
+      if (res.code === "sold_out_unseen") {
+        // #360 — a sold-out draft this tap had not displayed: nothing recorded, the freeze released.
+        // Named here (the ones not yet seen), and the page re-reads so its warning names them too;
+        // the next Take acknowledges everything the refusal carried — a re-warning, never a block.
+        soldOutWarnedIds.current = res.dishes.map((d) => d.id);
+        setError({ kind: "soldOut", dishes: soldOutWarned(res.dishes, at.soldOutAcked) });
+        onChanged?.();
+        return;
+      }
+      if (res.code === "sold_out_unreadable") {
+        // #360 — PD8's unreadable rule: nothing recorded, the same tap retries.
+        setError({ kind: "soldOutUnreadable" });
         return;
       }
       if (res.code === "approval_pending") {
@@ -708,6 +738,7 @@ export function CashSettleButton({
       // PD8 — the ids the trigger displayed when it was tapped (captured at that tap, below), plus
       // what this door's own re-warning carried where no page re-draws the flag.
       acked: ackForTap(ackedAtTap.current, warned.current),
+      soldOutAcked: ackForTap(soldOutAckedAtTap.current, soldOutWarnedIds.current),
     };
     try {
       // 9b — called OUTSIDE any transition, awaited BOUNDED, handed the RAW action promise (a raced
@@ -719,6 +750,8 @@ export function CashSettleButton({
           tipCents,
           quotedCents: at.quoted,
           acknowledgedApprovalIds: at.acked,
+          // #360 — omitted when empty: the schema defaults it (an older call shape stays byte-identical).
+          ...(at.soldOutAcked.length > 0 ? { acknowledgedSoldOutIds: at.soldOutAcked } : {}),
         }),
       );
       if (out.kind === "answer") {
@@ -829,6 +862,10 @@ export function CashSettleButton({
         vars={settleBlockedMsg(m.units, running).vars}
         echo={false}
       />
+    ) : m.kind === "soldOut" ? (
+      <Chrome lang={lang} k="settle.soldOut.warned" vars={{ x: m.dishes }} echo={false} />
+    ) : m.kind === "soldOutUnreadable" ? (
+      <Chrome lang={lang} k="settle.soldOut.unreadable" echo={false} />
     ) : m.kind === "approvalPending" ? (
       <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: m.dish }} echo={false} />
     ) : m.kind === "approvalUnreadable" ? (
@@ -1451,6 +1488,7 @@ export function CashSettleButton({
     // PD8 — THIS tap is the acknowledgement: exactly the pending ids the page showed at the tap (the
     // render's own props, closed over before the door's gate awaited anything).
     ackedAtTap.current = [...(acknowledgedApprovalIds ?? [])];
+    soldOutAckedAtTap.current = [...(acknowledgedSoldOutIds ?? [])];
     // A new opening starts its own last attempt — and KEEPS every earlier doubt (#334, C1).
     track({ k: "opened" });
     // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and

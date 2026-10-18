@@ -12,7 +12,8 @@
  *   - no running bill (`tab === "none"`) and nothing on an open cart (`itemCount === 0` — a paid
  *     table that started a second round is ordering again);
  *   - the kitchen is done with it: nothing unsent, nothing cooking, nothing served in the last five
- *     minutes (`up`, the wall's linger) — a family eating is never told to leave. A `null` kitchen is
+ *     minutes (`up`, the wall's linger), no to-go food still waiting to be bagged (`bagUp`, the
+ *     lifecycle audit) — a family eating is never told to leave. A `null` kitchen is
  *     the fold's own "nothing on it is unsent, cooking, ready or served" (`foldFloorKitchen`): done;
  *   - the kitchen read is KNOWN: an unknown read (`kitchenUnknown`, the poll's own flag) is never
  *     "go" — the one place "unknown" lives, never inferred from a null.
@@ -25,7 +26,7 @@ export type ClearVerdictInput = {
   refundState: RefundState | null;
   tab: "none" | "trust" | "secure";
   itemCount: number;
-  kitchen: Pick<FloorKitchen, "notSent" | "inKitchen" | "up"> | null;
+  kitchen: Pick<FloorKitchen, "notSent" | "inKitchen" | "up" | "bagUp"> | null;
   kitchenUnknown: boolean;
 };
 
@@ -35,5 +36,6 @@ export function clearHint(t: ClearVerdictInput): boolean {
   if (t.tab !== "none" || t.itemCount > 0) return false;
   if (t.kitchenUnknown) return false;
   const k = t.kitchen;
-  return k === null || (k.notSent === 0 && k.inKitchen === 0 && k.up === 0);
+  // The lifecycle audit — a table's to-go food still waiting to be bagged is not finished either.
+  return k === null || (k.notSent === 0 && k.inKitchen === 0 && k.up === 0 && (k.bagUp ?? 0) === 0);
 }

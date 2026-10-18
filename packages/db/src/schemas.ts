@@ -700,6 +700,14 @@ export const settleCashInput = z.object({
    * tablet on an older bundle still settles — it then meets the re-warning once if a request waits.
    */
   acknowledgedApprovalIds: z.array(uuid).max(50).default([]),
+  /**
+   * The lifecycle audit (#360) — the SOLD-OUT draft dishes (menu item ids) THIS door displayed at its
+   * tap: the same acknowledgement, for a dish 86'd since it was added (`settle-sold-out.ts`). The
+   * server refuses `sold_out_unseen` ONLY for a sold-out draft the tap did not display — a
+   * re-warning, never a block. COMPARE-ONLY, bounded like the approvals' ids, defaulted so an older
+   * bundle still settles (it meets the re-warning once).
+   */
+  acknowledgedSoldOutIds: z.array(uuid).max(50).default([]),
   // ── Phase 2c · register ──
   /**
    * COMPARE-ONLY. The pre-tip all-in total the cashier was SHOWN (`detail.settleTotalCents`, i.e.

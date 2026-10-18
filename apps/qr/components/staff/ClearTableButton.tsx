@@ -551,6 +551,18 @@ export function ClearTableButton({
     return () => clearTimeout(id);
   }, [slip?.walkout, slip?.at]);
   const commitArmed = slip !== null && slip.walkout && nowMs - slip.at >= CLEAR_ARM_MS;
+  /** The lifecycle audit — "N more not sent — they're dropped, not counted as a loss" (the no-show's
+   *  own words): a free clear's window says what it takes with it while Undo is still live. Never a
+   *  question before it — "clearing a table never waits" (OWNER_RULINGS_2026-10-07 #6); whether to
+   *  ask is the owner's (OPEN-ITEMS K51). */
+  const draftsLine = (units: number) => (
+    <Chrome
+      lang={lang}
+      k={plural(units, "table.noshow.body.drafts.one", "table.noshow.body.drafts.many")}
+      vars={{ n: units }}
+      echo="stack"
+    />
+  );
   const committing = phase.k === "committing";
 
   const tableStep = slip ? (
@@ -688,6 +700,10 @@ export function ClearTableButton({
       <p id={windowId} className="clear-chip">
         <Chrome lang={lang} k="settle.clear.window" vars={{ id: label }} echo="inline" />
       </p>
+      {/* The lifecycle audit — what the window takes with it, said while Undo is still live. */}
+      {win && win.look.droppedUnits > 0 && (
+        <p className="clear-slip-drafts">{draftsLine(win.look.droppedUnits)}</p>
+      )}
       <div className="clear-window-cells">
         <Button
           ref={undoRef}

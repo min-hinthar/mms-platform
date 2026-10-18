@@ -12,6 +12,7 @@ import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
 import { ackForTap, reWarning, type PendingFlag } from "@/lib/settle-approvals";
+import { soldOutWarned } from "@/lib/settle-sold-out";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
@@ -38,6 +39,10 @@ type CloseError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
   | { kind: "unreadable" }
+  // #360 — a sold-out draft this confirm did not display (PD8's re-warning, never a block): named;
+  // the next confirm passes. Or the availability read failed (the same tap retries).
+  | { kind: "soldOut"; dishes: string }
+  | { kind: "soldOutUnreadable" }
   // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
   | { kind: "approvalPending"; dish: string }
   // PD8 — the pending read failed; nothing charged, the same tap retries.
@@ -70,6 +75,7 @@ export function CloseSecureTabButton({
   blockedNoteId,
   onBlockedTap,
   acknowledgedApprovalIds,
+  acknowledgedSoldOutIds,
   onApprovalPending,
   gateLive,
   readTicket = 0,
@@ -93,6 +99,9 @@ export function CloseSecureTabButton({
   /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS confirm as
    *  the acknowledgement (never read into an amount). */
   acknowledgedApprovalIds?: readonly string[];
+  /** #360 — the SOLD-OUT draft dishes (menu ids) THIS door displays: sent at ITS confirm, PD8's
+   *  acknowledgement for a dish 86'd since it was added. */
+  acknowledgedSoldOutIds?: readonly string[];
   /** PD8 — the server re-warned: the page re-draws the flag card with the server's list and says
    *  `dishes`, the ones this confirm did NOT acknowledge (`reWarning`). */
   onApprovalPending?: (pending: PendingFlag[], dishes: string) => void;
@@ -149,6 +158,10 @@ export function CloseSecureTabButton({
   const warned = useRef<string[]>([]);
   // What the last close SENT as its acknowledgement — the re-warning names what it did not cover.
   const sentAck = useRef<string[]>([]);
+  // #360 — the sold-out halves: what this door's own last re-warning named, and what the last close
+  // SENT (the re-warning names what it did not cover).
+  const soldOutWarnedIds = useRef<string[]>([]);
+  const sentSoldOutAck = useRef<string[]>([]);
 
   // Move focus into the confirm group when it opens and back to the trigger when it closes (parity with
   // CashSettleButton, S1-audit S6). The guard skips first mount.
@@ -220,6 +233,19 @@ export function CloseSecureTabButton({
         setError({ kind: "unreadable" });
         return false;
       }
+      if (res.code === "sold_out_unseen") {
+        // #360 — a sold-out draft this confirm had not displayed: nothing charged, the freeze
+        // released. Named; the page re-reads; the next confirm acknowledges all the refusal carried.
+        soldOutWarnedIds.current = res.dishes.map((d) => d.id);
+        setError({ kind: "soldOut", dishes: soldOutWarned(res.dishes, sentSoldOutAck.current) });
+        onChanged?.();
+        return false;
+      }
+      if (res.code === "sold_out_unreadable") {
+        // #360 — PD8's unreadable rule: nothing charged, the same tap retries.
+        setError({ kind: "soldOutUnreadable" });
+        return false;
+      }
       if (res.code === "approval_pending") {
         // PD8 — a request this confirm did not display: nothing charged, the freeze released. The
         // page re-draws the flag card naming it; the next confirm acknowledges what it shows.
@@ -275,11 +301,16 @@ export function CloseSecureTabButton({
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       // PD8 — the ids this door displays at ITS confirm ride the close as the acknowledgement.
       sentAck.current = ackForTap(acknowledgedApprovalIds ?? [], warned.current);
+      sentSoldOutAck.current = ackForTap(acknowledgedSoldOutIds ?? [], soldOutWarnedIds.current);
       const out = await boundWrite(
         closeSecureTab({
           sessionId,
           quotedCents: quoted,
           acknowledgedApprovalIds: sentAck.current,
+          // #360 — omitted when empty (the schema defaults it).
+          ...(sentSoldOutAck.current.length > 0
+            ? { acknowledgedSoldOutIds: sentSoldOutAck.current }
+            : {}),
         }),
       );
       if (out.kind === "answer") {
@@ -443,6 +474,15 @@ export function CloseSecureTabButton({
               <OutageText lang={lang} error={alertMsg.text} />
             ) : alertMsg.kind === "unreadable" ? (
               <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : alertMsg.kind === "soldOut" ? (
+              <Chrome
+                lang={lang}
+                k="settle.soldOut.warned"
+                vars={{ x: alertMsg.dishes }}
+                echo={false}
+              />
+            ) : alertMsg.kind === "soldOutUnreadable" ? (
+              <Chrome lang={lang} k="settle.soldOut.unreadable" echo={false} />
             ) : alertMsg.kind === "approvalPending" ? (
               <Chrome
                 lang={lang}

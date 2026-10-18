@@ -16,9 +16,11 @@ import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 type WriteResult = { ok: true } | { ok: false; error: string };
 const staffSetQty = vi.fn((): Promise<WriteResult> => Promise.resolve({ ok: true }));
 const setLineNotes = vi.fn((): Promise<WriteResult> => Promise.resolve({ ok: true }));
+const staffSetLineFulfillment = vi.fn((): Promise<WriteResult> => Promise.resolve({ ok: true }));
 vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (...a: unknown[]) => staffSetQty(...(a as [])),
   setLineNotes: (...a: unknown[]) => setLineNotes(...(a as [])),
+  staffSetLineFulfillment: (...a: unknown[]) => staffSetLineFulfillment(...(a as [])),
 }));
 /** The loss sheet is a stand-in that REPORTS what the editor hands it: `open`, and an instance
  *  number (a fresh instance per open is the freshness the old mount-while-open shape gave). */
@@ -742,5 +744,102 @@ describe("StaffLineEditor — Phase 2h: bounded writes, said honestly, the late 
     // a failure a lost answer cannot prove; red.
     await act(async () => h.fail(new Error("fetch failed")));
     expect(r.onError).toHaveBeenLastCalledWith(WRITE_UNCONFIRMED);
+  });
+});
+
+describe("the lifecycle audit — what a sent dish still says, and where a draft one goes", () => {
+  const sent = (over: Partial<TableLineView>) =>
+    ({ ...line, state: "fired", notes: "no peanuts — allergy", ...over }) as TableLineView;
+  const draw = (
+    l: TableLineView,
+    extra: { reroute?: boolean; onError?: (m: string) => void } = {},
+  ) =>
+    render(
+      <StaffLangProvider lang="en">
+        <ul>
+          <StaffLineEditor
+            sessionId="s1"
+            line={l}
+            disabled={false}
+            onError={extra.onError ?? (() => {})}
+            reroute={extra.reroute}
+          />
+        </ul>
+      </StaffLangProvider>,
+    );
+
+  it("a SENT, a comped and a removed dish keep the kitchen note — the allergy is never hidden", () => {
+    // lck/staff-line-editor/note-hidden-once-sent — two "1× Mohinga · Sent" rows, one with the
+    // allergy note: the server could not tell which bowl to void.
+    for (const l of [sent({}), sent({ comped: true }), sent({ state: "voided" })]) {
+      const { container } = draw(l);
+      expect(container.textContent).toContain("“no peanuts — allergy”");
+      cleanup();
+    }
+  });
+
+  it("a sent dish 86'd since it was sent says Sold out, as the KDS does — removed and free rows too", () => {
+    // lck/staff-line-editor/sold-out-hidden-once-sent
+    const { container } = draw(sent({ soldOut: true }));
+    expect(container.textContent).toContain(STAFF["table.line.soldOut"].en);
+    cleanup();
+    // Codex on #360 — the REMOVED row dropped it (the PR said removed lines keep it).
+    // lck/staff-line-editor/sold-out-hidden-once-removed — red.
+    for (const l of [
+      sent({ soldOut: true, state: "voided" }),
+      sent({ soldOut: true, comped: true }),
+    ]) {
+      expect(draw(l).container.textContent).toContain(STAFF["table.line.soldOut"].en);
+      cleanup();
+    }
+    expect(draw(sent({ soldOut: false })).container.textContent).not.toContain(
+      STAFF["table.line.soldOut"].en,
+    );
+  });
+
+  it("the tag is the dish's STAGE on the one track, not the raw column", () => {
+    // lck/staff-line-tag/raw-state-wins — "Sent" while the diner's send grace still ran.
+    const { container } = draw(sent({ stage: "sending" }));
+    expect(container.textContent).toContain(STAFF["table.line.state.sending"].en);
+    expect(container.textContent).not.toContain(` · ${STAFF["table.line.state.fired"].en}`);
+  });
+
+  it("a dine-in draft dish moves between For here and To go — through the staff action", async () => {
+    // lck/staff-line-editor/reroute-unwired — the server could not honour "box this one".
+    const draft = { ...line, fulfillment: "dinein" } as TableLineView;
+    draw(draft, { reroute: true });
+    const forHere = screen.getByRole("button", { name: STAFF["table.line.forHere"].en });
+    const toGo = screen.getByRole("button", { name: STAFF["table.line.toGo"].en });
+    expect(forHere.getAttribute("aria-pressed")).toBe("true");
+    expect(toGo.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      fireEvent.click(toGo);
+    });
+    expect(staffSetLineFulfillment).toHaveBeenCalledWith("s1", {
+      cartItemId: "l1",
+      fulfillment: "togo",
+    });
+    // tapping the segment already pressed sends nothing
+    staffSetLineFulfillment.mockClear();
+    await act(async () => {
+      fireEvent.click(forHere);
+    });
+    expect(staffSetLineFulfillment).not.toHaveBeenCalled();
+  });
+
+  it("a refusal is said; and with no `reroute` (a counter or pickup order) there is no control", async () => {
+    const said: string[] = [];
+    staffSetLineFulfillment.mockResolvedValueOnce({ ok: false, error: "nope" });
+    draw({ ...line, fulfillment: "dinein" } as TableLineView, {
+      reroute: true,
+      onError: (m) => said.push(m),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.line.toGo"].en }));
+    });
+    expect(said).toEqual(["nope"]);
+    cleanup();
+    draw({ ...line, fulfillment: "togo" } as TableLineView);
+    expect(screen.queryByRole("button", { name: STAFF["table.line.toGo"].en })).toBeNull();
   });
 });
