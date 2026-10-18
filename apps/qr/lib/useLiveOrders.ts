@@ -1,13 +1,21 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { readMyLiveOrders } from "./orders";
-import type { LiveOrder } from "./live-order";
+import { liveOrdersPollDue, type LiveOrder } from "./live-order";
+
+/** J — the re-poll's tick, for every caller. Each tick reads the server only while the page is visible
+ *  and a fired bag is not yet Ready, or — at the slower `READY_BAG_POLL_MS` — a Ready bag waits to be
+ *  collected (`liveOrdersPollDue`). Modest: a status word, not a ticker (the pickup page's own tick is
+ *  30 s too). */
+export const LIVE_ORDERS_POLL_MS = 30_000;
 
 /**
  * K4 — the client freshness layer over `getMyLiveOrders`. The plan's "one realtime-ish freshness rule":
  * refetch on mount, on `visibilitychange`→visible, and on window focus (the J3 pattern) — NO new realtime
- * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus; the tray is
- * a poll). `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
+ * channels (the single collapsed pill keeps its one existing channel via useActiveOrderStatus). The
+ * tray rows, the header's cross-device chip and /account "Today" have NO realtime feed of their own,
+ * so beside those events there is ONE timer (J, below), gated by `liveOrdersPollDue` alone.
+ * `pokeKey` lets a caller nudge a refetch when a NEW order is placed (its key changes) so the
  * count/tray catch up shortly after the webhook stamps earned_by; the visibility/focus refetch is the
  * backstop for the redirect→stamp race.
  *
@@ -34,6 +42,8 @@ export function useLiveOrders(
   const [orders, setOrders] = useState<LiveOrder[]>(() => initial ?? []);
   const [loading, setLoading] = useState(enabled && initial === undefined);
   const reqRef = useRef(0);
+  // When the latest read began (J's Ready-bag cadence, `liveOrdersPollDue`). 0 until the first.
+  const lastReadRef = useRef(0);
   // The first mount load is skipped ONLY for a seeded caller. A ref, read and cleared inside the effect
   // (never during render), so a later `pokeKey` change still reloads as it always did. (React's dev-only
   // StrictMode effect re-run does load once — the second run finds the ref cleared; production does not.)
@@ -54,6 +64,7 @@ export function useLiveOrders(
   const load = useCallback(() => {
     if (!enabled) return;
     const req = ++reqRef.current;
+    lastReadRef.current = Date.now();
     readMyLiveOrders()
       .then((r) => {
         if (req === reqRef.current) {
@@ -74,8 +85,10 @@ export function useLiveOrders(
     // (lint-safe, matching TierUpCelebration / MergeRedeemer). The listeners below call load() from event
     // callbacks, where setState is allowed.
     let raf: number | undefined;
-    if (skipFirstLoad.current) skipFirstLoad.current = false;
-    else raf = requestAnimationFrame(load);
+    if (skipFirstLoad.current) {
+      skipFirstLoad.current = false;
+      lastReadRef.current = Date.now(); // the server snapshot IS a read, a moment old
+    } else raf = requestAnimationFrame(load);
     // A tab return fires visibilitychange AND focus near-simultaneously — coalesce them into ONE load via a
     // short timer (the two would otherwise be two round-trips). Only wakes when actually visible. The poke
     // (deps below) + manual refetch still call load() directly, un-coalesced.
@@ -96,6 +109,33 @@ export function useLiveOrders(
       window.removeEventListener("focus", onWake);
     };
   }, [enabled, load, pokeKey]); // pokeKey change = a new order / navigation → refetch
+
+  // J (lifecycle audit, 2026-10-13) — the lists this hook feeds have no realtime of their own: the
+  // header's tray rows (two or more live orders) and its cross-device chip (`serverSingle`, an order
+  // this device did not place), and /account "Today" (the header pill is off there on purpose). So a
+  // guest watched "Preparing" through the expo's Ready until they switched apps and back. Every
+  // caller gets a local tick every LIVE_ORDERS_POLL_MS that asks `liveOrdersPollDue` on its own clock
+  // and reads the server only while the page is visible and a FIRED bag is not yet Ready — or, every
+  // READY_BAG_POLL_MS, while a Ready bag waits: its hand-off is the row leaving the list, which nothing
+  // pushes here (Codex on #359). The gate is that rule alone (the second capped pass on #359). A held
+  // or next-day pickup, a dine-in row or a grocery row costs no round trip; a held pickup starts the
+  // reads by itself once its `fire_at` passes, and a fired bag is minutes to an hour of reads.
+  const poll = enabled && orders.length > 0;
+  const ordersRef = useRef(orders);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+  useEffect(() => {
+    if (!poll) return;
+    const t = window.setInterval(() => {
+      if (
+        document.visibilityState === "visible" &&
+        liveOrdersPollDue(ordersRef.current, Date.now(), lastReadRef.current)
+      )
+        load();
+    }, LIVE_ORDERS_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [poll, load]);
 
   return {
     orders: enabled ? orders : [],

@@ -51,8 +51,12 @@ vi.mock("./authz", () => ({
     return Promise.resolve(authz);
   },
 }));
-let cartOrder: string | null = null;
-vi.mock("./order", () => ({ getCartOrderId: () => Promise.resolve(cartOrder) }));
+/** What `getCartOrderId` answers — an Error is THROWN (a 403 verdict, or an outage). */
+let cartOrder: string | null | Error = null;
+vi.mock("./order", () => ({
+  getCartOrderId: () =>
+    cartOrder instanceof Error ? Promise.reject(cartOrder) : Promise.resolve(cartOrder),
+}));
 
 type Row = Record<string, unknown>;
 let cart: Row | null = null;
@@ -62,20 +66,26 @@ let members: Row[] = [];
 /** Phase 2c · gate — the session rows the host read sees (`host_seat`). */
 let sessions: Row[] = [];
 let orders: Row[] = [];
+/** Session truth — the `qr_table_clears` rows (`mms_clear_table`'s durable record). */
+let clears: Row[] = [];
+/** Session truth — a table whose read answers an error (the other reads unaffected). */
+let failTable: string | null = null;
 let countFails = false;
 let updateFails = false;
 let readFails = false;
 
-type Filter = { kind: "eq" | "is" | "neq"; col: string; val: unknown };
+type Filter = { kind: "eq" | "is" | "neq" | "in"; col: string; val: unknown };
 const matches = (r: Row, filters: Filter[]) =>
   filters.every((f) =>
-    f.kind === "eq"
-      ? r[f.col] === f.val
-      : f.kind === "neq"
-        ? r[f.col] !== f.val
-        : f.val === null
-          ? r[f.col] === null || r[f.col] === undefined
-          : r[f.col] === f.val,
+    f.kind === "in"
+      ? (f.val as unknown[]).includes(r[f.col])
+      : f.kind === "eq"
+        ? r[f.col] === f.val
+        : f.kind === "neq"
+          ? r[f.col] !== f.val
+          : f.val === null
+            ? r[f.col] === null || r[f.col] === undefined
+            : r[f.col] === f.val,
   );
 const rowsFor = (table: string): Row[] =>
   table === "qr_cart_items"
@@ -86,9 +96,11 @@ const rowsFor = (table: string): Row[] =>
         ? sessions
         : table === "qr_orders"
           ? orders
-          : cart
-            ? [cart]
-            : [];
+          : table === "qr_table_clears"
+            ? clears
+            : cart
+              ? [cart]
+              : [];
 function builder(table: string, mode: "select" | "update", values: Row | null, head: boolean) {
   const filters: Filter[] = [];
   const api = {
@@ -104,6 +116,10 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
       filters.push({ kind: "neq", col, val });
       return api;
     },
+    in(col: string, val: unknown[]) {
+      filters.push({ kind: "in", col, val });
+      return api;
+    },
     limit() {
       return api;
     },
@@ -112,7 +128,8 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
       return api;
     },
     maybeSingle() {
-      if (readFails) return Promise.resolve({ data: null, error: { message: "read failed" } });
+      if (readFails || failTable === table)
+        return Promise.resolve({ data: null, error: { message: "read failed" } });
       const hit = rowsFor(table).find((r) => matches(r, filters));
       return Promise.resolve({ data: hit ? { ...hit } : null, error: null });
     },
@@ -125,6 +142,14 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
         );
         return;
       }
+      if (table === "qr_table_clears" && head) {
+        resolve(
+          failTable === table
+            ? { data: null, count: null, error: { message: "count failed" } }
+            : { data: null, count: clears.filter((r) => matches(r, filters)).length, error: null },
+        );
+        return;
+      }
       if (mode === "update") {
         if (updateFails) {
           resolve({ data: null, count: null, error: { message: "update failed" } });
@@ -133,6 +158,10 @@ function builder(table: string, mode: "select" | "update", values: Row | null, h
         const hit = cart !== null && matches(cart, filters);
         if (hit && values) Object.assign(cart as Row, values);
         resolve({ data: hit ? [{ id: cart!.id }] : [], count: null, error: null });
+        return;
+      }
+      if (readFails || failTable === table) {
+        resolve({ data: null, count: null, error: { message: "read failed" } });
         return;
       }
       resolve({
@@ -156,6 +185,10 @@ vi.mock("@mms/db/server", () => ({
 
 const { requestCounterPay, withdrawCounterPay, counterPayOutcome } = await import("./counter-pay");
 
+/** A session clock well inside / well past its expiry, so no case races the wall clock. */
+const LATER = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const EARLIER = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
 beforeEach(() => {
   authz = OPEN_AUTHZ;
   callerUid = "u-1";
@@ -165,8 +198,10 @@ beforeEach(() => {
     { cart_id: "c-1", state: "draft", comped: false },
   ];
   members = [{ session_id: "s-1", seat_id: "u-1" }];
-  sessions = [{ id: "s-1", host_seat: null }];
+  sessions = [{ id: "s-1", host_seat: null, status: "active", expires_at: LATER }];
   orders = [];
+  clears = [];
+  failTable = null;
   countFails = false;
   updateFails = false;
   readFails = false;
@@ -283,33 +318,34 @@ describe("requestCounterPay", () => {
   });
 });
 
-// ── Phase 2c · gate ──
-describe("requestCounterPay — the ask waits for everything to be sent (the Bill's own rule)", () => {
-  it("a hosted table holding unsent dine-in dishes is refused as `unsent`, and nothing is stamped", async () => {
-    // MUTATION (counter-pay/unsent-not-read): hardcode `unsentBlocks: false` — the ask lights the
-    // floor for a table whose dishes nobody sent, a door the Bill's Pay button keeps shut; red.
+// ── PD2 (m2 STATES "Unsent dishes", decision 12) — the ask CARRIES unsent dishes ──
+describe("requestCounterPay — the ask carries unsent dishes to the counter (PD2's lift, after P2do)", () => {
+  it("a hosted table holding unsent dine-in dishes asks, and is stamped — the counter checks them with the table", async () => {
+    // Phase 2c refused this as `unsent` until counter-floor's P2do; P2do shipped (#334): the floor
+    // reads "Not sent yet" on an asked table, and the register's settle doors still refuse over
+    // unsent dishes on their own (the staff gate), so the ask moves no money.
     sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [
       { cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false },
       { cart_id: "c-1", state: "fired", fulfillment: "dinein", qty: 1, comped: false },
     ];
-    expect(await requestCounterPay({ cartId: "c-1" })).toEqual({
-      ok: false,
-      reason: "unsent",
-      error: "Everything has to go to the kitchen first — then pay at the counter.",
-    });
-    expect(cart!.counter_requested_at).toBeNull();
+    const r = await requestCounterPay({ cartId: "c-1" });
+    expect(r.ok).toBe(true);
+    expect(typeof cart!.counter_requested_at).toBe("string");
+    if (r.ok) expect(r.counterRequestedAt).toBe(cart!.counter_requested_at);
   });
 
-  it("a table with NO host is never gated — nobody at the table can send", async () => {
-    // MUTATION (counter-pay/unsent-gates-a-hostless-table): read the host as always present — a
-    // staff-started table's diners (invite links, no host) can never ask for the counter; red.
-    sessions = [{ id: "s-1", host_seat: null }];
+  it("a table of nothing but unsent dishes asks too — a draft is something to settle", async () => {
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
     expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
   });
 
-  it("a to-go draft never blocks (it cooks at payment), and a sent table may ask", async () => {
+  it("a hostless table and a to-go draft ask exactly as before", async () => {
+    sessions = [{ id: "s-1", host_seat: null }];
+    items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
+    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+    cart!.counter_requested_at = null;
     sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [
       { cart_id: "c-1", state: "draft", fulfillment: "togo", qty: 1, comped: false },
@@ -318,14 +354,20 @@ describe("requestCounterPay — the ask waits for everything to be sent (the Bil
     expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
   });
 
-  it("an unreadable host fails OPEN — the ask moves no money; the settle doors behind it refuse", async () => {
-    // The host read errors while the count still answers: the gate reads "no host" and the ask
-    // goes through (the register's settle gate and create-intent each refuse on their own).
-    // MUTATION (counter-pay/unsent-host-read-fails-closed): read an unreadable host as present — a
-    // read blip holds a family at the table over an ask that moves no money; red.
-    readFails = true;
+  it("the wider refusals still hold over unsent dishes — a frozen or locked table says that", async () => {
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
     items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
-    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+    authz = { ...OPEN_AUTHZ, locked: true };
+    expect(await requestCounterPay({ cartId: "c-1" })).toMatchObject({
+      ok: false,
+      reason: "paying",
+    });
+    authz = { ...OPEN_AUTHZ, settling: true };
+    expect(await requestCounterPay({ cartId: "c-1" })).toMatchObject({
+      ok: false,
+      reason: "settling",
+    });
+    expect(cart!.counter_requested_at).toBeNull();
   });
 });
 
@@ -390,12 +432,16 @@ describe("counterPayOutcome", () => {
       kind: "paid",
       tender: "counter",
       orderId: null,
+      sessionLive: true,
+      complete: true,
     });
     cartOrder = "o-9";
     expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
       kind: "paid",
       tender: "counter",
       orderId: "o-9",
+      sessionLive: true,
+      complete: true,
     });
     orders = [{ cart_id: "c-1", status: "paid", tender: "terminal" }];
     expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "counter" });
@@ -407,6 +453,8 @@ describe("counterPayOutcome", () => {
       kind: "paid",
       tender: "card",
       orderId: null,
+      sessionLive: true,
+      complete: true,
     });
   });
   it("a paid cart whose order row is not readable yet reports tender unknown", async () => {
@@ -415,6 +463,89 @@ describe("counterPayOutcome", () => {
       kind: "paid",
       tender: "unknown",
       orderId: null,
+      sessionLive: true,
+      complete: true,
+    });
+  });
+  it("#361 review (1) — a FULLY REFUNDED order answers tender refunded, never a paid close; a paid share beside it still wins", async () => {
+    // `mms_apply_refund_reconcile` turns the order `refunded` and leaves the cart `paid`: read as
+    // "no paid order" it answered `unknown`, which every close drew as "All paid — thank you!".
+    // MUTATION (lcs/outcome-reads-only-paid-orders): read `status = 'paid'` alone again.
+    cart!.status = "paid";
+    orders = [
+      {
+        cart_id: "c-1",
+        status: "refunded",
+        tender: "cash",
+        total_cents: 1200,
+        refunded_cents: 1200,
+      },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "refunded",
+      orderId: null,
+      sessionLive: true,
+      complete: true,
+    });
+    orders = [
+      { cart_id: "c-1", status: "refunded", tender: "card", total_cents: 500, refunded_cents: 500 },
+      { cart_id: "c-1", status: "paid", tender: "card", total_cents: 700, refunded_cents: 0 },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "card" });
+    // A failed or pending order is not a settlement of this cart.
+    orders = [
+      { cart_id: "c-1", status: "failed", tender: "card", total_cents: 700, refunded_cents: 0 },
+    ];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ tender: "unknown" });
+  });
+  it("Codex round 2 on #361 — a FAILED order read is an incomplete answer, never 'no order'", async () => {
+    // MUTATION (lcs/outcome-failed-tender-read-is-complete): the failed read is cached as the
+    // end — tender unknown and no receipt link, with the poll stopped, for as long as the card is
+    // open. An unknowable read establishes nothing (M116).
+    cart!.status = "paid";
+    orders = [{ cart_id: "c-1", status: "paid", tender: "cash" }];
+    failTable = "qr_orders";
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "unknown",
+      orderId: null,
+      sessionLive: true,
+      complete: false,
+    });
+  });
+  it("Codex round 2 on #361 — an OUTAGE on the visibility read is incomplete; the gate's own 403 is a verdict", async () => {
+    // MUTATION (lcs/outcome-failed-order-id-is-complete): every throw reads as "no order this
+    // seat may see" — an outage drops the receipt link for good.
+    // MUTATION (lcs/outcome-refusal-is-incomplete): a 403 reads as an outage too — a tablemate's
+    // card order on a table staff then cleared (`assertSessionMember` refuses a closed session by
+    // design) is asked about once a minute for as long as the card is open, and never resolves.
+    cart!.status = "paid";
+    orders = [{ cart_id: "c-1", status: "paid", tender: "card" }];
+    cartOrder = new AuthzError("We’re having trouble on our end", 503, "unavailable");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({
+      tender: "card",
+      orderId: null,
+      complete: false,
+    });
+    cartOrder = new Error("fetch failed");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({ complete: false });
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    cartOrder = new AuthzError("Session is no longer active", 403, "session_expired");
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({
+      kind: "paid",
+      tender: "card",
+      orderId: null,
+      sessionLive: false,
+      complete: true,
+    });
+  });
+  it("session truth — a paid table staff then closed says so: `sessionLive` false, so the menu's new order never stays at it", async () => {
+    cart!.status = "paid";
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toMatchObject({
+      kind: "paid",
+      sessionLive: false,
     });
   });
   it("a NON-member gets unknown, not the cart's status — a cart id is in every URL", async () => {
@@ -426,11 +557,53 @@ describe("counterPayOutcome", () => {
     members = [{ session_id: "s-1", seat_id: "u-1" }];
     expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
   });
-  it("a missing or cancelled cart is gone; an unreadable one is unknown, never a verdict", async () => {
+  it("session truth — a stranger is told nothing about a CLEARED table either (the gate sits before every disclosure)", async () => {
+    // MUTATION (counter/outcome-answers-a-stranger, the gate's own mutant): without the membership
+    // read, any uuid answers whether that table was cleared.
+    members = [{ session_id: "s-1", seat_id: "u-2" }];
+    cart!.status = "cancelled";
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    clears = [{ id: "clr-1", session_id: "s-1" }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
+  });
+  it("session truth — a MISSING cart is unknown, the same answer a stranger gets (no existence oracle)", async () => {
+    // MUTATION (lcs/outcome-missing-cart-is-a-verdict): answer `ended` for a uuid that names no
+    // cart — the action then tells anyone which ids are real carts.
     cart = null;
-    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "gone" });
-    cart = { id: "c-1", session_id: "s-1", status: "cancelled", counter_requested_at: null };
-    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "gone" });
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
+  });
+  it("session truth — a staff CLEAR reads `cleared` (its `qr_table_clears` row names the session)", async () => {
+    cart!.status = "cancelled";
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    clears = [{ id: "clr-1", session_id: "s-1" }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "ended", why: "cleared" });
+    // Another table's clear says nothing about this one.
+    clears = [{ id: "clr-2", session_id: "s-other" }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "ended", why: "closed" });
+  });
+  it("session truth — a MERGE (cancelled cart, closed session, no clear record) reads the neutral `closed`", async () => {
+    cart!.status = "cancelled";
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "ended", why: "closed" });
+  });
+  it("session truth — the SWEEP (an open cart on a session past its clock) reads `expired`, swept or not yet", async () => {
+    // MUTATION (lcs/outcome-open-cart-on-a-dead-session): trust the cart's `open` alone — an open
+    // cart on a swept session answers `open`, the menu stays frozen, and the next tap re-mints.
+    sessions = [{ id: "s-1", host_seat: null, status: "active", expires_at: EARLIER }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "ended", why: "expired" });
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: EARLIER }];
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "ended", why: "expired" });
+  });
+  it("session truth — a failed session or clear read is unknown, never a guess between a clear and a merge", async () => {
+    cart!.status = "cancelled";
+    sessions = [{ id: "s-1", host_seat: null, status: "closed", expires_at: LATER }];
+    clears = [{ id: "clr-1", session_id: "s-1" }];
+    failTable = "qr_table_clears";
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
+    failTable = "table_sessions";
+    expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
+  });
+  it("an unreadable cart is unknown, never a verdict", async () => {
     readFails = true;
     expect(await counterPayOutcome({ cartId: "c-1" })).toEqual({ kind: "unknown" });
   });

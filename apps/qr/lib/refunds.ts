@@ -15,7 +15,8 @@ import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
 import type { ReceiptBreakdownish } from "./receipt-view";
 import { SETTLED_CAP, settledClock, settledDate } from "./settled-view";
-import { latestRefundByOrder, readLedgerSince } from "./refund-ledger";
+import { latestRefundByOrder } from "./refund-ledger";
+import { readDayLedger } from "./refund-ledger-day";
 import {
   lineRefundableCents,
   offeredRefund,
@@ -150,7 +151,10 @@ export async function getSettledToday(): Promise<SettledToday> {
   // day's newest refunds while the list still calls itself the day. `readLedgerSince` pages
   // deterministically (created_at AND id, W21d) and answers null rather than a partial read, which
   // is the one thing a money surface can act on honestly.
-  const todayLedger = await readLedgerSince(db, sinceIso);
+  // M221 — through the REQUEST's one read (`readDayLedger`, React `cache()` keyed on the floor): the
+  // register's drawer on the same page asks the same question, and two reads let a refund committing
+  // between them land in one screen's answer and not the other's.
+  const todayLedger = await readDayLedger(sinceIso);
   if (todayLedger === null) return { ok: false, reason: "outage" };
   const refundedTodayAt = latestRefundByOrder(todayLedger);
   // Ranked by the LATEST refund and capped BEFORE the read (Codex round 2 on #283, P1): the union

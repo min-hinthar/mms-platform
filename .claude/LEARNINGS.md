@@ -1553,7 +1553,9 @@ limiter became one (`assertMutationRate` → `withinRate` → rpc), so the order
 "first write" on the rate-limit call every mutation makes BEFORE its lock refusal — all twelve
 subjects red on a change with no behavioural content. The guard's notion of "write" (any
 `.update/.insert/.upsert/.delete/.rpc`) is too coarse to close transitively; it needs to know WHICH
-table. That is T44. The entry was deleted, with the arc written beside the exemption map.
+table. That is T44. The entry was deleted, with the arc written beside the exemption map. (T44
+closed 2026-10-12, #354: the reach now closes to a fixpoint only from writes whose chain names
+`qr_carts`/`qr_cart_items`, resolved by import identity, and `releasePayLock` is back in EXEMPT.)
 
 Two rules from this. **Measure a guard change against the subject set before trusting it** — print
 the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
@@ -4218,3 +4220,36 @@ in the planned order. Resolve only `.md` conflicts by hand, and stop on any code
 typecheck and the suite on the result. Fix a clash in the PRs themselves with a change that holds on
 both sides of the other PR's merge (here, the suite's own fixture cast, and an assertion that reads
 whatever answer the screen gives).
+
+## #278
+
+**Separately green PRs that all edit the measured-count lines conflict with `main` one after another
+(2026-10-18).** #361, #364, #365 and #366 were each green on their own heads, and each landing would
+have re-conflicted the other three in `CLAUDE.md`, `README.md`, `OPEN-ITEMS.md` and the mutant registry,
+then cost a re-measure and a full CI run per step. One integration branch that merged all four once,
+re-measured the counts once and ran CI once (#367) was cheaper than a four-step merge train.
+
+## #279
+
+**The Supabase MCP `apply_migration` can time out with NOTHING applied (2026-10-18).** M210's file timed
+out on the larger calls. After each timeout, a read query (`pg_proc`, `information_schema`,
+`pg_locks`) showed that no object existed and no lock was held, so a blind re-send would have been the
+first apply, not a duplicate. Always check state with a read before re-sending. When the timeout
+repeats, apply the file's statements in order as smaller parts and verify each part's objects before
+the next. Record every resulting stamp under M125, because one repo file now maps to several prod names.
+
+## #280
+
+**"The secret is set" is not a cutover (2026-10-18, C2).** The owner set `STRIPE_SECRET_KEY`, yet the
+production client bundle still inlined `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST`, and both
+`publishableKeyCandidates()` and the server's key read try the `_TEST` name first. A leftover `_TEST`
+variable therefore keeps production in test mode without any error. Read the publishable key's mode
+off the production bundle (`pk_test_` or `pk_live_`), and call the cutover done only once that and a
+new PaymentIntent's `livemode` say live.
+
+## #281
+
+**A value read off the cart view is a poor `useCallback` dependency (#361, round 2).** It changes once
+the first view lands, so `refresh` is re-created, which re-arms the freeze re-check and drops the
+coalescer's pending read. Mutant m227 survived behind that re-arm. Read such a value through a ref
+inside the callback.

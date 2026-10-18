@@ -38,14 +38,23 @@ import { staffGate } from "./staff";
 
 /**
  * kitchen-3 — the refusal carries a code beside its sentence so the KDS can say it in the device
- * language (`lib/kds-errors.ts`). `sentence` = show the words as they are (the gate, the outage,
- * the unlogged-change verdict); `gone` = the dish left the menu; `stale` = the compare-and-swap
- * refused because someone else moved it first.
+ * language (`lib/kds-errors.ts`). `sentence` = show the words as they are (the gate, the outage);
+ * `gone` = the dish left the menu; `stale` = the compare-and-swap refused because someone else
+ * moved it first.
+ *
+ * P2au — `unlogged` = the FLAG LANDED and only the ledger insert failed. It used to share
+ * `sentence` with the outage, so no caller could tell "nothing changed" from "the dish is off the
+ * menu, and only the record of who did it failed": the KDS showed the dish sold out after its
+ * refresh and offered no Undo for an 86 that had landed. It is still `ok: false` — the sentence
+ * ("…wasn’t logged — tell the owner it was you") must never be swallowed into a clean success —
+ * and it carries `soldOut`, the flag that landed, so a caller asks `landedSoldOut`
+ * (`lib/sold-out-landing.ts`) rather than `ok` whether the dish changed.
  */
-export type SoldOutErrCode = "sentence" | "invalid" | "gone" | "stale";
+export type SoldOutErrCode = "sentence" | "invalid" | "gone" | "stale" | "unlogged";
 export type SetItemSoldOutResult =
   | { ok: true; soldOut: boolean }
-  | { ok: false; error: string; code: SoldOutErrCode };
+  | { ok: false; error: string; code: Exclude<SoldOutErrCode, "unlogged"> }
+  | { ok: false; error: string; code: "unlogged"; soldOut: boolean };
 
 const AVAILABILITY_OUTAGE =
   "Can’t reach the menu right now — nothing changed. Try again in a moment.";
@@ -166,10 +175,13 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
 
   if (auditErr) {
     console.error("[menu-availability] audit insert failed", auditErr.message);
+    // P2au — its OWN code, carrying the flag that landed: a landing the caller records and offers
+    // an Undo for, with this sentence said beside it.
     return {
       ok: false,
       error: `${before.name_en} is ${soldOut ? "sold out" : "back on"}, but the change wasn’t logged — tell the owner it was you.`,
-      code: "sentence",
+      code: "unlogged",
+      soldOut,
     };
   }
   return { ok: true, soldOut };

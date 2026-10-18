@@ -147,6 +147,7 @@ const DETAIL: TableDetail = {
   refund: null,
   settledOrderCount: 0,
   settledOrderCountCapped: false,
+  settledLinesTruncated: false,
   paidOrderId: null,
   promoCode: null,
   settlePromoCents: null,
@@ -447,5 +448,66 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     // MUTATION (pane/applied-survives-the-next-open): the late ok's flag sends this ✕ to the settle
     // heading as if r-2 had been decided; red.
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /Decide it here/ }));
+  });
+});
+
+describe("#360 — a sold-out DRAFT at Take payment: named above the doors, and acknowledged by the tap", () => {
+  const MENU = "33333333-3333-4333-8333-333333333333";
+  const SOLD: TableDetail = {
+    ...FLAGGED,
+    pendingRequests: [],
+    lines: [
+      ...FLAGGED.lines.map((l) => ({ ...l, pendingApproval: false })),
+      {
+        ...line("l9", "Mohinga"),
+        id: "l9",
+        state: "draft",
+        soldOut: true,
+        menuItemId: MENU,
+        fulfillment: "togo",
+        sendable: false,
+      },
+    ],
+  };
+  const doorTrigger = () =>
+    [...document.getElementById("settle-h")!.closest("section")!.querySelectorAll("button")].find(
+      (b) =>
+        b.closest('[role="dialog"]') === null &&
+        b.closest(".staff-soldout-warn") === null &&
+        b.classList.contains("ui-btn-primary"),
+    )!;
+
+  it("the page names the dish above the doors, Remove first — and the doors stay live", () => {
+    // lck/floor-detail/sold-out-warning-undrawn — red.
+    mountFlagged(SOLD);
+    const warn = document.querySelector(".staff-soldout-warn") as HTMLElement;
+    expect(warn.textContent).toContain(tf("en", "settle.soldOut.warn", { x: "Mohinga" }));
+    expect(
+      within(warn).getByRole("button", {
+        name: tf("en", "settle.soldOut.remove", { x: "Mohinga" }),
+      }),
+    ).toBeTruthy();
+    expect(doorTrigger().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("Take cash acknowledges EXACTLY the sold-out dishes the page shows", async () => {
+    // lck/floor-detail/sold-out-ids-unsent — [] reaches the action, and every tap is re-warned; red.
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210, tipCents: 0 });
+    mountFlagged(SOLD);
+    await act(async () => {
+      fireEvent.click(doorTrigger());
+    });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => {
+      fireEvent.click(
+        within(dialog)
+          .getAllByRole("button")
+          .find((b) => b.textContent?.startsWith("Take $"))!,
+      );
+    });
+    await tick(0);
+    expect(settleCash).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", acknowledgedSoldOutIds: [MENU] }),
+    );
   });
 });

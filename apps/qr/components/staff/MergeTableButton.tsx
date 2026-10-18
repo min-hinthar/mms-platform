@@ -331,7 +331,15 @@ export function MergeTableButton({
               vars={{ n: sourceItemCount, id: sourceLabel, into: tableDisplay(target).text }}
               echo="stack"
             />{" "}
-            <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />
+            <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />{" "}
+            {/* The lifecycle audit — the order moves, the phones do not: said before the tap, with
+                what to tell those guests. */}
+            <Chrome
+              lang={lang}
+              k="settle.merge.phones"
+              vars={{ id: sourceLabel, into: tableDisplay(target).text }}
+              echo="stack"
+            />
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             {/* aria-disabled + the handlers' guards (§17, K35) — never native `disabled`, which drops

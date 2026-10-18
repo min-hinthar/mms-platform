@@ -9,8 +9,10 @@ gets a line here in the PR that adds it.
 - [HANDOFF.md](HANDOFF.md) — the pickup point: where the build stands and the next tasks.
 - [RETRO_PATH_DESIGN_WAVE_2026-10-11.md](RETRO_PATH_DESIGN_WAVE_2026-10-11.md) — the path-design wave measured: baselines, what to keep, what hurt, the next ten PRs, and the staff and guest feedback → issues → fixes loop.
 - [OPEN-ITEMS.md](OPEN-ITEMS.md) — the single open-work registry; sweep it in every PR. IDs never change.
+- [OPEN-ITEMS_TRIAGE_2026-10-12.md](OPEN-ITEMS_TRIAGE_2026-10-12.md) — a snapshot, not the registry: one read of every open, gated, planned or parked row against the code at `02bf46c`, sorted into fixable · owner-gated · keep open · closed, with each row's next step.
 - [WORKFLOW.md](WORKFLOW.md) — the loop, the CI lanes, the review and the merge ritual (§Review step 5 is normative, the Codex-out-of-quota rule included).
 - [OWNER_RULINGS_2026-10-07.md](OWNER_RULINGS_2026-10-07.md) — the owner's binding rulings (the 2026-10-07 brief and later gate decisions); they win over a stream card.
+- [DECISIONS_2026-10-18.md](DECISIONS_2026-10-18.md) — the 2026-10-18 decisions round: 60 open design, staff and money / authority questions, each decided by the session under the owner's delegation or written as a recommendation, then signed off by the owner the same day ("go ahead with all recommended decisions and migrations"). Who decided each, its builder, and whether it needs a migration.
 - [PATH_DESIGN_2026-10-07.md](PATH_DESIGN_2026-10-07.md) — the owner's path-design picks: the build source for PD1–PD13. One spec per moment in [path-design-2026-10-07/](path-design-2026-10-07/):
   - [m1-tablemate-send.md](path-design-2026-10-07/m1-tablemate-send.md) — the tablemate's Send ("Next Stop: Kitchen")
   - [m2-bill-at-table.md](path-design-2026-10-07/m2-bill-at-table.md) — asking for the bill at the table
@@ -58,6 +60,7 @@ gets a line here in the PR that adds it.
 - [SHARED_DEVICE.md](SHARED_DEVICE.md) — switch, remember and lend an account on a shared device.
 - [CART_INTENT_LINK.md](CART_INTENT_LINK.md) — the cart→intent link (built as M151; kept as the design record later rows cite).
 - [STAFF_POLISH_AUDIT.md](STAFF_POLISH_AUDIT.md) — the seven-surface staff console audit (2026-09-20).
+- [marketing/SOCIAL_POSTS_2026-10-18.md](marketing/SOCIAL_POSTS_2026-10-18.md) — DRAFT customer posts on how to use the app, for the owner's review (none published; markers name what must be true first).
 
 ## History — finished plans, audits and logs (kept for the record and the code that cites them)
 

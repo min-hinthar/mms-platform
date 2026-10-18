@@ -7,6 +7,7 @@ import {
   setQtyInput,
   settleCashInput,
   staffAddItemInput,
+  setLineFulfillmentInput,
 } from "@mms/db/schemas";
 import { staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
 import { addFailureCode, type StaffWriteCode } from "./staff-add-outcome";
@@ -26,6 +27,13 @@ import {
   type UnreadableRefusal,
   type UnsentRefusal,
 } from "./settle-refusal";
+import {
+  soldOutUnreadableRefusal,
+  soldOutUnseenRefusal,
+  staffSettleSoldOutVerdict,
+  type SoldOutUnreadableRefusal,
+  type SoldOutUnseenRefusal,
+} from "./settle-sold-out";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
@@ -35,7 +43,9 @@ import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
+import { unavailableLines } from "./availability-read";
 import { lineRpcRefusal } from "./line-rpc-refusal";
+import { REROUTE_SENT, staffRerouteOutcome } from "./staff-fulfillment";
 import { readPendingApprovalFlags } from "./approvals-read";
 import {
   approvalPendingRefusal,
@@ -50,6 +60,7 @@ import {
 const PAYING_REFUSAL = "This table is mid-payment — wait until they’ve finished.";
 const SENT_LINE_REFUSAL =
   "That dish already went to the kitchen — use Remove or Make it free instead.";
+const NOTHING_TO_SETTLE = "There’s nothing on this table to settle.";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -102,6 +113,10 @@ export type SettleCashRefusal =
   | InFlightRefusal
   | UnsentRefusal
   | UnreadableRefusal
+  // The lifecycle audit — a sold-out draft THIS tap did not display (a re-warning, never a block),
+  // or the availability read could not be made (the door fails closed; the same tap retries).
+  | SoldOutUnseenRefusal
+  | SoldOutUnreadableRefusal
   // PD8 — a request waits that THIS tap did not display (a re-warning, never a block), or the
   // pending read could not be made (the door fails closed; the same tap retries).
   | ApprovalPendingRefusal
@@ -323,6 +338,63 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
 }
 
 /**
+ * The lifecycle audit (K18) — a STAFF member moves a DRAFT dish between For here and To go ("box this
+ * one to take home", for a guest without a phone). The diner's own RPC, `mms_set_line_fulfillment`,
+ * through the service role (no new SQL): it re-checks the open cart, the DRAFT state, grocery and the
+ * dine-in session IN the write, and re-taxes the line (cold food is taxable dine-in, exempt to go).
+ * This action adds what the RPC cannot know — that the line is on THIS table's open cart — and the
+ * same mid-payment refusal every staff line edit carries. The answer is read through
+ * `staffRerouteOutcome` (lib/staff-fulfillment.ts): only `ok` lands.
+ *
+ * What it cannot close: a merge moving the line to another table's cart between the scope read and
+ * the RPC re-routes the dish on its new table (the RPC takes no cart) — the dish the server meant.
+ */
+export async function staffSetLineFulfillment(
+  sessionId: string,
+  raw: unknown,
+): Promise<StaffWriteResult> {
+  // The gate IS the authorization (this action has no per-caller provenance to record).
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const parsed = setLineFulfillmentInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { cartItemId, fulfillment } = parsed.data;
+
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (!session) return { ok: false, error: "That table is closed." };
+  if (!cart) return { ok: false, error: "This table has no open order." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
+
+  const db = serviceClient();
+  // The line must be on THIS table's open cart (the RPC takes no cart: an id from another table would
+  // otherwise be re-routed from here). W10b — an unread line is an outage, never "not on this table".
+  const { data: line, error: lineError } = await db
+    .from("qr_cart_items")
+    .select("id,state")
+    .eq("id", cartItemId)
+    .eq("cart_id", cart.id)
+    .maybeSingle();
+  if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (!line) return { ok: false, error: "That item isn’t on this table." };
+  if (line.state !== "draft") return { ok: false, error: REROUTE_SENT };
+
+  const { data, error: rpcError } = await db.rpc("mms_set_line_fulfillment", {
+    p_line: cartItemId,
+    p_fulfillment: fulfillment,
+  });
+  if (rpcError) {
+    console.error("[staff-cart] mms_set_line_fulfillment failed", { message: rpcError.message });
+    return { ok: false, error: STAFF_WRITE_OUTAGE };
+  }
+  const out = staffRerouteOutcome(data);
+  if (!out.ok) return out;
+  await touchCart(cart.id, "staffSetLineFulfillment");
+  revalidatePath(`/staff/table/${sessionId}`);
+  return { ok: true };
+}
+
+/**
  * Settle the table order in CASH ("pay a human"). Re-derives the authoritative total server-side
  * (getCartTotals — the single tax engine), then records an idempotent cash order via
  * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). The cash
@@ -340,7 +412,8 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents, quotedCents, acknowledgedApprovalIds } = parsed.data;
+  const { sessionId, tipCents, quotedCents, acknowledgedApprovalIds, acknowledgedSoldOutIds } =
+    parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -358,7 +431,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cart.id);
   if (countError) return { ok: false, error: STAFF_WRITE_OUTAGE };
-  if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
+  if ((count ?? 0) === 0) return { ok: false, error: NOTHING_TO_SETTLE };
 
   // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
   // check above is a fast read; this is the race-closing claim: once WE hold the freeze, a concurrent
@@ -405,6 +478,17 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
     // P2dc (owner decision 5a) — an UNREADABLE count refuses here: the staff doors fail CLOSED (this
     // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
+    // The lifecycle audit — a DRAFT dish sold out since it was added: PD8's acknowledgement
+    // (`settle-sold-out.ts`) — refused only when the tap did not DISPLAY it (the door names it and
+    // the next tap passes: a re-warning, never a block); an unreadable read refuses with a retry
+    // (P2dc). First, because "send it" is the wrong fix for a dish the kitchen does not have.
+    // Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    const soldOut = staffSettleSoldOutVerdict(
+      await unavailableLines(cart.id),
+      acknowledgedSoldOutIds,
+    );
+    if (soldOut === "unreadable") return soldOutUnreadableRefusal();
+    if (soldOut !== null) return soldOutUnseenRefusal(soldOut.all);
     const unsentUnits = await readKitchenDraftUnits(cart.id);
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
     if (unsent === "unreadable") return unreadableRefusal();
@@ -433,6 +517,29 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     if (!totals) {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
+    }
+    // ── M252 · a comp-only cart is not a $0 sale ── The count above the freeze counts EVERY line,
+    // comped and voided ones included, so a cart whose every line was comped (or voided) reaches here
+    // — and `mms_fulfill_cash_order` accepts a derived subtotal of 0 against a passed 0, minting a
+    // "paid" order with no snapshot row (it snapshots only `state <> 'voided' and not comped`) whose
+    // `togo_status` is never stamped. Refuse it here: the settle doors' "nothing to settle".
+    //   • Only a ZERO subtotal can be such a cart. A positive one must equal the RPC's own derivation
+    //     from the same lines (it raises on a mismatch), so at least one line is snapshotted, and the
+    //     ordinary settle pays no extra read.
+    //   • Zero is not enough on its own: a chargeable $0 line (`grocery_items.price_cents >= 0`) still
+    //     settles, so the predicate is the RPC's own — a line that is neither voided nor comped.
+    //   • Read UNDER the freeze: both comp writers (`mms_void_line`, the approval's approve) lock the
+    //     cart and refuse under a fresh settle freeze, so no comp lands between this read and the RPC.
+    // Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    if (totals.subtotalCents === 0) {
+      const { count: chargeable, error: chargeableErr } = await db
+        .from("qr_cart_items")
+        .select("id", { count: "exact", head: true })
+        .eq("cart_id", cart.id)
+        .neq("state", "voided")
+        .eq("comped", false);
+      if (chargeableErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+      if ((chargeable ?? 0) === 0) return { ok: false, error: NOTHING_TO_SETTLE };
     }
     // Phase 2c · register — the COMPARE-AND-SWAP. The cashier collected the figure they were shown;
     // if the live lines now total something else (a qty step, a promo, a guest adding from their phone
@@ -650,7 +757,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // tab-close tips were supported and merely forgotten.
   // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
   // `acknowledgedApprovalIds` is COMPARE-ONLY too (PD8): the pending request ids THIS door displayed.
-  const { sessionId, quotedCents, acknowledgedApprovalIds } = parsed.data;
+  const { sessionId, quotedCents, acknowledgedApprovalIds, acknowledgedSoldOutIds } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -703,6 +810,19 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
   // (P2cy: no add lands after the acquire — see settleCash. P2dc: an unreadable count refuses.)
+  // The lifecycle audit — a sold-out DRAFT dish the tap did not display never rides an off-session
+  // charge (settleCash's acknowledgement, PD8's pattern); an unreadable read refuses with a retry.
+  // Either refusal releases its own attempt, like the unsent one below.
+  const soldOut = staffSettleSoldOutVerdict(
+    await unavailableLines(cart.id),
+    acknowledgedSoldOutIds,
+  );
+  if (soldOut !== null) {
+    await releaseSettlementFor(cart.id, attempt);
+    return soldOut === "unreadable"
+      ? soldOutUnreadableRefusal()
+      : soldOutUnseenRefusal(soldOut.all);
+  }
   const unsentUnits = await readKitchenDraftUnits(cart.id);
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
   if (unsent !== null) {
@@ -738,7 +858,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   const amount = totals.totalCents;
   if (amount <= 0) {
     await releaseSettlementFor(cart.id, attempt);
-    return { ok: false, error: "There’s nothing on this table to settle." };
+    return { ok: false, error: NOTHING_TO_SETTLE };
   }
   // Phase 2c · register (P2aa) — the COMPARE-AND-SWAP, as on the cash settle: the confirm quoted the
   // last-polled total; `amount` is the live one. A mismatch refuses BEFORE any PaymentIntent exists,

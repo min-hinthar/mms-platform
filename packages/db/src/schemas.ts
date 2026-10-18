@@ -92,6 +92,21 @@ export const reorderInput = z.object({ cartId: uuid, orderId: uuid });
 export const announceArrivalInput = z.object({ orderId: uuid });
 
 /**
+ * M160(b) — a guest's "is my payment stuck?" ask from /track. The PaymentIntent id is the same shape
+ * `trackFallbackInput` admits (bounded, Stripe's `pi_` alphabet); it is an ADDRESS, never a proof —
+ * the recovery retrieves the intent itself and binds it to the cart and to the caller's own uid.
+ */
+export const recoverPaymentInput = z.object({
+  paymentIntent: z
+    .string()
+    .max(255)
+    .regex(/^pi_[A-Za-z0-9_]+$/, "not a PaymentIntent id"),
+});
+
+/** M160(b) — staff's "Check payment" on a table: the session; its open cart's link names the intent. */
+export const checkTablePaymentInput = z.object({ sessionId: uuid });
+
+/**
  * W9c — the /track post-session fallback lookup. EXACTLY ONE key: a split order is keyed by its
  * resolved order id, a single-pay order by its Stripe PaymentIntent. Neither key AUTHORIZES anything
  * — the read is additionally scoped to `earned_by = auth.uid()` — but bounding the shape here keeps a
@@ -251,6 +266,10 @@ export const sessionMintOutput = z.object({
   // resume-intent client (the home card) tell the diner honestly when their old table had ended
   // and a fresh empty session was started, instead of silently landing them in an empty cart.
   created: z.boolean().default(false),
+  // Session truth (finding 4's narrow case): the claim took a table a server had STARTED (J40's
+  // `takeShell`) — the row existed, so `created` stays false for analytics, but for THIS diner it is
+  // a fresh start, and a home-card resume must say their earlier visit had ended.
+  fresh: z.boolean().default(false),
 });
 
 /**
@@ -334,13 +353,21 @@ export const staffReportInput = z.object({
     .strict(),
 });
 
+/** The role a Team console row DISPLAYED when the manager acted on it (M210 · `mms_staff_set`'s
+ *  `p_seen_role`). Required, and only the console can supply it: the action's own read of the row
+ *  happens milliseconds before the call, so it can never be stale, and a guard fed from it refuses
+ *  nothing. A screen loaded before someone else changed this member's role is what it catches. */
+const seenRole = z.enum(["server", "manager", "owner"]);
+
 /** setStaffActive (S1.1a) — a manager or owner offboards/reinstates a staff member (never deletes
  *  the audit trail; flips `active`, which is_staff/is_staff_at_least gate on). Gated server-side at
- *  `manager` since A6, and the ACTION additionally refuses a target who outranks the caller — a
- *  bound this transport shape cannot express, because the target's role is not in the input. */
+ *  `manager` since A6, and the ACTION additionally refuses a target who outranks the caller. The
+ *  `seenRole` here is what the screen showed, NOT an authority: the ceiling is decided on the row's
+ *  committed role by `mms_staff_set`, and a `seenRole` that differs from it only refuses (`changed`). */
 export const setStaffActiveInput = z.object({
   userId: uuid,
   active: z.boolean(),
+  seenRole,
 });
 
 /**
@@ -356,6 +383,8 @@ export const setStaffActiveInput = z.object({
 export const setStaffRoleInput = z.object({
   userId: uuid,
   role: z.enum(["server", "manager", "owner"]),
+  /** What the console showed for this member — see `seenRole` above. */
+  seenRole,
 });
 
 /**
@@ -653,6 +682,16 @@ export const setItemSoldOutInput = z.object({
   expectedSoldOut: z.boolean(),
 });
 
+/** setGroceryAvailable (M190, lifecycle residuals) — the market's out-of-stock toggle, the 86's twin
+ *  for `grocery_items.available`. The barcode is the catalog's primary key and takes `scanInput`'s
+ *  shape; `expectedAvailable` is the state the staff member's SCREEN showed, so a flip made against a
+ *  stale render is refused (the same window `expectedSoldOut` guards). */
+export const setGroceryAvailableInput = z.object({
+  barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),
+  available: z.boolean(),
+  expectedAvailable: z.boolean(),
+});
+
 /** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
  *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
  *  Empty clears — same semantics as the diner's create-intent name write. */
@@ -685,6 +724,14 @@ export const settleCashInput = z.object({
    * tablet on an older bundle still settles — it then meets the re-warning once if a request waits.
    */
   acknowledgedApprovalIds: z.array(uuid).max(50).default([]),
+  /**
+   * The lifecycle audit (#360) — the SOLD-OUT draft dishes (menu item ids) THIS door displayed at its
+   * tap: the same acknowledgement, for a dish 86'd since it was added (`settle-sold-out.ts`). The
+   * server refuses `sold_out_unseen` ONLY for a sold-out draft the tap did not display — a
+   * re-warning, never a block. COMPARE-ONLY, bounded like the approvals' ids, defaulted so an older
+   * bundle still settles (it meets the re-warning once).
+   */
+  acknowledgedSoldOutIds: z.array(uuid).max(50).default([]),
   // ── Phase 2c · register ──
   /**
    * COMPARE-ONLY. The pre-tip all-in total the cashier was SHOWN (`detail.settleTotalCents`, i.e.
@@ -931,6 +978,7 @@ export type AckTableClearStopInput = z.infer<typeof ackTableClearStopInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
 export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;
+export type SetGroceryAvailableInput = z.infer<typeof setGroceryAvailableInput>;
 export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;

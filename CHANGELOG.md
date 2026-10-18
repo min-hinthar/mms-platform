@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The release session's handoff (2026-10-18, docs only)
+
+- **`docs/HANDOFF.md`'s top block records the session ending 2026-10-18:** what merged since the
+  triage's handoff (#351–#356, #359, #360, #363, #367 carrying #364 · #366 · #365 · #361, and #368),
+  the owner's approval of the admin bypass that #367 merged on, the two prod migrations (M309 in one
+  call; M210 in eight sequential parts), production's state (READY; `CRON_SECRET` set; Stripe still on
+  test keys while the `_TEST` variables stay in Production), and the owner's checklist. The triage's
+  block moved verbatim to `docs/HANDOFF_ARCHIVE.md` (2026-10-13).
+- **`docs/DECISIONS_2026-10-18.md`:** the decisions round's record, with the owner's same-day sign-off
+  and the session's reading of it; indexed in `docs/README.md`.
+- **Filed:** M319–M321 and M328–M335 (Codex's later rounds on #356, #359, #360 and #363, and two
+  builders' finds; M331 is the webhook's missing refund check). M326 gains Codex's round-3 note, M309
+  is applied and stays open for its residuals, M210 is closed, M125 records the eight stamps, and C2
+  and M160 carry the 2026-10-18 state.
+- **LEARNINGS #278–#281:** one integration branch over a merge train when PRs share the count lines;
+  an `apply_migration` timeout can apply nothing, so read before re-sending; a "secret is set" report is
+  not a cutover; read a cart-view value through a ref inside a `useCallback`.
+
 ### The session's close: the triage's handoff (2026-10-13, docs only)
 
 - **`docs/HANDOFF.md`'s top block is the triage's.** It records the six PRs (#351–#356) as they
@@ -23,6 +41,729 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   worse is reverted to reviewed bytes and filed, not fixed a third time; and a focus assertion waits
   for the focus move itself, never reads it straight after the commit; and the open PRs are probed
   merged together, cumulatively, before any is called mergeable.
+
+### A guest how-to in the README, and draft customer posts (2026-10-18, docs)
+
+- **README gains "For guests — how to use it", and `docs/marketing/SOCIAL_POSTS_2026-10-18.md` holds
+  draft customer posts (dine-in, to-go, grocery, three steps, Stars, a reel script) for the owner's
+  review.** Every step is checked against the code on `main`, and any post that asks for a card
+  payment waits on the live-payments cutover (C2).
+
+### The team screen's writes are decided in the database, which always keeps an owner and records who changed what (2026-10-18, M210 · M208 · M205)
+
+- **One migration, `20261018130000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
+  file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
+  Apply it before the app merges. Until then the new actions' team writes fail closed.
+- **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role
+  change or an active flip is one call, `mms_staff_set`. It takes the team lock, then the caller's row
+  and the target's row, and decides the caller, the self rule, the role the console showed and A6's
+  ceiling before it writes. Two cross-demotions queue, and the second, by then a manager, is refused.
+  "The role the console showed" is the role the Team screen DISPLAYED for that row, sent with the
+  request (`seenRole`). A manager acting on a screen that went stale (the member promoted since it
+  loaded) is told "That role just changed — the list now shows it", and the roster re-reads. The
+  ceiling is decided before the no-op, so a manager is never told ok about an owner's account.
+  Every lock wait gives up after five seconds (`lock_timeout`), so one stuck transaction costs one
+  call its answer instead of queueing the whole team behind it.
+  The trigger `staff_keep_an_owner` refuses any write, from any path, that would end the last active
+  owner. A hand-over (promote first, then step down) still goes through.
+- **A revocation can no longer land between the authority check and the write (M208).** The caller is
+  read under a row lock in the same transaction as the write. An invite's staff row goes through
+  `mms_staff_provision` under the same team lock and caller rule, and the auth user it made is
+  deleted when the database refuses. An answer lost in transit after the row landed keeps the member
+  (the row decides), so a dropped reply no longer deletes someone who was added.
+- **Every invite, role change, deactivation and removal leaves a durable `staff_audit` row (M205).**
+  The row is written in the same transaction as the change, and managers and owners can read it. A
+  change made through the console names who made it. A change made any other way (the old app during
+  the deploy, a preview built on an older base, a hand-run statement, a deleted auth user) is recorded
+  too, by the trigger `staff_audit_direct`, as a `direct` row that names nobody. No role the API serves,
+  service_role included, can write the ledger directly. The PostHog event stays as the secondary record.
+- **Proof.** `supabase/tests/m210_team_safety_test.sql` covers each refusal next to the call it must
+  not block. `scripts/verify-team-race.mjs` (`pnpm verify:team-race`) runs eleven two-session orders,
+  and its `--mutants` mode catches all 43 mutants. Order j measures the one lock cycle left: a direct
+  owner demotion (the old app during the deploy, a hand-run statement) against `mms_staff_set`.
+  Postgres aborts one side as a deadlock, the other lands, and one owner remains. Order k holds a
+  staff row open and measures both functions giving up at the lock timeout. Both run in CI's sql
+  lane. verify:slice gains 25 mutants over the actions, the Team console and the new
+  `lib/staff-team-outcome.ts`; 9 retired with the TypeScript checks they guarded.
+
+### M160(b) — a paid card whose webhook never lands now finds its way home (2026-10-18, money-rails)
+
+- **Three doors ask Stripe itself, and only Stripe's `succeeded` lets an order be written.** C18's
+  test pass charged five cards and wrote zero orders, and nothing could bring them back. Now `/track`
+  asks the server 12 s and 40 s after a fresh card payment that has no order; staff get **Check
+  payment** beside the clear's "A card payment started here and didn’t finish" (the refusal now names
+  it); and `/api/cron/stranded-payments` sweeps the last 25 h for a payment nobody is watching. Each
+  retrieves the PaymentIntent with the secret key and runs the webhook's OWN fulfillment.
+- **One fulfillment, not two.** The webhook's single-pay arm moved unchanged into
+  `lib/fulfill-intent.ts`; the route only maps its outcome to the statuses it always answered. An AST
+  guard pins one `mms_fulfill_order` call site in the app, and the moved rules have their first
+  mutants (they lived in a `verify:slice-exempt` route before).
+- **Fail-closed rules** (`lib/payment-recovery-verdict.ts`): succeeded only; a diner card or a captured
+  pickup hold only; dollars; metadata bound to the cart and, at the guest door, to the payer's own uid;
+  an open cart must still link this intent, so a superseded attempt is never fulfilled. A cancelled
+  or already-paid cart gets a `qr_refunds_needed` row and no order. Every refusal is logged by name.
+- **Codex on #365 — five holes closed before merge.** A charge with ANY refund on it is refused (a
+  PaymentIntent stays `succeeded` after a refund, so an operator's refund in Stripe would otherwise
+  have been followed by an order). A charged secure tab, which never names itself on the cart's link,
+  is bound by the settlement freeze it was charged under, read from the database. /track asks on a
+  resume too, because the pill and the home card link a paid card as a resume before any order exists.
+  A refund-needed row that cannot be written now makes the webhook answer 500 so Stripe retries;
+  before, the charge was acknowledged with no order and no ledger row (that one predates this PR).
+  Two daily runs now overlap by an hour, and a run cut short by the page cap logs how far back it got.
+- **Bounded:** per-guest (6 per 10 min) and per-cart (10 per 10 min) budgets before any Stripe call;
+  the cron reads at most ten pages and attempts at most 25 recoveries a run, skipping anything already on record
+  and other apps' intents on the shared Stripe account.
+- **Honest copy.** A guest charged with no order is told exactly that ("Your card was charged, but the
+  order didn’t go through"), with the payment reference and a person as the next step. There's no ETA
+  and no promised refund. Staff hear "went through" only for an order actually recorded. The Burmese
+  lines are K15 drafts (two on /track, eight on the floor).
+- **The blind pass and Codex on #365 @ `1b760cb` — seven more holes closed.** A refund-needed row is
+  never written before a second read of the order table: a concurrent delivery could fulfill the
+  charge between this caller's first read and its ledger write, and the paid cart then read as another
+  tender's settle — a refund ask for a correctly fulfilled order. A partially captured pickup hold is
+  no longer refused as "refunded" for its released remainder (the Refund objects decide). /track
+  answers "recorded" early only for the caller's own order. The recovery limiters fail closed. A
+  diner who paid anonymously and then signed into an existing account is recognised through the
+  identity merge. A refused charge no longer spends the sweep's recovery cap, the ledger reads go in
+  chunks of 100, and the sweep stops at a 45 s budget and says what it did not reach.
+- **The cron fails closed:** without `CRON_SECRET` every call answers 503. It is not scheduled yet.
+  Under owner ruling #13 the owner adds the secret (ENV.md _The stranded-payment cron_), and then the
+  follow-up registers the schedule in `apps/qr/vercel.json`. No migration.
+
+### Session truth — a diner is never silently cut off, frozen or re-minted (2026-10-13, `claude/fix/lifecycle-session-truth`)
+
+- **A table that ends says so, on every phone at it.** A staff Clear, a Merge and the 4-hour sweep close
+  the session in the transaction that ends the cart, so no Realtime event reaches a phone and /menu
+  used to sit frozen ("Mohinga is being made" over a voided dish) until a tap re-minted it and said
+  "Your table sat idle too long". Now every failed read — an echo, focus, a reconnect, the freeze
+  re-check, a write's diagnosis — and a visible-only one-minute poll ask `counterPayOutcome` why. It
+  answers a proven member with `paid` (and whether the table is still seated), `ended` (`cleared` from
+  its `qr_table_clears` record, `expired`, or the neutral `closed` a merge reads as) or `unknown`; the
+  classification is `cartFate` in the new pure `lib/session-truth.ts`. A dine-in end is HELD: one
+  bilingual card (`TableEndedCard`) names the cause, the order controls go inert ("this order has
+  closed"), and nothing re-mints until "Start a new order". A paid table keeps its last kitchen view,
+  captioned with when it was read ("Last updated 7:42 PM"), with "Track your order"; /cart shows the
+  same card in place of a stale, editable bill, runs the same visible-only probe while it stays open,
+  and drops its freeze bar under the card. A write whose answer was lost when the table ended is
+  said UNCONFIRMED ("ask our staff whether it made it onto your order before you add it again"),
+  never "didn't go through" — a racing merge can have landed it on the other table. No sentence says
+  "idle" any more.
+- **M172 closed:** the URL credential is single-use (`dineinMintEntry`), so no re-mint can re-host a
+  table staff just freed. **J18 closed:** the solo recovery banner keeps its place through a retry.
+- **The register's freeze speaks the register's words on /menu** (no "splitting the bill", no "Pay your
+  share"), and a table the register paid mid-freeze no longer leaves every Add stuck.
+- A reload or home → Dine-in after a table closed now says so; the phone that sends a party's orders
+  is told before "Leave this table" that the Send leaves with it (read from the table's durable
+  party, not presence); the guest's nudge confirmation and the tablemate line claim only what the
+  code keeps ("We’ve let Aye know — if they’re away, Show a server sends it too.", never "can see");
+  a thrown Send re-reads.
+- `counterPayOutcome` answers a missing cart `unknown` (it said `gone` before the membership read).
+- Filed: M293 (the merge's membership, seats and `merged_into` — needs a migration), J60 (an owner
+  question: hand the host role to a remaining guest), J61, S19, K15 · session-truth (9 Burmese
+  drafts and 3 re-worded lines for the native sitting, 3 of them HIGH).
+- **Codex round 2 on #361 (five findings, all fixed).**
+  - A paid answer whose order read, or whose order-visibility read, FAILED is now INCOMPLETE
+    (`complete: false`), never "no order". The menu and the Bill keep the one-minute probe going, and
+    the held card gains its tender or "Track your order" when the read comes back (`endComplete`,
+    `heldEndUpgrade`). The gate's own 403 on a closed session is still an answer.
+  - A read in flight when the end was held no longer lands on the held cart. It used to put
+    `locked`/`settling` back and announce the register over the paid card.
+  - The Bill's probe answer no longer acts after the Bill unmounts: a late `paid` used to push /track
+    over the page the diner had moved to. The probe now reads the cart view's own mode, so a degraded
+    render at a table (no split context) still learns of a clear.
+  - Opening the leave flow re-reads the durable party. Until that read lands, the host gets a hedged
+    note ("…once you leave, anyone else at your table will need a server to send theirs.") instead
+    of the silence that read as "alone".
+  - Filed: M294. `getCartOrderRef` still reads a failed read as "no order" inside the resolver that
+    /track shares.
+- **The capped blind pass on #361 (REJECT on `7a2961b`; both blockers fixed).**
+  - The host of a table that ENDED is no longer told that leaving strands the others' Send
+    (`leaveWarning` takes the end, and the menu stops reading the party of a closed session).
+  - A paid card keeps "Track your order" through a "Start a new order" whose mint fails: the link is
+    built from the ENDED cart's id (`endedCartId`), not the live one the mint nulls.
+  - /cart treats a paid cart with no readable paid order row (a full refund turns the order
+    `refunded`; the cart stays `paid`) as the bare "Paid" close the menu shows. It used to keep an
+    editable bill and probe once a minute forever.
+  - The party read re-fires on a seat presence has never shown, not on every presence flap.
+  - Filed: M327 (a seat that left can still ask `counterPayOutcome` about its old table).
+- **The review of #361's head `c064bb6` (four findings, all fixed).**
+  - A fully refunded order no longer reads "All paid — thank you!" on /cart or the menu's card.
+    `counterPayOutcome` reads the cart's `refunded` orders as well as its `paid` ones, and
+    `orderTender` answers a new tender, `refunded`, when every settled order was returned in full
+    (`summarizeRefund`'s "full"). It gets its own close, "This order was refunded", which says
+    nothing about paying or where. Any order on the cart that is still paid wins, so a refunded share
+    beside a paid one still reads as paid. A solo re-mint after a refund says "That order was refunded
+    — this is a new one." One new Burmese draft, listed under K15 · session-truth.
+  - A host at a paid table that is still seated is warned again before "Leave this table".
+    "Start a new order" there re-joins the same session (the host seat is unchanged), so the next
+    round still needs the host's Send. `sessionTakesNoOrder` now decides both the warning and the
+    party read. Every other end stays silent.
+  - /cart's paid closes are announced through the view's one live region, as the ended closes are.
+    Each close is said once, even while an incomplete answer is asked about again.
+  - New guards: the unknown-tender close at a closed session shows "Ask our staff", and an incomplete
+    unknown answer draws its card and keeps asking. Ten new `lcs/` mutants;
+    `counter/outcome-calls-a-card-the-counter` now anchors on `orderTender`.
+
+### The lifecycle residuals · Cook now, the market's sold out, the Send's re-warning, the stranded note (2026-10-13)
+
+- **Cook now moves the ORDER, not only its lines (M305 closed, no migration).** After the KDS's Cook
+  now fires a held pickup's lines, `fireTicketNow` moves the paid order's own fire time to the DB clock
+  in one statement-guarded write (paid, still ahead, row count read back; a failure is logged, never
+  surfaced), so the guest's /track stops saying "You’re booked … closer to your time", the tray, pill
+  and /account stop saying "Scheduled", and the wall shows the code as Preparing while Mom cooks. And
+  a bag the kitchen has started (Start or Done) reads as with the kitchen on /track even if that write
+  failed — #359's "It’s cooking now." line then shows.
+- **Staff can mark a grocery item sold out (M190 closed).** `grocery_items.available` had no writer, so
+  the shopper's "That item isn’t available today." could never fire. /staff/menu has a second list
+  (Kitchen menu · Market): Mark sold out / Put back per item, the menu 86's gate, words and chip; the
+  write is a compare-and-swap with its row count read; the scan refuses the item at once, and the
+  aisles drop it on each shopper's next load (the grid is one read per visit, so an open one keeps it
+  until then — the staff copy says exactly that).
+- **The console's Send names a sold-out dish it would fire, before the tap (P2ad's console half).**
+  "Mohinga is sold out — remove it, or send it and tell the cook." sits under the Send on the table page
+  and the order pad, in both tongues; it is a re-warning, never a block (the race-proof SQL refusal is
+  M318, a migration).
+- **A server's half-typed note no longer vanishes (P2ar's visible half).** When the host's phone sends
+  the round before Save, the row keeps the typed text read-only ("Not saved — tell the kitchen"), the
+  page says "Mohinga went to the kitchen before this note saved — tell the kitchen.", focus lands on the
+  kept text, and "Got it" lets it go.
+- Registry: M315–M318 and J66 filed; K20, K28, M308, M309 and T45 updated; P2ad shrinks to M318 and
+  P2ar to the server-side signal; 19 Burmese drafts (4 HIGH) join K15 (`K15 · lifecycle-residuals`).
+- **The blind pass and Codex on #363.** Cook now's order write is repairable: a Cook now on an
+  already-live ticket runs the same guarded write once no line of the cart is still held, so a write
+  that failed no longer leaves the bag off the wall and "Scheduled" for good (the tap-free repair is
+  M326, a migration); the guard reads the settled statuses (`paid` or `refunded`, #360 — a refund is a
+  tag, never a cancel), so a card-refunded bag cooked early moves like a cash-refunded one. The market
+  list names each SKU (brand · size · price · barcode, on the row and in the pill's name), since the
+  catalog carries same-name rows in one aisle, and its read is bounded with a full read refused rather
+  than shown partial. An undone send withdraws the stranded note's sentence and gives the field back,
+  focused. The market copy (EN, and its two Burmese drafts re-drafted for K15) promises the scan's
+  refusal at once and the aisles on the next load — the grid is one read per visit (M325). M323–M326
+  filed.
+- **Codex round 2 on #363.** "Got it" on a stranded note also withdraws its sentence from the page's
+  one status region (only while it is still that line's), so a screen reader no longer reads a note
+  that is gone; and the market toggle's outage ("Can’t reach the market shelf right now — nothing
+  changed.") is the dictionary's sentence with a Burmese twin at the render site, so a Burmese tablet
+  no longer shows it in English (one more K15 draft).
+
+### The next party at a table no longer reads the last party's order, and no diner reads a receipt address (2026-10-18, M309)
+
+- **The order read is scoped to the party at the table when it paid, and `receipt_email` leaves the
+  diner's grant.** `20261018120000_m309_order_read_scope.sql`: `authenticated` swaps its table-level
+  select on `qr_orders` for a column grant of every column but `receipt_email` and `receipt_sent_at`
+  (anon: none), and `qr_order_read`'s member arm becomes `is_member_seated_by(session_id,
+created_at)`, which admits a seat taken no later than the order (the rule the server arms already
+  use since #359). The next party at an uncleared sticker no longer reads the previous party's
+  order, its lines or its email. Diner screens are unchanged: the live /track read and the kitchen
+  read name only granted columns, and the receipt actions already read the address with the service
+  role, and every staff `.from("qr_orders")` read runs on the service role (which keeps its
+  table-level grant, restated in the migration). Proven by `supabase/tests/m309_order_read_scope_test.sql`
+  (in CI's required list) and `lib/track-order-grants.test.ts`, which parses the grant against every
+  diner-client `.from("qr_orders")` select and every literal `qr_orders(…)` embed, pins the diner
+  reads to their two files, and fails on any `.from("qr_orders")` whose client it cannot classify
+  (`m309/*` mutants). What it does not parse: Realtime subscriptions (`useOrderStatus` and the staff
+  `useFloorRealtime` watch `qr_orders`, both as a re-read trigger only, never reading the payload),
+  RPCs, a non-literal `.from(…)`, spread or FK-column embeds, a reassigned client, or a client passed
+  to a service-typed parameter — none exists today (measured), and none is proven absent tomorrow. **Still open under M309:** the paid cart's rows stay
+  `is_member`-scoped; an earlier member who never left still reads a later party's orders (minus the
+  two columns) until staff clear the table; an order fulfilled late (a webhook retry, M160(b)'s
+  recovery) is readable by a party seated between the charge and the insert; and no test yet reads
+  a Realtime broadcast as a member.
+
+### The lifecycle audit · kitchen ↔ floor ↔ board (2026-10-13)
+
+- **Every staff surface tells the same truth, live, and a mistake can be taken back (#360)** — a bump
+  reads "done" on the expo, the bell and the floor only once Mom's 6-second undo closes (one re-read
+  when it does); a single dish's Done leaves a Bring-back chip (never the card's pill, decision 15); a
+  held card says its day and Cook now asks first; a dish VOIDED off the board — a whole one-dish card
+  included — is called out until Got it, once a by-id read confirms it was voided (a teammate's bump is
+  never a "stop"); a full refund keeps its food on the KDS, the floor and the table page, tagged "check
+  with the counter" (never hidden); the wall shows a ready bag whatever its schedule, windows by due
+  time and drops scan-and-go baskets (a refunded bag stays called — a tag, never a cancel); the expo says "Refunded — don't bag"; a sent dish
+  keeps its note, sold-out flag and kitchen stage on the table page, with the newest paid round's food;
+  staff box a draft to go (K18); a sold-out draft at the cash, reader and tab-close doors is named
+  above them with Remove first and re-warns once (PD8's pattern, never a block); a free clear's window
+  says the drafts it drops (ruling #6: it never waits); the merge says the phones stay; a table closed
+  under a server's page is named on the floor. No migration — M303–M306, M313, M314 and K49 filed (M307 retired:
+  the session stream's M293); K50 · K51 are owner questions.
+- **Codex round 1 on #360** — a full refund is decided by the amount as well as the status (a full
+  CASH refund leaves the order `paid`), so the KDS, the floor and the paid round tag it; a sold-out
+  dish bumped inside Mom's undo window keeps its flag while it still counts as in the kitchen; a
+  line recalled on another tablet stops being "this tablet's bump", so its later void is said; a
+  counter-only floor schedules the settle re-read; and the paid round reads every paid cart of the
+  session (past 20 rounds too), saying so when it can only show the latest.
+- **The blind pass on #360 (Codex out of quota)** — the refund tag answers the KITCHEN's question,
+  "was every dish refunded?" (`foodRefundedInFull`), not the receipt's: the order is `refunded`, or
+  every line has a line refund in the ledger, or the money back covers the goods pool
+  (`total − service − tip`). A fully refunded TIPPED cash order, the common case, was never tagged:
+  every line refund is clamped to that pool. The ledger is read once per surface, in IN-lists of 50,
+  only for a paid order with money back, and fails open. The paid round's cap notes say only true
+  numbers: the dishes it draws, or "Older rounds aren't listed here." with no number. The page's and
+  the floor's paid-cart reads go in IN-lists of 50. All done's own-bump landing has its test.
+- **Codex on #360's head** — the expo now TAGS a bag whose FOOD was refunded in full though the order
+  is still `paid` (a cash refund of every dish, the tip kept): "Refunded — check with the counter
+  before it goes out", by the same `foodRefundedInFull` rule and line ledger as the KDS. A tag, never
+  a hide: a full refund can be goodwill with the food still handed over, so the bag and any comped
+  dish on it (M250) stay on the lane and staff close a truly cancelled order there as before. An
+  unreadable ledger fails open, so the order row alone decides. The wall is unchanged: it stays
+  driven by `togo_status`. Filed J62, the owner's question: cancelled or goodwill? A bump whose answer was lost (the write threw, now
+  or after the bound) no longer stays "this tablet's own" while its dish is still on the board, so a
+  later void of that dish is said (`ownBumpsSettled`). Filed M322: the settle doors' sold-out read runs
+  outside the atomic settle (a migration).
+- **Codex round 3 on #360** — a CARD full refund now stays on the expo lane, tagged, and on the wall,
+  exactly as an equal cash refund does: the card refund flips the order `refunded`
+  (`mms_apply_refund_reconcile`) while the cash one leaves it `paid`, and both surfaces read
+  `paid` alone. The two settled statuses are now named once (`SETTLED_ORDER_STATUSES`). A mixed order
+  whose every dish was refunded with its grocery kept is tagged: the line ledger counts dishes only.
+  A served row with no bump stamp reads as cooking on the floor too, never "Kitchen done", by the one
+  `servedSettled` rule the expo and the table page already use. The table page's paid round says its
+  cap even when it draws no dish ("Older dishes aren't listed here."). The amount arm still counts a
+  kept grocery in the pool: no reader holds a grocery line's share of the order's discount and tax.
+
+### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
+
+- **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only
+  what they back.** A table that settled at the counter sees each dish on the kitchen track, as the TV
+  wall does. The pickup page says "It’s cooking now." and "The kitchen’s done — we’re bagging it now."
+  from Mom's taps, and the to-go rail no longer reads Cooking from the moment of payment. A refunded
+  order (cash included, which leaves `status` 'paid') never reads "Paid in full". The home card speaks
+  the shared status word. A pickup booked hours ahead stays in the pill, the tray, /account Today and
+  history until its slot. The live read catches up after a lock or a reconnect. A cleared table
+  retires the pill of a pure dine-in order /track saw land (its first empty read; any other order
+  goes quiet and stays). A diner who sat at a counter-paid table before it settled gets the receipt
+  link; the email capture stays the earner's or a payer's. A resume no longer replays the arrival
+  (its Refresh included), and the tray and /account Today re-poll only while a fired bag is cooking.
+  Filed: M308 (a cash refund's status flip), M309 (high: RLS lets any current session member read the
+  session's orders, `receipt_email` included) and T60 (the pill's stale pickup word); K30(A), M64 and
+  M206 updated.
+- **Codex on #359: a Ready bag is re-read every 2 minutes (visible pages only), and the pill and the home card note the row they read.** The tray and /account Today now see the expo's hand-off without a tab switch, and a pickup's pointer keeps its slot when /track never saw the row.
+
+### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
+
+- **/track reads the paid cart's own lines (the diner's own RLS, while the session is open) and says only
+  what they back.** A table that settled at the counter sees each dish on the kitchen track, as the TV
+  wall does. The pickup page says "It’s cooking now." and "The kitchen’s done — we’re bagging it now."
+  from Mom's taps, and the to-go rail no longer reads Cooking from the moment of payment. A refunded
+  order (cash included, which leaves `status` 'paid') never reads "Paid in full". The home card speaks
+  the shared status word. A pickup booked hours ahead stays in the pill, the tray, /account Today and
+  history until its slot. The live read catches up after a lock or a reconnect. A cleared table
+  retires the pill of a pure dine-in order /track saw land (its first empty read; any other order
+  goes quiet and stays). A diner who sat at a counter-paid table before it settled gets the receipt
+  link; the email capture stays the earner's or a payer's. A resume no longer replays the arrival
+  (its Refresh included), and the tray and /account Today re-poll only while a fired bag is cooking.
+  Filed: M308 (a cash refund's status flip), M309 (high: RLS lets any current session member read the
+  session's orders, `receipt_email` included) and T60 (the pill's stale pickup word); K30(A), M64 and
+  M206 updated.
+
+### The open-items registry, read against the code (2026-10-12, docs only)
+
+- **Every open, gated, planned or parked row of `docs/OPEN-ITEMS.md` (594) was read against the code
+  at `02bf46c`.** The snapshot is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`. It gives each row's next step:
+  - 343 can be built without the owner (21 high). Building is not always closing: a row that needs a
+    migration still waits on the owner's go for the prod apply, and some need the device sitting.
+  - 126 are owner-gated, and 89 stay open.
+  - 32 close here.
+  - 4 (A1–A4) already read DONE and stay in the Option A table as the record of the owner's picks.
+
+  The registry stays the one place open work lives.
+
+- **32 rows move to Closed, each with its evidence.**
+  - 22 were already fixed by later work or were retracted: M163, P2l, P2y, P2ct, P2dg, P2dh, P2ew,
+    P2fl, M56, M13, K26, K29, K35, G13, G18, T19, T36, C4, C10, C21, C22 and F11.
+    - C10's Apple Pay domain reads `active` in a read-only live Stripe read (2026-10-13).
+    - F11's open note was about a pause coin that Phase 0 retired.
+  - C15 was already closed in its own row; it only moves.
+  - 4 were duplicates. Each one's note now lives on the row it folds into:
+
+    | Row  | Folded into  |
+    | ---- | ------------ |
+    | M195 | M196         |
+    | P2ce | P2i          |
+    | P2iw | P2is         |
+    | PD7  | M270 (2)–(9) |
+
+    M270 takes PD7's high severity. Its (2) waits on the owner's ratification of B9's alternative.
+
+  - 5 close on the owner's 2026-10-07 rulings, which left them nothing to build: T47, J33, T37, J38
+    and K16. The reconcile PR those rulings named never closed them.
+
+- **Codex's review of the triage (2026-10-13).** K28 reopens: its close cited the day-scoped
+  average, but `mms_kds_stats` filters on `bumped_at` alone, so a days-old ticket bumped today still
+  adds its whole age. Its row is restored with that note. The rows the refute pass kept open but that
+  name a concrete fix move to Buildable (K33, F8, M172, P2df, J49, P2ak, P2ey), and the rows that wait
+  on a parked surface, an owner ruling, live keys or the card reader move to Owner-gated (M215, J14,
+  J6, P2co, S13, S18, M11, M12, M23, M38, M54, M8, S10, S8, S9, P2z, J27, and on its second review
+  M207, M111, P2gc, P2ht). On #351's merge head, M115 reopens, narrowed: M230 (#354) named only
+  `not_draft`, so `not_yours`, `error` and the RPC's other codes still move the pill back with no
+  sentence. K20 moves to Owner-gated (its age threshold and its fold-or-close choice are the owner's),
+  and so do M72, M79, P6b and S6 from Keep open (each waits on an owner decision). The counts above
+  are the recomputed ones.
+
+- **Two rows stay open after the blind review.**
+  - K20 is marked partial: the 24 h queue window shipped, but the owner-set age policy did not.
+  - M177 stays in place as M157's duplicate, because a parked row never moves, and M157 takes its
+    high severity.
+- **Two residuals are filed.**
+  - M284 (med): name the stale-lock cutoff once. M163's naming ask did not ship: the cutoff is computed
+    at ten TypeScript sites and hardcoded in eleven migrations.
+  - M285 (low): watch a lost PKCE verifier (C22's note).
+- **M123's next step changed (Codex round 2).** It now forbids the superseding acquire on the split
+  door, because that acquire could cancel a tablemate's live payment.
+- **Every "already fixed" and "duplicate" verdict the agent passes gave was re-checked by a pass told to
+  refute it.** Eleven were refuted. Ten stay open: P2z, P2ak, P2df, K33, M172, P2ey, J27, J49, C16 and
+  F8. The eleventh, A1, already reads DONE in the Option A table. The snapshot keeps the reason for
+  each. F11 and the three ruling rows (T37, J38 and K16) were checked by hand.
+
+### Money guards: the Stripe client and keys, the cash and reader settles, the grocery basket (2026-10-12)
+
+- **Meals are card only (M155, owner ruling #7).** One constant, `MEAL_PAYMENT_METHOD_TYPES`
+  (`apps/qr/lib/payment-methods.ts`, `["card"]`), is named by `create-intent`, `create-share-intent`
+  and `setup-intent` in place of automatic payment methods, and by the tab's off-session close. Apple Pay and Google Pay ride the card
+  method and stay. Link, Cash App Pay, Klarna, ACH and any other method enabled in the Dashboard no
+  longer appear in the Payment Element or the Express Checkout Element, so no bank debit can sit in
+  `processing` on a cart for days. The parked split share drops `allow_redirects: "never"`, since a
+  card never redirects. `docs/ENV.md`'s cutover step 2 says so.
+- **The Stripe client has a network budget (M72c, partial).** `lib/stripe.ts` now passes a 20 s
+  timeout per attempt and one retry (stripe@22's defaults were 80 s and two retries, so up to three
+  attempts). Every Stripe call takes it, the parked Terminal reader actions included. The pickup
+  capture makes one attempt per webhook delivery (`maxNetworkRetries: 0` beside its key), so a
+  transient capture failure waits for Stripe's redelivery, which re-derives the plan. The
+  setup-intent Customer create is keyed on the cart (`cus_<cartId>`). A parse guard in `stripe.test.ts` refuses a
+  per-call retry override below one that carries no `idempotencyKey`, and a `new Stripe(…)` under
+  an `import` binding of `stripe` anywhere in `lib/` or `app/` but `lib/stripe.ts` (M291 lists what it
+  cannot see). Left: 20 s is an upper bound
+  picked without a measurement. Owner ruling #23 sizes it from the Stripe round trip measured from
+  `pdx1`, which an agent sandbox cannot take.
+- **An unreadable Stripe key mode counts as live for the webhook secret (M166).** When the secret
+  key is missing or its prefix is not `sk_`/`rk_` plus test or live, the webhook now ignores
+  `STRIPE_WEBHOOK_SECRET_TEST` and answers 500 "Webhook not configured". Its diagnostic says the
+  mode could not be read rather than claiming live, and reports set-ness only. A local setup on a
+  mock key must set `STRIPE_WEBHOOK_SECRET` or use a real `sk_test_` key.
+- **`resolvedStripeMode` and the key order are executed, not shape-matched (M164 · M165).** The new
+  `lib/stripe.test.ts` runs `stripe.ts` with `server-only` stubbed and a spy around the real SDK
+  class: the mode follows the secret key and never the publishable one, `_TEST` wins when both
+  secret names are set, and a mode mismatch throws before the client is built. The webhook route's
+  signing-secret order is pinned by parsing its array literal.
+- **A failed reader start whose cancel also fails holds the table (M287, Codex on #352).** `settleCard` used to free the
+  settlement freeze after any `processPaymentIntent` throw, cancel or not. A throw can be a false negative and the
+  client now gives up after 20 s, so a failed cancel is an unknown outcome: the freeze is held and staff are told the
+  reader may still be taking the card. No reader is connected yet (ruling #26).
+- **A Terminal poll that re-takes the freeze re-reads the intent (M216).** After a mid-collect
+  re-acquire the poll retrieves the PaymentIntent again. When staff Cancel or a decline killed the
+  attempt in between, it releases the freeze it just took, scoped to the attempt, and answers
+  canceled or failed, so the table no longer stays frozen until the TTL. If that re-read fails, the
+  poll answers its existing miss ("Couldn’t check the reader just now — still trying.") where it
+  used to answer collecting, and the freeze is kept. No reader is connected yet (ruling #26).
+- **A cash settle refuses a cart with nothing chargeable on it (M252).** A cart whose every line is
+  comped or voided now gets "There’s nothing on this table to settle." instead of a $0 paid order
+  with no snapshot rows. The check runs under the freeze, and only when the subtotal is zero; a
+  chargeable $0 line still settles.
+- **The split door honours the freeze (T9).** "Split & pay separately" is `aria-disabled` under a
+  checkout's freeze, and a tap speaks the section's own freeze sentence instead of calling
+  `openSettlement` and echoing a redacted error. The door is behind `SURFACES.selfServeSplit`, off
+  today. `check:child-freeze` now also derives member-authorized mutations that refuse through the
+  settlement acquire (18 mutations from 7 lib modules), so `openSettlement` is audited.
+- **The Scan & Go basket shows the chargeable lines only (M187).** `readGroceryLines` drops comped
+  lines with the charge authority's own predicate, so for a cart of market lines "Subtotal · before
+  tax" equals `computeTotals`' subtotal. A comped line now leaves the basket list and count. The /cart checkout
+  still lists it as "On the house". A camera re-sighting of a jar whose line staff comped is now a
+  new item at full price.
+- **Market items go only on a scan-and-go cart (M189, owner ruling §C).** `scanAdd` refuses any cart
+  whose session mode is not `scango`, before the catalog read and any write, answering `unreadable`.
+  So no split can weight a grocery line. The parked kiosk's grocery door is refused too; reopening
+  the kiosk needs a stored session kind first (C20).
+- **A comped line is never a merge target, and an unreadable one writes nothing (T25 · M188).**
+  `insertOrIncLine`'s sibling read skips comped rows, so an add that matched a comped draft line now
+  inserts a fresh one at full price where it used to be a silent no-op; a diner or staff member sees
+  two rows for that dish. A failed sibling read throws `ItemUnreadableError` before any write
+  instead of inserting a twin: reorder skips the line as unreadable, a scan goes to Retry, and the
+  staff pad reads it as unconfirmed. A comp landing between the read and the bump is still a no-op
+  (T27).
+- **Proof.** 38 new `verify:slice` mutants (`stripecfg/` 18, `m252/` 6, `m216/` 4, `t9/` 4,
+  `grocery/` 4, `order-lines/` 2), each caught; `lib/payment-methods.ts`,
+  `app/api/stripe/webhook/route.ts` and `components/SplitSection.tsx` are new mutation targets. New
+  suites: `stripe.test.ts`, `payment-methods.test.ts`, `settle-comp-only.test.ts`,
+  `SplitSection.test.tsx`, `grocery-lines.test.ts`, `order-lines-sibling.test.ts`.
+- **No new copy and no migration.** Every refusal reuses an existing English string; the M166
+  diagnostic is an English server log line. No Burmese string was added, so the K15 ledger is
+  unchanged.
+- **Filed:** M277 (a same-barcode line pair on the Browse card), M278 (no database gate on grocery
+  lines), M279 (a with-tax figure on /grocery) and J55 (the split door's error echo).
+- **The blind pass's fix round (2026-10-13).**
+  - The budget's bound counts the SDK's Retry-After sleep, which stripe@22 honours up to 60 s. A
+    default-budget call is bounded under two minutes (about 100 s), not one; the zero-retry pickup
+    capture stays under one minute. Both bounds are read off the SDK's own retry decision and sleep.
+  - The parse guard exempts only `lib/stripe.ts`'s own client config, and refuses a client built
+    elsewhere in `lib/` or `app/` under any `import` binding of `stripe`. A re-aliased binding,
+    `require`, a dynamic `import()` and the files outside those two trees are not read (M291).
+  - The basket parity is stated for a cart of market lines, and a test pins the boundary: a to-go
+    dish on the same cart is charged and not listed.
+  - Two of the round's changes were reverted after the capped pass over the fix commits found them
+    worse than what they replaced. Both sit behind parked doors.
+    - Naming the card-only list on the tab's off-session close turned Stripe's definite refusal of
+      a non-card method into an "unknown" verdict that holds the freeze and tells staff the charge
+      may have gone through. Filed as M290.
+    - Keying the Customer create per request let two concurrent saves pair the tab's Customer with
+      another Customer's method. M289 now carries both cart-stable keys.
+  - Filed M286 (a dish on a scan-and-go cart), M287 (a Terminal start that throws frees the table
+    when its cancel fails), M288 (no truthful exit for a fully comped counter order whose food was
+    sent), M289 (setup-intent's cart-stable SetupIntent key) and M291 (what the client guard
+    cannot see).
+
+### One host source and refusal words for the session mint; the promo quote follows the live intent (2026-10-12)
+
+- **M169: `/api/session` keeps one host source.** `table_sessions.host_seat` decides who hosts, and
+  the route now keeps `session_members.role` in step with it. When `host_seat` names the seat and the
+  member row does not say host, the row is promoted, and the write is checked by the row it returns.
+  The row is never demoted. A guest who joined a server's table by invite and later claimed it can
+  now fire a round and open a split. Before, the phone said "host" and every server gate refused it.
+  The W6a claim runs on every dine-in join but an invite code, so the claim can come from the
+  sticker or from the invitee's own reload of a table still hostless; the same code opened as `?t=`
+  always could claim. Rows that diverged before this fix heal on that seat's next dine-in join.
+- **The W6a host claim's error and the membership read's error are no longer thrown away.** A
+  transport failure answers 503 and any other error answers "try again", both before any membership
+  is written. A failed or empty promotion is refused the same way, never answered "host" over a
+  guest row.
+- **J16: every `/api/session` refusal carries a machine `reason`.** The 13 words live in one list,
+  `lib/session-refusal.ts`. `useTableSession` exposes the word as `errorReason`, and GuestList picks
+  its way out through `joinFailureArm` (`lib/guest-list.ts`), never by searching the English. The
+  response body only gains a field: `kind: "unavailable"` is kept.
+- **What a diner sees on a failed join changes.** The seated race and a retired or unregistered table
+  now show the route's own sentence and the code entry, not "Couldn’t join this table" and a retry
+  that could only fail again. A code that joins nothing offers the code entry without "Try again":
+  since W10a an unreadable table answers 503, so the 404 is a verdict. A kiosk order, a held table
+  and a staff-only code show their own sentence with no retry. A full table stays terminal. A
+  transient failure, or no word at all, keeps the generic line and the retry.
+- **M123 (b): the review step and the floor's settle quote show the promo pin only while a payment
+  intent is live.** `getCartTotals` gained a `quote` basis, read only by `getCartView` and
+  `getTableDetail`. It quotes the pin while `live_payment_intent_id` is set and the live discount
+  otherwise. An unreadable link throws instead of reading as unlinked. Every charge path stays on the
+  default `charge` basis, unchanged. What a guest and staff see changes when a dead card attempt left
+  a pin: they now see the discount the counter will actually charge, not the stale one, and the cash
+  sheet no longer refuses that figure as `moved`.
+- **M123 (a′): the split door releases a dead attempt's pin under its own freeze before it prices the
+  shares** (`releaseStalePinUnderFreeze`, `lib/supersede.ts`). Before, a pin an abandoned attempt left
+  priced the grand total and every share. The release can cancel an intent at Stripe, but only one
+  linked to an unlocked cart: a locked cart, fresh or stale, is still refused before it. A charging
+  intent answers with create-intent's own sentence, "That payment is already going through — give it
+  a moment." The door is still parked (`SURFACES.selfServeSplit`), so production is unaffected until
+  it reopens.
+- **M211: a settled order longer than 500 lines says so.** The settled line read fetches one row past
+  `ORDER_LINE_CAP`, renders the first 500 and carries `settledLinesTruncated`. The floor pane then
+  shows "Showing the first N lines — this order has more." under the list, and the list names the note
+  in `aria-describedby`. The note is English only (`lang="en"`); no Burmese was written for it.
+- **M221: one `/staff` render reads the day's refund ledger once.** `readDayLedger`
+  (`lib/refund-ledger-day.ts`) wraps the read in React's request-scoped `cache()`, keyed on the day
+  floor. The settled list and the register's drawer both read through it, so a refund committing
+  between them can no longer land in one answer and not the other. A failed read is shared too: both
+  zones show the outage together. This is the codebase's first use of `cache()`.
+- **Proof:** 50 new `verify:slice` mutants (`hostsrc` 10, `j16-reason` 14, `m123` 15, `m211` 7,
+  `m221` 4, two of them from the fix round), every one caught. The battery is 4221 mutants over 344
+  modules. Red-first suites in the route,
+  the hook, GuestList, `guest-list`, `session-refusal`, `totals`, `split`, `settle-stale-pin`,
+  `floor-settled-detail`, FloorDetailLive, `refund-ledger-day` and `refunds`. No migration and no SQL
+  change.
+- **Left open:** a linked intent whose diner walked away is still quoted at its pin while the counter
+  supersedes it and charges live; the cash sheet refuses `moved` once and the next quote is live
+  (M280, never a wrong charge). The M211 note needs a Burmese string and a native check (K47). The
+  seated and retired-table sentences say "pick another", and the dine-in menu has no table picker to
+  pick from (J56). OPEN-ITEMS closes M169, J16, M123, M211 and M221 and files M280, K47 and J56.
+- **No new Burmese.** The one new string, the M211 note, is English only; every other sentence shown
+  is an existing route string or `BIND_COPY`.
+- **Fix round after the blind pass.** Two guards it showed could not fail now can: the quote's link
+  read is pinned to the cart's own id (`totals.test.ts`'s fake answers only that key;
+  `m123/link-read-wrong-key`), and a non-transport membership-read error is pinned to "try again"
+  with nothing written (`hostsrc/member-read-error-unbound`). Both were watched surviving the old
+  suites, then red. Comments that had drifted are corrected: the split's stale-pin release keys on
+  the host's seat, not one open, which the reopen list in `lib/surfaces.ts` now names; the M169 claim
+  runs on every join but an invite code; two settle-quote notes name the `quote` call; the PD2
+  totals case is titled for what it checks. M280 now names the phone door as well as the counter.
+
+### PD1's and PD2's remainders: the host's name ask, the pass on the kitchen track, and the counter ask over unsent dishes (2026-10-12)
+
+- **The join code no longer rides /cart's split context (PD1).** `getSplitContext` (`lib/split.ts`)
+  neither reads nor returns `table_sessions.qr_code`; it carries the session id instead. No pass has
+  printed the code since #335's fix round, so nothing read the field.
+- **"Show a server" reads the kitchen track on the view's database clock (PD1).** `showServerStatus`
+  is now the roll-up of `lib/kitchen-track.ts` (through the live pass's `passHead`), read against
+  `dbNow`, the clock that stamped the dishes. The `initialServerNow` prop is gone. Two readings change:
+  a dish the kitchen has started reads "Sent to kitchen" whatever its fire time says, and an unreadable
+  clock reads "Sending…", never "Sent".
+- **The host is asked their name once, when the party reaches two (PD1, m1 decision 16).** On the
+  host's Order stage, above the waiting line and Send, while their seat still carries the default
+  "Guest". Save renames the host's own seat, keeps the name on the device, says "Name saved" once and
+  moves focus to Send. A failed save keeps the row, marks the field, says why once and keeps focus
+  there. "Not now" hides the ask for the rest of the visit at that table.
+  - Codex round 1 on this PR: /cart watches the cart and its lines, never the members, so a host who
+    opened /cart alone was never asked once a tablemate joined. The party now counts the page's
+    members plus every seat with a line on the screen's latest view (`partySize`), so the ask appears
+    with the tablemate's first dish.
+  - Left open: a tablemate who joined and added nothing still counts only from the host's next page
+    load, and a guest sees the host's new name on their own next load (OPEN-ITEMS M283). The save's
+    action does not check that its write touched a row (M281).
+- **"Pay at the counter" now carries unsent dishes (PD2, m2 decision 12).** The server no longer
+  refuses the ask while dine-in dishes wait for the Send. The old "Everything has to go to the kitchen
+  first" refusal and the Bill's "Send everything to the kitchen first" hold are retired. On both docks
+  the counter is held only by a tablemate's pay lock or this phone's undo window.
+  - While dishes are unsent, the parked dock's line reads "You can still ask — the counter will check
+    them with your table." On a table with no host that line used to read "The counter takes cash."
+    The host keeps "Back to send them".
+  - No money moves on the lift: the register's settle doors still refuse while dishes are unsent, so
+    staff send them with the table before taking payment. After the card flip, Pay keeps its served
+    gate and its unsent reason; the `dineInPhonePay` flip itself stays parked.
+- **New copy is English-only.** The seven name-ask strings and PD2's lifted line ship in English.
+  Their Burmese drafts are in the m1 and m2 specs and are listed on OPEN-ITEMS `K15 · diner-cart` for
+  the native check. No Burmese was added.
+- **Tests and mutants.** A new `lib/split-context.test.ts`, plus cases in show-server, send-nudge-state,
+  counter-pay, counter-pay-state, checkout-verb and the three Checkout suites, each watched red against
+  the old code. `verify:slice` goes from 4171 to 4195 mutants: 32 new `pdrem/*` (three for the Codex
+  fix, three for the blind pass) and 8 retired with the lifted unsent rule.
+- **Docs.** The m1 and m2 specs record what was built, and their stale "not built yet" notes point at
+  it. DESIGN-LANGUAGE's settle-gate bullets match the lift. OPEN-ITEMS closes PD1 and PD2 and files
+  M281 (the name save's unchecked row count), M282 (`getCartView.serverNow` has no reader now) and
+  M283 (/cart reads the members once per page load).
+- **The blind pass's fix round.** The parked Bill's undo-window hold on its one door is pinned now (a
+  grace-suite case and `pdrem/checkout-parked-grace-not-held`). At the window's elapse the parked Bill
+  reads the counter's own hold, not Pay's: a tablemate's dish landing inside the window no longer
+  lets the door light up with nothing said, and over unsent dishes the edge says the dock's line,
+  never "Ready to pay." (two more mutants). Comments that still had the counter ask refusing unsent
+  dishes, or `getCartView.serverNow` with a reader, now match the code; the "Let {host} know"
+  docblock sits on `nudge` again; a regex that could not fail beside an exact match is gone. Filed
+  J57 (whether the undo window should still hold the counter: the owner's call) and T58
+  (`getCartView`'s clock-before-the-lines order has no test).
+  - The capped pass over those fix commits found three more places with the retired counter
+    refusal (the unknown-host mutant's `why`, its test comment and the m10 spec), a docblock that
+    left the register's settle doors off `payBlockedByUnsent`'s readers, and a grace mutant whose
+    `why` argued the rationale J57 sets aside: all now match the code. The parked edge's "never
+    'Ready to pay.'" check reads every text the region takes through the elapse, so it fails on its
+    own.
+
+### Refusals on their own box, one voice on /menu, and the guide foot (2026-10-12)
+
+- **F20: the account card's email and code boxes and the checkout's promo box are `@mms/ui`
+  Fields.** A refusal of the typed address or code is drawn under its box, the box is `aria-invalid`
+  and described by it, and the refusal is said once: focus moves to the box after a button press, and
+  after Enter the card's one region says it, visually hidden.
+  - Only a refusal that names the value is bound (Codex round 1). `lib/auth-field-refusal.ts` lists
+    them: no account for the address, GoTrue refusing the address, a wrong or expired code. OTP
+    switched off, a rate limit or a dropped request stays the card's status line and focus stays put.
+    On the checkout, `lib/promo-field.ts` keeps the order's refusals (an unmet minimum, someone is
+    checking out, too many tries, the order is being paid) in the region, as before. A refusal the
+    region says is retired when the order's lines or the view change, so an edit that meets the
+    minimum takes its sentence with it, and the empty cart and the settlement board never show it.
+  - On the checkout, focus moves into the promo box only for a keyboard Apply. After a tap the region
+    says the refusal, because focus in that box hides PD2's docked door with no keyboard on screen.
+  - What diners see: the account labels take the Field label style; the promo gains a visible
+    "Promo code" label in both languages (the existing keys, no new Burmese); a refused code or
+    address shows under its box in `--warn` with a warn border, not in the line at the bottom.
+  - Codex's review of the fix round: the promo and account boxes stay editable while their answer
+    is in flight, so a refusal is bound to its box only while the box still holds the value it
+    refused (otherwise the region or the card says it). The diet sheet's count, a quiet claim that
+    can wait behind a visible toast, is said only while it is still the sheet's sentence.
+- **F31: /menu speaks through its one live region.** The empty-search card and the diet sheet's match
+  count lose their own `role="status"`. Each speaks once, as a quiet claim, through the cart
+  provider's Toast: the card when the list turns empty, the count when it changes while the sheet is
+  open. Opening the sheet says nothing new.
+- **M214: a signed-in diner whose Google round trip bounces back to /account is told so.** One line on
+  You ("You're already signed in — that Google step didn't finish, and it doesn't need to."), and the
+  raw error leaves the address bar through the guest card's own strip, now shared from
+  `lib/oauth-callback.ts`. It shows only when the server knows the session is signed in.
+- **K44: the four retired pre-tax keys and their plural pair are gone from the staff dictionary.**
+  Nothing had rendered them since PD6; the negative tests now assert the retired words themselves.
+- **M127: `--surface-elevated` and `--oa` are pinned by what they are, not only by a ratio.** Night's
+  six-rung ground ladder must stay evenly spaced (its first test), light's elevated surface matches
+  `--cd-raised`, light's `--oa` is the house cream, and Night's `--oa` tracks the floor.
+- **PD4 (partial): contrast rows for the paper tag and the CounterPass.** One cream for both, the tag's
+  ink and button, and the pass stub's ground in both themes. The tag's keyboard focus ring sat on the
+  live camera at 1.19:1 (Night) and 1.94:1 (light); it is now drawn inside the paper in ink. Left: the
+  device-sitting checks and the Undo home for a panel-opened sheet.
+- **PD12 (partial): the counter guide's foot no longer covers the step.** The headless measurement at
+  1366 and in the 34rem Help sheet (100 states, both languages, 100% and 200% text) found Next in view
+  everywhere, but the pane's sticky foot sat 96px too high and covered the title and sentence on every
+  counter step. It now sits at the card's end in every host. Left: kitchen step 5's "Got it" is cropped
+  out of the sheet's picture well (K48), the K15-HIGH candidates and the device sitting.
+- **New copy is English only:** M214's line and F31's spoken sentence (the empty card's own two
+  lines). No new Burmese, so nothing joins the K15 ledger.
+- **Filed:** K48 (kitchen step 5's crop) and F37 (a screen-reader device check of the one-voice
+  refusal).
+- **Blind-pass fix round (on `281e454`).**
+  - The promo box's hidden voice in the region is now `status` itself. A copy kept beside it came
+    back whenever a handler emptied the region, so "That code isn't valid." was heard again as the
+    answer to Pay.
+  - An unmet minimum is the order's refusal again: said in the region, the box left valid, cleared by
+    a stage flip.
+  - On both cards the voice is settled when the answer arrives, so focus moved into the box during
+    the round trip gets the region.
+  - A refused box keeps its `--warn` border while focused: the wells' focus accent skips an invalid
+    box (`lib/field-invalid-border.test.ts`).
+  - F31: a quiet claim waiting behind a toast is asked again before it is said (`announce`'s
+    `still`), so "Nothing matches" is never spoken over a list that has filled up.
+  - Guards: the guide-foot test now reads the logical insets too, and M214 has a staff-session case.
+
+### Cart refusals that say their own cause, an Undo for an unlogged 86, and four guard gaps (2026-10-12)
+
+- **T41: the /menu stepper no longer calls a quantity change refused when it may have landed.**
+  `setItemQty`'s recovery path counts only "the line sits at our target" (or is gone, for a remove)
+  as a landing. Every other reading answers unconfirmed, including one under a freeze, so a set that
+  may have landed is never offered as retryable.
+  - What a diner notices: a "−" refused under a lock that arrived mid-flight used to say "That didn’t
+    go through — the order’s locked while someone checks out". It now says "We couldn’t confirm that
+    — check your order below.", and the lock banner then speaks on its own.
+- **T42: each refused add carries its own cause.** `add()` returns its refusal clause with the result,
+  and the "your usual" card builds its sentence from that result. The provider-wide
+  `lastRefusalClause` latch is retired, so two overlapping writes can no longer swap their reasons.
+  `CartCtx.lastRefusalClause` is gone from the cart context; any other branch that reads it fails to
+  typecheck.
+- **M230: /cart's for-here / to-go toggle says why it was refused when the kitchen already has the
+  dish.** `setLineFulfillment` and `makeItNow` answer `not_draft` for a line that has left draft, ahead
+  of the ownership check. The toggle then says "That didn’t go through — it’s already gone to the
+  kitchen." The sentence is dropped if the line is back in draft by the time it would be said (a send
+  undone in its grace), and taken down if a later view puts it back in draft after it was said.
+  - "Send to kitchen now" stays silent on `not_draft`, because the dish is almost always already
+    where the diner asked. When staff voided it instead, the sheet closes and the line's chip says
+    "Removed". `not_yours`, `error` and the other RPC codes stay silent too.
+- **P2au: an 86 whose ledger record failed now gets its Undo.** The flag landed, so `setItemSoldOut`
+  answers with a new `unlogged` code that carries it, and the new `lib/sold-out-landing.ts` is how a
+  caller asks whether the dish changed. The KDS offers its 6-second Undo for an unlogged 86 and takes
+  the bar down for an unlogged put-back. `/staff/menu` flips the row's verb. The "wasn’t logged — tell
+  the owner it was you" sentence is still said on both.
+- **Four guards close their gaps.**
+  - `check-staff-lang` rule 4f (M220) checks each of the seven redirect-only staff pages. Its
+    destination must be a real page that is not itself a redirect, and a `#fragment` must be an id
+    that page renders.
+  - `check-child-freeze` (T28) holds its four audited components as an expected set and fails when one
+    goes missing or an extra one appears.
+  - `check-freeze-parity` (T44) now follows writes to `qr_carts` / `qr_cart_items` through any number
+    of helper hops, by import identity. `releasePayLock` is back in reach, through its exemption.
+  - `check-echo-coalesce` (M226 f and h) resolves aliases by declaration, not by name, and refuses any
+    re-export of `useCartRealtime`.
+- **The mutant battery grows from 4171 to 4196.** Two mutants retired with the code they guarded
+  (`refusal/qty-refusal-goes-unpublished` and `refusal/latch-outlives-its-write`), six were
+  re-anchored or re-pointed, and one target module was added (`sold-out-landing.ts`).
+- **The blind review's fix round.**
+  - The kitchen sentence is now re-checked on every view /cart applies, not only when it is said. When
+    the host's Undo puts the line back in draft inside the send's grace, the sentence comes down.
+    Before, it stayed beside a line that read "Not sent yet".
+  - Only a freeze clears a standing pay error. The rule is now `refusalClearsPayError`, a switch with
+    no default; the old `cause !== "unknown"` had let the kitchen sentence erase "Couldn’t start
+    checkout".
+  - The T41 freeze case now checks that the region says the hedge before the lock banner, instead of
+    reading only the final text. The M230 draft-line case now gives the diagnosis read and the
+    winning view different lines, so it can tell when the check runs.
+  - Two comments that described old behaviour are corrected: `AddButton`'s note on `unconfirmed`, and
+    the "Send to kitchen now" note, which now names the voided case. Five mutants were added and one
+    re-pointed.
+  - The capped pass over those fix commits: a test now pins that the per-view retire takes down only
+    the kitchen sentence (the Bill's held-door reason, said after it, stays through the host's Undo),
+    with its mutant; `AddButton`'s `unconfirmed` note now says what the code does (nothing is sent
+    when the re-read fails), and the draft-line case asserts the diagnosis took the fired read.
+- **Copy:** the one new sentence ("…it’s already gone to the kitchen", on /cart) is English only,
+  like every /cart refusal. The unlogged-86 sentence is unchanged and still said verbatim in English
+  on the KDS. No Burmese string was added, so nothing joins the K15 ledger.
+- **Left open:** T43, a landed add that a host restored to its pre-add quantity, is not built. It needs
+  evidence the server names and the owner's call on what "your usual" says under a visible lock. M226
+  keeps (a), (b), (d), (e) and (g) as accepted-risk shapes. T57 is new: /cart's `changeQty` still
+  decides its sentence from the comparison T41 removed on /menu.
 
 ### The owner's answer on the wave's merges (2026-10-12, docs only)
 

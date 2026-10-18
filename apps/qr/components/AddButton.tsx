@@ -86,6 +86,7 @@ export function AddButton({
     settling,
     isGroup,
     me,
+    ended,
   } = useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
@@ -124,7 +125,9 @@ export function AddButton({
   // are disabled (a disabled control, not a missing one). `blocked` adds the in-flight `busy` window and
   // gates only the Add PILL (double-create guard) + the focus effects. Crucially the stepper does NOT gate
   // on `busy`, so rapid +/− taps stay live and never freeze mid-write — the "cart actions feel delayed" fix.
-  const frozen = !cartId || locked || settling;
+  // Session truth — a table that ENDED is frozen too, and for good: unlike a lock or a settle it
+  // never heals by waiting, so gating on it can hide no correction (the card above is the way on).
+  const frozen = !cartId || locked || settling || !!ended;
   const blocked = frozen || busy;
   // W9b — the mint window. `loading` has been on the cart context since M3 with ZERO consumers, so
   // for the second or two before the session resolves every pill on the menu is simply dead: no
@@ -136,7 +139,7 @@ export function AddButton({
   // the same frozen cart. Precedence + copy are pinned by `inert-reason.test.ts`.
   // T20 — the FACT, not the label. `lockedByName` is peer-supplied presence text, so a tablemate
   // named "You" used to make their lock read as this viewer's own.
-  const reason = inertReason({ minting, locked, lockedByYou, settling });
+  const reason = inertReason({ minting, locked, lockedByYou, settling, ended: !!ended });
 
   // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
@@ -342,11 +345,13 @@ export function AddButton({
           // `refused` the recovery read that proved the refusal — so the fallback is reached only
           // when there genuinely is no current cart to be had.
           //
-          // `unconfirmed` still re-reads first: that state means the write COMMITTED and we could
-          // not see it, so the last render's list holds the pre-write quantity. If the re-read also
-          // fails the fallback degrades honestly rather than corrupting — `setQty` is ABSOLUTE, so
-          // re-sending `qty - 1` against a quantity the server already has is an idempotent no-op:
-          // the tap is lost, the cart is not wrong.
+          // `unconfirmed` still re-reads first: that state means we could not establish whether the
+          // write landed — it may have COMMITTED unseen, or (since T41) a re-read showed the line off
+          // our target, where it may never have committed at all — so the last render's list cannot
+          // be trusted either way. If the re-read also fails, NOTHING is sent: with a prior op and
+          // no view, `source` below is null, so the step is reverted and the tap is lost — never a
+          // `setQty` from the stale baseline, which (`setQty` being ABSOLUTE) would write a wrong
+          // number over whatever a host set, the off-target T41 case included.
           // ⚠️ USE WHAT THE REFRESH RETURNS (Codex round 3 on #251, P2). `await refresh()` updates the
           // PROVIDER; this ref catches up a render later, so reading it here discards a perfectly
           // good recovery read: two rapid decrements from 3 lost the second tap even when the

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BIND_COPY } from "@/lib/bind-copy";
+import { MAX_PARTY_SIZE } from "@/lib/limits";
+import { SESSION_REFUSALS } from "@/lib/session-refusal";
 
 /**
  * `/api/session` — the mint, pinned at the WIRING level with a FILTER-AWARE mock (Phase 3c-ii):
@@ -54,7 +56,8 @@ const FUTURE = new Date(Date.now() + 3_600_000).toISOString();
 const PAST = new Date(Date.now() - 60_000).toISOString();
 
 let sessions: Row[] = [];
-let members: { session_id: string; seat_id: string }[] = [];
+/** M169 — `role` as the row holds it; a fixture without one reads as unknown (never "host"). */
+let members: { session_id: string; seat_id: string; role?: string }[] = [];
 let registry: { table_number: number; qr_code: string; active: boolean }[] = [];
 /** Every write the route issued, as `table:op`. */
 let writes: string[] = [];
@@ -86,14 +89,22 @@ let writeHook: { on: (q: Q) => boolean; run: () => void } | null = null;
 let memberInsertError: { code: string; message: string } | null = null;
 /** The number-keyed read fails (an outage). */
 let numberReadFails = false;
+/** M169 — the W6a host claim (`update({ host_seat })`) answers with this error. */
+let claimUpdateError: { code?: string; message: string } | null = null;
+/** M169 — the member row's role write (the promotion) answers with this error. */
+let memberUpdateError: { code?: string; message: string } | null = null;
+/** J16 — what `withinJoinRate` answers (the 429 arm). */
+let rateOk = true;
 /** The membership read fails (an outage). */
 let membersReadFails = false;
+/** …answering THIS error: a transport failure unless a case scripts another (M169's two arms). */
+let membersReadError: { code?: string; message: string } = { message: "fetch failed" };
 /** The registry (`qr_tables`) read fails (an outage) — the sticker arm's and the claim arm's. */
 let registryReadFails = false;
 /** A `table_sessions` read keyed on THIS token fails (an outage) — the prior-code read, the zero-row re-read. */
 let tokenReadFailsFor: string | null = null;
 
-vi.mock("@/lib/rate", () => ({ withinJoinRate: () => Promise.resolve(true) }));
+vi.mock("@/lib/rate", () => ({ withinJoinRate: () => Promise.resolve(rateOk) }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
 
 let nextId = 0;
@@ -236,13 +247,22 @@ vi.mock("@mms/db/server", () => ({
               memberInsertError = null;
               return { data: null, error: e };
             }
-            members.push(q.payload as { session_id: string; seat_id: string });
+            members.push(q.payload as { session_id: string; seat_id: string; role?: string });
             return { data: null, error: null };
           }
           return { data: null, error: null };
         }
         if (q.op === "update") {
+          if (table === "session_members") {
+            if (memberUpdateError) return { data: null, error: memberUpdateError };
+            const hit = members.filter((m) => matches(m, q));
+            for (const m of hit) Object.assign(m, q.payload);
+            const first = hit[0];
+            return { data: first ? { role: first.role ?? null } : null, error: null };
+          }
           if (table !== "table_sessions") return { data: null, error: null, count: 0 };
+          if (claimUpdateError && "host_seat" in (q.payload ?? {}))
+            return { data: null, error: claimUpdateError };
           const hit = sessions.filter((r) => matches(r, q));
           for (const r of hit) Object.assign(r, q.payload);
           const first = hit[0];
@@ -262,10 +282,10 @@ vi.mock("@mms/db/server", () => ({
           return { data: hit, error: null };
         }
         if (table === "session_members") {
-          if (membersReadFails) return { data: null, error: { message: "fetch failed" } };
+          if (membersReadFails) return { data: null, error: membersReadError };
           const hit = members.filter((m) => matches(m, q));
           return {
-            data: hit.map((m) => ({ id: `${m.session_id}:${m.seat_id}` })),
+            data: hit.map((m) => ({ id: `${m.session_id}:${m.seat_id}`, role: m.role ?? null })),
             error: null,
             count: hit.length,
           };
@@ -334,14 +354,32 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { POST } = await import("./route");
+const { POST: mintPOST } = await import("./route");
+
+/**
+ * J16 — EVERY refusal names its reason. Each case's non-2xx answer is checked here, so an arm that
+ * answers a bare sentence (one the client could only grep) goes red in whichever case reaches it.
+ */
+async function POST(r: Parameters<typeof mintPOST>[0]) {
+  const res = await mintPOST(r);
+  if (!res.ok) {
+    const body = (await res.clone().json()) as { reason?: unknown };
+    expect(SESSION_REFUSALS, `a ${res.status} answered without a known reason`).toContain(
+      body.reason,
+    );
+  }
+  return res;
+}
+/** The refusal's word, read off a response the case has not consumed. */
+const reasonOf = async (res: Response) =>
+  ((await res.clone().json()) as { reason?: unknown }).reason;
 const { soloRemintKey } = await import("@/lib/solo-remint");
 
 function req(body: Record<string, unknown>) {
   return {
     json: () => Promise.resolve(body),
     headers: { get: (h: string) => (h === "authorization" ? "Bearer anon-token" : null) },
-  } as unknown as Parameters<typeof POST>[0];
+  } as unknown as Parameters<typeof mintPOST>[0];
 }
 
 function row(
@@ -380,8 +418,12 @@ beforeEach(() => {
   bindCollision = null;
   bindHook = null;
   numberReadFails = false;
+  claimUpdateError = null;
+  memberUpdateError = null;
+  rateOk = true;
   memberInsertError = null;
   membersReadFails = false;
+  membersReadError = { message: "fetch failed" };
   registryReadFails = false;
   tokenReadFailsFor = null;
   rpcs = [];
@@ -439,6 +481,8 @@ describe("/api/session — reserved codes (Codex r3 on #308)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { cartId: string; role: string; created: boolean };
     expect(body).toMatchObject({ cartId: "cart-1", role: "guest", created: false });
+    // Session truth — a join of a live party is no fresh start: no "your visit had ended".
+    expect((body as unknown as { fresh: boolean }).fresh).toBe(false);
     expect(writes).toContain("session_members:insert");
   });
 });
@@ -1384,6 +1428,10 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
       tableNumber: 7,
       cartId: "cart-shell",
       created: false,
+      // Session truth (finding 4's narrow case) — the row existed, but nothing on it was this
+      // diner's: `fresh` lets a home-card resume say their earlier visit had ended.
+      // MUTATION (lcs/route-shell-take-is-not-fresh): drop `tookShell` from the answer.
+      fresh: true,
     });
     expect(sessionInserts()).toHaveLength(0);
     expect(bindUpdates()).toHaveLength(0);
@@ -1655,5 +1703,305 @@ describe("/api/session — J40: a TOUCHED shell is never hosted from the grid (t
       role: "host",
     });
     expect(rpcs.some((r) => r.name === "mms_claim_untouched_shell")).toBe(false);
+  });
+});
+
+describe("/api/session — M169: ONE host source — the member row's role is kept in step with host_seat", () => {
+  // Every server gate reads `session_members.role` (`assertCartMember` → fire a round, open or
+  // cancel a split, bind the table, nudge the host); the mint answers `role` from
+  // `table_sessions.host_seat`. The row used to be written ONCE, at the first join, so a seat that
+  // joined a server's table by invite (a guest) and then claimed it (W6a: the sticker, or its own
+  // reload of the code it kept — every join but an invite code) was told
+  // "host" by its own phone while every gate refused it — and a claim whose UPDATE errored was read
+  // as a lost race. host_seat is the source: it moves once (null → a seat) and never back, so a read
+  // naming this seat is never stale; the row is PROMOTED to match it, and never demoted by a read of
+  // a row that may have been claimed since.
+  const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+  const myRow = () => members.find((m) => m.session_id === "sess-STICKER7" && m.seat_id === SEAT);
+  const memberWrites = () => writes.filter((w) => w.startsWith("session_members:"));
+  const roleOf = async (res: Response) => ((await res.json()) as { role?: unknown }).role;
+
+  it("a seat that joined a server's table by invite (a GUEST row) and then scans its sticker claims host — and its row says host", async () => {
+    sessions = [shell()];
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("guest");
+    expect(myRow()?.role).toBe("guest");
+    // The same phone, the table's own sticker: the W6a claim lands on the still-hostless row.
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("host");
+    expect(sessions[0]?.host_seat).toBe(SEAT);
+    // MUTATION (hostsrc/rejoin-never-promotes): the row stays "guest" — the phone says host, and
+    // every gate (fire, split, bind) refuses it: a table nobody at it can send.
+    expect(myRow()?.role).toBe("host");
+  });
+
+  it("a HOST whose row says guest (written before this fix) is promoted on its next rejoin — and a row in step is never re-written", async () => {
+    sessions = [row("STICKER7", "dinein", SEAT, { table_number: 7 })];
+    members = [{ session_id: "sess-STICKER7", seat_id: SEAT, role: "guest" }];
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("host");
+    expect(myRow()?.role).toBe("host");
+    expect(memberWrites()).toEqual(["session_members:update"]);
+    // In step now: the common rejoin writes nothing (the floor watches this table's member rows).
+    writes = [];
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(memberWrites()).toEqual([]);
+  });
+
+  it("a GUEST at a hosted party is never promoted", async () => {
+    sessions = [row("STICKER7", "dinein", OTHER, { table_number: 7 })];
+    members = [
+      { session_id: "sess-STICKER7", seat_id: OTHER, role: "host" },
+      { session_id: "sess-STICKER7", seat_id: SEAT, role: "guest" },
+    ];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("guest");
+    expect(myRow()?.role).toBe("guest");
+    expect(memberWrites()).toEqual([]);
+  });
+
+  it("a host row is never DEMOTED by this request's stale read — this seat's sticker tab claimed the table after its invite tab read it hostless", async () => {
+    // MUTATION (hostsrc/stale-read-demotes): sync the row both ways — the invite tab's stale
+    // "guest" overwrites the host the sticker tab just recorded, and the table has no host again.
+    sessions = [shell()];
+    writeHook = {
+      on: (q) => q.table === "table_sessions" && "expires_at" in (q.payload ?? {}),
+      run: () => {
+        sessions[0]!.host_seat = SEAT;
+        members.push({ session_id: "sess-STICKER7", seat_id: SEAT, role: "host" });
+      },
+    };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(200);
+    expect(myRow()?.role).toBe("host");
+    expect(memberWrites()).toEqual([]);
+  });
+
+  it("the W6a claim's UPDATE error is BOUND — a transport failure is the W10a 503, any other 'try again' (500) — before any membership row; the retry claims afresh", async () => {
+    // MUTATION (hostsrc/claim-error-discarded): the error reads as a lost race, the re-read finds the
+    // row still hostless, and the diner joins as a GUEST of a table that now has no host at all.
+    sessions = [shell()];
+    claimUpdateError = { message: "fetch failed" };
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(503);
+    expect(memberWrites()).toEqual([]);
+    claimUpdateError = { code: "42501", message: "permission denied" };
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(await reasonOf(res)).toBe("try_again");
+    expect(memberWrites()).toEqual([]);
+    expect(sessions[0]?.host_seat).toBeNull();
+    claimUpdateError = null;
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("host");
+    expect(myRow()?.role).toBe("host");
+  });
+
+  it("the promotion failing is never a host answer over a guest row: a transport failure is the 503, a write that landed on no row is 'try again'", async () => {
+    sessions = [row("STICKER7", "dinein", SEAT, { table_number: 7 })];
+    members = [{ session_id: "sess-STICKER7", seat_id: SEAT, role: "guest" }];
+    memberUpdateError = { message: "fetch failed" };
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(503);
+    memberUpdateError = null;
+    // MUTATION (hostsrc/promotion-unchecked): the row vanished between the read and the write, the
+    // write matched nothing, and the phone is told "host" over a membership no gate will find.
+    writeHook = {
+      on: (q) => q.table === "session_members" && q.op === "update",
+      run: () => {
+        members = [];
+      },
+    };
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(await reasonOf(res)).toBe("try_again");
+  });
+
+  it("this seat's two requests racing the membership insert: the one that loses (23505) still brings the row to host", async () => {
+    // MUTATION (hostsrc/insert-race-trusts-the-winner): a 23505 is read as "the row is in step" —
+    // the other request's stale "guest" stands under a phone told "host".
+    sessions = [shell()];
+    writeHook = {
+      on: (q) => q.table === "session_members" && q.op === "insert",
+      run: () => {
+        members.push({ session_id: "sess-STICKER7", seat_id: SEAT, role: "guest" });
+      },
+    };
+    memberInsertError = { code: "23505", message: "duplicate key" };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(await roleOf(res)).toBe("host");
+    expect(myRow()?.role).toBe("host");
+  });
+
+  it("the membership read before the insert failing is the W10a 503 — never a join whose row nobody read — and any other error is 'try again' (500)", async () => {
+    // MUTATION (hostsrc/member-read-discarded): the failed read is "not a member", the insert lands
+    // over a row whose role was never checked, and the response says whatever host_seat says.
+    sessions = [row("ABCD2345", "dinein", OTHER)];
+    membersReadFails = true;
+    let res = await POST(req({ qrCode: "ABCD2345", mode: "dinein" }));
+    expect(res.status).toBe(503);
+    expect(memberWrites()).toEqual([]);
+    // MUTATION (hostsrc/member-read-error-unbound): only the transport arm is bound, so a refused
+    // read (here a permission error) falls through to the insert exactly as a discarded one did.
+    membersReadError = { code: "42501", message: "permission denied" };
+    res = await POST(req({ qrCode: "ABCD2345", mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(await reasonOf(res)).toBe("try_again");
+    expect(memberWrites()).toEqual([]);
+  });
+});
+
+describe("/api/session — J16: every refusal names a machine `reason` (GuestList switches on the word, never the sentence)", () => {
+  // GuestList read the failure by English substring, so the 409 seated race and the 400 for a
+  // de-registered table fell to a futile "Try again" with no way out, and the server's own sentence
+  // was swallowed. The suite-wide `POST` wrapper above refuses ANY non-2xx without a known word;
+  // these cases pin WHICH word each arm says.
+  const mine = () => row("MYCODE12", "dinein", SEAT);
+  const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+
+  it("the seated RACE — a stranger's party won the claim's insert at 7 — is `seated`, with BIND_COPY.seated beside it", async () => {
+    // MUTATION (j16-reason/seated-race-unnamed): the race answers a word the client reads as
+    // retryable — a "Try again" that 409s forever, and no way to join the party.
+    insertCollision = {
+      code: "23505",
+      then: () => sessions.push(row("GENCODE7", "dinein", OTHER, { table_number: 7 })),
+    };
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("seated");
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+  });
+
+  it("a claim at a seated table (the pre-check) and the bind's 23505 are `seated` too", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    let res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("seated");
+    sessions = [mine()];
+    bindCollision = { code: "23505" };
+    res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("seated");
+  });
+
+  it("a DE-REGISTERED (or retired) table is `table_not_registered`, with BIND_COPY.unavailable beside it", async () => {
+    // MUTATION (j16-reason/unregistered-unnamed): the 400 is said as a retry — the de-registered
+    // number is re-claimed forever.
+    registry = [{ ...REG7, active: false }];
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(400);
+    expect(await reasonOf(res)).toBe("table_not_registered");
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.unavailable);
+  });
+
+  it("a party at the cap is `full` — the pre-check AND the trigger's `party_full` (the race past it)", async () => {
+    // MUTATION (j16-reason/full-unnamed · j16-reason/full-race-unnamed): either arm said as a
+    // retry offers a seat no retry can free.
+    sessions = [row("STICKER7", "dinein", OTHER, { table_number: 7 })];
+    members = Array.from({ length: MAX_PARTY_SIZE }, (_, i) => ({
+      session_id: "sess-STICKER7",
+      seat_id: `seat-${i}`,
+    }));
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("full");
+    members = [{ session_id: "sess-STICKER7", seat_id: OTHER }];
+    memberInsertError = { code: "P0001", message: "party_full" };
+    res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("full");
+  });
+
+  it("a `?j=` code that joins nothing and a solo session refusing a second member share `code_not_found` — the word is no finer than the sentence (no existence oracle)", async () => {
+    let res = await POST(req({ qrCode: "NOPE2345", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(404);
+    expect(await reasonOf(res)).toBe("code_not_found");
+    sessions = [row("pickup-victim", "pickup", OTHER)];
+    members = [{ session_id: "sess-pickup-victim", seat_id: OTHER }];
+    res = await POST(req({ qrCode: "pickup-victim", mode: "pickup", joinOnly: true }));
+    expect(res.status).toBe(404);
+    expect(await reasonOf(res)).toBe("code_not_found");
+  });
+
+  it("the J40 re-read refusals say their own word: a server's TOUCHED table is `table_held`, a kiosk order that took it is `kiosk_order`", async () => {
+    // MUTATION (j16-reason/held-unnamed): `refusedAt` names every refusal `seated` — a join form
+    // for a table no code joins.
+    sessions = [shell()];
+    touchedShells = new Set(["sess-STICKER7"]);
+    let res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("table_held");
+    // A kiosk order seats itself at 7 between the bind call and the re-read (`gone`).
+    sessions = [mine(), shell()];
+    touchedShells = new Set();
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    bindHook = () => {
+      sessions[1]!.qr_code = "kiosk-ABCD2345";
+      sessions[1]!.host_seat = "kiosk-device";
+    };
+    res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("kiosk_order");
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.kioskOrder(7));
+  });
+
+  it("the reserved refusals: CREATING a reserved code is `code_invalid`, JOINING a counter or kiosk order is `staff_only`", async () => {
+    let res = await POST(req({ qrCode: "reg-ABCD1234", mode: "pickup" }));
+    expect(res.status).toBe(404);
+    expect(await reasonOf(res)).toBe("code_invalid");
+    sessions = [row("reg-ABCD1234", "pickup")];
+    res = await POST(req({ qrCode: "reg-ABCD1234", mode: "pickup" }));
+    expect(res.status).toBe(403);
+    expect(await reasonOf(res)).toBe("staff_only");
+  });
+
+  it("a row that closed under the join, and every 500, is `try_again` — the same word as a transient miss", async () => {
+    sessions = [shell()];
+    writeHook = {
+      on: (q) => q.table === "table_sessions" && "expires_at" in (q.payload ?? {}),
+      run: () => {
+        sessions[0]!.status = "closed";
+      },
+    };
+    let res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(await reasonOf(res)).toBe("try_again");
+    sessions = [];
+    insertCollision = { code: "23505" };
+    res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(await reasonOf(res)).toBe("try_again");
+  });
+
+  it("the transport arms: an outage is `unavailable` (beside its `kind`), a rate limit `rate_limited`, a bad body `bad_request`, no bearer `unauthenticated`", async () => {
+    numberReadFails = true;
+    let res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(503);
+    expect((await res.clone().json()) as Record<string, unknown>).toMatchObject({
+      kind: "unavailable",
+      reason: "unavailable",
+    });
+    numberReadFails = false;
+    rateOk = false;
+    res = await POST(req({ mode: "dinein" }));
+    expect(res.status).toBe(429);
+    expect(await reasonOf(res)).toBe("rate_limited");
+    rateOk = true;
+    res = await POST(req({ mode: "no-such-mode" }));
+    expect(res.status).toBe(400);
+    expect(await reasonOf(res)).toBe("bad_request");
+    res = await POST({
+      json: () => Promise.resolve({ mode: "dinein" }),
+      headers: { get: () => null },
+    } as unknown as Parameters<typeof mintPOST>[0]);
+    expect(res.status).toBe(401);
+    expect(await reasonOf(res)).toBe("unauthenticated");
   });
 });

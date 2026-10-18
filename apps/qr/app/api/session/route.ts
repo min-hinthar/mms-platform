@@ -16,6 +16,7 @@ import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
 import { soloFreshKey, soloRemintKey } from "@/lib/solo-remint";
+import type { SessionRefusal } from "@/lib/session-refusal";
 import type { BindTableResult } from "@/lib/bind-table";
 import {
   awaitsFirstDiner,
@@ -38,32 +39,47 @@ type Sess = {
  *  second member" (PD3's follow-up), so a refused join is no existence oracle. */
 const NO_TABLE = "No table found for that code";
 
+/** The retryable sentence every unreadable or unwritable step answers ("try again"). */
+const TRY_AGAIN = "Could not check the table — try again.";
+
 /** A row that closed under this join (adopted, cleared): "try again" re-resolves the table from the
  *  top — a sticker scan finds whoever holds it now, a `?j=` code meets {@link NO_TABLE}. The same
- *  answer as a transient miss, so it says nothing about whether the row exists. */
-const CLOSED_UNDER_JOIN = "Could not check the table — try again.";
+ *  answer as a transient miss (and the same J16 word, `try_again`), so it says nothing about whether
+ *  the row exists. */
+const CLOSED_UNDER_JOIN = TRY_AGAIN;
+
+/** The party is at the cap (P3.4): the pre-check and the `party_full` trigger say it alike. */
+const PARTY_FULL = `This table is full (up to ${MAX_PARTY_SIZE} guests).`;
+
+/** J16 — EVERY refusal names its reason: a machine word (`SESSION_REFUSALS`, lib/session-refusal)
+ *  the client switches on — GuestList's recovery, `joinFailureArm` — beside the `error` sentence
+ *  people read. The sentence is never parsed: GuestList used to grep it, and every arm it could not
+ *  name (the seated race, a de-registered table) fell to a futile "Try again" with no way out. */
+function refuse(status: number, reason: SessionRefusal, error: string, headers?: HeadersInit) {
+  return NextResponse.json({ error, reason }, { status, headers });
+}
 
 /** W10a — the auth/DB plane is unreachable: 503 "we're down", never a verdict about the diner. */
 const unavailable = () =>
   NextResponse.json(
-    { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
+    {
+      error: "We’re having trouble on our end — try again in a moment",
+      kind: "unavailable",
+      reason: "unavailable" satisfies SessionRefusal,
+    },
     { status: 503, headers: { "Retry-After": "20" } },
   );
 
 /** J40 — a claim at table N the re-read refused, said by name: a party → `BIND_COPY.seated` (its
  *  code joins it), a kiosk order → `kioskOrder(N)`, a table a server started that is no longer
  *  untouched (anything on it, or anyone joined) → `held(N)` (ask that server to seat you, or pick
- *  another) — never a join form for a table no code joins; nobody → "try again" (500). */
+ *  another) — never a join form for a table no code joins; nobody → "try again" (500). J16 — each
+ *  with its own word, so the client offers the join form for `seated` alone. */
 function refusedAt(v: Extract<BindTableResult, { ok: false }>, n: number) {
-  const said =
-    v.reason === "seated"
-      ? BIND_COPY.seated
-      : v.reason === "kiosk"
-        ? BIND_COPY.kioskOrder(n)
-        : v.reason === "held"
-          ? BIND_COPY.held(n)
-          : "Could not check the table — try again.";
-  return NextResponse.json({ error: said }, { status: v.reason === "error" ? 500 : 409 });
+  if (v.reason === "seated") return refuse(409, "seated", BIND_COPY.seated);
+  if (v.reason === "kiosk") return refuse(409, "kiosk_order", BIND_COPY.kioskOrder(n));
+  if (v.reason === "held") return refuse(409, "table_held", BIND_COPY.held(n));
+  return refuse(500, "try_again", TRY_AGAIN);
 }
 
 /**
@@ -97,13 +113,13 @@ export async function POST(req: NextRequest) {
   try {
     body = sessionMintInput.parse(await req.json());
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return refuse(400, "bad_request", (e as Error).message);
   }
   const { qrCode, mode, name, joinOnly, tableNumber, persisted } = body;
 
   // Verify the caller actually holds a valid anonymous-auth session.
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return NextResponse.json({ error: "Missing bearer token" }, { status: 401 });
+  if (!token) return refuse(401, "unauthenticated", "Missing bearer token");
   const {
     data: { user },
     error: authErr,
@@ -113,7 +129,7 @@ export async function POST(req: NextRequest) {
   // invalid, and the client's recovery (re-mint) churned uselessly against the same dead plane.
   // The client keys its honest we-are-down copy off this status.
   if (authErr && isTransportFailure(authErr)) return unavailable();
-  if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+  if (authErr || !user) return refuse(401, "unauthenticated", "Invalid session");
   const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
 
   // Rate-limit join/mint per device (P3.4): this is a public POST, so a verified-but-hostile client
@@ -121,10 +137,7 @@ export async function POST(req: NextRequest) {
   // (lib/rate) — a limiter glitch never blocks a legit diner. New-seat churn is bounded by GoTrue's
   // anonymous sign-up rate limit a layer down (supabase/config.toml).
   if (!(await withinJoinRate(seat)))
-    return NextResponse.json(
-      { error: "Too many attempts — wait a moment and try again." },
-      { status: 429 },
-    );
+    return refuse(429, "rate_limited", "Too many attempts — wait a moment and try again.");
 
   const db = serviceClient();
   const cols = "id,mode,host_seat,qr_code,table_number";
@@ -158,7 +171,7 @@ export async function POST(req: NextRequest) {
         .eq("active", true)
         .maybeSingle();
       if (regErr) return unavailable();
-      if (!tbl) return NextResponse.json({ error: BIND_COPY.unavailable }, { status: 400 });
+      if (!tbl) return refuse(400, "table_not_registered", BIND_COPY.unavailable);
       resolvedQr = tbl.qr_code;
       sessionTable = tableNumber;
     } else if (resolvedQr) {
@@ -197,18 +210,21 @@ export async function POST(req: NextRequest) {
   // took. A refused claim is re-read by number and said by name: this seat's other tab already
   // hosting it → rejoin; a still-hostless (touched) shell → `held`; a party → `seated`; nobody →
   // "try again". (A STICKER scan keeps W6a's own claim below: the table's physical code.)
+  // Session truth (finding 4's narrow case) — the claim TOOK a server-started table: the row
+  // existed (so `created` stays false — analytics counts a join), but nothing on it was this
+  // diner's, so the answer's `fresh` lets a home-card resume say their earlier visit had ended.
+  let tookShell = false;
   const takeShell = async (sh: Sess, n: number): Promise<Sess | NextResponse> => {
     const { data: claimed, error: claimErr } = await db.rpc("mms_claim_untouched_shell", {
       p_shell: sh.id,
       p_seat: seat,
     });
     if (claimErr && isTransportFailure(claimErr)) return unavailable();
-    if (claimErr)
-      return NextResponse.json(
-        { error: "Could not check the table — try again." },
-        { status: 500 },
-      );
-    if (claimed === true) return { ...sh, host_seat: seat };
+    if (claimErr) return refuse(500, "try_again", TRY_AGAIN);
+    if (claimed === true) {
+      tookShell = true;
+      return { ...sh, host_seat: seat };
+    }
     let now: Sess | null;
     try {
       now = await seatedSessionFor(db, n, resolvedQr);
@@ -218,7 +234,7 @@ export async function POST(req: NextRequest) {
     }
     if (now && now.host_seat === seat) return now;
     const v = rereadVerdict(now, "", n, true);
-    return v.ok ? NextResponse.json({ error: BIND_COPY.seated }, { status: 409 }) : refusedAt(v, n);
+    return v.ok ? refuse(409, "seated", BIND_COPY.seated) : refusedAt(v, n);
   };
 
   // D25 — a registered table is found BY NUMBER (the one predicate, handed the sticker token so a
@@ -261,11 +277,7 @@ export async function POST(req: NextRequest) {
         .eq("session_id", sess.id)
         .eq("seat_id", seat)
         .maybeSingle();
-      if (memberErr)
-        return NextResponse.json(
-          { error: "Could not check the table — try again." },
-          { status: 500 },
-        );
+      if (memberErr) return refuse(500, "try_again", TRY_AGAIN);
       member = row !== null;
     }
     if (!member) {
@@ -277,7 +289,7 @@ export async function POST(req: NextRequest) {
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
-  if (joinOnly && !sess) return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+  if (joinOnly && !sess) return refuse(404, "code_not_found", NO_TABLE);
 
   // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
   // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
@@ -291,13 +303,9 @@ export async function POST(req: NextRequest) {
   // lib/kiosk.ts) is checked on its own `qr_code` too. The copy names neither kind: it must be true
   // for a counter order AND a kiosk order.
   const reserved = reservedCodeRefusal({ found: sess !== null, code: resolvedQr });
-  if (reserved === "create")
-    return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
+  if (reserved === "create") return refuse(404, "code_invalid", "That code isn’t valid.");
   if (reserved === "join" || (sess !== null && isReservedSessionCode(sess.qr_code)))
-    return NextResponse.json(
-      { error: "That order can’t be joined from a phone — please ask staff." },
-      { status: 403 },
-    );
+    return refuse(403, "staff_only", "That order can’t be joined from a phone — please ask staff.");
 
   // PD3 follow-up (2026-10-09, under the owner's delegation) — a SOLO session (pickup, scan-and-go:
   // every mode but dine-in) is one device's own order, and a member passes every `is_member` read
@@ -328,18 +336,14 @@ export async function POST(req: NextRequest) {
       .eq("seat_id", seat)
       .maybeSingle();
     if (mineErr && isTransportFailure(mineErr)) return unavailable();
-    if (mineErr)
-      return NextResponse.json(
-        { error: "Could not check the table — try again." },
-        { status: 500 },
-      );
+    if (mineErr) return refuse(500, "try_again", TRY_AGAIN);
     const solo = soloJoinVerdict({
       mode: sess.mode,
       member: mine !== null,
       host: sess.host_seat === seat,
       joinOnly: !!joinOnly,
     });
-    if (solo === "refuse") return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+    if (solo === "refuse") return refuse(404, "code_not_found", NO_TABLE);
     if (solo === "remint" && !isSoloMode(mode)) {
       // A dine-in request carrying a solo code: a plain host-start, under the server's join code.
       sess = null;
@@ -387,14 +391,9 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     // A transient read failure must NOT masquerade as "that table is a stranger's" (a legit member
     // would get the misleading party-code 409) — fail loudly so the client's retry path runs.
-    if (mineErr)
-      return NextResponse.json(
-        { error: "Could not check the table — try again." },
-        { status: 500 },
-      );
+    if (mineErr) return refuse(500, "try_again", TRY_AGAIN);
     if (!mine) {
-      if (!awaitsFirstDiner(sess))
-        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      if (!awaitsFirstDiner(sess)) return refuse(409, "seated", BIND_COPY.seated);
       shell = sess;
       sess = null;
     }
@@ -461,15 +460,10 @@ export async function POST(req: NextRequest) {
         sessionTable,
         shell?.id ?? null,
       );
-      if (error?.code === "23505")
-        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      if (error?.code === "23505") return refuse(409, "seated", BIND_COPY.seated);
       // W10a — an outage is the 503, never a verdict.
       if (error && isTransportFailure(error)) return unavailable();
-      if (error || !outcome)
-        return NextResponse.json(
-          { error: "Could not check the table — try again." },
-          { status: 500 },
-        );
+      if (error || !outcome) return refuse(500, "try_again", TRY_AGAIN);
       if (outcome.kind === "bound" || outcome.kind === "adopted") {
         sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
         boundNow = true;
@@ -553,12 +547,10 @@ export async function POST(req: NextRequest) {
           }
           // No winner to read (a dead row the sweep failed to close still holds an index) is
           // "try again", as `bindTable` answers it — never a seated verdict by constraint name.
-          if (!winner)
-            return NextResponse.json(
-              { error: "Could not check the table — try again." },
-              { status: 500 },
-            );
-          return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+          if (!winner) return refuse(500, "try_again", TRY_AGAIN);
+          // J16 — the seated RACE: a party sat at N between the picker's read and this insert. Its
+          // own word, so the client offers the party's code instead of a retry that 409s forever.
+          return refuse(409, "seated", BIND_COPY.seated);
         }
         if (sessionTable != null) {
           sess = await seatedSessionFor(db, sessionTable, resolvedQr); // the party at N won → join them
@@ -586,9 +578,9 @@ export async function POST(req: NextRequest) {
       }
       continue; // our generated code collided with a live session → try a fresh one
     }
-    return NextResponse.json({ error: "Could not create session" }, { status: 500 });
+    return refuse(500, "try_again", "Could not create session");
   }
-  if (!sess) return NextResponse.json({ error: "Could not create session" }, { status: 500 });
+  if (!sess) return refuse(500, "try_again", "Could not create session");
 
   // Slide an existing (fresh) session's expiry forward on rejoin — reopening the tab or a second phone
   // joining keeps an in-use table alive well past the base 4h TTL (mirrors the per-touch renewal in
@@ -611,7 +603,7 @@ export async function POST(req: NextRequest) {
   // (A shell this claim just took host of is one too: the re-check below still runs for it.)
   const wasShell = sess.host_seat == null || sess.id === shell?.id;
   if (sess.host_seat == null && !joinOnly) {
-    const { data: claimed } = await db
+    const { data: claimed, error: hostClaimErr } = await db
       .from("table_sessions")
       .update({ host_seat: seat })
       .eq("id", sess.id)
@@ -619,6 +611,12 @@ export async function POST(req: NextRequest) {
       .eq("status", "active")
       .select("host_seat")
       .maybeSingle();
+    // M169 — the claim's error is BOUND. Discarded, a failed UPDATE read as a lost race: the re-read
+    // found the row still hostless and the diner joined as a GUEST of a table that then had no host
+    // at all — nobody at it could fire a round or open a split. Unknowable is the 503; anything else
+    // is "try again". Both answer before any membership is written, so the retry claims afresh.
+    if (hostClaimErr && isTransportFailure(hostClaimErr)) return unavailable();
+    if (hostClaimErr) return refuse(500, "try_again", TRY_AGAIN);
     if (claimed) sess = { ...sess, host_seat: claimed.host_seat };
     else {
       // Lost the claim race — re-read so the role below reflects the real host. A failed re-read
@@ -628,16 +626,37 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Host identity is the seat that created the session — preserved across rejoins.
+  // M169 — ONE host source: `table_sessions.host_seat`, the seat that created the session or claimed
+  // it first (W6a above, the grid's `mms_claim_untouched_shell`). It moves ONCE — null → a seat —
+  // and never back, so a read naming this seat is never stale. Every server gate reads the MEMBER
+  // ROW's `role` instead (`assertCartMember` → fire a round, open or cancel a split, bind the table,
+  // nudge the host), and that row used to be written once, at the first join: a seat that joined a
+  // server's table by invite (a guest) and later claimed it was answered "host" here while every
+  // gate refused it. The W6a claim above runs on EVERY dine-in join but an invite code
+  // (`joinOnly`): the sticker, a `?t=` link, and this phone's reload of the code it kept (the
+  // reload sends no `joinOnly`) — so an invitee who reloads a table that is still hostless claims
+  // it too (the blind pass on #353). That was already one URL away (the same code as `?t=`); this
+  // keeps the row in step with the claim, it does not widen who can claim. So the row is kept in
+  // step below — PROMOTED when host_seat names this seat, never demoted: a "guest" verdict may come
+  // from a read this seat's other tab has since overtaken (it claimed after we read), and a host
+  // row is only ever written when host_seat named that seat. A host TRANSFER, if one is ever built,
+  // must demote the old row in the same step: nothing here does, and two host rows would follow.
   const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
 
-  // Idempotent membership: a refresh / rejoin must not trip unique(session_id, seat_id).
-  const { data: existing } = await db
+  // Idempotent membership: a refresh / rejoin must not trip unique(session_id, seat_id). The read is
+  // bound (M169): a failed read is not "not a member" — the insert would land over a row whose role
+  // nobody checked.
+  const { data: existing, error: existingErr } = await db
     .from("session_members")
-    .select("id")
+    .select("id,role")
     .eq("session_id", sess.id)
     .eq("seat_id", seat)
     .maybeSingle();
+  if (existingErr && isTransportFailure(existingErr)) return unavailable();
+  if (existingErr) return refuse(500, "try_again", "Could not join session");
+  // The role the member row holds: read, written by our own insert, or unknown (null) when a
+  // concurrent request of this seat inserted it first (the 23505 below).
+  let rowRole: string | null = existing?.role ?? null;
   if (!existing) {
     // Party-size cap (P3.4): a sticker is one table — bound members so a shared code can't pile
     // unbounded diners onto one cart. Friendly pre-check on the common path; the mms_enforce_party_size
@@ -647,11 +666,7 @@ export async function POST(req: NextRequest) {
       .from("session_members")
       .select("id", { count: "exact", head: true })
       .eq("session_id", sess.id);
-    if ((count ?? 0) >= MAX_PARTY_SIZE)
-      return NextResponse.json(
-        { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
-        { status: 409 },
-      );
+    if ((count ?? 0) >= MAX_PARTY_SIZE) return refuse(409, "full", PARTY_FULL);
     const { error: memErr } = await db
       .from("session_members")
       .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
@@ -662,22 +677,33 @@ export async function POST(req: NextRequest) {
     if (memErr) {
       // PD3 follow-up — the SQL refusal (`mms_refuse_solo_join`): a second member reached a solo
       // session past the check above (a join racing it). The same 404 as a wrong code.
-      if (memErr.message?.includes("solo_session"))
-        return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+      if (memErr.message?.includes("solo_session")) return refuse(404, "code_not_found", NO_TABLE);
       // Codex P1 on #341 — the SQL refusal (`mms_refuse_closed_session_join`): the row closed under
       // this join — a staff clear (or any close) that held the session row while the insert waited
       // on it. Refused BEFORE any cart is found or made: the closed-row 409 below, never a cartId
       // on a dead session.
       if (memErr.message?.includes("session_closed"))
-        return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
-      if (memErr.message?.includes("party_full"))
-        return NextResponse.json(
-          { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
-          { status: 409 },
-        );
-      if (memErr.code !== "23505")
-        return NextResponse.json({ error: "Could not join session" }, { status: 500 });
-    }
+        return refuse(409, "try_again", CLOSED_UNDER_JOIN);
+      if (memErr.message?.includes("party_full")) return refuse(409, "full", PARTY_FULL);
+      if (memErr.code !== "23505") return refuse(500, "try_again", "Could not join session");
+      // 23505 — this seat's concurrent request inserted the row first, with the role ITS read
+      // decided: unknown here, so the step below brings it in line.
+    } else rowRole = role;
+  }
+  // M169 — keep the row in step: promote when host_seat names this seat and the row does not say
+  // so. The write is checked by the row it returns (`.update()` alone reports success for a write
+  // that matched nothing); a failed or empty write is never a "host" answer over a guest row.
+  if (role === "host" && rowRole !== "host") {
+    const { data: promoted, error: promoteErr } = await db
+      .from("session_members")
+      .update({ role })
+      .eq("session_id", sess.id)
+      .eq("seat_id", seat)
+      .select("role")
+      .maybeSingle();
+    if (promoteErr && isTransportFailure(promoteErr)) return unavailable();
+    if (promoteErr || promoted?.role !== role)
+      return refuse(500, "try_again", "Could not join session");
   }
 
   // M264 (red-team #3 on J40) — a HOSTLESS row this join found may have been adopted by a
@@ -699,8 +725,7 @@ export async function POST(req: NextRequest) {
       .eq("id", sess.id)
       .maybeSingle();
     if (liveErr && isTransportFailure(liveErr)) return unavailable();
-    if (liveErr || live?.status !== "active")
-      return NextResponse.json({ error: CLOSED_UNDER_JOIN }, { status: 409 });
+    if (liveErr || live?.status !== "active") return refuse(409, "try_again", CLOSED_UNDER_JOIN);
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing
@@ -733,8 +758,7 @@ export async function POST(req: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!reread.data)
-        return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
+      if (!reread.data) return refuse(500, "try_again", "Could not create cart");
       cart = reread.data;
     }
   }
@@ -785,5 +809,7 @@ export async function POST(req: NextRequest) {
     tableNumber: sess.table_number,
     // W5a: fresh-session signal for resume-intent honesty (see sessionMintOutput).
     created,
+    // Session truth — a server-started table this claim took is a fresh start for this diner.
+    fresh: created || tookShell,
   });
 }

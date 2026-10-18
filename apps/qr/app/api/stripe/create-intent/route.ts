@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
+import { MEAL_PAYMENT_METHOD_TYPES } from "@/lib/payment-methods";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
 import { phonePayParked, servedGateApplies, servedGateDecision } from "@/lib/checkout-stage";
@@ -610,7 +611,10 @@ export async function POST(req: NextRequest) {
       {
         amount,
         currency: "usd",
-        automatic_payment_methods: { enabled: true },
+        // M155 (owner ruling #7) — card only: the wallets ride it, a bank debit never reaches
+        // `processing` on a cart. Named, never omitted: this API version turns the Dashboard's
+        // automatic methods on when a create lists none. `lib/payment-methods.ts` says why.
+        payment_method_types: [...MEAL_PAYMENT_METHOD_TYPES],
         ...(manualCapture && { capture_method: "manual" as const }),
         // tipRate rides in metadata so the webhook recomputes the identical breakdown to reconcile.
         // earnerUid (M4) = the authenticated payer; the webhook stamps qr_orders.earned_by + awards Stars.

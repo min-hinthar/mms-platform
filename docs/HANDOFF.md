@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-13 · the open-items triage and its tranche)
+# Session Handoff — MMS Platform (2026-10-18 · the tranche merged, production on test keys)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -12,131 +12,113 @@ entries that cite `docs/HANDOFF.md` for history resolve there — and two of the
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
-## Where things stand (2026-10-13 — the open-items triage and its tranche)
+## Where things stand (2026-10-18 — the tranche merged, two migrations applied, production live on test keys)
 
-Measure first: `git log origin/main --oneline --since=2026-10-12T00:00:00Z`, the open PRs
-(`list_pull_requests`), and `git branch -r`. **Everything below about #351–#356 is a record of
-2026-10-13 ~06:22Z,** when all six were open. This handoff lands after them (the order below), so by
-the time you read it some or all have merged: read each PR's state before acting on its line. The path-design wave's record (what merged, the eight prod
-migrations in apply order, the decisions made under the 2026-10-09 delegation, and the 15 merges the
-owner ratified in OWNER_RULINGS §H1) moved verbatim to the archive's 2026-10-11 block.
+Measure first: `git log origin/main --oneline --since=2026-10-13T00:00:00Z`, the open PRs
+(`list_pull_requests`), and `git branch -r`. The previous block (the triage's merge window for
+#351–#356) moved verbatim to the archive's 2026-10-13 block. Every PR it listed has merged.
 
-### The owner's directives this session (2026-10-12)
+### The owner's words this session (2026-10-18)
 
-- **"merge all. Yes it covered"**: the wave's 15 merges were ratified (OWNER_RULINGS §H1, #350).
-  **"merge both"**: #323 → `533a886` and #350 → `02bf46c`, merged on that instruction.
-- **"I trust you to resolve all remaining plan design and open items to end session."** Read as:
-  read every open row against the code, close what is stale or duplicated with evidence, build a
-  tranche of the buildable rows and the PD1/PD2 remainders, and list what waits on the owner. It is
-  not a merge instruction (G4), and it is not a go for any migration (ruling #5). No PR below has been
-  merged by an agent, and no migration was applied this session. None of the six PRs adds a migration.
+- "apply world-class design-thinking for all open decisions, merge all when ready, launch app
+  production ready"
+- "go ahead with all recommended decisions and migrations, merge when ready for production". The
+  session reads this as the owner's sign-off on every recommendation in
+  [`docs/DECISIONS_2026-10-18.md`](DECISIONS_2026-10-18.md) and the go for the migrations those
+  decisions name. Ruling #5's mechanics and G3 still hold. The record states the reading, and the
+  owner can correct it.
+- "admin-bypass approved for this session, proceed and finalize production". This is the owner's
+  approval of the admin bypass for this session. #367 merged on it (below). It grants nothing to a
+  later session.
 
-### What was done
+### Merged to `main` since the 2026-10-13 handoff (UTC, from the merge commits)
 
-1. **Every open row was read against the code.** That covered every row that was open, gated, planned
-   or parked on `main` at `02bf46c`. The record is `docs/OPEN-ITEMS_TRIAGE_2026-10-12.md` (in #351):
-   its summary table holds the counts (recomputed after Codex's two reviews of #351, which reopened
-   K28 and moved 28 rows to the verdicts its definitions give them). It sorts every row into
-   Buildable without the owner, Owner-gated, Keep open, Closed by the sweep, or Done in place. Each
-   row has its next step, and each buildable row has a size and its money and migration flags.
-2. **Six PRs, open at 06:22Z, none merged by an agent.** Codex was out of quota when their blind
-   passes ran (its usage-limit replies from 00:31Z on), so for each the capped blind pass on the full
-   diff stood in, then ONE more capped pass over exactly the fix commits (launched before Codex's
-   04:30Z review of #356's `aadd2dd`, the first it gave that morning). The lead hand-read anything after
-   that, in one comment per PR naming the final head and the commits no blind reviewer read. Codex came
-   back intermittently from 05:40Z and reviewed some final heads (the merge window says which).
+| PR   | Merged           | On `main`                  | What                                                                                         |
+| ---- | ---------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| #354 | 2026-10-13 15:17 | `2fa4d4a`                  | /cart write results say what landed; guards that reach further                               |
+| #355 | 2026-10-13 16:16 | `1132fd2`                  | a11y and fidelity fixes                                                                      |
+| #356 | 2026-10-13 19:03 | `9e7aa5a`                  | PD1's and PD2's open code                                                                    |
+| #353 | 2026-10-13 19:32 | `ca033f8`                  | one host source, named session refusals, the live promo quote, one day-ledger read           |
+| #352 | 2026-10-13 20:03 | `5d7ac90`                  | money guards: the Stripe client, settle and Terminal guards, grocery money guards            |
+| #351 | 2026-10-18 01:39 | `b2cff0b`                  | the registry sweep (`.md` only)                                                              |
+| #359 | 2026-10-18 02:32 | `37a5c35`                  | /track shows the kitchen's real state after paying                                           |
+| #360 | 2026-10-18 11:53 | `c41c734`                  | every staff surface tells the same live truth, and a mistake can be taken back               |
+| #363 | 2026-10-18 14:09 | `ae18b57`                  | the lifecycle residuals: Cook now moves the order, the market can 86, the stranded note      |
+| #367 | 2026-10-18 17:27 | `aea453d` (a merge commit) | the release: #364 (M309) · #366 (M210 · M208 · M205) · #365 (M160(b)) · #361 (session truth) |
+| #368 | 2026-10-18 18:29 | `cb659c7`                  | the README's guest guide and the draft social posts (Codex reviewed, two rounds)             |
 
-   | PR   | What                                                                                                   | Closes                                                                                                                                     |
-   | ---- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-   | #351 | The registry sweep (`.md` only)                                                                        | 28 rows closed with evidence and 5 folded into the rows that carry them (PD7 into M270); K28 reopened on Codex's review; M284 · M285 filed |
-   | #352 | Money guards: the Stripe client's budget, settle and Terminal guards, grocery money guards             | M164 M165 M155 M166 M216 M252 T9 M187 M188 M189 T25; M72c partial; M277–M279 · J55 · M286–M291 filed                                       |
-   | #353 | One host source, named session refusals, the live promo quote, one day-ledger read                     | M169 J16 M123 M211 M221; M280 K47 J56 filed                                                                                                |
-   | #354 | /cart write results say what landed; guards that reach further                                         | T41 T42 M230 P2au M220 T28 T44; M226 partial; T57 filed                                                                                    |
-   | #355 | a11y and fidelity: the promo and account boxes are Fields, /menu's one region                          | K44 M127 F20 F31 M214; PD4 · PD12 partial; K48 F37 filed                                                                                   |
-   | #356 | PD1's and PD2's open code: the tablemate pass on the kitchen track, the counter ask over unsent dishes | PD1 PD2; J57 T58 M281–M283 filed                                                                                                           |
+- **#367 was merged by the agent**, under the owner's session approval of the admin bypass (quoted
+  above). Its `codex-review` was red only because Codex was out of quota. Every other check was green
+  on its head. #364, #365, #366 and #361 closed as merged through it.
+- **#358 is closed.** It was the integration base for the lifecycle PRs, marked "do not merge".
+- **#362 is still open** (`claude/fix/lifecycle-diner-sold-out-edits`). It is being brought up to date
+  with `main` in parallel and is not merged.
+- **Four green PRs became one release.** #361, #364, #365 and #366 were each green on their own head,
+  but each conflicted with `main` once another landed, because they all edit the same measured-count
+  lines. They merged together as #367 (LEARNINGS #278).
 
-3. **Filed by this handoff** (from the capped passes' open questions): J58 (may an invitee who reloads
-   a still-hostless table become its host; the owner's call), J59 (is a dish inside the send's undo
-   window "gone to the kitchen"; the owner's call), T59 (`totals.test.ts` answers the charged reads
-   whatever their key), M292 (the split door's release owner is guarded by prose, for its reopen) and
-   F38 (a keyboard Apply pulls focus back into the promo box).
+### Prod migrations applied 2026-10-18 (the owner's go; one file at a time)
 
-### The merge window — for the owner
+Each was applied through the Supabase MCP `apply_migration` to `fasnpdhtvqtzjlvruqcu`, after #367
+merged, in this order. The objects each one creates were verified one by one before the next.
 
-Each line is `#N @ SHA`, valid only once CI is green on that SHA. Read each PR's last hand-read comment
-for what it lists. Branch protection was re-measured 2026-10-13 05:41Z with C28 ③'s reads:
-`private: false`, `GET /branches/main` → `protected: false`, `/branches/main/protection` → 404,
-`/rulesets` → `[]`, `/rules/branches/main` → `[]`. Every check is still advisory. G3 applies to every line below: an agent never merges a red `codex-review` head, and
-the owner merges with the admin bypass by hand.
+1. `20261018120000_m309_order_read_scope.sql`: one call, stamp `m309_order_read_scope`.
+2. `20261018130000_m210_team_safety.sql`: applied in **eight sequential parts**, the repo file's
+   statements in order. The stamps are `m210_team_safety_1_audit_table`, `_2_audit_indexes_rls`,
+   `_3_audit_policy`, `_4_audit_grants`, `_5_staff_set`, `_6_staff_provision`, `_7_keep_an_owner`
+   and `_8_audit_direct`. The MCP endpoint timed out on the larger calls. After each timeout a read
+   showed nothing had been applied and no locks were held (LEARNINGS #279). This widens the M125
+   history divergence by eight names for one file (recorded on M125).
 
-Measured 2026-10-13 06:22Z, on each PR's final head. Codex's quota came and went through the morning:
-it reviewed #354's and #356's heads clean and #351's first two heads (three findings, all fixed), and
-answered #352, #353 and #351's last head with its usage-limit message. A head whose `codex-review` is
-green ("Codex has reviewed" that head) needs only the owner's per-SHA yes (G4). A head still red needs
-the owner's bypass (G3). Every PR below except #351 changes `CLAUDE.md` or `.claude/**`, so each needs
-the owner's per-SHA line either way. Each PR's last hand-read comment names the commits no blind
-reviewer read. **A merge-in commit is a new head:** a "per-SHA yes" line below holds only for the head
-it names, and the head that actually merges (after taking `main`) needs its own Codex review or the
-owner's bypass.
+### Production
 
-- `#351 @ 750a705` · `.md` only, no rule file. `docs`, `require-docs` and `verify-slice` are green.
-  `codex-review` is red (usage limit on this head), so it needs **the owner's bypass**.
-- `#352 @ 4dcef3b` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
-  limit), so it needs **the owner's bypass**. One commit after the capped pass touches MONEY_PATHS
-  (`fa9b86e`, a `git revert` to bytes the first blind pass read, proved by an empty diff of those
-  files; the diff proves bytes, not how they combine with the fix commits kept, which the capped pass
-  over the fix commits read). The gaps the revert leaves are open on that head: M289 and M290.
-- `#353 @ 5653f13` · `build`, `verify-slice` and `require-docs` are green. `codex-review` is red (usage
-  limit), so it needs **the owner's bypass**. The capped pass over the fix commits reviewed this exact
-  head (APPROVE). **Decide J58 with it:** #353's host promotion lets an invitee who reloads a
-  staff-started (hostless) table become its host for good; J58 asks whether that is allowed.
-- `#354 @ 73ccc1d` · **every check green, `codex-review` included** (Codex: no findings).
-  `mergeable_state: clean`. It needs only the owner's per-SHA yes.
-- `#355` · Codex's review of `63f35fe` found three races (a refusal bound to a box retyped during the
-  round trip; a deferred diet count said after its filters were unlit). The fix is a further head;
-  its own hand-read comment names it. One commit after the capped pass touches a MONEY_PATHS file, and
-  only its comment (`promo-field.ts`).
-- `#356 @ 00a768f` · **every check green, `codex-review` included** (Codex: no findings).
-  `mergeable_state: clean`. It needs only the owner's per-SHA yes.
-- This handoff: `.md` and `.claude/**` only, so it needs the per-SHA line.
+- **Vercel production is READY on `main`.** No runtime errors after the deploy.
+- **`CRON_SECRET` is set.** Probed: the cron route answers 401 without the header, not 503. The cron
+  SCHEDULE is registered in a separate PR (`apps/qr/vercel.json`), not in this one (M160's status).
+- **Stripe (C2) is not cut over, and nothing here says live payments work.** The owner reports
+  `STRIPE_SECRET_KEY` set. But the production client bundle still inlines
+  `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` (a `pk_test_…` key), and `publishableKeyCandidates()`
+  (`apps/qr/lib/stripe-env.ts`) takes it FIRST. Server-side, `apps/qr/lib/stripe.ts` checks
+  `STRIPE_SECRET_KEY_TEST` first too. So while the `_TEST` variables stay in Vercel Production,
+  production runs in test mode (LEARNINGS #280). A live webhook endpoint (`we_1U7KIJ…`) for
+  `qr.mandalaymorningstar.com/api/stripe/webhook` exists and is enabled.
 
-**Order and conflicts.** All seven PRs (this one included) touch `docs/OPEN-ITEMS.md` and
-`CHANGELOG.md`. #352–#356 also touch the counts in `CLAUDE.md` and `README.md` and the mutant
-registry. #354, #355 and #356 all touch `apps/qr/components/Checkout.tsx`. Merge one at a time, in
-this order: #351 → #353 → #352 → #354 → #356 → #355 → this handoff. After each merge, the next PR
-merges `main` in (a merge commit, never a rebase), resolves conflicts as a set (LEARNINGS #61),
-re-measures the counts with `pnpm check:docs`, and waits for CI green on its new head. The merge
-commit is a new head, so its line above is void until its own hand-read comment names it: under the
-quota rule, a hand-read of the merge's conflict resolutions. #354, #355 and #356 resolve each other's
-`Checkout.tsx` changes this way, and a component is not a MONEY_PATHS file, so the merge lines will not
-flag it: the owner may require a capped pass on those resolutions (see "For the owner").
+### Filed by this handoff
+
+- From Codex's later rounds, under the two-round rule: M319 · M320 (#356's host-name ask), M321
+  (#359: a split payer's old pickup leaves the tray), M328 · M329 · M330 (#360: the KDS's double alarm,
+  the counter's sold-out tag, the wall's cap), M333 · M334 · M335 (#363: the stranded-note notices).
+- From the builders: M331 (med: the webhook's own `payment_intent.succeeded` is not refund-checked)
+  and M332 (the menu-availability outage sentence has no Burmese twin).
+- M326 gains Codex's round-3 note on #363. M309 is applied (its residuals keep it open), M210 is
+  closed, and M160 and C2 carry the 2026-10-18 state.
+- The decisions round's record is [`docs/DECISIONS_2026-10-18.md`](DECISIONS_2026-10-18.md).
 
 ### Next tasks
 
-1. **Land whichever of #351–#356 are still open**, in the order above, each on the owner's per-SHA
-   line (and the bypass where its `codex-review` is red), then this handoff.
-2. **The buildable rows** (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`, "Buildable without the owner").
-   These high-severity rows are still open after the tranche: F3 · F5 · S2 (no money), and M160 ·
-   P3b · PD10 (money). Those with a migration, whose prod apply waits for the owner's go per file,
-   are M178 · M210 (with M208 · M205) · K30 (with K34) · M124 · M168 · M270. Build them as themed PRs,
-   like the tranche. Reserve an ID range per stream before any fan-out (LEARNINGS #272).
-3. **The retrospective's ten PRs** (`docs/RETRO_PATH_DESIGN_WAVE_2026-10-11.md`) still stand, in its
-   order.
-4. **Still open from the wave** (each row's own words): the PD10 flip's three conditions (C2, PD2 and
-   PD10 merged, the device sitting), M276, T55, and the PD4 · PD6 · PD9 · PD12 device checks. PD13
-   stays `gated`.
+1. **#362**: land it on the owner's per-SHA line (and the bypass where its `codex-review` is red),
+   after it takes `main`.
+2. **The cron schedule PR** (`apps/qr/vercel.json`, ruling #13), then close M160.
+3. **Build from the decisions record**, in its builder order. Each migration it names is one file,
+   applied after its PR merges (ruling #5's mechanics).
+4. **The filed rows above**, M331 first (money).
+5. **Still open from earlier blocks:** the triage's buildable rows
+   (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`), the retrospective's ten PRs, the PD10 flip's three
+   conditions, M276 and T55.
 
-### For the owner (decisions, not code)
+### The owner's checklist (still open)
 
-- **Questions this session raised:** J57 (should the send's undo window still hold the counter), J58,
-  J59, M270 (2) (B9's in-slot Undo window, or PD7's shipped alternative), T43 (what "your usual" says
-  under a visible lock), and K20 (the age policy for the queue).
-- **Still to ratify from the wave:** the decisions made under the 2026-10-09 delegation (the archive's
-  2026-10-11 block, "Decided under the delegation"), and the P2hf tension with ruling #6.
-- **Whether the merge-in resolutions of `Checkout.tsx` (#354 · #355 · #356) need a capped pass,** or
-  the author's hand-read is enough.
-- **The owner-gated rows:** the triage record's "Owner-gated" table, each with what it waits on.
-  The items below ("The owner's items") are the standing ones.
+1. **Finish C2.** Remove `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_SECRET_KEY_TEST` from
+   Vercel Production, then redeploy production. Confirm the bundle serves `pk_live_…`, then make one
+   small real-card sale and refund it.
+2. **The device sitting** (#12).
+3. **The native Burmese check** (K15). #361 added one Claude-drafted line, `billRefundedTitle`
+   (`apps/qr/lib/i18n/cart.ts`; the K15 · session-truth row).
+4. **Branch protection** (C28; item 1 below).
+5. **The social posts' `[confirm]` markers** (`docs/marketing/SOCIAL_POSTS_2026-10-18.md`) before
+   anything is posted.
+6. **PD13** stays gated on its measured reopen trigger.
+7. **C6:** the grocery codes and prices only the owner holds.
 
 ## The owner's items (not code)
 
@@ -155,17 +137,20 @@ flag it: the owner may require a capped pass on those resolutions (see "For the 
    The bypass covers a red `codex-review` only — never `verify-slice`, `build`, `docs`,
    `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass once the check is required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits — the last agent round (owner, 2026-10-08: "Yes one more"; WORKFLOW step 5 (g)).
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
-   step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
+   step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10). As of 2026-10-18 the `_TEST`
+   variables still win in production (the top block's "Production"; OPEN-ITEMS C2).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names). The wave's
    eight files were applied under the 2026-10-09 delegation, in the order the archive's 2026-10-11 block lists. PD1's
    file is never re-applied after PD1N's: its `create or replace` would put back the nudge with no
-   line lock. Still the owner's go, as their PRs go green: K30 with K34, and M210 · M208 · M205. M168
+   line lock. M309's file and M210's (with M208 · M205) were applied 2026-10-18 (the top block). Still
+   the owner's go, as their PRs go green: K30 with K34. M168
    (#21) and T4 (#22) each need their own go, and so will M276's follow-up migration.
 5. **C25** (ruling #4): reload every staff screen once at a quiet moment. The trigger happened: #317's
    production deploy, 2026-10-07 09:43Z (rulings §D). Not reported done.
 6. **C1 per ruling #9:** email confirmations ON, Google open to any Google account. Never a workspace
    restriction, never disabling sign-up (both break diners); re-test one diner upgrade afterwards.
-7. **#13:** once money-rails' M160 cron lands, add `CRON_SECRET` in Vercel Production.
+7. **#13:** done for the secret. M160(b) merged in #367 and `CRON_SECRET` is set in Vercel Production
+   (probed 2026-10-18: 401 without the header, not 503). The schedule lands in its own PR.
 8. **The device sitting** (#12: K39 · P2bw · J28 · J42, plus PATH_DESIGN's "What still goes to the owner",
    e.g. whether drinks get bumped) and **the native Burmese sitting** (rulings §C, plus PATH_DESIGN's
    K15 drafts and D3's confirmations). Facts only the owner holds keep their defaults (rulings intro, 3).

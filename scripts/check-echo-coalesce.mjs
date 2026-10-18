@@ -174,24 +174,39 @@
  *
  * ## What this guard does NOT prove — read this before trusting it (OPEN-ITEMS M226)
  *
- * Seven fix rounds closed every evasion that was reported; round 8 found four more and they are
- * FILED, not fixed, under the round-3 rule. All four sit in the SCRUTINY path and all four are
- * verified: a mutable alias ASSIGNED the reader after its declaration (d), the reader held in a
- * local object property (e), an alias chain crossing a shadowing scope defeating the text-keyed
- * cycle guard (f), and the reader passed BY NAME to an eager callback API such as
- * `queueMicrotask(refresh)` (g) — though `queueMicrotask(() => void refresh())` IS caught, because
- * the arrow's body is walked.
+ * Seven fix rounds closed every evasion that was reported; round 8 found four more and round 9 a
+ * fifth, FILED under the round-3 rule. Two of those five are now CLOSED, because each was a small
+ * syntax-only fix that fails loud:
  *
- * Round 9 added a fifth, and it is a REACH gap rather than a resolution one: a BARREL RE-EXPORT
- * (`export { useCartRealtime } from "./realtime";`) hides a consumer entirely, because
- * `importedFrom` resolves the importing file's specifier to the BARREL and not to `REALTIME_MODULE`
- * — the call site is never collected and `MIN_CALL_SITES` stays satisfied by the two direct
- * imports. Filed as M226(h); the cheap fix, if it is ever picked up, is to refuse any re-export of
- * the hook rather than to trace chains, because that is fail-loud and small.
+ *   (f) ✅ the alias cycle guards (`resolveFunction`, `aliasesImported`, `isStableReader`) were keyed
+ *       by identifier TEXT, so a legal chain crossing a shadowing scope (the outer `refresh` →
+ *       `const readerAlias = refresh` → an inner block's `const refresh = readerAlias`) met the name
+ *       twice, read it as recursion and resolved to null — `void refresh()` beside the schedule read
+ *       on every event, green. All three key `seen` by the DECLARATION each hop resolves to now, and
+ *       the hook-side twin (a shadowing alias of `useCartRealtime` itself, which hid a whole call
+ *       site) closed with it — both watched green on the old guard and red on this one.
+ *   (h) ✅ a BARREL RE-EXPORT (`export { useCartRealtime } from "./realtime";`) hid a consumer
+ *       entirely: `importedFrom` resolved the importer's specifier to the barrel, the call site was
+ *       never collected, and the two direct imports kept `MIN_CALL_SITES` satisfied. Section 1b now
+ *       REFUSES every re-export of the hook — from a barrel, `export *`, a local re-export, an
+ *       exported alias, a namespace, and the hook's own module under a second name — so the
+ *       collected set is complete by construction rather than by tracing chains.
+ *
+ * THREE REMAIN, accepted-risk and adversarial-only, all in the SCRUTINY path and all verified: a
+ * mutable alias ASSIGNED the reader after its declaration (d), the reader held in a local object
+ * property (e), and the reader passed BY NAME to an eager callback API such as
+ * `queueMicrotask(refresh)` (g) — though `queueMicrotask(() => void refresh())` IS caught, because
+ * the arrow's body is walked. With (a) and (b) above (a never-invoked nested helper; a preceding
+ * call typed `never`), that is five shapes this guard does not see, each of which an author has to
+ * write ON PURPOSE.
  *
  * So state the guarantee honestly: this catches the REGRESSION (a new consumer wired the obvious
- * way, a handler that stops scheduling, a second window constant), not a deliberate evasion. The
- * remaining shapes need invocation tracking, assignment tracking or a type checker; two of the
+ * way — or behind a barrel — a handler that stops scheduling, a second window constant), not a
+ * deliberate evasion. One more known limit, of the `READERS` allowlist itself: it does not tie a
+ * consumer to ITS OWN reader. A consumer that coalesces through the wrong one — the open cart's
+ * `getCartView` where its events are a paid cart's (`getOrderKitchen`), or the reverse — passes,
+ * because either name satisfies "reaches a reader". The remaining shapes need invocation tracking,
+ * assignment tracking or a type checker; two of the
  * suggested remedies are themselves a name-keyed matcher, which is what LEARNINGS #60 forbids, and
  * "treat every unresolved mutable callee as a reader" would flag unrelated `let` callbacks — a
  * guard that cries wolf gets ignored (LEARNINGS #92). If that pass is ever wanted it belongs in a
@@ -221,7 +236,16 @@
  * raw-reader call · an immutable alias of the HOOK at an uncoalesced site · a two-hop alias chain of
  * the hook · a `let` alias of the hook · a `let` alias of the READER called beside the schedule · a
  * `let` alias of the coalescer · a `let` alias of a `useCallback` reader called beside the schedule ·
- * two cases cut from this very list · its heading renamed · the walk floor.
+ * two cases cut from this very list · its heading renamed · the walk floor · an alias chain crossing
+ * a shadowing scope, its inner reader called beside the schedule (M226 f) · a HOOK alias chain
+ * crossing a shadowing scope at an uncoalesced site (M226 f) · a barrel re-export of the hook with
+ * an uncoalesced consumer behind it (M226 h) · `export *` from the hook's module · `export * as ns`
+ * from it · an aliased re-export through a deep relative path · a local re-export of the imported
+ * hook · an exported `let` alias of it · `export default` of a namespace-member alias · the
+ * namespace object itself exported · the hook's own module exporting it under a second name · the
+ * hook's module dropped from the re-export scan · the post-order kitchen read passed raw · its
+ * coalescer wrapping a no-op · it scheduled AND read directly · its `READERS` entry dropped · a
+ * local look-alike `getOrderKitchen` shadowing the import.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
@@ -230,7 +254,9 @@
  * coalesced · a coalescer wrapping an immutable alias of the reader · an unrelated parameter whose
  * name collides with nothing · a module-scope reader · an immutable ALIAS of a stable reader ·
  * an unrelated destructured local · an immutable alias of the hook, correctly coalesced · an
- * immutable alias of the COALESCER, used correctly.
+ * immutable alias of the COALESCER, used correctly · the shadow-crossing reader chain with its inner
+ * alias never called · a barrel re-exporting a DIFFERENT export of the hook's module · type-only
+ * re-exports of the hook's module · the post-order kitchen read, coalesced through its own reader.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -262,13 +288,25 @@ const REALTIME_MODULE = `${APP}/lib/realtime`;
 const CART_MODULE = `${APP}/lib/cart`;
 /** The ONE server-authoritative cart read. A coalescer that does not reach this refreshes nothing. */
 const READER = "getCartView";
+/**
+ * Every server read a cart-channel echo may legitimately refresh, as [module, export] pairs resolved
+ * from each file's IMPORTS (never a bare name). The open cart's consumers re-read `getCartView`; the
+ * post-order kitchen read (lifecycle audit, 2026-10-13) re-reads a PAID cart's lines through
+ * `getOrderKitchen`, which `getCartView` refuses by design (`cart_closed`). A coalescer must reach
+ * ONE of these — the M193 rule is unchanged: one window, and no consumer's events left unread.
+ */
+const READERS = [
+  [CART_MODULE, READER],
+  [`${APP}/lib/order-kitchen-read`, "getOrderKitchen"],
+];
+const READER_NAMES = READERS.map(([, name]) => `\`${name}\``).join(" or ");
 const HOOK = "useCartRealtime";
 const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
 /** The consumers that exist today. A walk that finds fewer than this has broken, not improved. */
-const MIN_CALL_SITES = 2;
+const MIN_CALL_SITES = 3;
 /** Same idiom for the docblock's case list: MEASURED at the round that set it, never counted by eye. */
-const MIN_PINNED_CASES = 53;
+const MIN_PINNED_CASES = 74;
 const CASES_HEADING = "## The cases this guard has been watched against";
 
 const problems = [];
@@ -371,15 +409,16 @@ const importedFrom = (src, rel, moduleRel, exported) =>
  * repo's own recurring mistake: a hole closed for the one spelling that was reported.
  */
 function aliasesImported(node, name, names, loose) {
+  // Keyed by the DECLARATION each hop resolves to, never by the name: see `resolveFunction`.
   const seen = new Set();
   let current = name;
   let from = node;
   for (;;) {
-    if (seen.has(current)) return false; // `const a = a;` parses — and resolves to nothing
-    seen.add(current);
     const local = resolveBinding(from, current);
     if (local === null) return names.has(current); // nothing local binds it → the import itself
     if (local.kind !== "value") return false; // a param, a destructured local, a hoisted function
+    if (seen.has(local.init)) return false; // `const a = a;` parses — and resolves to nothing
+    seen.add(local.init);
     if (!local.isConst && !loose) return false; // a `let` can be reassigned — never credit it
     const init = unwrap(local.init);
     if (!ts.isIdentifier(init)) return false; // an arrow, a call, a member — a real takeover
@@ -534,12 +573,19 @@ function exitsCallback(node) {
 
 /** The function a name is bound to, as seen from `from`: a declaration, an arrow, or a useCallback. */
 function resolveFunction(from, name, react, loose = false, seen = new Set()) {
-  if (seen.has(name)) return null;
-  seen.add(name);
   const b = resolveBinding(from, name);
   if (!b || b.kind === "param" || b.kind === "destructured") return null;
   // A generator's body does NOT run on call — invoking it only builds an iterator (Codex round 3).
   if (b.kind === "function") return b.fn.asteriskToken ? null : b.fn;
+  // ⚠️ THE CYCLE GUARD IS KEYED BY THE DECLARATION, NOT THE NAME (OPEN-ITEMS M226 (f)). Keyed by
+  // identifier TEXT, a LEGAL chain crossing a shadowing scope — the outer `refresh` →
+  // `const readerAlias = refresh` → an inner block's `const refresh = readerAlias` — met the name
+  // `refresh` twice, read it as recursion and resolved to null, so `void refresh()` beside the
+  // schedule read on every event with the guard green. Two hops that resolve to two DIFFERENT
+  // declarations are not a cycle; only a declaration met twice is. `aliasesImported` and
+  // `isStableReader` key theirs the same way — one lesson, every sibling (LEARNINGS #65).
+  if (seen.has(b.init)) return null;
+  seen.add(b.init);
   // ⚠️ MUTABILITY APPLIES TO THE READER TOO (Codex round 5 on #287). `let refresh = () =>
   // getCartView(id); refresh = () => {};` declares a reader and ships a no-op; round 2 caught this
   // for the SCHEDULER binding and the same check was simply missing here.
@@ -577,13 +623,18 @@ function resolveFunction(from, name, react, loose = false, seen = new Set()) {
  * calls `getCartView` itself, while `TableCartProvider.refresh` reaches it through `readView`. So
  * the walk follows local function bindings transitively, guarded by a visited set.
  */
+/** A call to ANY of the accepted readers, each resolved through its own import (`READERS`). */
+function isReaderCall(n, ctx, loose = false) {
+  return ctx.readers.some(({ binding, name }) => isCallToBinding(n, binding, name, loose));
+}
+
 function reachesReader(fn, ctx, loose = false, seen = new Set()) {
   if (!fn || !fn.body || seen.has(fn.pos)) return false;
   seen.add(fn.pos);
   let found = false;
   walk(fn.body, (n) => {
     if (found || !ts.isCallExpression(n)) return;
-    if (isCallToBinding(n, ctx.reader, READER, loose)) {
+    if (isReaderCall(n, ctx, loose)) {
       found = true;
       return;
     }
@@ -605,7 +656,7 @@ function directReaderCalls(fn, ctx) {
     // ⚠️ THE IMPORTED-BINDING CHECK COMES FIRST (Codex round 3 on #287). Filtering to identifier
     // callees before this discarded `cart.getCartView(id)` — a namespace import — so a handler could
     // schedule AND read immediately through the qualified form.
-    if (isCallToBinding(n, ctx.reader, READER, true)) {
+    if (isReaderCall(n, ctx, true)) {
       hits.push(n.expression.getText());
       return;
     }
@@ -667,12 +718,13 @@ function callsDirectly(fn, ctx) {
  * `useCallback`; this makes the requirement mechanical instead of a comment nobody reads.
  */
 function isStableReader(from, name, ctx, seen = new Set()) {
-  if (seen.has(name)) return false;
-  seen.add(name);
   const b = resolveBinding(from, name);
   if (!b) return false;
   if (b.atModuleScope) return true; // a module-level binding has one identity for the process
   if (b.kind !== "value" || !b.isConst) return false;
+  // Keyed by the DECLARATION, never the name — `resolveFunction`'s M226 (f) note.
+  if (seen.has(b.init)) return false;
+  seen.add(b.init);
   const init = unwrap(b.init);
   // An immutable ALIAS of a stable reader is itself stable — caught by this rule's own GREEN
   // control, which is why every tightening gets one.
@@ -718,7 +770,7 @@ for (const rel of windowFiles) {
 
   const ctx = {
     coalescer: importedFrom(src, rel, COALESCER_MODULE, COALESCER),
-    reader: importedFrom(src, rel, CART_MODULE, READER),
+    readers: READERS.map(([mod, name]) => ({ binding: importedFrom(src, rel, mod, name), name })),
     react: importedAs(src, (t) => t === "react", "useCallback"),
   };
   const coalescer = ctx.coalescer;
@@ -771,7 +823,7 @@ for (const rel of windowFiles) {
       if (direct.length === 0) return true;
       fail(
         `${where}: onChange schedules through ${COALESCER} but ALSO calls ` +
-          `\`${[...new Set(direct)].join("`, `")}\`, which reaches \`${READER}\` directly — so every ` +
+          `\`${[...new Set(direct)].join("`, `")}\`, which reaches ${READER_NAMES} directly — so every ` +
           `row event still starts its own read and the coalesced one is added beside it (M193).`,
       );
       return "reported";
@@ -798,6 +850,100 @@ for (const rel of windowFiles) {
     );
   }
 }
+
+// ── 1b. the hook is never RE-EXPORTED, so the collected set is complete (OPEN-ITEMS M226 (h)) ─────
+//
+// A BARREL hid a consumer entirely: with `export { useCartRealtime } from "./realtime";` in a lib
+// barrel and a component importing the hook from THAT, `importedFrom` resolves the component's
+// specifier to the barrel, not to `REALTIME_MODULE`, so the call site was never COLLECTED — and the
+// two direct imports kept `MIN_CALL_SITES` satisfied: measured at "2 call sites, all coalesced"
+// with an uncoalesced third consumer on disk. Same reach class as round 6's local alias, one module
+// out. Following re-export chains would close it for the chains this walk is taught; REFUSING every
+// re-export closes it for all of them, fails loud, and costs nothing a real consumer needs (import
+// the hook from its module). So, in every scanned file, each of these is refused:
+//   · `export { useCartRealtime [as X] } from <the hook's module>`, `export * from` it, and
+//     `export * as ns from` it (a namespace carries the hook as a member) — type-only forms excepted;
+//   · a LOCAL export whose value is the hook — `export { h [as X] }`, `export default h`,
+//     `export const X = h` — where `h` is an imported binding of it, a namespace that carries it
+//     (`ns`, or `ns.useCartRealtime`), or any alias chain to either, mutable included (scrutiny);
+//   · and in the hook's OWN module, any export of it under a name other than its own: an importer of
+//     the second name is invisible to `importedFrom` exactly as a barrel's importer is.
+// ⚠️ STATED LIMIT: a dynamic `import()` destructured into a local is not a call this walk collects;
+// a hook cannot be called after an `await`, so that is not a shape a consumer can ship.
+const HOME_FILE = (rel) => rel.replace(/\.(tsx?|mjs)$/, "") === REALTIME_MODULE;
+
+function hookExportFindings(src, rel) {
+  const out = [];
+  const home = HOME_FILE(rel);
+  const at = (n) => `${rel}:${src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1}`;
+  const hook = importedFrom(src, rel, REALTIME_MODULE, HOOK);
+  /** Does `e`, read where it stands, denote the hook — or a namespace object that carries it? */
+  const denotesHook = (e, seen = new Set()) => {
+    e = unwrap(e);
+    if (ts.isPropertyAccessExpression(e))
+      return e.name.text === HOOK && denotesHook(e.expression, seen) === "namespace";
+    if (!ts.isIdentifier(e)) return false;
+    const b = resolveBinding(e, e.text);
+    if (b === null) {
+      if (hook.names.has(e.text)) return "hook";
+      if (hook.namespaces.has(e.text)) return "namespace";
+      return false;
+    }
+    // The home module's own declaration of the hook IS the hook.
+    if (b.kind === "function") return home && b.atModuleScope && b.fn.name?.text === HOOK && "hook";
+    if (b.kind !== "value" || seen.has(b.init)) return false;
+    seen.add(b.init);
+    return denotesHook(b.init, seen);
+  };
+  for (const st of src.statements) {
+    if (ts.isExportDeclaration(st) && !st.isTypeOnly) {
+      const fromHome =
+        st.moduleSpecifier &&
+        ts.isStringLiteral(st.moduleSpecifier) &&
+        resolveSpec(rel, st.moduleSpecifier.text) === REALTIME_MODULE;
+      if (fromHome && !home) {
+        if (!st.exportClause || ts.isNamespaceExport(st.exportClause))
+          out.push(`${at(st)}: \`${st.getText(src)}\` re-exports the hook's module wholesale`);
+        else
+          for (const el of st.exportClause.elements)
+            if (!el.isTypeOnly && (el.propertyName ?? el.name).text === HOOK)
+              out.push(`${at(el)}: re-exports \`${HOOK}\` as \`${el.name.text}\``);
+      } else if (!st.moduleSpecifier && st.exportClause && ts.isNamedExports(st.exportClause))
+        for (const el of st.exportClause.elements) {
+          if (el.isTypeOnly) continue;
+          const local = el.propertyName ?? el.name;
+          const what = denotesHook(local);
+          if (what && !(home && what === "hook" && el.name.text === HOOK))
+            out.push(
+              `${at(el)}: exports ${what === "hook" ? `\`${HOOK}\`` : `a namespace carrying \`${HOOK}\``} as \`${el.name.text}\``,
+            );
+        }
+    }
+    if (ts.isExportAssignment(st) && denotesHook(st.expression))
+      out.push(`${at(st)}: \`export default\` of \`${HOOK}\``);
+    if (
+      ts.isVariableStatement(st) &&
+      st.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    )
+      for (const d of st.declarationList.declarations)
+        if (d.initializer && denotesHook(d.initializer))
+          out.push(`${at(d)}: exports \`${d.name.getText(src)}\`, an alias of \`${HOOK}\``);
+  }
+  return out;
+}
+
+let homeFound = false;
+for (const [rel, src] of parsed) {
+  if (HOME_FILE(rel)) homeFound = true;
+  for (const f of hookExportFindings(src, rel))
+    fail(
+      `${f} — a consumer importing it from here is never COLLECTED (M226 (h)), so its handler is ` +
+        `held to nothing while the direct imports keep the floor satisfied. Import \`${HOOK}\` from ` +
+        `${REALTIME_MODULE} itself.`,
+    );
+}
+if (!homeFound)
+  fail(`${REALTIME_MODULE} was not among the scanned files — the re-export refusal did not run.`);
 
 if (callSites < MIN_CALL_SITES)
   fail(

@@ -86,6 +86,15 @@ export const WRITE_UNCONFIRMED = STAFF["out.write.unknown"].en;
 export const WRITE_UNCONFIRMED_MY = STAFF["out.write.unknown"].my;
 
 /**
+ * Codex r2 on #363 — `setGroceryAvailable`'s outage (lib/market-availability.ts, a `"use server"`
+ * module, so the constant cannot live there for a client renderer to import). It travels as its
+ * ENGLISH sentence to `MarketShelfEditor`, which renders it through `<OutageText>`, so it is given a
+ * twin there like the line edit's two above — each its dictionary entry's `.en`/`.my` by construction.
+ */
+export const MARKET_OUTAGE = STAFF["browse.market.err.outage"].en;
+export const MARKET_OUTAGE_MY = STAFF["browse.market.err.outage"].my;
+
+/**
  * Phase 2h · integration (S2 critic D2) — the page's write line once a line edit's LATE answer has
  * landed, with `stillWaiting` line edits still unanswered past the bound. WRITE_WAITING ("no answer
  * yet — that change may still be saved") goes only when the LAST waiting line has answered: one

@@ -3,7 +3,16 @@ import { kitchenTrackLit } from "@mms/ui";
 import { KDS_UNDO_MS } from "./kds-undo";
 import { rollUp, trackStage, type KitchenStage, type TrackLine } from "./kitchen-track";
 import { RESTAURANT_TZ } from "./pickupTime";
-import { GRACE_REREAD_MARGIN_MS } from "./show-server";
+
+/**
+ * The margin every pass's ONE scheduled re-read lands past the instant it waits for (a Send leaving
+ * its grace, a bump leaving Mom's undo window), so the read lands AFTER it on the server rather than
+ * a tick before — where it would read the line still "Sending…" and schedule nothing more. Shared by
+ * this live pass (`settleRereadDelayMs`) and the "Show a server" pass (`graceRereadDelayMs`,
+ * lib/show-server — which imports it from here, since PD1's tail made that module read the track
+ * through this one).
+ */
+export const GRACE_REREAD_MARGIN_MS = 300;
 
 /**
  * PD10 (PATH_DESIGN_2026-10-07 decision 10; spec `docs/path-design-2026-10-07/m10-live-pass-pay.md`)
@@ -67,7 +76,9 @@ export function passHead(
  * nothing: there is no duration to measure, and the next view brings one.
  */
 export function settleRereadDelayMs(
-  items: ReadonlyArray<CartItem>,
+  // The four columns the clock acts on — a Pick, so /track's post-order kitchen read
+  // (lib/order-kitchen.ts) schedules its re-read through this ONE rule rather than a copy of it.
+  items: ReadonlyArray<Pick<CartItem, "fulfillment" | "lineState" | "fireAt" | "bumpedAt">>,
   nowMs: number | null,
 ): number | null {
   if (nowMs === null || !Number.isFinite(nowMs)) return null;

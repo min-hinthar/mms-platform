@@ -25,6 +25,7 @@ import {
   googleAction,
   googleButtonLabel,
   shouldAutoRecover,
+  stripCallbackParams,
   type CallbackOutcome,
 } from "@/lib/oauth-callback";
 import {
@@ -35,10 +36,32 @@ import {
   clearCallbackOutcome,
 } from "@/lib/oauthCallbackStore";
 import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
+import { NO_ACCOUNT_FOR_OTP, refusesTheAddress, refusesTheCode } from "@/lib/auth-field-refusal";
 import { WelcomeBackChooser } from "./WelcomeBackChooser";
 import { useAccountLiveOrders } from "./AccountLiveOrders";
 import { chooserLeavesNote } from "@/lib/save-stars";
-import { Card } from "@mms/ui";
+import { Card, Field } from "@mms/ui";
+
+/** F20 — how a refusal bound to a box is said: by focus moving to the box, or by the card's region. */
+type FieldVoice = "region" | "focus";
+
+/**
+ * F20 · blind pass on #355 — the voice chosen at the press, SETTLED at the answer. The box stays
+ * enabled through the round trip, so a diner can move back into it before the server answers; then
+ * `.focus()` on the focused box fires nothing and the region was quiet by design — the refusal said
+ * zero times. Focus already in the box at the answer means the region speaks, as for Enter.
+ */
+function settledVoice(voice: FieldVoice, box: HTMLElement | null): FieldVoice {
+  return box !== null && document.activeElement === box ? "region" : voice;
+}
+
+/** F20 (Codex on #355) — a refusal is bound to its box only while the box still holds the value it
+ *  refused. The box stays editable through the round trip, so a diner who typed a new address or
+ *  code meanwhile would otherwise see the old value's refusal drawn under the new one, the new one
+ *  marked invalid, and focus pulled there; the card's status line says it instead. */
+function boxHolds(box: HTMLInputElement | null, submitted: string): boolean {
+  return box !== null && box.value.trim() === submitted;
+}
 
 /**
  * Anon → durable account (M4 P4.1). Upgrades the SAME anonymous uid in place (email OTP / Google), so the
@@ -70,6 +93,29 @@ export function AccountUpgrade({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * F20 — WHICH BOX a refusal belongs to, and which voice says it. Only the card's own two forms
+   * refuse a box, and only with an answer that NAMES the box's value: the email form binds a
+   * refusal of the address, the code form a refusal of the code (`lib/auth-field-refusal.ts` says
+   * which answers those are). A failure that is the service's, the configuration's or the
+   * connection's — OTP switched off, a rate limit, a dropped request — is the card's status line,
+   * never the box's: bound, it marked a good address wrong, moved focus to it and silenced the
+   * region (Codex round 1 on #355). Every OTHER door (a Welcome-back chip, Google, the hatch, a
+   * `?resume=` return, the automatic recovery) clears the binding as it starts, so a chip's "we
+   * couldn't find that account" never lands under a box the diner did not type in.
+   *
+   * The refusal is drawn ON the field (the `Field` note, `aria-describedby`, `aria-invalid`) and
+   * said ONCE: if focus was elsewhere at the submit (the button), it MOVES to the field and the
+   * description is what a screen reader hears; if it was already in the field (Enter), moving it
+   * says nothing, so the card's one region speaks it instead — visually hidden, since the same
+   * words are already under the box. The voice is read at the submit, in the handler (where focus
+   * was when the diner pressed), settled at the answer (`settledVoice`: focus that moved into the box
+   * meanwhile makes moving it a no-op), and the binding is set with the refusal it describes.
+   */
+  const [fieldRefusal, setFieldRefusal] = useState<{
+    field: "email" | "code";
+    voice: FieldVoice;
+  } | null>(null);
   // The email the diner typed already belongs to a DIFFERENT account → `updateUser` can't attach it (it
   // 422s `email_exists`). Instead of a dead-end raw error, pivot to a SIGN-IN recovery (mirrors the Google
   // identity_already_exists path). `codeMode` then drives the verifyOtp type: an `email_change` upgrade
@@ -130,8 +176,10 @@ export function AccountUpgrade({
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
   // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
   // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
+  // `boxVoice` — passed only by the email form's own submit (F20): a refusal of THIS address is then
+  // bound to the box it was typed in. Every other door omits it, so its refusal is the card's.
   const sendSignInCode = useCallback(
-    async (addr: string, bringStars: boolean): Promise<boolean> => {
+    async (addr: string, bringStars: boolean, boxVoice?: FieldVoice): Promise<boolean> => {
       if (signInStarting.current) return false; // another door is already starting one — see `signInStarting`
       signInStarting.current = true;
       const supa = browserClient();
@@ -188,7 +236,7 @@ export function AccountUpgrade({
         // sent them off to create a second one. The message decides; the configuration case gets a
         // sentence of its own; `signup_disabled`'s "…for this instance" is neither.
         const gotrueCode = (e0 as { code?: string }).code;
-        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");
+        const noAccount = NO_ACCOUNT_FOR_OTP.test(e0.message ?? "");
         const otpOff = !noAccount && gotrueCode === "otp_disabled";
         setError(
           noAccount
@@ -197,6 +245,9 @@ export function AccountUpgrade({
               ? "Email sign-in isn’t available right now — try again in a little while."
               : e0.message || "Couldn’t send the sign-in code — try again.",
         );
+        // F20 — the address's own refusal goes under its box; an outage or a dropped request does not.
+        if (boxVoice && refusesTheAddress(e0) && boxHolds(emailRef.current, addr))
+          setFieldRefusal({ field: "email", voice: settledVoice(boxVoice, emailRef.current) });
         signInStarting.current = false;
         return false;
       }
@@ -281,6 +332,7 @@ export function AccountUpgrade({
     async (id: DeviceIdentity) => {
       setBusy(true);
       setError(null);
+      setFieldRefusal(null); // a chip's refusal is about ITS address, never the typed box (F20)
       setEmailTaken(false);
       setSelectedEmail(id.email);
       if (id.method === "google") {
@@ -349,34 +401,33 @@ export function AccountUpgrade({
     }
     (phase === "code" ? codeRef.current : emailRef.current)?.focus({ preventScroll: true });
   }, [phase]);
+  // F20 — the refusal tied to its box (`fieldRefusal` says which, and how it is said). A step change
+  // ends it: the email form's refusal is not the code box's, and the reverse.
+  const emailRefusal =
+    error !== null && phase === "idle" && fieldRefusal?.field === "email" ? error : null;
+  const codeRefusal =
+    error !== null && phase === "code" && fieldRefusal?.field === "code" ? error : null;
+  const boxRefusal = emailRefusal ?? codeRefusal;
+  const refusalVoice = fieldRefusal?.voice ?? null;
+  // Focus goes to the refused box when it was not already there (QA §A: focus moves on refusal) —
+  // the description it lands on IS the sentence, so the region stays quiet for that one.
+  useEffect(() => {
+    if (boxRefusal === null || refusalVoice !== "focus") return;
+    (emailRefusal !== null ? emailRef.current : codeRef.current)?.focus({ preventScroll: true });
+  }, [boxRefusal, emailRefusal, refusalVoice]);
   const [, startTransition] = useTransition();
 
   /**
    * Clean the raw Supabase error out of the address bar once it has been captured above.
    *
-   * ⚠️ DELETE ONLY THE OAUTH KEYS — NEVER REPLACE WITH `pathname`. The old call was
-   * `replaceState(null, "", window.location.pathname)`, which discarded EVERY other param, and this
-   * effect is declared before the `?resume=` one so it ran first. A lend-mode return that arrived
-   * alongside a bounce therefore lost its `resume` param before the resume effect could act on it —
-   * and because the strip does propagate to `useSearchParams` (see the capture note above),
-   * `resumeParam` then flipped to null, tearing that effect down mid-flight. The resume effect's own
-   * comment says it preserves co-present params for exactly this reason; this one now does too.
-   *
-   * The fragment goes as well: Supabase mirrors the error there, the SDK does not clean an
-   * error-carrying callback (it throws before either of its two URL rewrites), and nothing in the app
-   * reads the hash.
+   * The strip is `stripCallbackParams` (lib/oauth-callback.ts), shared with the signed-in notice
+   * (M214): it deletes ONLY the OAuth keys, so a co-present `?resume=` survives for the resume
+   * effect below (this effect is declared first, so it runs first), and it leaves `?tab=you` for
+   * the post-sign-in refresh. Its docblock carries the two defects each half once was.
    */
   useEffect(() => {
     if (!callback || typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("error");
-    url.searchParams.delete("error_code");
-    url.searchParams.delete("error_description");
-    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed
-    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL — without
-    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.
-    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    window.history.replaceState(null, "", stripCallbackParams(window.location.href));
   }, [callback]);
 
   /**
@@ -419,6 +470,7 @@ export function AccountUpgrade({
       // Falling through leaves the manual button, which is always rendered.
       if (!markRecoveryAttempted()) return;
       setBusy(true);
+      setFieldRefusal(null); // a Google door, not the typed box (F20)
       // The start can reject outright (see its own catch); nothing downstream of a fire-and-forget call
       // would surface that, so the card is handed back here rather than left disabled at `busy`.
       void startGoogleSignIn(true).catch(() => {
@@ -506,6 +558,7 @@ export function AccountUpgrade({
       // than falling back to a bare pre-fill (which would route through emailTaken → bringStars:true and sweep
       // the friend's Stars onto the owner). An OTP works whether the owner is an email or Google account.
       setBusy(true);
+      setFieldRefusal(null); // the owner's return is not the typed box (F20)
       setSelectedEmail(resumeParam);
       void sendSignInCode(resumeParam, false).then((ok) => {
         setBusy(false);
@@ -521,6 +574,10 @@ export function AccountUpgrade({
     if (!addr) return;
     setBusy(true);
     setError(null);
+    // F20 — where focus was at the press decides the voice; the answer decides whether there is a
+    // binding at all (set beside the refusal it describes, never ahead of it).
+    const voice: FieldVoice = document.activeElement === emailRef.current ? "region" : "focus";
+    setFieldRefusal(null);
     const supa = browserClient();
 
     if (emailTaken || intent === "signin") {
@@ -535,7 +592,7 @@ export function AccountUpgrade({
       // feedback, and records the redirect an in-flight payment resolves through — a phone with zero
       // paid Stars can still hold all of that, and a sign-in that skips the mint loses it for good.
       // The lend-mode `?resume=` return is the one door that suppresses the carry, and it says why.
-      await sendSignInCode(addr, true);
+      await sendSignInCode(addr, true, voice);
       setBusy(false);
       return;
     }
@@ -554,6 +611,8 @@ export function AccountUpgrade({
         return;
       }
       setError(e1.message || "Couldn’t send the code — try again.");
+      if (refusesTheAddress(e1) && boxHolds(emailRef.current, addr))
+        setFieldRefusal({ field: "email", voice: settledVoice(voice, emailRef.current) });
       setBusy(false);
       return;
     }
@@ -567,16 +626,23 @@ export function AccountUpgrade({
     if (!code.trim()) return;
     setBusy(true);
     setError(null);
+    const voice: FieldVoice = document.activeElement === codeRef.current ? "region" : "focus";
+    const submitted = code.trim();
+    setFieldRefusal(null);
     const supa = browserClient();
     // `email_change` finalizes the anon→account UPGRADE (keeps the uid + Stars); `email` completes the
     // SIGN-IN to the pre-existing account (recovery). The verify token/flow is otherwise identical.
     const { error: e2 } = await supa.auth.verifyOtp({
       email: email.trim(),
-      token: code.trim(),
+      token: submitted,
       type: codeMode,
     });
     if (e2) {
       setError(e2.message || "That code didn’t match. Check your email and try again.");
+      // F20 — a wrong or expired code goes under the code box; a rate limit or a dropped request
+      // is the card's.
+      if (refusesTheCode(e2) && boxHolds(codeRef.current, submitted))
+        setFieldRefusal({ field: "code", voice: settledVoice(voice, codeRef.current) });
       setBusy(false);
       return;
     }
@@ -594,6 +660,7 @@ export function AccountUpgrade({
   async function google() {
     setBusy(true);
     setError(null);
+    setFieldRefusal(null); // F20 — a Google refusal belongs to no box
     const supa = browserClient();
     // Link Google to the SAME anonymous user (keeps the uid). AnonAuthGate keeps the post-redirect upgraded
     // session via a server-side staff check, so there's no pre-redirect marker write to fail (no orphan path).
@@ -611,6 +678,7 @@ export function AccountUpgrade({
   async function signInGoogle() {
     setBusy(true);
     setError(null);
+    setFieldRefusal(null); // F20 — a Google refusal belongs to no box
     // Recovery for identity_already_exists: SIGN IN to the existing account (not linkIdentity, which would
     // fail the same way) so the diner lands on their real account and its saved rewards. A genuine guest
     // saving their OWN Stars → `bringStars: true` mints the merge token before the redirect.
@@ -694,28 +762,35 @@ export function AccountUpgrade({
 
       {phase === "idle" ? (
         <form onSubmit={submitEmail}>
-          <label htmlFor="up-email" style={label}>
-            Email
-          </label>
-          <input
-            ref={emailRef}
-            id="up-email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(ev) => {
-              setEmail(ev.target.value);
-              // Editing the address clears the "already registered" recovery + any error, so a corrected
-              // or different email starts fresh on the normal upgrade path.
-              if (emailTaken) setEmailTaken(false);
-              if (error) setError(null);
-            }}
-            placeholder="you@example.com"
-            className="account-field"
-            style={input}
-          />
+          {/* F20 — the `@mms/ui` Field: the label, the box and ONE note line under it, where a refusal
+              of THIS address is drawn and tied to the box (`aria-describedby`, `aria-invalid`). */}
+          <div style={fieldGap}>
+            <Field label="Email" error={emailRefusal}>
+              {(control) => (
+                <input
+                  {...control}
+                  ref={emailRef}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(ev) => {
+                    setEmail(ev.target.value);
+                    // Editing the address clears the "already registered" recovery + any error, so a
+                    // corrected or different email starts fresh on the normal upgrade path.
+                    if (emailTaken) setEmailTaken(false);
+                    if (error) setError(null);
+                  }}
+                  placeholder="you@example.com"
+                  // The card's well (M126) over the Field's box — `.account-field` is declared later
+                  // in the cascade, so its sunken fill and bevel win at equal specificity.
+                  className={`${control.className} account-field`}
+                  style={input}
+                />
+              )}
+            </Field>
+          </div>
           <button
             type="submit"
             disabled={busy}
@@ -734,22 +809,29 @@ export function AccountUpgrade({
         </form>
       ) : (
         <form onSubmit={verify}>
-          <label htmlFor="up-code" style={label}>
-            6-digit code sent to {email}
-          </label>
-          <input
-            ref={codeRef}
-            id="up-code"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            required
-            value={code}
-            onChange={(ev) => setCode(ev.target.value)}
-            placeholder="123456"
-            className="account-field"
-            style={input}
-          />
+          <div style={fieldGap}>
+            <Field label={`6-digit code sent to ${email}`} error={codeRefusal}>
+              {(control) => (
+                <input
+                  {...control}
+                  ref={codeRef}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  value={code}
+                  onChange={(ev) => {
+                    setCode(ev.target.value);
+                    // A refused code is cleared by retyping it, as the address's refusal is.
+                    if (codeRefusal) setError(null);
+                  }}
+                  placeholder="123456"
+                  className={`${control.className} account-field`}
+                  style={input}
+                />
+              )}
+            </Field>
+          </div>
           <button
             type="submit"
             disabled={busy}
@@ -846,6 +928,7 @@ export function AccountUpgrade({
             // to sign in as somebody else.
             const flow = carryBlocked.flow;
             setCarryBlocked(null);
+            setFieldRefusal(null); // the hatch's own start, never the box's refusal (F20)
             setBusy(true);
             if (flow.method === "email") {
               void sendSignInCode(flow.email, false).then((ok) => {
@@ -866,19 +949,24 @@ export function AccountUpgrade({
       {/* SINGLE live region for the card — an error, the email-already-registered recovery, or the Google
           callback recovery (mutually exclusive at any moment). Routing the recovery here (vs a second
           region) keeps one live region per view; it announces on the emailTaken change (a real change to
-          this persistent node, unlike the SSR-initial callbackError). */}
+          this persistent node, unlike the SSR-initial callbackError).
+          F20 — a refusal of a BOX is drawn under that box, so the region never draws it a second
+          time: it SAYS it (visually hidden) only when focus was already in the box at the submit,
+          and stays quiet when focus moved there, because the box's description says it then. */}
       <p role="status" aria-atomic="true" style={errorLine}>
-        {error ??
-          // A7b — a blocked carry outranks both recoveries below: it is the only one describing value
-          // that is about to be destroyed, and it is a real change to this persistent node, so it DOES
-          // announce (unlike the SSR-initial callbackError).
-          (blockStillApplies ? carryBlocked?.message : null) ??
-          // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
-          // button is gone, so the directive would contradict the screen (the diner already tapped it).
-          (emailTaken && phase === "idle"
-            ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. We’ll move this device’s Stars onto it when you sign in."
-            : null) ??
-          callbackError}
+        {boxRefusal !== null
+          ? refusalVoice === "region" && <span className="sr-only">{boxRefusal}</span>
+          : (error ??
+            // A7b — a blocked carry outranks both recoveries below: it is the only one describing value
+            // that is about to be destroyed, and it is a real change to this persistent node, so it DOES
+            // announce (unlike the SSR-initial callbackError).
+            (blockStillApplies ? carryBlocked?.message : null) ??
+            // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
+            // button is gone, so the directive would contradict the screen (the diner already tapped it).
+            (emailTaken && phase === "idle"
+              ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. We’ll move this device’s Stars onto it when you sign in."
+              : null) ??
+            callbackError)}
       </p>
     </Card>
   );
@@ -913,13 +1001,6 @@ const sub: CSSProperties = {
   color: "var(--t2)",
   lineHeight: 1.5,
 };
-const label: CSSProperties = {
-  display: "block",
-  fontSize: "var(--fs-sm)",
-  fontWeight: "var(--fw-bold)",
-  color: "var(--t2)",
-  margin: "0 0 6px",
-};
 const input: CSSProperties = {
   // border lives in `.account-field` (so :focus-visible can recolor it — an inline border would outrank it)
   // — and since M126 (Codex #238 P2) the BACKGROUND does too, for exactly the same reason: an inline
@@ -930,8 +1011,10 @@ const input: CSSProperties = {
   borderRadius: 12,
   color: "var(--tx)",
   fontSize: "var(--fs-body)", // ≥16px → no iOS zoom-on-focus
-  marginBottom: 12,
 };
+// The space the old input's bottom margin gave the button, now under the whole Field (label · box ·
+// note), so a refusal's note line pushes the button down instead of crowding it.
+const fieldGap: CSSProperties = { marginBottom: 12 };
 // bg/color/gradient/sheen/shine live in `.checkout-cta`; this is layout only (label rides above the
 // ::after sweep on its own relative span, ctaLabel).
 const primaryBtn: CSSProperties = {

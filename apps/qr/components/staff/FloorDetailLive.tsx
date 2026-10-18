@@ -1,5 +1,6 @@
 "use client";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { closedFloorHref } from "@/lib/floor-closed-note";
 import {
   useCallback,
   useEffect,
@@ -29,6 +30,10 @@ import { Badge, CounterPass, Icon, buttonClass } from "@mms/ui";
 import { ReceiptStack } from "./ReceiptStack";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
+import { PaidRoundKitchen } from "./PaidRoundKitchen";
+import { paidRoundDrawn } from "@/lib/paid-round";
+import { SoldOutDraftsWarning } from "./SoldOutDraftsWarning";
+import { displayedSoldOut } from "@/lib/settle-sold-out";
 import { CashSettleButton } from "./CashSettleButton";
 import { TerminalSettleButton, TerminalCollectPanel } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
@@ -55,6 +60,7 @@ import {
   staffSendView,
   type HeldSendNote,
   type SendNotice,
+  type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendHold,
 } from "@/lib/staff-send-view";
@@ -251,6 +257,8 @@ export function FloorDetailLive({
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
+  // M211 — the settled record's lines were cut at the server's line bound: the list says so.
+  const linesCut = detail.settled && detail.settledLinesTruncated;
   // PD7 (m7 B3 · B12) — the clear's loss slip is armed: the settle section's Take cash stands down
   // to secondary (one hero verb per state), and the slip's own "Take cash" door opens THAT till
   // through its trigger (`openCash`) — never a second cash sheet.
@@ -263,10 +271,10 @@ export function FloorDetailLive({
   // session minted with a `reg-` code), never re-derived here from the label.
   const isCounter = detail.counterOrder;
   // PD2 · PD6 — THE figure at the till on this table: the ask pass's total reads the very field Take
-  // cash's trigger reads (`detail.settleTotalCents`, `getCartTotals(cart.id, 0)` — the guest pass's
-  // own derivation), never a second computation, so the two can never show two figures. When a
-  // manager decision lands and the total re-reads (PD8's `totalPending`), the pass must say
-  // "Updating the total…" with the trigger: that flag joins this binding when PD8 merges.
+  // cash's trigger reads (`detail.settleTotalCents`, `getCartTotals(cart.id, 0, "quote")` — the
+  // guest pass's own call, M123 b), never a second computation, so the two can never show two
+  // figures. When a manager decision lands and the total re-reads (PD8's `totalPending`), the pass
+  // must say "Updating the total…" with the trigger: that flag joins this binding when PD8 merges.
   const tillDue = detail.settleTotalCents;
   // The ask is live (the same `counterRequestedAt` the floor chip reads) on an order with dishes.
   const askLive = counterAskLive(detail.counterRequestedAt) && detail.itemCount > 0;
@@ -570,7 +578,9 @@ export function FloorDetailLive({
                   markHandoffFocus(sessionId, Date.now());
                 router.refresh();
               } else {
-                router.replace(STAFF_DOOR_TARGET.counter);
+                // The lifecycle audit — the floor BY NAME, carrying the table's own name: the
+                // floor's region says it closed (`closedFloorHref`), never a silent bounce.
+                router.replace(closedFloorHref(res));
                 router.refresh();
               }
             }
@@ -626,6 +636,12 @@ export function FloorDetailLive({
     [lang, onChange],
   );
   const acknowledgedApprovalIds = detail.pendingRequests.map((r) => r.id);
+  // #360 — the SOLD-OUT drafts the page names above the doors (PD8's pattern for an 86'd dish): the
+  // doors acknowledge exactly these dishes at their tap; the warning offers Remove first.
+  const acknowledgedSoldOutIds = displayedSoldOut(detail.lines);
+  const soldOutDrafts = detail.lines.filter(
+    (l) => l.state === "draft" && l.soldOut && l.menuItemId !== null,
+  );
 
   useEffect(() => {
     alive.current = true;
@@ -657,6 +673,8 @@ export function FloorDetailLive({
     counterArm: detail.counterArm,
     hasName: (detail.customerName ?? "").trim() !== "",
     payAtPickup: detail.payAtPickup,
+    // P2ad — the lines, so the Send names a sold-out dish it would fire BEFORE the tap.
+    lines: detail.lines,
   });
   // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
   // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
@@ -752,6 +770,26 @@ export function FloorDetailLive({
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
     [setSendNote, setSettleGate, sessionId],
+  );
+  // P2ar (lifecycle residuals) — a line's AUTHORED notice (the note that missed its dish) through the
+  // same channel as `onWriteError`, rendered in the device's tongue (`<MsgText>`), the shape
+  // `StaffPromoControl`'s keyed refusals already take here.
+  // `null` WITHDRAWS it (the send was undone, the sentence is false) — only while it is still the
+  // region's line: a newer fact that replaced it is never wiped by a stale withdrawal.
+  const lineNoticeRef = useRef<ReactNode>(null);
+  const onLineNotice = useCallback(
+    (m: StaffKeyMsg | null) => {
+      if (m === null) {
+        const mine = lineNoticeRef.current;
+        lineNoticeRef.current = null;
+        if (mine !== null) setWriteError((e) => (e === mine ? null : e));
+        return;
+      }
+      const node = <MsgText lang={lang} msg={m} />;
+      lineNoticeRef.current = node;
+      onWriteError(node);
+    },
+    [onWriteError, lang],
   );
   // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
   // WRITE_WAITING here ("no answer yet — that change may still be saved") through `onError`; its
@@ -1120,8 +1158,9 @@ export function FloorDetailLive({
             (the page's bar): printed once, never twice. The ask's age is plain text in its status
             row (CALL tier: no escalation). The total is `tillDue`, the SAME binding Take cash reads
             below — one value, so the two can never show different figures; it is
-            `getCartTotals(cart.id, 0)`, the guest pass's own derivation (the diner-cart stream pins
-            the two reads equal over a promo'd cart). Unmounted on the next read after a withdraw. */}
+            `getCartTotals(cart.id, 0, "quote")`, the guest pass's own call (M123 b: the pin only
+            while an intent is live; each site's call is pinned in its own suite). Unmounted on the
+            next read after a withdraw. */}
         {askLive && (
           <CounterPass
             tier="counter"
@@ -1259,6 +1298,24 @@ export function FloorDetailLive({
             )}
           </div>
 
+          {/* The lifecycle audit — a round this table already PAID for, with food still in the kitchen
+              (or just out): the floor card counts it, so the page names it, dish by dish, with its
+              stage. Read-only; above the open round or the settled record. #360 (Codex P2): drawn
+              when it has a dish OR a cap to say (`paidRoundDrawn`) — a capped read with no dish in
+              the linger still says it is capped. */}
+          {detail.paidKitchen &&
+            paidRoundDrawn(
+              detail.paidKitchen,
+              detail.paidKitchenCapped === true,
+              detail.paidRoundsCapped === true,
+            ) && (
+              <PaidRoundKitchen
+                lang={lang}
+                lines={detail.paidKitchen}
+                capped={detail.paidKitchenCapped === true}
+                roundsCapped={detail.paidRoundsCapped === true}
+              />
+            )}
           {detail.lines.length === 0 ? (
             <p style={muted}>
               <Chrome lang={lang} k="table.detail.cart.empty" echo="stack" />
@@ -1278,88 +1335,107 @@ export function FloorDetailLive({
                   line={l}
                   disabled={false}
                   onError={onWriteError}
+                  onNotice={onLineNotice}
                   onEditState={onEditState}
                   onWaiting={onLineWaiting}
                   // P2do (ruling #15) — an ASKED table's unsent dishes say how long, as plain text.
                   unsentAge={askLive ? { serverNow: detail.serverNow } : undefined}
+                  // The lifecycle audit (K18) — a dine-in table's draft dish: For here / To go.
+                  reroute={detail.mode === "dinein"}
                 />
               ))}
             </ul>
           ) : (
             // Read-only (settled, or a payment in flight): show the lines without the steppers. A
             // voided/comped line is struck + badged so it reads honestly beside the (excluding) subtotal.
-            <ul
-              role="list"
-              style={{ listStyle: "none", margin: 0, padding: 0 }}
-              aria-label={sx(lang, "table.detail.a11y.lines")}
-            >
-              {detail.lines.map((l) => {
-                const off = l.state === "voided" || l.comped;
-                return (
-                  <li key={l.id} style={lineRow}>
-                    <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
-                      <span style={{ fontWeight: "var(--fw-semibold)" }}>{l.qty}×</span> {l.name}
-                      {/* K33 — the options the guest chose. The floor was the one staff surface that
+            <>
+              <ul
+                role="list"
+                style={{ listStyle: "none", margin: 0, padding: 0 }}
+                aria-label={sx(lang, "table.detail.a11y.lines")}
+                // M211 — a list cut at the read's bound is described by the note that says so.
+                aria-describedby={linesCut ? SETTLED_LINES_CUT_ID : undefined}
+              >
+                {detail.lines.map((l) => {
+                  const off = l.state === "voided" || l.comped;
+                  return (
+                    <li key={l.id} style={lineRow}>
+                      <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
+                        <span style={{ fontWeight: "var(--fw-semibold)" }}>{l.qty}×</span> {l.name}
+                        {/* K33 — the options the guest chose. The floor was the one staff surface that
                           never showed them, so a server reading a table back could not tell a
                           no-egg Mohinga from a plain one. Server-priced labels, rendered verbatim. */}
-                      {l.modifiers.length > 0 && (
-                        <span style={modsLine}>{l.modifiers.join(" · ")}</span>
-                      )}
-                      {/* K33 — the kitchen note, on the SAME branch as the options and for the same
+                        {l.modifiers.length > 0 && (
+                          <span style={modsLine}>{l.modifiers.join(" · ")}</span>
+                        )}
+                        {/* K33 — the kitchen note, on the SAME branch as the options and for the same
                           reason. A settled table always renders here (there is no cart, so no
                           editor), and `floor.ts` fetches and preserves `notes` — so leaving it
                           unrendered dropped every allergy and request from the post-payment record
                           while the data sat right there. Found by Codex on this PR. */}
-                      {l.notes && <span style={noteLine}>{l.notes}</span>}
-                      {/* K33 — the line's own refund mark. A PARTIAL refund leaves
+                        {l.notes && <span style={noteLine}>{l.notes}</span>}
+                        {/* K33 — the line's own refund mark. A PARTIAL refund leaves
                           `qr_orders.status` at 'paid', so a refunded dish otherwise renders here at
                           full price with nothing to say the money went back. The amount rather than
                           a strike-through, following `lineRefundLabel`'s reasoning: the order-level
                           over-refund cap can clamp a refund below the line's own price, and a
                           struck line would claim the whole dish came back when part of it did. */}
-                      {l.refundedCents > 0 && (
-                        <span style={offBadge}>
-                          {" · "}
-                          <Chrome
-                            lang={lang}
-                            k="table.detail.line.refunded"
-                            vars={{ m: fmt(l.refundedCents) }}
-                          />
-                        </span>
-                      )}
-                      {l.state === "voided" && (
-                        <span style={offBadge}>
-                          {" · "}
-                          <Chrome lang={lang} k="table.detail.line.voided" />
-                        </span>
-                      )}
-                      {l.comped && (
-                        <span style={offBadge}>
-                          {" · "}
-                          <Chrome lang={lang} k="table.detail.line.comped" />
-                        </span>
-                      )}
-                      {l.bySeatName && (
-                        <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
-                          {" "}
-                          · {l.bySeatName}
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      style={{
-                        fontVariantNumeric: "tabular-nums",
-                        whiteSpace: "nowrap",
-                        textDecoration: off ? "line-through" : "none",
-                        color: off ? "var(--t3)" : "inherit",
-                      }}
-                    >
-                      {fmt(l.unitPriceCents * l.qty)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                        {l.refundedCents > 0 && (
+                          <span style={offBadge}>
+                            {" · "}
+                            <Chrome
+                              lang={lang}
+                              k="table.detail.line.refunded"
+                              vars={{ m: fmt(l.refundedCents) }}
+                            />
+                          </span>
+                        )}
+                        {l.state === "voided" && (
+                          <span style={offBadge}>
+                            {" · "}
+                            <Chrome lang={lang} k="table.detail.line.voided" />
+                          </span>
+                        )}
+                        {l.comped && (
+                          <span style={offBadge}>
+                            {" · "}
+                            <Chrome lang={lang} k="table.detail.line.comped" />
+                          </span>
+                        )}
+                        {l.bySeatName && (
+                          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+                            {" "}
+                            · {l.bySeatName}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          fontVariantNumeric: "tabular-nums",
+                          whiteSpace: "nowrap",
+                          textDecoration: off ? "line-through" : "none",
+                          color: off ? "var(--t3)" : "inherit",
+                        }}
+                      >
+                        {fmt(l.unitPriceCents * l.qty)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {/* M211 — the settled record's line read stopped at its bound (`settledLinesTruncated`),
+                so the list above is the first N lines, not the order. Said, never implied: before
+                this, dishes seen before payment vanished after it with nothing on screen to say so.
+                N is the list's own length — no client copy of the server's cap to drift.
+                ⚠️ ENGLISH ONLY until a Burmese string is authored and native-checked (K15): this
+                session invents no MY copy, so the note is marked `lang="en"` for assistive tech
+                rather than routed through the dictionary, which requires both tongues. */}
+              {linesCut && (
+                <p id={SETTLED_LINES_CUT_ID} lang="en" style={{ ...muted, marginTop: "var(--s2)" }}>
+                  {`Showing the first ${detail.lines.length} lines — this order has more.`}
+                </p>
+              )}
+            </>
           )}
 
           {/* PD6 · K44 — the order card speaks receipt: the SAME stack as the pad's ticket
@@ -1609,6 +1685,17 @@ export function FloorDetailLive({
                 focusAfterDecision={focusSettleHeading}
               />
             )}
+            {/* #360 — a sold-out DRAFT: named above the doors, Remove first; the doors stay live and
+                tapping one acknowledges exactly these dishes (a re-warning, never a block). */}
+            {soldOutDrafts.length > 0 && canWrite && (
+              <SoldOutDraftsWarning
+                lang={lang}
+                sessionId={sessionId}
+                lines={soldOutDrafts}
+                onError={onWriteError}
+                onChanged={onChange}
+              />
+            )}
             {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
@@ -1619,6 +1706,7 @@ export function FloorDetailLive({
                 variant="primary"
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
@@ -1659,6 +1747,7 @@ export function FloorDetailLive({
               // PD8 — tapping Take cash with a flag up IS the acknowledgement: exactly these ids.
               // The trigger is never dimmed; it is described by the consequence sentence first.
               acknowledgedApprovalIds={acknowledgedApprovalIds}
+              acknowledgedSoldOutIds={acknowledgedSoldOutIds}
               onApprovalPending={onApprovalPending}
               totalPending={totalPending}
               describedBy={detail.pendingRequests.length > 0 ? FLAG_CONSEQUENCE_ID : undefined}
@@ -1713,6 +1802,7 @@ export function FloorDetailLive({
                 gateLive={settleGate !== null}
                 onChanged={onChange}
                 acknowledgedApprovalIds={acknowledgedApprovalIds}
+                acknowledgedSoldOutIds={acknowledgedSoldOutIds}
                 onApprovalPending={onApprovalPending}
                 onSettleOutcome={onSettleOutcome}
               />
@@ -2004,6 +2094,8 @@ const noteLine: CSSProperties = {
   fontStyle: "italic",
 };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
+/** M211 — the cut note's id, which the read-only list names in `aria-describedby`. */
+const SETTLED_LINES_CUT_ID = "order-lines-cut";
 /** PD2 — the CounterPass's two-tongue label (not drawn on the figureless ask pass, which names the
  *  table in the pane's heading instead). */
 const TABLE_LABEL = { en: STAFF["floor.table.label"].en, my: STAFF["floor.table.label"].my };

@@ -95,8 +95,12 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+const { PAID_KITCHEN_CAP } = await import("@/lib/paid-round");
+/** K44 — the retired pre-tax line and note, in their own last words (the keys are deleted). */
+const RETIRED_SO_FAR = "subtotal so far";
+const RETIRED_PRETAX_NOTE = "Running pre-tax subtotal — tax is added when they pay.";
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -140,6 +144,7 @@ const DETAIL: TableDetail = {
   refund: null,
   settledOrderCount: 0,
   settledOrderCountCapped: false,
+  settledLinesTruncated: false,
   paidOrderId: null,
   promoCode: null,
   settlePromoCents: null,
@@ -365,6 +370,16 @@ describe("FloorDetailLive — a closed table", () => {
     expect(refresh).toHaveBeenCalled();
     // MUTANT p2g-fix-code/swap-note-always — a poll plants focus on an idle phone's card; red.
     expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
+  });
+
+  it("a TABLE cleared, merged or swept under the page goes to the floor WITH its name, said there", async () => {
+    // The lifecycle audit — a server on Table 6's page while a colleague clears it was dropped on the
+    // floor with no word. lck/floor-detail/closed-bounce-unnamed — the plain floor target; red.
+    answer = () => Promise.resolve({ kind: "closed", label: "T6", tableNumber: 6 });
+    mount();
+    await tick(5000);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=6");
   });
 
   it("a closed counter order with NO card it can read (unreadable) still returns to the counter", async () => {
@@ -2325,7 +2340,9 @@ describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till,
     // No money row in the order card on an asked table: the pass carries the one figure (m2 B4).
     // MUTATION k44/receipt-on-an-asked-table → red.
     expect(order.closest("section")!.querySelector(".pad-receipts")).toBeNull();
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+    // A LITERAL, not a key: K44 retired `table.detail.subtotalSoFar`, and a negative read through a
+    // deleted key would assert the absence of `undefined`. The words are the retired line's own.
+    expect(document.body.textContent).not.toContain(RETIRED_SO_FAR);
   });
 
   it("K44 — an open table that has not asked: the receipt stack, its Total the very figure Take cash names; no pre-tax 'so far'", () => {
@@ -2341,8 +2358,8 @@ describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till,
       ["tax", "$4.41"],
       ["total", "$46.41"],
     ]);
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
-    expect(document.body.textContent).not.toContain(ts("en", "table.detail.pretaxNote"));
+    expect(document.body.textContent).not.toContain(RETIRED_SO_FAR);
+    expect(document.body.textContent).not.toContain(RETIRED_PRETAX_NOTE);
   });
 
   it("P2do (ruling #15) — an ASKED table's unsent dish wears the ring and says how long, as plain text; an un-asked one does not", () => {
@@ -2404,5 +2421,154 @@ describe("PD7 (m7 B3 · B12) — the clear's loss slip beside the settle section
     // ONE till: the dialog is the settle section's own CashSettleButton.
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(cash().className).toContain("ui-btn-primary");
+  });
+});
+
+describe("M211 — a settled record cut at the line read's bound says so", () => {
+  // A settled table: no cart, so the read-only list renders the paid order's lines (K33).
+  const served = (id: string, name: string): TableLineView => ({
+    ...line(id, name),
+    state: "served",
+    sendable: false,
+  });
+  const SETTLED: TableDetail = {
+    ...DETAIL,
+    settled: true,
+    cartId: null,
+    lines: [served("l1", "Mohinga"), served("l2", "Tea Leaf Salad")],
+    itemCount: 0,
+    runningSubtotalCents: 0,
+    paidTotalCents: 2400,
+    paidOrderId: "o1",
+    settledOrderCount: 1,
+    send: { ...DETAIL.send, sendable: 0, staffAdded: 0, foodDraft: false },
+  };
+  const mountSettled = (detail: TableDetail) => {
+    answer = () => Promise.resolve({ kind: "detail", detail });
+    return render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <FloorDetailLive initial={detail} sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  };
+  const lines = () => screen.getByRole("list", { name: ts("en", "table.detail.a11y.lines") });
+
+  it("names the cut beside the list — how many are shown — and the list points at it", () => {
+    // Before M211 the first 500 lines rendered as the complete record, so dishes staff saw before
+    // payment vanished after it with nothing on screen to say so. The count is the list's own
+    // length, never a constant the client would have to keep in step with the server's bound.
+    // MUTATION (m211/note-never-drawn): red.
+    mountSettled({ ...SETTLED, settledLinesTruncated: true });
+    const note = screen.getByText(/Showing the first 2 lines/);
+    expect(note.id).toBeTruthy();
+    expect(lines().getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  it("an uncut record says nothing more, and describes nothing", () => {
+    mountSettled(SETTLED);
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+    expect(lines().hasAttribute("aria-describedby")).toBe(false);
+  });
+});
+
+describe("the lifecycle audit — the table page names a paid round's food and re-routes a draft", () => {
+  it("draws 'From the paid round' with each dish's stage, above the open round", () => {
+    // lck/floor-detail/paid-round-undrawn — the card said "Paid · 2 in kitchen" and the page it opens
+    // named none of that food once a new round opened.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 2,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+        },
+      ],
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
+    expect(text).toContain(`2× Chicken curry · ${STAFF["table.line.state.inProgress"].en}`);
+  });
+
+  it("a refunded round's dish is drawn TAGGED, and a capped read says it shows only the latest", () => {
+    // #360 (CRITICAL 1 · 3). lck/floor-detail/paid-round-refund-untagged · paid-round-cap-unsaid
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        {
+          id: "p1",
+          name: "Chicken curry",
+          qty: 1,
+          stage: "cooking",
+          notes: null,
+          modifiers: [],
+          togo: false,
+          refunded: true,
+        },
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidKitchenCapped: true,
+    });
+    const items = [...container.querySelectorAll("li")].filter((li) =>
+      /Chicken curry|Tea/.test(li.textContent ?? ""),
+    );
+    expect(items[0]!.textContent).toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    expect(items[1]!.textContent).not.toContain(STAFF["table.detail.paidKitchen.refunded"].en);
+    // #360's blind pass (CRITICAL 2) — the count is the dishes DRAWN (two), never the read's cap.
+    // lck/floor-detail/paid-round-cap-unsaid — red.
+    expect(container.textContent).toContain(
+      tf("en", "table.detail.paidKitchen.capped.many", { n: 2 }),
+    );
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
+  });
+
+  it("a capped ROUND read says older rounds aren't here — with no number", () => {
+    // #360's blind pass (CRITICAL 2). lck/floor-detail/paid-round-rounds-cap-unpassed — red.
+    const { container } = mountWith({
+      ...DETAIL,
+      paidKitchen: [
+        { id: "p2", name: "Tea", qty: 1, stage: "sent", notes: null, modifiers: [], togo: false },
+      ],
+      paidRoundsCapped: true,
+    });
+    expect(container.textContent).toContain(STAFF["table.detail.paidKitchen.olderRounds"].en);
+    expect(container.textContent).not.toContain(String(PAID_KITCHEN_CAP));
+  });
+
+  it("a capped read with NO dish to draw still says it is capped — never a silent page (#360, Codex P2)", () => {
+    // lck/floor-detail/paid-round-empty-cap-unsaid — the capped dish read held only dishes served
+    // long ago, `paidRoundKitchen` drew none, and the length guard hid the truncation warning too.
+    const dishes = mountWith({ ...DETAIL, paidKitchen: [], paidKitchenCapped: true });
+    const text = dishes.container.textContent ?? "";
+    expect(text).toContain(STAFF["table.detail.paidKitchen.title"].en);
+    expect(text).toContain(STAFF["table.detail.paidKitchen.olderDishes"].en);
+    expect(text).not.toContain(String(PAID_KITCHEN_CAP));
+    // no empty labelled list beside it: a list of nothing is announced and says nothing
+    const title = screen.getByText(STAFF["table.detail.paidKitchen.title"].en, { exact: false });
+    const titleId = title.closest("p")?.id;
+    expect(titleId).toBeTruthy();
+    expect(dishes.container.querySelector(`ul[aria-labelledby="${titleId}"]`)).toBeNull();
+    dishes.unmount();
+    // the ROUND cap alone, over no dish: said too
+    const rounds = mountWith({ ...DETAIL, paidKitchen: [], paidRoundsCapped: true });
+    expect(rounds.container.textContent).toContain(
+      STAFF["table.detail.paidKitchen.olderRounds"].en,
+    );
+    rounds.unmount();
+    // nothing to draw and nothing capped: no group at all
+    const none = mountWith({ ...DETAIL, paidKitchen: [] });
+    expect(none.container.textContent).not.toContain(STAFF["table.detail.paidKitchen.title"].en);
+  });
+
+  it("a dine-in table's draft dish offers For here / To go", () => {
+    // lck/floor-detail/reroute-unoffered
+    mountWith({ ...DETAIL, lines: [{ ...line("l1", "Mohinga"), state: "draft" }] });
+    expect(screen.getByRole("button", { name: STAFF["table.line.toGo"].en })).toBeTruthy();
   });
 });

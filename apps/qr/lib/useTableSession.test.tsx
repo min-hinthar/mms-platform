@@ -166,3 +166,144 @@ describe("useTableSession — a solo key the server re-minted is adopted (PD3 fo
     expect(window.localStorage.getItem("mms.qr.pickup")).toBe("pickup-mine");
   });
 });
+
+// J16 — a refusal's machine word reaches the caller beside its sentence; GuestList recovers by the
+// word (`joinFailureArm`), never by grepping the sentence.
+function ReasonProbe() {
+  const { error, errorReason, revalidate } = useTableSession("dinein", {
+    door: "dinein",
+    tableNumber: 7,
+  });
+  return (
+    <>
+      <p data-testid="reason">{`${errorReason ?? "none"}|${error ?? "none"}`}</p>
+      <button type="button" onClick={revalidate}>
+        retry
+      </button>
+    </>
+  );
+}
+const refusal = (status: number, body: Record<string, unknown>) =>
+  fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
+  });
+
+describe("useTableSession — a refusal carries its `reason` (J16)", () => {
+  it("the seated race's word and sentence both reach the caller", async () => {
+    // MUTATION (j16-reason/hook-drops-the-word): the hook keeps only the sentence — GuestList
+    // is back to grepping English, and the seated race is a futile retry again.
+    refusal(409, { error: "That table was just seated.", reason: "seated" });
+    const { getByTestId } = render(<ReasonProbe />);
+    await waitFor(() =>
+      expect(getByTestId("reason").textContent).toBe("seated|That table was just seated."),
+    );
+  });
+
+  it("a word this build does not know, or none at all, is null — the generic retryable failure, never a verdict", async () => {
+    refusal(409, { error: "Something new.", reason: "some_future_word" });
+    const { getByTestId, getByRole } = render(<ReasonProbe />);
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|Something new."));
+    refusal(500, {});
+    getByRole("button", { name: "retry" }).click();
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|HTTP 500"));
+  });
+
+  it("a retry clears the word with the sentence, and a success leaves neither", async () => {
+    refusal(400, { error: "That table isn’t available.", reason: "table_not_registered" });
+    const { getByTestId, getByRole } = render(<ReasonProbe />);
+    await waitFor(() =>
+      expect(getByTestId("reason").textContent).toBe(
+        "table_not_registered|That table isn’t available.",
+      ),
+    );
+    getByRole("button", { name: "retry" }).click();
+    await waitFor(() => expect(getByTestId("reason").textContent).toBe("none|none"));
+  });
+});
+
+// Session truth (M172) — the URL credential is single-use: after the server accepts a mint, every
+// later mint of this hook re-joins by the ACCEPTED code under J15 (`persisted`), never by the
+// sticker or invite still held in the page's props.
+function RemintProbe(props: { code?: string; tableNumber?: number; joinOnly?: boolean }) {
+  const { session, revalidate } = useTableSession("dinein", { ...props, door: "dinein" });
+  return (
+    <>
+      <p data-testid="remint">
+        {session
+          ? `joined:${session.joinCode}:${session.created}:${session.replacedStored}`
+          : "minting"}
+      </p>
+      <button type="button" onClick={revalidate}>
+        remint
+      </button>
+    </>
+  );
+}
+
+describe("useTableSession — the URL entry is spent once the server accepts it (session truth, M172)", () => {
+  it("a sticker's RE-MINT sends the accepted code, persisted — never the sticker again", async () => {
+    const { getByTestId, getByRole } = render(<RemintProbe code="SCANNED1" />);
+    await waitFor(() => expect(getByTestId("remint").textContent).toContain("joined:ACCEPTED"));
+    expect(bodies[0]).toMatchObject({ qrCode: "SCANNED1" });
+    expect(bodies[0]).not.toHaveProperty("persisted");
+    getByRole("button", { name: "remint" }).click();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(bodies[1]).toMatchObject({ qrCode: "ACCEPTED", persisted: true });
+  });
+
+  it("an invite's and a claim's re-mint drop `joinOnly` and the number — a closed invite no longer 404s, a freed table is not re-claimed", async () => {
+    const { getByTestId, getByRole } = render(
+      <RemintProbe code="INVITE01" joinOnly tableNumber={5} />,
+    );
+    await waitFor(() => expect(getByTestId("remint").textContent).toContain("joined:ACCEPTED"));
+    expect(bodies[0]).toMatchObject({ qrCode: "INVITE01", joinOnly: true, tableNumber: 5 });
+    getByRole("button", { name: "remint" }).click();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(bodies[1]).toMatchObject({ qrCode: "ACCEPTED", persisted: true });
+    expect(bodies[1]).not.toHaveProperty("joinOnly");
+    expect(bodies[1]).not.toHaveProperty("tableNumber");
+  });
+
+  it("finding 4 — `replacedStored`: a persisted code the server answered with a CREATED session (that table had ended)", async () => {
+    window.localStorage.setItem("mms.qr.dinein", "PRIORCOD");
+    const { getByTestId } = render(<RemintProbe />);
+    await waitFor(() =>
+      expect(getByTestId("remint").textContent).toBe("joined:ACCEPTED:true:true"),
+    );
+  });
+
+  it("a persisted code the server RE-JOINED is not a replaced table, and a URL code never is", async () => {
+    window.localStorage.setItem("mms.qr.dinein", "PRIORCOD");
+    fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ...MINT, created: false }),
+      } as Response);
+    });
+    const first = render(<RemintProbe />);
+    await waitFor(() =>
+      expect(first.getByTestId("remint").textContent).toBe("joined:ACCEPTED:false:false"),
+    );
+    first.unmount();
+    const second = render(<RemintProbe code="SCANNED1" />);
+    await waitFor(() =>
+      expect(second.getByTestId("remint").textContent).toBe("joined:ACCEPTED:true:false"),
+    );
+  });
+
+  it("a route's `fresh` (a server-started table this claim took) reads as created for the resume notice", async () => {
+    fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ...MINT, created: false, fresh: true }),
+      } as Response);
+    });
+    const { getByTestId } = render(<RemintProbe tableNumber={5} />);
+    await waitFor(() =>
+      expect(getByTestId("remint").textContent).toBe("joined:ACCEPTED:true:false"),
+    );
+  });
+});

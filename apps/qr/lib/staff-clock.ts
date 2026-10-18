@@ -84,3 +84,24 @@ export function serviceDayKey(iso: string): string {
 export function sameServiceDay(a: string, b: string): boolean {
   return serviceDayKey(a) === serviceDayKey(b);
 }
+
+const weekday = new Intl.DateTimeFormat("en-US", { timeZone: RESTAURANT_TZ, weekday: "short" });
+
+/** `Sat` — the restaurant's weekday for an instant (Latin, like every staff date). */
+export function staffWeekday(iso: string): string {
+  return weekday.format(new Date(iso));
+}
+
+/**
+ * The lifecycle audit — how many SERVICE days `iso` lies after `nowIso` in the restaurant's zone: 0 the
+ * same day, 1 tomorrow, −1 yesterday. Counted on the service-day keys (`serviceDayKey`), never on a
+ * 24-hour difference: 11 PM and 1 AM are two days apart by one hour. NaN for an unreadable instant.
+ */
+export function serviceDayOffset(iso: string, nowIso: string): number {
+  const a = Date.parse(iso);
+  const b = Date.parse(nowIso);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN;
+  // Two calendar keys, compared as UTC midnights: the difference is a whole number of days.
+  const day = (k: string) => Date.parse(`${k}T00:00:00Z`);
+  return Math.round((day(serviceDayKey(iso)) - day(serviceDayKey(nowIso))) / 86_400_000);
+}

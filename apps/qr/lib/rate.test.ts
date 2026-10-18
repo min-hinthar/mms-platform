@@ -42,10 +42,20 @@ const {
   withinStepUpRate,
   withinReceiptRate,
   withinStaffPromoRate,
+  withinRecoverRate,
+  withinRecoverCartRate,
   assertMutationRate,
 } = await import("./rate");
-const { JOIN_RATE, PEEK_RATE, MUTATE_RATE, STEPUP_RATE, RECEIPT_RATE, STAFF_PROMO_RATE } =
-  await import("./limits");
+const {
+  JOIN_RATE,
+  PEEK_RATE,
+  MUTATE_RATE,
+  STEPUP_RATE,
+  RECEIPT_RATE,
+  STAFF_PROMO_RATE,
+  RECOVER_RATE,
+  RECOVER_CART_RATE,
+} = await import("./limits");
 
 /** Every wrapper, with the limit object it is supposed to be spending. */
 const WRAPPERS = [
@@ -55,6 +65,8 @@ const WRAPPERS = [
   ["stepup", withinStepUpRate, STEPUP_RATE],
   ["receipt", withinReceiptRate, RECEIPT_RATE],
   ["staffpromo", withinStaffPromoRate, STAFF_PROMO_RATE],
+  ["recover", withinRecoverRate, RECOVER_RATE],
+  ["recovercart", withinRecoverCartRate, RECOVER_CART_RATE],
 ] as const;
 
 beforeEach(() => {
@@ -96,6 +108,20 @@ describe("the rate wrappers", () => {
     answer = { data: null, error: { message: "rpc exploded" } };
     expect(await withinStaffPromoRate("st-1")).toBe(true);
     expect(await withinMutationRate("seat-1")).toBe(true);
+  });
+
+  // M160(b) blind pass on #365 @ 1b760cb — the recovery limiters stand in front of Stripe calls and a
+  // fulfillment. Failing open there turns a limiter outage into an unbounded retrieve loop; failing
+  // closed costs a guest nothing they can see (/track keeps its own "still confirming" copy, staff
+  // read "try again", and the cron — which no limiter gates — is the backstop).
+  it("the stranded-payment limiters FAIL CLOSED on a limiter error", async () => {
+    answer = { data: null, error: { message: "rpc exploded" } };
+    expect(await withinRecoverRate("uid-1")).toBe(false);
+    expect(await withinRecoverCartRate("cart-1")).toBe(false);
+    // …and only on an error: the SQL's own yes still passes.
+    answer = { data: true, error: null };
+    expect(await withinRecoverRate("uid-1")).toBe(true);
+    expect(await withinRecoverCartRate("cart-1")).toBe(true);
   });
 
   it("assertMutationRate THROWS when the window is spent, and is silent when it is not", async () => {

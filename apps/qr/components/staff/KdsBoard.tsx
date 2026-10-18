@@ -14,9 +14,11 @@ import {
   bumpTicket,
   fireTicketNow,
   getKitchenQueue,
+  readLineFates,
   recallTicket,
 } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
+import { landedSoldOut } from "@/lib/sold-out-landing";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { boundWrite } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
@@ -49,6 +51,19 @@ import type {
 } from "@/lib/kitchen-types";
 import Link from "next/link";
 import { EmptyState, Icon, removeHeld, useSheetSubject } from "@mms/ui";
+import {
+  confirmRemovals,
+  fateIds,
+  mergeRemovals,
+  ownBumpsAfter,
+  ownBumpsSettled,
+  removalCandidates,
+  removalsForStation,
+  stoppedLineIds,
+  type KdsRemoval,
+} from "@/lib/kds-removed";
+import { kdsWhen } from "@/lib/kds-slot";
+import { railWith } from "@/lib/kds-recall-rail";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
@@ -70,7 +85,6 @@ import { ReloadButton } from "./ReloadOffer";
 import { useReloadHold } from "./useReloadHold";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
-import { staffClock } from "@/lib/staff-clock";
 import { plural, tf } from "@/lib/i18n/fill";
 import { al, chromeVisible, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -162,6 +176,11 @@ type RecallEntry = {
   tappedAt: number;
   expiresAt: number;
   stillOn: string | null;
+  /** The lifecycle audit — a per-line Done (`line`): a DISH chip on the rail and nothing else — no
+   *  undo pill (that is All done's, decision 15), its own sentence, its own cap (`railWith`). Its
+   *  `key` is `line:<id>`, its `card` the card it stood on (still live, so never a twin). Absent: a
+   *  whole card. */
+  scope?: "line";
 };
 /** K22 — what the undo bar can take back: a bump (the SQL 2-minute recall behind it) or an 86 (the
  *  reverse compare-and-swap on `menu_items.is_sold_out`). One bar, one 6-second window, two kinds.
@@ -204,7 +223,10 @@ const STATIONS: { key: "all" | KitchenStation; k: StaffKey }[] = [
  */
 function ticketId(
   lang: StaffLang,
-  t: KitchenTicket,
+  t: Pick<
+    KitchenTicket,
+    "channel" | "tableNumber" | "label" | "shortCode" | "unpaid" | "customerName"
+  >,
   tag: RoundTag | null = null,
 ): { main: string; node: ReactNode; sub: string | null } {
   // The time tag prints the stamp as the restaurant's clock reads it and, only while two labels
@@ -243,6 +265,11 @@ function unpaidWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "settle.unpaid", "stack", shown);
 }
 
+/** #360 — the refunded card's tag as its name speaks it: the dictionary's words, as drawn. */
+function refundedWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "kds.ticket.refunded", "stack", shown);
+}
+
 /** Phase 3d — a badge's lead word as the badge draws it and the card's name speaks it: the
  *  dictionary value with its trailing " · " separator dropped ("Later", "Late"). */
 const badgeWord = (lang: StaffLang, k: KdsBadgeLead): string =>
@@ -260,9 +287,24 @@ function chimeIn(ref: { current: KdsChime | null }): KdsChime {
   return (ref.current ??= new KdsChime(getKdsSoundWanted));
 }
 
-/** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
-function fmtSlot(iso: string): string {
-  return staffClock(iso);
+/** A card as `cardTags` reads it — the rail entry's `card`, for All done and a line's Done alike. */
+function cardOf(t: KitchenTicket): TagCard {
+  return {
+    key: t.key,
+    sessionId: t.sessionId,
+    channel: t.channel,
+    fireBatch: t.fireBatch,
+    round: t.round,
+    stampIso: t.stampIso,
+    tableNumber: t.tableNumber,
+    label: t.label,
+  };
+}
+
+/** The lifecycle audit — a removal marker's words: "1× Mohinga · Table 6" (the dish as the board
+ *  draws it, then the card's identity — the same `ticketId` the card and its pill say). */
+function removalWords(lang: StaffLang, r: KdsRemoval): string {
+  return `${r.line.qty}× ${dishVisible(lang, r.line.name, r.line.nameMy)} · ${ticketId(lang, r.ticket).main}`;
 }
 
 // ── Phase 2h (9b · 9e) ── a kitchen write, bounded. ─────────────────────────────────────────────────
@@ -326,11 +368,15 @@ async function kitchenWrite<T>(
   key: string,
   say: KdsSay,
   land: (value: T) => void | Promise<void>,
+  /** #360 (Codex P2) — the answer was LOST (the action threw, now or late): whatever the caller
+   *  marked at the tap is settled, never left "still out" (`ownBumpsSettled`). */
+  lost?: () => void,
 ): Promise<void> {
   // ⚠️ The RAW action promise — never `boundWrite(raceTimeout(x))`, whose own timer reads a hang as
   // a throw and drops the late answer (lib/bounded-write.ts).
   const out = await boundWrite(raw);
   if (out.kind === "answer") return land(out.value);
+  if (out.kind === "threw") lost?.();
   if (out.kind === "threw") return say.err(unknownMsg(x));
   const waiting = waitingMsg(x);
   say.err(waiting);
@@ -342,6 +388,7 @@ async function kitchenWrite<T>(
     say.drop(waiting);
     if (late.kind === "answer") void land(late.value);
     else say.err(unknownMsg(x));
+    if (late.kind === "threw") lost?.();
   });
 }
 
@@ -476,7 +523,32 @@ export function KdsBoard({
   // the moment its own clear is acknowledged (`stopNewsAcked`), never standing over a card gone.
   const [stopNews, setStopNews] = useState<StopNews | null>(null);
   const stopNewsSeq = useRef(0);
-  const stopNewsSaid = stopNewsText(stopNews);
+  // ── The lifecycle audit — a dish VOIDED off the board (a server's Remove): "Removed: 1× Mohinga ·
+  // Table 6 — stop", until Got it (`lib/kds-removed.ts`: the diff of two good snapshots proposes, ONE
+  // read of the lines' current state by id confirms — only `voided` is said). `prevTickets` is the
+  // last good snapshot; `ownBumps` the line ids THIS tablet bumped (All done, a line's Done), whose
+  // leaving is the cook's own tap. The sentence is said once in the ONE region, beside a stop card's,
+  // for the stop card's dwell.
+  const prevTickets = useRef<readonly KitchenTicket[]>(initial.tickets);
+  // #360 (Codex P2) — each own bump carries WHEN its write landed (the fetch sequence then; null while
+  // it is out), so a line another tablet recalls before this one saw it leave stops being "ours"
+  // once a later snapshot shows it back (`ownBumpsAfter`): a void a snapshot after THAT shows is
+  // said. A recall and a void both before the first snapshot past the landing are not (the
+  // docblock's window).
+  const ownBumps = useRef(new Map<string, number | null>());
+  const ownBump = useCallback((ids: readonly string[], on: boolean) => {
+    for (const id of ids) {
+      if (on) ownBumps.current.set(id, null);
+      else ownBumps.current.delete(id);
+    }
+  }, []);
+  const [removals, setRemovals] = useState<KdsRemoval[]>([]);
+  const [removedNews, setRemovedNews] = useState<StopNews | null>(null);
+  const removedNewsSeq = useRef(0);
+  const stopNewsSaid =
+    [stopNewsText(stopNews), stopNewsText(removedNews)]
+      .filter((x): x is string => x !== null)
+      .join(" ") || null;
   // The device language for the poll's announcement: `refresh` is stable for the board's life, so a
   // closure would keep the language the console started in (the `onBumped` lesson, below).
   const langRef = useRef(lang);
@@ -503,7 +575,7 @@ export function KdsBoard({
       }),
   );
   const guideQuiet = kitchenGuideQuiet({
-    tickets: snap.tickets.length + allStops.length,
+    tickets: snap.tickets.length + allStops.length + removals.length,
     degraded: degraded !== null || stopsUnknown,
     failed: err !== null,
   });
@@ -590,6 +662,16 @@ export function KdsBoard({
   // resurrect the ⋯ (the coalesced-refresh defect), and the first post-write snapshot is the truth
   // even when a second writer moved the dish — never "until the prop agrees" (menu-3's blind pass).
   const fetchSeq = useRef(0);
+  /** #360 (Codex P2) — an own bump's write LANDED: stamped with the fetch sequence now, so only a
+   *  snapshot fetched after it can show the line "back" (`ownBumpsAfter`). */
+  const ownLanded = useCallback((ids: readonly string[]) => {
+    ownBumps.current = ownBumpsSettled(ownBumps.current, ids, fetchSeq.current);
+  }, []);
+  /** #360 (Codex P2) — an own bump whose answer was LOST settles the same way: a later snapshot that
+   *  still shows the line retires the mark, so a later void of it is said (`ownBumpsSettled`). */
+  const ownLost = useCallback((ids: readonly string[]) => {
+    ownBumps.current = ownBumpsSettled(ownBumps.current, ids, fetchSeq.current);
+  }, []);
   const [soldOverrides, setSoldOverrides] = useState<ReadonlyMap<string, SoldOutOverride>>(
     () => new Map(),
   );
@@ -695,6 +777,36 @@ export function KdsBoard({
     if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
   }, [stampNow]);
 
+  /** The lifecycle audit — the removal CONFIRMATION (`lib/kds-removed.ts`, step 2): ONE read of the
+   *  candidates' current state by id; only `voided` is said — drawn until Got it, said once in the
+   *  region (the station's own dishes) and chimed like an arrival. A read that fails, hangs past the
+   *  bound or throws says NOTHING (deliberate: a false "stop" is its own harm). */
+  const confirmAndSay = useCallback(async (candidates: KdsRemoval[]) => {
+    let fates: Map<string, string> | null = null;
+    try {
+      const res = await raceTimeout(readLineFates(fateIds(candidates)), "read");
+      fates = res.ok ? new Map(Object.entries(res.states)) : null;
+    } catch (e) {
+      // Deliberate swallow: an unconfirmed departure is not a void — nothing is said.
+      console.error("[KdsBoard] removal confirmation failed — nothing said", e);
+    }
+    if (!alive.current) return;
+    const arrived = confirmRemovals(candidates, fates);
+    if (arrived.length === 0) return;
+    setRemovals((prev) => mergeRemovals(prev, arrived));
+    const heard = removalsForStation(arrived, stationRef.current);
+    if (heard.length === 0) return;
+    const next = {
+      id: ++removedNewsSeq.current,
+      parts: heard.map((r) => ({
+        clearId: r.key,
+        text: tf(langRef.current, "kds.removed", { x: removalWords(langRef.current, r) }),
+      })),
+    };
+    setRemovedNews((prev) => stopNewsMerged(prev, next));
+    chime.current?.play(heard.some((r) => r.ticket.channel === "dinein") ? "dinein" : "pickup");
+  }, []);
+
   const refresh = useCallback(async () => {
     // Phase 2h · critic B4 — a write's LATE answer can land after the board is gone (writes left
     // their transitions, so a navigation commits while one is out), and its `land` asks for a
@@ -759,6 +871,19 @@ export function KdsBoard({
         setNewCount((n) => n + added.length);
       }
 
+      // The lifecycle audit — what LEFT the board since the last good snapshot without this tablet's
+      // bump, minus what a stop card already strikes: CANDIDATES only. The confirmation read decides
+      // (`confirmRemovals` — a teammate's bump between the rail's statement and this one is `served`,
+      // never a "stop"); it runs after this commit and says what it confirms.
+      const candidates = removalCandidates({
+        prev: prevTickets.current,
+        next: queue.tickets,
+        ownBumps: new Set(ownBumps.current.keys()),
+        stopped: stoppedLineIds(queue.stops),
+      });
+      prevTickets.current = queue.tickets;
+      ownBumps.current = ownBumpsAfter(ownBumps.current, queue.tickets, seq);
+      if (candidates.length > 0) void confirmAndSay(candidates);
       setSnap(queue);
       // PD5 — in the same batch: each card's round decision, carried forward and only sharpened; a
       // recalled card takes back the decision it was bumped with. The priors are a SNAPSHOT for the
@@ -819,7 +944,7 @@ export function KdsBoard({
     } finally {
       inFlight.current = false;
     }
-  }, [gateOf, miss, stampNow]);
+  }, [gateOf, miss, stampNow, confirmAndSay]);
   useEffect(() => {
     kick.current = () => void refresh();
   }, [refresh]);
@@ -886,6 +1011,14 @@ export function KdsBoard({
     const id = setTimeout(() => setStopNews(null), STOP_NEWS_MS);
     return () => clearTimeout(id);
   }, [stopNewsId]);
+
+  // The lifecycle audit — a removal's sentence stands the stop card's dwell, then leaves the region.
+  const removedNewsId = removedNews?.id ?? null;
+  useEffect(() => {
+    if (removedNewsId === null) return;
+    const id = setTimeout(() => setRemovedNews(null), STOP_NEWS_MS);
+    return () => clearTimeout(id);
+  }, [removedNewsId]);
 
   // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a ticket unmounts the
   // control that held focus. Edge-triggered — restore to the board heading only when focus HAD been on
@@ -1084,7 +1217,8 @@ export function KdsBoard({
 
   const onBumped = useCallback(
     (entry: RecallEntry, label: string) => {
-      setRecall((prev) => [entry, ...prev].slice(0, 5)); // last 5 (SPEC-KDS §4)
+      ownLanded(entry.lineIds);
+      setRecall((prev) => railWith(prev, entry)); // the last 5 cards (SPEC-KDS §4), dishes apart
       // ONE slot, two kinds — and only the bump has a rail behind it. A bump landing inside an 86's
       // six seconds (the tap beside it, mid-rush — K22's own scenario) must not evict the dish's
       // only way back: the 86 keeps the bar until it expires, and this bump is reachable from the
@@ -1108,7 +1242,21 @@ export function KdsBoard({
     // `lang` is a REAL dependency, not a lint appeasement: `refresh` is permanently stable, so a
     // deps list of [refresh] freezes this closure at its first render and the live region keeps
     // announcing the bump in whichever language the console started in, for the rest of the shift.
-    [lang, refresh],
+    [lang, refresh, ownLanded],
+  );
+
+  // The lifecycle audit · decision 15 — a per-line Done is NOT a card bump. It leaves a DISH chip on
+  // the rail (its own cap, never evicting a card's chip — `railWith`) and says its own one-dish
+  // sentence. It takes no undo pill: the ONE pill is All done's (and an 86's, K22), and a single dish
+  // claiming it would push a card's six seconds — or an 86's — off the bar.
+  const onLineDone = useCallback(
+    (entry: RecallEntry, label: string) => {
+      ownLanded(entry.lineIds);
+      setRecall((prev) => railWith(prev, entry));
+      setNotice(tf(lang, "kds.live.line", { x: label }));
+      void refresh();
+    },
+    [lang, refresh, ownLanded],
   );
 
   // K22 — the 86 has had a 6-second undo in the bar since K22 (the bump's since W3d). Same bar, same
@@ -1151,7 +1299,11 @@ export function KdsBoard({
         dishKey(entry.menuItemId),
         say,
         (res) => {
-          if (!res.ok) {
+          // P2au — LANDED, not `ok`: an unlogged put-back is the dish back on sale with only its
+          // record missing. Read as a refusal it kept the bar up, whose Undo then refused against
+          // the board's own write ("someone else changed it").
+          // (`!res.ok` narrows the type; `landedSoldOut` is never null for an `ok` answer.)
+          if (!res.ok && landedSoldOut(res) === null) {
             showErr(eightySixOutcome(res, entry.label));
             return;
           }
@@ -1160,6 +1312,8 @@ export function KdsBoard({
           // Only THIS dish's bar: a late answer must never take down a newer bump's undo.
           setUndo((u) => (u?.kind === "eighty6" && u.menuItemId === entry.menuItemId ? null : u));
           setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
+          // …and the record failure is still said: the region's error outranks the notice.
+          if (!res.ok) showErr(eightySixOutcome(res, entry.label));
           void refresh();
         },
       );
@@ -1235,7 +1389,7 @@ export function KdsBoard({
     if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
-  }, [snap, stops]);
+  }, [snap, stops, removals]);
   // When work replaced the guide (`performance.now()`), or null; read at every control's tap.
   const replacedAt = useRef<number | null>(null);
   const landingHeld = useCallback(
@@ -1307,7 +1461,11 @@ export function KdsBoard({
     // The answer, applied — on time, or LATE (Phase 2h · 9e: a late ok still lands, with the same
     // routing the on-time one takes, read at the moment it lands).
     const settle86 = (res: Awaited<ReturnType<typeof setItemSoldOut>>) => {
-      if (res.ok) {
+      // P2au — LANDED, not `ok`. The ledger insert runs after the flag flips, and an unlogged answer
+      // is `ok: false` so its sentence is never swallowed — but the dish IS off the menu, so it takes
+      // the landing path (override, sheet, the one Undo slot) and says its sentence after.
+      // (`res.ok ||` narrows the refusal arm below; `landedSoldOut` already answers it.)
+      if (res.ok || landedSoldOut(res) !== null) {
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
         // The newest SUCCESS owns the one Undo slot (a newer tap that failed does not count).
         const newest = seq > won86Seq.current;
@@ -1341,9 +1499,14 @@ export function KdsBoard({
           setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
           parked86.current = { menuItemId: id, label: dish, seq };
         }
+        // P2au — a landing whose ledger insert failed still SAYS so, routed like any refusal: the
+        // board's region once this line's sheet has unmounted (the ref was cleared above), or the
+        // sheet that is open — a modal makes the board behind it aria-hidden. Said after the
+        // landing so it outranks the notice in the region, never instead of it.
+        if (!res.ok) refuse(eightySixOutcome(res, dish));
       } else {
-        // After a `stale` refusal (someone else 86'd it) or the landed-but-unlogged ledger sentence,
-        // the refresh below shows the dish sold out and the sheet's body turns into the statement.
+        // After a `stale` refusal (someone else 86'd it) the refresh below shows the dish sold out
+        // and the sheet's body turns into the statement.
         refuse(eightySixOutcome(res, dish));
       }
     };
@@ -1384,8 +1547,8 @@ export function KdsBoard({
         next.delete(id);
         return next;
       });
-      // On EVERY outcome: the ledger-insert failure answers `ok:false` although the flag landed, and
-      // only a fresh snapshot can tell the cook what is true.
+      // On EVERY outcome: a refusal, a lost answer or a late one leaves the board's view behind the
+      // server's, and only a fresh snapshot can tell the cook what is true.
       void refresh();
     }
   };
@@ -1429,8 +1592,10 @@ export function KdsBoard({
             return;
           }
           setNotice(tf(lang, "kds.live.restored", { x: entry.label }));
-          // The card comes back wearing the round it was bumped with (the blind pass on #328).
-          if (entry.decision) returning.current.set(entry.key, entry.decision);
+          // The card comes back wearing the round it was bumped with (the blind pass on #328). A line's
+          // card never left the board (the lifecycle audit), so it has nothing to come back wearing.
+          if (entry.decision && entry.scope !== "line")
+            returning.current.set(entry.key, entry.decision);
           // Filter by the CARD key, not object identity — the undo toast holds a spread COPY of the
           // rail's entry, so an identity filter would leave a dead rail button behind (adversarial
           // LOW-1) — and never by the cart: recalling round 1 must leave round 2's chip (PD5).
@@ -1499,6 +1664,17 @@ export function KdsBoard({
       ackOut.current.delete(id);
     }
   };
+
+  // The lifecycle audit — "Got it" on a removal marker: client-side only (the record is the void or
+  // the refund itself; the durable per-line stop record is a migration — OPEN-ITEMS). Its words leave
+  // the region with it; focus falls to the heading through the catch-all (the button unmounts).
+  const ackRemoval = (key: string) => {
+    if (landingHeld()) return;
+    haptic("commit");
+    setRemovals((prev) => prev.filter((r) => r.key !== key));
+    setRemovedNews((n) => stopNewsAcked(n, key));
+  };
+  const shownRemovals = removalsForStation(removals, station);
 
   const count = live.length;
   const heldCount = filtered.length - live.length;
@@ -1690,6 +1866,30 @@ export function KdsBoard({
             <Chrome lang={lang} k="kds.stops.unknown" />
           </p>
         )}
+        {/* The lifecycle audit — a dish taken off the board without a bump (a server's Remove, a
+            refund), one marker per dish until a cook taps Got it. ALARM tier without motion beyond
+            its entrance (`mms-rise`, RM-escorted by the kit): warn border, the warn word, a 48px
+            Got it. Said once through the region above, never a second region. */}
+        {shownRemovals.length > 0 && (
+          <ul className="kds-removed-list" role="list" aria-label={sx(lang, "kds.a11y.removed")}>
+            {shownRemovals.map((r) => (
+              <li key={r.key} className="kds-removed mms-rise">
+                <Icon name="alert" size={20} aria-hidden />
+                <span className="kds-removed-text" id={`kds-removed-${r.line.id}`}>
+                  <Chrome lang={lang} k="kds.removed" vars={{ x: removalWords(lang, r) }} />
+                </span>
+                <button
+                  type="button"
+                  className="kds-removed-ack staff-press"
+                  aria-describedby={`kds-removed-${r.line.id}`}
+                  onClick={() => ackRemoval(r.key)}
+                >
+                  <Chrome lang={lang} k="help.done" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div className="kds-controls">
           {/* The station filter moved into the bar (P7·1b), and Phase 3d moved the sound control
@@ -1832,6 +2032,9 @@ export function KdsBoard({
                   thresholds={snap.thresholds}
                   pulse={pulses.get(it.t.key) ?? null}
                   onBumped={onBumped}
+                  onLineDone={onLineDone}
+                  ownBump={ownBump}
+                  ownLost={ownLost}
                   menuOpenId={menuLineId}
                   pending86={pending86}
                   onOpenMenu={openMenu}
@@ -2090,6 +2293,9 @@ function TicketCard({
   thresholds,
   pulse,
   onBumped,
+  onLineDone,
+  ownBump,
+  ownLost,
   menuOpenId,
   pending86,
   onOpenMenu,
@@ -2111,6 +2317,13 @@ function TicketCard({
   thresholds: KdsThresholds;
   pulse: number | null;
   onBumped: (entry: RecallEntry, label: string) => void;
+  /** The lifecycle audit — a single dish's Done landed: a dish chip, never the card's pill. */
+  onLineDone: (entry: RecallEntry, label: string) => void;
+  /** The lifecycle audit — this tablet's own bumps (`on`), or a refused one taken back (`off`): the
+   *  board's removal diff never calls out the cook's own tap. */
+  ownBump: (ids: readonly string[], on: boolean) => void;
+  /** #360 (Codex P2) — an own bump whose write's answer was lost: settled, never left out. */
+  ownLost: (ids: readonly string[]) => void;
   /** Phase 2b — the line whose ⋯ sheet is open (its ⋯ is `aria-expanded`). */
   menuOpenId: string | null;
   /** Phase 2b — dishes whose 86 is in flight → the line whose sheet sent it. */
@@ -2168,29 +2381,25 @@ function TicketCard({
       const still = stillOn
         ? tf(lang, "kds.table", { id: ticket.tableNumber ?? ticket.label })
         : null;
+      // The lifecycle audit — marked at the TAP: these lines leaving the board is this cook's own
+      // bump, never a "Removed — stop" (taken back below if the server refuses it).
+      ownBump(lineIds, true);
       await kitchenWrite(
         bumpTicket({ cartId: ticket.cartId, lineIds }),
         label,
         subject,
         say,
         (res) => {
-          if (!res.ok) onRefused(res, "bump", label);
-          else
+          if (!res.ok) {
+            ownBump(lineIds, false);
+            onRefused(res, "bump", label);
+          } else
             onBumped(
               {
                 key: ticket.key,
                 cartId: ticket.cartId,
                 sessionId: ticket.sessionId,
-                card: {
-                  key: ticket.key,
-                  sessionId: ticket.sessionId,
-                  channel: ticket.channel,
-                  fireBatch: ticket.fireBatch,
-                  round: ticket.round,
-                  stampIso: ticket.stampIso,
-                  tableNumber: ticket.tableNumber,
-                  label: ticket.label,
-                },
+                card: cardOf(ticket),
                 decision,
                 label,
                 lineIds,
@@ -2201,6 +2410,8 @@ function TicketCard({
               label,
             );
         },
+        // #360 (Codex P2) — a LOST answer settles the tap's mark: never "still out" for good.
+        () => ownLost(lineIds),
       );
     } finally {
       pendingRef.current = false;
@@ -2208,10 +2419,61 @@ function TicketCard({
     }
   };
 
-  const fireNow = async () => {
+  // The lifecycle audit — a per-line Done's way back is a DISH chip on the Bring-back rail, through
+  // `mms_recall_ticket` (which restores any served line id of the cart inside its two minutes) — never
+  // the card's pill (decision 15). Named "{dish} · {card}", the card still on the board.
+  const lineServed = (l: KitchenLine, dish: string, tappedAt: number) => {
+    const label = `${dish} · ${id.main}`;
+    onLineDone(
+      {
+        key: `line:${l.id}`,
+        scope: "line",
+        cartId: ticket.cartId,
+        sessionId: ticket.sessionId,
+        card: cardOf(ticket),
+        decision,
+        label,
+        lineIds: [l.id],
+        tappedAt,
+        expiresAt: tappedAt + RECALL_MS,
+        stillOn: null,
+      },
+      label,
+    );
+  };
+
+  // The lifecycle audit — WHEN a held card is due, with its day ("Tomorrow 5:40 PM"), on the board's
+  // DB clock (`kdsWhen`): a card for tomorrow no longer reads as overdue at 6:05 PM today.
+  const nowIso = new Date(nowMs).toISOString();
+  const slotWhen = kdsWhen(lang, ticket.pickupSlot ?? ticket.firedAt, nowIso);
+  // Cook now asks first, naming the day and the slot — the write has no reverse edge (a reverse RPC
+  // is a migration: OPEN-ITEMS). `confirmAt` is when the question appeared (`performance.now()`):
+  // "Yes" stands where "Cook now" stood, so a double-tap's second tap is the same gesture and is
+  // refused for `SAME_GESTURE_MS` (§24).
+  const [confirmAt, setConfirmAt] = useState<number | null>(null);
+  const yesRef = useRef<HTMLButtonElement>(null);
+  const fireRef = useRef<HTMLButtonElement>(null);
+  const confirmId = `kds-fire-q-${ticket.key}`;
+  useEffect(() => {
+    if (confirmAt !== null) yesRef.current?.focus({ preventScroll: true });
+  }, [confirmAt]);
+  const askFire = () => {
     if (landingHeld()) return; // M270 (1) — aimed at the guide's Next
+    if (pendingRef.current) return; // §17 — the answer to the last Cook now is still out
+    if (say.refuse(subject)) return; // critic B1 — that write hangs: said again, nothing asked
+    haptic("pick"); // the question replacing the button is the visible half
+    setConfirmAt(performance.now());
+  };
+  const cancelFire = () => {
+    setConfirmAt(null);
+    // The question unmounts under the finger: focus back to the control that asked it.
+    requestAnimationFrame(() => fireRef.current?.focus({ preventScroll: true }));
+  };
+
+  // Reached only through the question (`askFire` refused a guide landing and a held write first).
+  const fireNow = async () => {
+    if (removeHeld(confirmAt, performance.now())) return; // the Cook now tap's own echo
     if (pendingRef.current) return; // §17
-    if (say.refuse(subject)) return;
     haptic("commit");
     say.clear();
     pendingRef.current = true;
@@ -2231,6 +2493,7 @@ function TicketCard({
     } finally {
       pendingRef.current = false;
       setPending(false);
+      setConfirmAt(null);
     }
   };
 
@@ -2239,7 +2502,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${leadWords.map((w) => `, ${w}`).join("")}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${leadWords.map((w) => `, ${w}`).join("")}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}${ticket.refunded ? `, ${refundedWords(lang, echoes)}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
@@ -2253,14 +2516,14 @@ function TicketCard({
         </span>
         <span className="kds-strip-side">
           <span className="kds-clock" aria-hidden="true">
-            {ticket.held ? fmtSlot(ticket.firedAt) : fmtElapsed(ageMs)}
+            {ticket.held ? kdsWhen(lang, ticket.firedAt, nowIso) : fmtElapsed(ageMs)}
           </span>
           {/* K28 — spoken through the dictionary in the device language: this was a bare English
               template literal, which `check-staff-lang` rule 5 cannot see because it is not a
               dictionary string. The visible clock above is `aria-hidden`, so this is the age. */}
           <span className="sr-only" lang={lang}>
             {ticket.held
-              ? tf(lang, "kds.slot", { t: fmtSlot(ticket.firedAt) })
+              ? tf(lang, "kds.slot", { t: kdsWhen(lang, ticket.firedAt, nowIso) })
               : spokenElapsed(lang, ageMs)}
           </span>
           {/* Class C — a badge this size cannot legibly stack two scripts, so it speaks the
@@ -2298,9 +2561,19 @@ function TicketCard({
         </p>
       )}
 
+      {/* The lifecycle audit — the order was refunded IN FULL (`lib/refunded-cart.ts`). A full refund
+          can be a goodwill comp at a table still eating, so the card STAYS — its dishes cook and bump
+          as ever — and says to check first. In warn: unlike Unpaid, this may change what is cooked. */}
+      {ticket.refunded && (
+        <p className="kds-refunded">
+          <Icon name="receipt" size={18} aria-hidden />
+          <Chrome lang={lang} k="kds.ticket.refunded" echo="stack" />
+        </p>
+      )}
+
       {ticket.held && ticket.pickupSlot && (
         <p className="kds-slot" id={`kds-slot-${ticket.key}`}>
-          <Chrome lang={lang} k="kds.slot" vars={{ t: fmtSlot(ticket.pickupSlot) }} echo="stack" />
+          <Chrome lang={lang} k="kds.slot" vars={{ t: slotWhen }} echo="stack" />
         </p>
       )}
 
@@ -2321,15 +2594,47 @@ function TicketCard({
             say={say}
             onRefresh={onRefresh}
             landingHeld={landingHeld}
+            ownBump={ownBump}
+            ownLost={ownLost}
+            onServed={lineServed}
           />
         ))}
       </ul>
 
-      {ticket.held ? (
+      {ticket.held && confirmAt !== null ? (
+        // The lifecycle audit — the question, then the answer in the SAME 64px zone ("Yes" where
+        // "Cook now" stood), Cancel beside it. A labelled group, never a second live region.
+        <div className="kds-fire-confirm" role="group" aria-labelledby={confirmId}>
+          <p className="kds-fire-q" id={confirmId}>
+            <Chrome lang={lang} k="kds.fire.confirm" vars={{ t: slotWhen }} echo="stack" />
+          </p>
+          <div className="kds-fire-actions">
+            <button
+              type="button"
+              className="kds-fire-cancel staff-press"
+              onClick={cancelFire}
+              aria-disabled={pending || undefined}
+            >
+              <Chrome lang={lang} k="settle.cancel" />
+            </button>
+            <button
+              ref={yesRef}
+              type="button"
+              className="kds-bump kds-bump-fire staff-press"
+              onClick={() => void fireNow()}
+              aria-disabled={pending || waiting || undefined}
+              aria-busy={pending || undefined}
+            >
+              <Chrome lang={lang} k="kds.fire.yes" echo="stack" />
+            </button>
+          </div>
+        </div>
+      ) : ticket.held ? (
         <button
+          ref={fireRef}
           type="button"
           className="kds-bump kds-bump-fire staff-press"
-          onClick={() => void fireNow()}
+          onClick={askFire}
           aria-disabled={pending || waiting || undefined}
           aria-busy={pending || undefined}
         >
@@ -2374,6 +2679,9 @@ function KdsLineRow({
   say,
   onRefresh,
   landingHeld,
+  ownBump,
+  ownLost,
+  onServed,
 }: {
   line: KitchenLine;
   held: boolean;
@@ -2389,6 +2697,12 @@ function KdsLineRow({
   onRefresh: () => Promise<void> | void;
   /** M270 (1) — work just replaced the guide (see TicketCard). */
   landingHeld: () => boolean;
+  /** The lifecycle audit — this tablet's own bumps (see TicketCard). */
+  ownBump: (ids: readonly string[], on: boolean) => void;
+  /** #360 (Codex P2) — an own bump whose answer was lost (see TicketCard). */
+  ownLost: (ids: readonly string[]) => void;
+  /** The lifecycle audit — a Done that landed: the card offers its Undo pill and Bring-back chip. */
+  onServed: (line: KitchenLine, dish: string, tappedAt: number) => void;
 }) {
   const lang = useStaffLang();
   // Phase 2h (9b) — state busy cleared in `finally`, the ref the tap-time guard (see TicketCard).
@@ -2406,6 +2720,11 @@ function KdsLineRow({
     pendingRef.current = true;
     setPending(true);
     const dish = dishVisible(lang, line.name, line.nameMy);
+    // The lifecycle audit — a Done is this cook's own bump (never a "Removed — stop" when the line
+    // leaves the board), and it is UNDOABLE: the windows start at the tap, as All done's do.
+    const serving = to === "served";
+    const tappedAt = Date.now();
+    if (serving) ownBump([line.id], true);
     try {
       // S2-audit B3: a thrown action must not silently no-op the tap — it is said on the board region
       // (Phase 2h: as "couldn't confirm", since a lost answer may have landed).
@@ -2415,11 +2734,17 @@ function KdsLineRow({
         lineKey(line.id),
         say,
         async (res) => {
-          if (!res.ok) onRefused(res, "line", dish);
+          if (!res.ok) {
+            if (serving) ownBump([line.id], false);
+            onRefused(res, "line", dish);
+          } else if (serving)
+            onServed(line, dish, tappedAt); // the pill, the chip, the re-read
           // AWAIT the refresh so busy covers the refetch — releasing on the write alone flickered the
           // row back to its stale state for a beat before the new snapshot landed.
           else await onRefresh();
         },
+        // #360 (Codex P2) — a Done whose answer was LOST settles its mark (see TicketCard).
+        serving ? () => ownLost([line.id]) : undefined,
       );
     } finally {
       pendingRef.current = false;

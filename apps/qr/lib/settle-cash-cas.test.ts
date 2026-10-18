@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * Phase 2c · register — the cash settle's COMPARE-AND-SWAP (owner decision: "the server refuses a
  * moved total and shows both figures").
  *
- * The sheet quotes `detail.settleTotalCents` — `getCartTotals(cart, 0).totalCents` from the last poll,
- * up to a refresh stale. `settleCash` re-derives the total from the live lines and records THAT, so
- * without a compare the cashier collects $X while the ledger records $Y (a qty step, a promo, a guest
- * adding from their phone inside the window). `quotedCents` is COMPARE-ONLY: it never reaches the RPC
+ * The sheet quotes `detail.settleTotalCents` — `getCartTotals(cart, 0, "quote").totalCents` from the
+ * last poll (M123 b: the pin only while an intent is live), up to a refresh stale. `settleCash`
+ * re-derives the total from the live lines and records THAT, so without a compare the cashier
+ * collects $X while the ledger records $Y (a qty step, a promo, a guest adding from their phone
+ * inside the window). `quotedCents` is COMPARE-ONLY: it never reaches the RPC
  * or any amount; a mismatch refuses BEFORE the RPC with `code: "moved"` and the server's own figure,
  * and the freeze taken for the attempt is released on that path (the existing `finally`).
  *
@@ -16,6 +17,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("server-only", () => ({}));
+// The lifecycle audit — the settle doors' sold-out read, mocked by module: nothing is sold out here;
+// the gate itself is pinned in `settle-sold-out.test.ts`.
+vi.mock("./availability-read", () => ({
+  unavailableLines: () => Promise.resolve({ ok: true, lines: [] }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 vi.mock("./staff", () => ({

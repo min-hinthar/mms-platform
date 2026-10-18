@@ -399,6 +399,7 @@ describe("counterSettleVariant — one filled pill on the table page", () => {
     staffAdded: 2,
     dinerUnits: 0,
     counter,
+    soldOut: null,
   });
 
   it("settle is primary under a secondary counter Send (walk-up)", () => {
@@ -467,10 +468,15 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
     // The first batch's finish (ago 50) never rang (a draft was waiting); the batch that completes
     // the order carries its own bump, so the bell keys a finish it has not heard.
     const first = line({ state: "served", fire_at: ago(300), bumped_at: ago(50) });
-    const later = line({ state: "served", fire_at: ago(40), bumped_at: ago(5) });
+    const later = line({ state: "served", fire_at: ago(40), bumped_at: ago(7) });
     const b = bag([first, later]);
     expect(b?.kitchen).toBe("done");
-    expect(b?.doneAt).toBe(ago(5));
+    expect(b?.doneAt).toBe(ago(7));
+    // The lifecycle audit — the later batch's bump still inside Mom's six-second Undo is not a
+    // finish yet: the bag cooks on, unstamped, and the bell waits for the bump to settle.
+    const justBumped = bag([first, line({ state: "served", fire_at: ago(40), bumped_at: ago(5) })]);
+    expect(justBumped?.kitchen).toBe("cooking");
+    expect(justBumped?.doneAt).toBeNull();
     // …and while that later batch still cooks, the bag is cooking, unstamped
     expect(bag([first, line({ state: "fired", fire_at: ago(40) })])?.doneAt).toBeNull();
   });
@@ -538,7 +544,10 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
 
   it("the bag's kitchen state reads the lines IN THE KITCHEN, never the whole order", () => {
     // p2f-cx3-bag/bag-kitchen-over-all-lines — a to-go line still in its grace is not cooking yet
-    const b = bag([line({ state: "served" }), line({ state: "fired", fire_at: ago(-4) })]);
+    const b = bag([
+      line({ state: "served", bumped_at: ago(60) }),
+      line({ state: "fired", fire_at: ago(-4) }),
+    ]);
     expect(b?.kitchen).toBe("done");
   });
 

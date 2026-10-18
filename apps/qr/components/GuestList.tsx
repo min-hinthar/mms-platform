@@ -7,8 +7,10 @@ import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { freezeBanner } from "@/lib/cart-freeze";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
-import { guestListAtCap, guestListSeats } from "@/lib/guest-list";
+import { guestListAtCap, guestListSeats, joinFailureArm } from "@/lib/guest-list";
 import { Avatar, Icon } from "@mms/ui";
+import { surfaceOpen } from "@/lib/surfaces";
+import { t } from "@/lib/i18n";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -22,6 +24,7 @@ export function GuestList() {
     members,
     me,
     error,
+    errorReason,
     loading,
     locked,
     lockedByName,
@@ -30,6 +33,7 @@ export function GuestList() {
     revalidate,
     settling,
     cartId,
+    ended,
   } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   // W9a — `revalidate()` clears `error`, and the failure block below is gated on `error`. Without a
@@ -45,6 +49,11 @@ export function GuestList() {
   const [retryTick, setRetryTick] = useState(0);
   const retrying = retryTick > 0 && loading;
   if (!isGroup) return null;
+  // Session truth — the table ENDED: the party row, the invite and every freeze banner belong to a
+  // table that is gone. `TableEndedCard` (mounted beside this list) says what happened and owns the
+  // way forward, including its own mint's busy and failure states — so neither the join-failure arm
+  // below nor a dead cart's last freeze may speak over it.
+  if (ended) return null;
 
   // Pay-window lock (P3.2-lock): a member is checking out → the order's read-only for the moment
   // (AddButtons disable in parallel). A PLAIN visual banner (v7.2 .lockbar) — NOT a second live
@@ -77,26 +86,25 @@ export function GuestList() {
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
   // drop the group UI; surface the way out so the diner isn't stranded.
   //
-  // W9a — three things matter here:
-  //   • **Retry re-mints IN PLACE (`revalidate`), never `window.location.reload()`.** A reload arrives
-  //     with `?t=`/`?j=` already stripped from the address bar, so the mint is no longer join-only and
-  //     the server PROVISIONS a phantom table with this diner as host — they then order a whole meal
-  //     onto a cart their party can never see. `revalidate` re-POSTs with the join code still held in
-  //     memory, so a retry can only ever rejoin the real table. That makes retry safe on every arm.
-  //   • **"No table found" also offers a different code.** `findActive` swallows its PostgREST error,
-  //     so a transient DB read failure returns the SAME 404 string as a genuinely wrong code — which
-  //     is exactly why this arm keeps a retry as well as the JoinTable escape, instead of being
-  //     treated as terminal.
-  //   • **Party-full (409) is the one truly terminal arm** — no retry can free a seat, and offering
-  //     one would just re-fail.
-  // The server's own reason is shown verbatim where it is specific and diner-safe; the generic
-  // fallback stays for the transient arm, where naming the cause would be a guess.
+  // W9a — **retry re-mints IN PLACE (`revalidate`), never `window.location.reload()`.** A reload
+  // arrives with `?t=`/`?j=` already stripped from the address bar, so the mint is no longer
+  // join-only and the server PROVISIONS a phantom table with this diner as host — they then order a
+  // whole meal onto a cart their party can never see. `revalidate` re-POSTs with the join code still
+  // held in memory, so a retry can only ever rejoin the real table.
+  //
+  // J16 — WHICH way out is the route's machine word (`errorReason` → `joinFailureArm`,
+  // lib/guest-list), never a substring of its sentence. Grepping the English left every arm it
+  // could not name — the 409 seated race on a `?table=N` claim, the 400 for a de-registered table —
+  // with the generic line and a retry that could only be refused again, and swallowed the route's
+  // sentence, which says what to do. Now: a VERDICT shows the route's sentence (specific and
+  // diner-safe) with no retry, and the code entry where a code is the way in (the party's, at a
+  // seated table); a full table is terminal; a transient failure (or no word at all) keeps the
+  // generic line and the retry, where naming a cause would be a guess.
   if (!me) {
     // `retrying` keeps this mounted through a re-mint (see above); without it the block — and the
     // focused button inside it — vanishes the instant retry is tapped.
     if (!error && !retrying) return null; // still establishing the session — the menu renders meanwhile
-    const full = error?.includes("table is full") ?? false;
-    const noTable = error?.includes("No table found") ?? false;
+    const arm = joinFailureArm(errorReason ?? null);
     return (
       <div style={{ marginTop: 10 }}>
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", margin: 0 }}>
@@ -105,10 +113,10 @@ export function GuestList() {
               audible at all. */}
           {retrying
             ? "Reconnecting to your table…"
-            : full || noTable
+            : arm.serverSays
               ? error
               : "Couldn’t join this table."}{" "}
-          {!full && (
+          {arm.retry && (
             // `aria-disabled`, not `disabled`: a disabled button is removed from the focus order, so
             // the keyboard user who just pressed it would lose their place — the same failure mode
             // the mount-preservation above exists to prevent.
@@ -126,10 +134,11 @@ export function GuestList() {
             </button>
           )}
         </p>
-        {/* Not a live region — the alert above already announced the failure; this is the way out for
-            a code that is genuinely wrong. JoinTable owns its own sheet and routes with a fresh `?j=`,
-            so a corrected code takes the join-only path and can never provision a table. */}
-        {noTable && !retrying && (
+        {/* Not a live region — the alert above already announced the failure; this is the way out
+            where a code is the way in (a wrong code, the party's code at a seated table, another
+            table's when this one is refused). JoinTable owns its own sheet and routes with a fresh
+            `?j=`, so a corrected code takes the join-only path and can never provision a table. */}
+        {arm.joinTable && !retrying && (
           <div style={{ marginTop: 6 }}>
             <JoinTable />
           </div>
@@ -146,6 +155,27 @@ export function GuestList() {
   // Plain visual banner, not a live region: the provider announced the transition through the view's
   // one region. Unlike `locked` (a moment that passes on its own) settling needs somewhere to GO —
   // the diner's share is waiting on the board — so this one carries a link.
+  //
+  // Session truth (finding 2) — WHOSE freeze: with the self-serve split parked only the REGISTER
+  // takes it (lib/counter-pay-state), so the banner speaks the register's own held reason, in both
+  // tongues (`registerSettling`, the Bill's dock and pass say the same), and offers no "Pay your
+  // share" — a door no phone can open. The split's banner and link return with the split.
+  if (banner === "settle" && cartId && !surfaceOpen("selfServeSplit"))
+    return (
+      <p style={settleBar}>
+        <Icon
+          name="receipt"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
+        <span>
+          {t("en", "registerSettling")}
+          <span lang="my" style={settleMy}>
+            {t("my", "registerSettling")}
+          </span>
+        </span>
+      </p>
+    );
   if (banner === "settle" && cartId)
     return (
       <p style={settleBar}>
@@ -278,6 +308,14 @@ const settleBar: CSSProperties = {
   color: "var(--t2)",
   fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
+};
+// The Burmese half of the register's sentence: its own block line (a margin, never a whitespace
+// node — DESIGN-LANGUAGE §6), at the regular weight the bilingual lines use.
+const settleMy: CSSProperties = {
+  display: "block",
+  marginTop: 4,
+  fontFamily: "var(--font-my)",
+  fontWeight: "var(--fw-semibold)",
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,

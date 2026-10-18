@@ -59,8 +59,26 @@ export async function scanAdd(
   } catch {
     return { ok: false as const, reason: await whyCartUnavailable(input.cartId) };
   }
-  const { uid, locked, settling } = authz;
+  const { uid, locked, settling, mode } = authz;
   await assertMutationRate(uid); // per-device flood guard (P3.4)
+  // M189 — owner ruling 2026-10-07 (OWNER_RULINGS_2026-10-07 §C): market items go ONLY on a
+  // scan-and-go cart, never on a dine-in order or a plain online to-go one. This action is directly
+  // POST-able, and with no gate a grocery line could be written into a dine-in cart: the split
+  // weights it and `create-share-intent` tips on it with no grocery term, while single-pay forces a
+  // grocery-only tip to zero — the M100 shape, one cart, two tip rules. `mode` is the session row's
+  // own (M108, fail-closed 503 upstream), and only the one named mode is admitted.
+  //
+  // The answer is `unreadable`, the same one a non-member gets: /grocery and its offline queue only
+  // ever hold a cart they minted as `scango`, so this is reached by a forged request, and it must
+  // be neither a catalog verdict (the queue DISCARDS those, blaming a real product) nor a terminal
+  // reason (that offers a fresh basket, abandoning the cart's lines).
+  //
+  // ⚠️ The kiosk's grocery door is refused too, and that is deliberate while the kiosk is PARKED
+  // (`SURFACES.kiosk`): its market and to-go sessions are the SAME row today (`kiosk-` + `pickup`,
+  // `lib/kiosk.ts`), so admitting one admits the other. The ruling admits kiosk market carts once
+  // the kiosk returns, which first needs a stored session kind — reopening the kiosk must widen
+  // THIS predicate to that kind, or every kiosk scan answers the kiosk's generic `somethingWrong`.
+  if (mode !== "scango") return { ok: false as const, reason: "unreadable" as const };
   // Both freezes return BEFORE any write, exactly as the throws did — this is a shape change, not a
   // guard change. Naming them lets the page say "someone's checking out" instead of blaming the radio.
   if (locked) return { ok: false as const, reason: "locked" as const };
@@ -172,6 +190,15 @@ export type GroceryLine = {
 // THROWS on a failed query (searchGroceryItems' throw-not-empty discipline): a read failure must
 // never resolve as [] — an "empty basket" the page would trust is exactly the money-display bug
 // K5 exists to fix (the cart would still charge the invisible items).
+//
+// M187 — the list is the CHARGEABLE lines, by the charge authority's own predicate: `computeTotals`
+// (lib/totals-math) bills `state <> 'voided' AND NOT comped`, and the page, the checkout CTA's name
+// and the kiosk all sum `unitPriceCents * qty` over what this returns. Filtering only `voided` left a
+// line staff comped in the basket at full price, so the figure on the phone read higher than the
+// card would be charged, by exactly that line. A comped line is immutable (setQty refuses it) and
+// charges nothing, so it is not a basket row; the checkout lists it as "On the house". The list is
+// the MARKET lines (`fulfillment = 'grocery'`): a to-go dish on the same cart (`addItem` from a
+// hand-typed `/menu?mode=scango`) is charged and not listed here (M286).
 async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
   const db = serviceClient();
   const { data: rows, error } = await db
@@ -180,6 +207,7 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
     .eq("cart_id", cartId)
     .eq("fulfillment", "grocery")
     .neq("state", "voided")
+    .eq("comped", false)
     .order("created_at", { ascending: true });
   if (error) {
     console.error("[grocery] readGroceryLines cart read failed", error);

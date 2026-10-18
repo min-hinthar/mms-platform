@@ -214,3 +214,216 @@ describe("ActiveOrderProvider — the cart pointer and its door", () => {
     expect(localStorage.getItem("mms.qr.activeCart")).toBe("B");
   });
 });
+
+describe("ActiveOrderProvider — the order pointer (lifecycle audit, 2026-10-13)", () => {
+  function OrderEye() {
+    const { order, cartId } = useActiveOrder();
+    return (
+      <p
+        data-order
+      >{`${order ? `${order.paymentIntent ?? order.cartId}@${order.createdAt}` : "-"}|cart:${cartId ?? "-"}`}</p>
+    );
+  }
+  const orderEye = () => document.querySelector("[data-order]")?.textContent;
+  const stored = () => JSON.parse(localStorage.getItem("mms.qr.activeOrder") ?? "null");
+
+  it("I — a RESUME of the held order keeps it as stored: no re-capture, no TTL slide", async () => {
+    const capturedAt = Date.now() - 60 * 60 * 1000; // an hour ago
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({ paymentIntent: null, cartId: "K", mode: "dinein", createdAt: capturedAt }),
+    );
+    pathname = "/track";
+    search = "cart=K&paid=1&resume=1";
+    render(
+      <ActiveOrderProvider>
+        <OrderEye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    // RED when the resume re-captures: createdAt jumps to now and the 4 h TTL slides on every check.
+    expect(stored().createdAt).toBe(capturedAt);
+    expect(orderEye()).toBe(`K@${capturedAt}|cart:-`);
+  });
+
+  it("I — a resume never clears (or replaces) the diner's NEW open cart — of this order or another", async () => {
+    // The tray can link to an order this device does not hold (another one of the diner's): the pill
+    // follows it, but a placed order's cart is never the "back to your cart" pointer.
+    for (const held of ["pi_1", "pi_0"]) {
+      cleanup();
+      localStorage.clear();
+      localStorage.setItem(
+        "mms.qr.activeOrder",
+        JSON.stringify({ paymentIntent: held, cartId: "K", mode: "pickup", createdAt: Date.now() }),
+      );
+      localStorage.setItem("mms.qr.activeCart", "NEW");
+      localStorage.setItem("mms.qr.activeCartCount", "NEW:2");
+      pathname = "/track";
+      search = "payment_intent=pi_1&redirect_status=succeeded&resume=1&cart=K";
+      render(
+        <ActiveOrderProvider>
+          <OrderEye />
+        </ActiveOrderProvider>,
+      );
+      await frames();
+      expect(localStorage.getItem("mms.qr.activeCart")).toBe("NEW");
+      expect(localStorage.getItem("mms.qr.activeCartCount")).toBe("NEW:2");
+      expect(stored().paymentIntent).toBe("pi_1");
+    }
+  });
+
+  it("an ARRIVAL still captures the order and retires the cart it became", async () => {
+    localStorage.setItem("mms.qr.activeCart", "K");
+    pathname = "/track";
+    search = "cart=K&paid=1";
+    render(
+      <ActiveOrderProvider>
+        <OrderEye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    expect(stored().cartId).toBe("K");
+    expect(localStorage.getItem("mms.qr.activeCart")).toBeNull();
+  });
+
+  it("E — a pickup's pointer outlives the 4 h capture TTL once its slot is noted", async () => {
+    const fiveHoursAgo = Date.now() - 5 * 60 * 60 * 1000;
+    const slot = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    // Expired by the capture rule alone…
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({
+        paymentIntent: "pi_1",
+        cartId: null,
+        mode: "pickup",
+        createdAt: fiveHoursAgo,
+      }),
+    );
+    pathname = "/";
+    render(
+      <ActiveOrderProvider>
+        <OrderEye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    expect(orderEye()).toMatch(/^-\|/);
+    cleanup();
+    // …but kept when the slot is on it. RED when hydration ignores the slot.
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({
+        paymentIntent: "pi_1",
+        cartId: null,
+        mode: "pickup",
+        createdAt: fiveHoursAgo,
+        pickupSlot: slot,
+      }),
+    );
+    render(
+      <ActiveOrderProvider>
+        <OrderEye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    expect(orderEye()).toMatch(/^pi_1@/);
+  });
+
+  it("E/F — noteTrackedOrder stamps the slot (and that it landed) on the order the /track URL names, and on no other", async () => {
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({
+        paymentIntent: "pi_1",
+        cartId: null,
+        mode: "pickup",
+        createdAt: Date.now(),
+      }),
+    );
+    pathname = "/track";
+    search = "payment_intent=pi_1&redirect_status=succeeded&resume=1";
+    window.history.replaceState(null, "", `/track?${search}`);
+    function Noter({ slot }: { slot: string }) {
+      const { noteTrackedOrder } = useActiveOrder();
+      return (
+        <button
+          type="button"
+          onClick={() => noteTrackedOrder({ pickupSlot: slot, kind: "pickup", hasTogoFood: true })}
+        >
+          note
+        </button>
+      );
+    }
+    render(
+      <ActiveOrderProvider>
+        <Noter slot="2026-10-14T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    act(() => screen.getByRole("button").click());
+    expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
+    // F — and the pointer now records the REAL row's kind. RED when `landed` is not stamped.
+    expect(stored().landed).toEqual({ kind: "pickup", hasTogoFood: true });
+    // A tray link to ANOTHER order never stretches this one.
+    window.history.replaceState(null, "", "/track?payment_intent=pi_2&redirect_status=succeeded");
+    cleanup();
+    render(
+      <ActiveOrderProvider>
+        <Noter slot="2026-10-20T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    act(() => screen.getByRole("button").click());
+    expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("E/F (Codex on #359) — a caller off /track notes the order it NAMES: the home card stamps it; another order is refused", async () => {
+    // The diner left the Stripe return before /track saw the row, then the home card read it.
+    localStorage.setItem(
+      "mms.qr.activeOrder",
+      JSON.stringify({
+        paymentIntent: "pi_1",
+        cartId: null,
+        mode: "pickup",
+        createdAt: Date.now(),
+      }),
+    );
+    pathname = "/";
+    search = "";
+    window.history.replaceState(null, "", "/");
+    function Noter({ pi, slot }: { pi: string; slot: string }) {
+      const { noteTrackedOrder } = useActiveOrder();
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            noteTrackedOrder(
+              { pickupSlot: slot, kind: "pickup", hasTogoFood: true },
+              { paymentIntent: pi, cartId: null },
+            )
+          }
+        >
+          note
+        </button>
+      );
+    }
+    const r = render(
+      <ActiveOrderProvider>
+        <Noter pi="pi_2" slot="2026-10-20T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    act(() => screen.getByRole("button").click());
+    // A row for ANOTHER order never stretches this one.
+    expect(stored().pickupSlot).toBeUndefined();
+    r.rerender(
+      <ActiveOrderProvider>
+        <Noter pi="pi_1" slot="2026-10-14T01:20:00.000Z" />
+      </ActiveOrderProvider>,
+    );
+    act(() => screen.getByRole("button").click());
+    // RED when only the /track URL can name the order: on "/" there is none, the note is dropped,
+    // and the pointer still expires four hours after payment.
+    expect(stored().pickupSlot).toBe("2026-10-14T01:20:00.000Z");
+    expect(stored().landed).toEqual({ kind: "pickup", hasTogoFood: true });
+  });
+});

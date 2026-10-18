@@ -154,6 +154,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    settledLinesTruncated: false,
     paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,
@@ -1253,8 +1254,9 @@ describe("Phase 3d · counter — the ticket speaks receipt, and its Total is Ta
       STAFF["floor.settled.row.tax"].en,
     );
     // The pre-tax note left with the pre-tax figure.
-    expect(screen.queryByText(STAFF["table.detail.pretaxNote"].en)).toBeNull();
-    expect(screen.queryByText(STAFF["table.detail.subtotalSoFar"].en)).toBeNull();
+    // LITERALS, not keys: K44 retired both keys, so the absence is asserted on the retired words.
+    expect(screen.queryByText("Running pre-tax subtotal — tax is added when they pay.")).toBeNull();
+    expect(screen.queryByText("subtotal so far", { exact: false })).toBeNull();
     // A list named as the receipt's totals — never a region (the pad's one Toast stays the one).
     const list = document.querySelector(".pad-receipts")!;
     expect(list.getAttribute("role")).toBe("list");
@@ -2851,5 +2853,16 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     expect(notice.textContent).toContain(STAFF["settle.cash.unknownClosed"].en);
     expect(document.activeElement).toBe(notice);
     expect(logged).toHaveBeenCalled();
+  });
+});
+
+describe("the lifecycle audit — a table closed under the pad is named on the floor it lands on", () => {
+  it("a colleague's clear (or merge, or the idle sweep) sends the pad to the floor WITH the table's name", async () => {
+    mount();
+    getTableDetail.mockResolvedValue({ kind: "closed", label: "T5", tableNumber: 5 });
+    await flush(6000);
+    // lck/pad-live/closed-bounce-unnamed — the server is dropped on the floor with no word of why;
+    // the floor says "Table 5 closed" only when the bounce carries it. Red.
+    expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=5");
   });
 });

@@ -25,6 +25,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { MergeTableButton } = await import("./MergeTableButton");
 const { ts } = await import("@/lib/i18n/staff");
+const { tf } = await import("@/lib/i18n/fill");
 
 const T9: MergeCandidate = {
   sessionId: "s9",
@@ -353,5 +354,20 @@ describe("MergeTableButton — the merge is bounded, its controls aria-disabled"
     const alert = screen.getByRole("alert");
     expect(alert.querySelector('[lang="my"]')?.textContent).toBe(ts("my", "settle.merge.waiting"));
     expect(alert.textContent).not.toContain(ts("en", "settle.merge.waiting"));
+  });
+});
+
+describe("the lifecycle audit — the merge says the phones stay behind", () => {
+  it("names the source and the target, and what to tell the guests still on the source", async () => {
+    // lck/merge/phones-unsaid — the dialog said only "This closes Table 4"; the guests left on it
+    // kept ordering into a closed table and a fresh stray order.
+    mount();
+    getMergeCandidates.mockResolvedValueOnce([T9]);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: /^Table 9/ }));
+    expect(document.body.textContent).toContain(
+      tf("en", "settle.merge.phones", { id: "4", into: "9" }),
+    );
   });
 });

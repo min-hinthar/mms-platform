@@ -45,6 +45,7 @@ const SEND: SendKind = {
   staffAdded: 3,
   dinerUnits: 0,
   counter: false,
+  soldOut: null,
 };
 const ALL_SENT: StaffSendView = { kind: "allSent" };
 // Phase 2f — a counter order's pay-at-pickup Send (plan §5.2): a walk-up, named, nothing sent yet.
@@ -57,6 +58,7 @@ const COUNTER: SendKind = {
   staffAdded: 3,
   dinerUnits: 0,
   counter: true,
+  soldOut: null,
 };
 
 let hold: StaffSendHold = null;
@@ -674,5 +676,75 @@ describe("Phase 2h (9d) — the Send and its Undo sit on the stall ledger until 
     expect(stalledSince()).toBeNull();
     await flush(1);
     expect(stalledSince()).toBe(tappedAt);
+  });
+});
+
+describe("P2ad (lifecycle residuals) — a sold-out dish the Send would fire is named BEFORE the tap", () => {
+  const MOHINGA = { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး" };
+  const soldOutSend = (
+    dishes: { name: string; nameMy: string | null }[] = [MOHINGA],
+    units = 1,
+  ): SendKind => ({
+    ...SEND,
+    soldOut: { units, dishes },
+  });
+  const hintIds = (btn: HTMLElement) => (btn.getAttribute("aria-describedby") ?? "").split(" ");
+
+  it("the hint is visible and describes the Send — and the Send stays live and still fires", async () => {
+    render(<Host view={soldOutSend()} seq={0} />);
+    await flush();
+    const btn = control();
+    const words = STAFF["table.send.soldOut.one"].en.replace("{x}", "Mohinga");
+    const hint = screen.getByText(words);
+    // Drawn on the page (never sr-only) and named by the control it warns about.
+    expect(hint.className).toContain("staff-send-hint-warn");
+    expect(hintIds(btn)).toContain(hint.closest("p")!.id);
+    // A re-warning, NEVER a block (owner pattern PD8 / decision 4).
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    fire.mockResolvedValueOnce(sentOk());
+    fireEvent.click(btn);
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(1);
+  });
+
+  it("two dishes say the plural; a Burmese console names them in Burmese", async () => {
+    render(
+      <Host
+        view={soldOutSend([MOHINGA, { name: "Tea leaf salad", nameMy: null }], 3)}
+        seq={0}
+        lang="my"
+      />,
+    );
+    await flush();
+    // The Burmese line names the catalog's Burmese, and the English name where there is none.
+    const my = STAFF["table.send.soldOut.many"].my.replace("{x}", "မုန့်ဟင်းခါး, Tea leaf salad");
+    expect(document.querySelector(".staff-send-hint-warn")!.textContent).toContain(
+      my.split(" — ")[1]!,
+    );
+    expect(document.querySelector(".staff-send-hint-warn")!.textContent).toContain(
+      "မုန့်ဟင်းခါး, Tea leaf salad",
+    );
+  });
+
+  it("two dishes say the ENGLISH plural — the Burmese one/many share a sentence, so only English can tell (the blind pass on #363)", async () => {
+    render(
+      <Host
+        view={soldOutSend([MOHINGA, { name: "Tea leaf salad", nameMy: null }], 3)}
+        seq={0}
+        lang="en"
+      />,
+    );
+    await flush();
+    const text = document.querySelector(".staff-send-hint-warn")!.textContent;
+    expect(text).toContain(
+      STAFF["table.send.soldOut.many"].en.replace("{x}", "Mohinga, Tea leaf salad"),
+    );
+    expect(text).not.toContain("remove it, or send it");
+  });
+
+  it("no sold-out dish: no hint at all", async () => {
+    render(<Host view={SEND} seq={0} />);
+    await flush();
+    expect(document.querySelector(".staff-send-hint-warn")).toBeNull();
   });
 });

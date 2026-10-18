@@ -16,6 +16,9 @@ import { ArrivalBeat } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
+import { MenuTableEnded } from "@/components/MenuTableEnded";
+import { useDurableParty } from "@/lib/durable-party";
+import { leaveWarning, sessionTakesNoOrder } from "@/lib/session-truth";
 import { PicksRow } from "./PicksRow";
 import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
@@ -64,6 +67,12 @@ export type MenuItem = {
  * a stale tab, while an under-long one puts the flicker back.
  */
 const JUMP_SETTLE_MS = 1200;
+
+/** The "Nothing matches" card's two lines, named once: the card draws them and F31's announcement
+ *  speaks them, so the spoken sentence can never drift from the one on screen. */
+const EMPTY_MATCH_TITLE = "Nothing matches";
+const EMPTY_MATCH_HINT = "Try fewer filters or a different search.";
+const EMPTY_MATCH_SPOKEN = `${EMPTY_MATCH_TITLE}. ${EMPTY_MATCH_HINT}`;
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -141,6 +150,13 @@ export function MenuBrowser({
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
   // Phase 3b (D9) — the door sheet is open on ANY door now, not only at a table.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  // Session truth (Codex round 2 on #361) — how many times the leave flow has OPENED: each open is a
+  // fresh ask of the durable party (`useDurableParty`'s epoch), independent of presence.
+  const [doorOpens, setDoorOpens] = useState(0);
+  const onDoorSheet = useCallback((open: boolean) => {
+    setDoorSheetOpen(open);
+    if (open) setDoorOpens((n) => n + 1);
+  }, []);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -203,7 +219,35 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
   // sheet cannot read it itself and the menu — which has it — passes it down.
-  const { cartId, announce, refresh, tableNumber } = useCart();
+  const { cartId, announce, refresh, tableNumber, role, members, me, ended } = useCart();
+  // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
+  // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
+  // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
+  // before the first sync, and missing every phone that is face down (Codex round 1 on #361). Re-read
+  // when the leave flow OPENS (Codex round 2: a tablemate who joined with their phone already face
+  // down never shows in presence) and, as an extra trigger, when presence shows a seat it has NEVER
+  // shown before; while the read the open asked for is out, `leaveWarning` hedges rather than claim
+  // the host is alone.
+  //
+  // The extra trigger counts DISTINCT seats ever seen, never the live count (the blind pass on #361):
+  // a face-down phone dropping out of presence and back is no news about the party (membership never
+  // shrinks), and the count re-fired the read on every flap. Adjusted during render (React's "state
+  // from a changed input" pattern), so it is one render, never an effect's extra one.
+  const [seenSeats, setSeenSeats] = useState<ReadonlySet<string>>(() => new Set());
+  if (members.some((m) => !seenSeats.has(m.seat)))
+    setSeenSeats(new Set([...seenSeats, ...members.map((m) => m.seat)]));
+  // A table whose session can take no further order has no Send to strand, and its party can only be
+  // read off a closed session — neither the read nor the warning (the blind pass on #361: "the
+  // others will need a server" was drawn under "this table closed"). A PAID table still seated is
+  // not one (#361 review (2)): "Start a new order" re-joins the same session, and only the host
+  // Sends its next round — so the warning stands, and the party is still asked (`sessionTakesNoOrder`).
+  const tableEnded = sessionTakesNoOrder(ended);
+  const party = useDurableParty(
+    cartId,
+    mode === "dinein" && role === "host" && !tableEnded,
+    `${seenSeats.size}·${doorOpens}`,
+  );
+  const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, ended: tableEnded, party });
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -570,7 +614,7 @@ export function MenuBrowser({
 
   // a11y: when filtering empties the list, pull focus to the recovery action — but NOT while the user is
   // actively typing in the search box (stealing focus would interrupt their query). Only the diet-chip /
-  // post-type empty states move focus; the live region (role="status") announces the change either way.
+  // post-type empty states move focus; the page's one region announces the change either way (below).
   useEffect(() => {
     if (!empty) return;
     const active = document.activeElement;
@@ -578,10 +622,41 @@ export function MenuBrowser({
     // M137 — the dietary pills moved INTO a modal sheet, so toggling one can empty the list while
     // focus is inside an open dialog. `clearBtnRef` is on the page behind it: focusing it either
     // escapes Radix's focus trap or is yanked straight back by it, and either way the diner loses
-    // their place on the pill they just pressed. The live region still announces the empty result.
+    // their place on the pill they just pressed. The sheet's own sentence says the empty result.
     const inDialog = active instanceof Element && !!active.closest('[role="dialog"]');
     if (!typing && !inDialog) clearBtnRef.current?.focus();
   }, [empty]);
+
+  // F31 — the empty result is SAID through /menu's ONE live region (the provider's Toast), never a
+  // second `role="status"` on the card: a region born with its text is skipped by several readers,
+  // and two regions on one view is the QA §A defect. A QUIET claim — spoken, not drawn, because the
+  // "Nothing matches" card is already on screen where the diner acted. Said on the TRANSITION into
+  // empty only (a fourth letter typed into an empty search says nothing new), never at arrival, and
+  // not while a dialog holds focus: the diet sheet speaks that toggle's consequence itself, and one
+  // toggle is one sentence. The words are the card's own two lines. A quiet claim WAITS behind a
+  // visible toast, so it is asked again when its turn comes (`still`, blind pass on #355): a search
+  // corrected inside that window has filled the list, and "Nothing matches" would be false.
+  const wasEmpty = useRef(empty);
+  useEffect(() => {
+    const was = wasEmpty.current;
+    wasEmpty.current = empty;
+    if (!empty || was || items.length === 0) return;
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('[role="dialog"]')) return;
+    announce(EMPTY_MATCH_SPOKEN, undefined, undefined, {
+      quiet: true,
+      kind: "claim",
+      still: () => wasEmpty.current,
+    });
+  }, [empty, items.length, announce]);
+  // The diet sheet's count sentence, through the same region and on the same terms (DietFilterButton),
+  // and asked again the same way: a count deferred behind a visible toast is said only while it is
+  // still the sheet's sentence (Codex on #355 — filters cleared inside that window made it false).
+  const announceDietMatches = useCallback(
+    (sentence: string, still: () => boolean) =>
+      announce(sentence, undefined, undefined, { quiet: true, kind: "claim", still }),
+    [announce],
+  );
 
   function jumpTo(cat: string) {
     setActiveCat(cat);
@@ -639,10 +714,11 @@ export function MenuBrowser({
               exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
               the sheet), so the masthead can never contradict the arrival line. */}
           <DoorSheet
+            leaveWarning={leaveNote}
             mode={mode}
             tableNumber={tableNumber}
             tables={tables}
-            onOpenChange={setDoorSheetOpen}
+            onOpenChange={onDoorSheet}
           />
           <PullToRefresh
             onRefresh={onRefreshStart}
@@ -660,6 +736,9 @@ export function MenuBrowser({
             of the arrival beat, not a promotion. Renders nothing below the threshold. */}
         <YourUsual outcome={usual} />
         {mode === "dinein" && <GuestList />}
+        {/* Session truth — a table that ENDED (paid, cleared by staff, merged away, timed out) says
+            so here, in the party row's place, and offers the way forward; nothing until then. */}
+        <MenuTableEnded />
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
             kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
         <MenuTimeline />
@@ -726,6 +805,7 @@ export function MenuBrowser({
             query={q.trim()}
             onToggle={toggleDiet}
             onClear={() => setDiets([])}
+            announce={announceDietMatches}
           />
         </div>
 
@@ -936,8 +1016,10 @@ export function MenuBrowser({
         </section>
       ))}
 
+      {/* F31 — not a live region: the transition into empty is spoken through the provider's one
+          region (`EMPTY_MATCH_SPOKEN`, the effect above). */}
       {empty && (
-        <div role="status" style={{ padding: "32px 24px", textAlign: "center" }}>
+        <div style={{ padding: "32px 24px", textAlign: "center" }}>
           <p
             style={{
               fontSize: "var(--fs-h2)",
@@ -950,13 +1032,13 @@ export function MenuBrowser({
             }}
           >
             <Icon name="search" size={22} />
-            Nothing matches
+            {EMPTY_MATCH_TITLE}
           </p>
           <p style={{ color: "var(--t2)", marginBottom: 14 }}>
             {/* W10a — a truly empty catalog can only be a deliberate owner state now (a failed read
                 never reaches this branch — the page serves last-good or the outage state). */}
             {items.length
-              ? "Try fewer filters or a different search."
+              ? EMPTY_MATCH_HINT
               : "The kitchen is updating the menu — check back shortly."}
           </p>
           {(q || diets.length > 0) && (

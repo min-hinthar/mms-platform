@@ -11,6 +11,7 @@
  * is the only part of W9b with an executable guard, so the copy and the precedence are pinned by
  * `inert-reason.test.ts` rather than asserted in a comment.
  */
+import { CLOSED_ORDER_CLAUSE } from "./session-truth";
 
 export type CartInertState = {
   /** The session/cart mint is still in flight — there is no cart id to write to yet. */
@@ -23,19 +24,25 @@ export type CartInertState = {
   lockedByYou?: boolean;
   /** The table is settling its split shares (M3·P3.3b) — the whole cart is frozen table-wide. */
   settling: boolean;
+  /** Session truth — the table's order ENDED (paid, cleared, merged away or timed out) and the menu
+   *  holds the card that says so; nothing reaches this cart again until "Start a new order". */
+  ended?: boolean;
 };
 
 /**
  * The reason this control can't act, as a clause that reads after a dish name
  * (`"Tea Leaf Salad — the order's locked while your table pays"`), or `null` when nothing is blocking.
  *
- * **Precedence is settling → locked → minting**, deliberately widest-first. `acquireCartLock` makes the
+ * **Precedence is ended → settling → locked → minting**, deliberately widest-first. `acquireCartLock` makes the
  * freeze and the lock mutually exclusive server-side, so in practice at most one is set; the order
  * still matters because a stale client view can briefly hold both, and in that window the honest
  * answer is the table-wide one — it's the state that outlives the other and the one with somewhere for
  * the diner to go. `minting` ranks last because it can only be true when there is no cart at all.
  */
 export function inertReason(s: CartInertState): string | null {
+  // Session truth — ENDED outranks every freeze: it is terminal (a closed table never reopens, and
+  // its last freeze is moot), and it is the one state with somewhere to go — the card above.
+  if (s.ended) return CLOSED_ORDER_CLAUSE;
   if (s.settling) return "the order’s locked while your table pays";
   if (s.locked)
     return s.lockedByYou

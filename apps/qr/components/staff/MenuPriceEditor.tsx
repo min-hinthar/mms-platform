@@ -13,6 +13,7 @@ import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
 import { setMenuPrice } from "@/lib/menu-price";
 import { track } from "@/lib/bounded-write";
 import { setItemSoldOut } from "@/lib/menu-availability";
+import { landedSoldOut } from "@/lib/sold-out-landing";
 import { draftCents, priceDraftHeld, priceDraftVerdict } from "@/lib/menu-price-draft";
 import { useReloadHold } from "./useReloadHold";
 import { browseRows } from "@/lib/menu-browse";
@@ -214,7 +215,12 @@ export function MenuPriceEditor({
       );
       // Recorded BEFORE the pill re-enables (the `finally` below): the row must never be tappable
       // while still wearing the verb the server just answered against.
-      if (r.ok) record(i.id, { soldOut: r.soldOut });
+      //
+      // P2au — LANDED, not `ok`: an unlogged answer is `ok: false` so its sentence is said, but the
+      // flag DID flip. Read as a refusal, the row kept its old verb over a dish that had changed, and
+      // the next tap posted the stale `expectedSoldOut` and was refused as "someone else".
+      const landed = landedSoldOut(r);
+      if (landed !== null) record(i.id, { soldOut: landed });
     } catch {
       setMsg({ id: i.id, ok: false, kind: "dish", k: "browse.price.err.flipUnknown", x: i.nameEn });
       // The list is the only honest account of what landed; the toggle's own state is a guess.
@@ -229,6 +235,8 @@ export function MenuPriceEditor({
       });
     }
     if (!r.ok) {
+      // P2au — an UNLOGGED landing comes this way too (recorded above): its server sentence already
+      // names the change ("…is sold out, but the change wasn’t logged"), so it is the one said.
       setMsg({ id: i.id, ok: false, kind: "server", error: r.error });
       // Codex P2 on #193, same rule as the price refusal: a concurrency refusal means this screen is
       // stale, and without a refresh the row keeps feeding the SAME stale `expectedSoldOut` forever —

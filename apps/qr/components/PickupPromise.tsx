@@ -27,6 +27,7 @@ import {
   type PickupStage,
 } from "@/lib/pickup-promise";
 import type { TrackedOrder } from "@/lib/track-order";
+import { pickupKitchenLine, type BagKitchen } from "@/lib/order-kitchen";
 import { capRelease, heldFor, holdCapPhase, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
 import { ClaimTicket } from "./ClaimTicket";
 
@@ -63,6 +64,7 @@ export function PickupPromise({
   justPaid,
   live,
   onWake,
+  kitchen = null,
 }: {
   order: TrackedOrder;
   /** PaySuccess holds the page's h1, so the Now sentence renders as an h2 beneath it. */
@@ -71,6 +73,10 @@ export function PickupPromise({
   live: boolean;
   /** Re-read the order once, on every clock change (the 30 s tick, a wake), live or not. */
   onWake: () => void;
+  /** Lifecycle audit (2026-10-13), B — the bag's kitchen state from the paid cart's own lines
+   *  (`bagKitchen`, lib/order-kitchen.ts; the host's ONE read). Null when unknown — the session lapsed,
+   *  the read is out, or nothing has been started — and the guide's own sub stands. */
+  kitchen?: BagKitchen | null;
 }) {
   const pickupSlot = order.pickupSlot ?? order.createdAt; // the host renders this only for a pickup
   const { shouldAnimate } = useAnimationPreference();
@@ -92,6 +98,8 @@ export function PickupPromise({
       togoStatus: order.togoStatus,
       arrivedAt: order.arrivedAt,
       createdAt: order.createdAt,
+      // Theme 5 — a bag Mom has started is with the kitchen, whatever the order's stamp still says.
+      kitchen,
     },
     nowTick,
   );
@@ -401,7 +409,11 @@ export function PickupPromise({
   const offered = guide.arrivalOffered && !announced;
   // The late sub promises the moment; only the live read keeps it (B7 / Codex r1 on #330). On the
   // 30 s snapshot the foot's "catches up whenever you come back" is the true sentence.
-  const sub = guide.stage === "late" && !live ? null : guide.sub;
+  // B (lifecycle audit, 2026-10-13) — once the kitchen has STARTED the bag, or finished it, the line
+  // under the Now sentence says so (Mom's Start / Done, read off the lines); the expo's tap still owns
+  // Ready. Ambient, like every kitchen stage: the one region speaks the Now sentence, not this.
+  const kitchenLine = pickupKitchenLine(guide.stage, kitchen);
+  const sub = kitchenLine ?? (guide.stage === "late" && !live ? null : guide.sub);
   const showCard = terminal
     ? false
     : announced || offered || phase === "window" || phase === "committing";

@@ -8,6 +8,7 @@ import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { cartTrackHref } from "@/lib/live-order";
 import { EmptyState, Icon, buttonClass } from "@mms/ui";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { awaitingManualCapture } from "@/lib/manual-capture-mode";
@@ -34,6 +35,9 @@ type SearchParams = Promise<{
    * confirmed", and (once W22f wired it) the pay chime. The card is a link, not a document load, so
    * the resume was in fact the ONE path where that chime was reliably audible — a bell announcing a
    * payment that had happened long before, on a tap that moved no money at all.
+   *
+   * Lifecycle audit (2026-10-13) — the cart branch (`?cart=…&paid=1`, the counter and the split
+   * landing) honours it too: every resume link (`liveOrderTrackHref`) carries it on both branches.
    */
   resume?: string;
   /** W7a — the durable receipt bearer (`?r=<token>`): the session-less artifact view. */
@@ -142,7 +146,12 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           paymentIntent={null}
           orderId={ref.id}
           processing={false}
-          justPaid
+          // Lifecycle audit (2026-10-13), I — a resume is not an arrival on THIS branch either: the
+          // pill, the tray, /account Today and the home card all link here with `resume=1`, and
+          // passing `justPaid` unconditionally replayed "Paid — thank you!", the receipt's print-on
+          // and the goodbye beat (and, in a new tab, the confetti and the chime) on every check.
+          justPaid={resume !== "1"}
+          resume={resume === "1"}
           // A1 — a counter order is unreadable to the live subscription once the table is cleared
           // (`is_member` needs an open session), so the tracker reads it server-side at once.
           counterPaid={ref.counter}
@@ -159,12 +168,10 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           <p>Your share is in — we’re finishing the table’s order. Check back in a moment.</p>
           {/* `replace`, not push (J1): a self-refresh to the SAME URL would stack a duplicate history entry —
               the view-transition library's popstate handler then freezes ~4s on the next browser-back
-              (same-pathname pop → its route effect never re-fires → the transition promise hangs). */}
-          <Link
-            href={`/track?cart=${encodeURIComponent(cart)}&paid=1`}
-            replace
-            className="nav-link-strong"
-          >
+              (same-pathname pop → its route effect never re-fires → the transition promise hangs).
+              The SAME URL means the same kind of visit, too: a resume's Refresh stays a resume
+              (`cartTrackHref`), or one tap replays the arrival (the blind pass on #359). */}
+          <Link href={cartTrackHref(cart, resume === "1")} replace className="nav-link-strong">
             Refresh
           </Link>
         </div>
@@ -191,6 +198,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           processing={status === "processing"}
           // A resume is not an arrival — see `resume` in SearchParams.
           justPaid={status === "succeeded" && resume !== "1"}
+          resume={resume === "1"}
           awaitingCapture={awaitingCapture}
         />
       );

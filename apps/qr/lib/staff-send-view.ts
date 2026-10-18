@@ -82,6 +82,47 @@ export function staffSendCounts(
   };
 }
 
+/**
+ * P2ad (lifecycle residuals) — a line as the Send's sold-out re-warning reads it: the table detail's
+ * own `sendable` (the fire RPC's line predicate, `sendFiresLine`) and `soldOut` (the 86 read beside
+ * the line read), plus the dish's names for the sentence. Structurally a `TableLineView`.
+ */
+export type SendLine = {
+  name: string;
+  nameMy: string | null;
+  qty: number;
+  sendable: boolean;
+  soldOut: boolean;
+};
+
+/** The dishes the Send would fire that are sold out: their units (Σqty) and the distinct dishes, in
+ *  cart order, for the sentence that names them. */
+export type SendSoldOut = {
+  units: number;
+  dishes: ReadonlyArray<{ name: string; nameMy: string | null }>;
+};
+
+/**
+ * P2ad — what the Send would fire that the kitchen has run out of, or null. ONLY a line the Send
+ * fires counts (`sendable`): a dine-in table's to-go draft cooks at payment, and the settle doors'
+ * own re-warning (#360's `SoldOutDraftsWarning`) names it there. A re-warning, NEVER a block (owner
+ * pattern PD8 / decision 4): the Send stays live, `mms_fire_cart` still fires the dish (the race-proof
+ * SQL refusal is M318, a migration), and the KDS line already wears its sold-out tag.
+ */
+export function sendSoldOut(lines: ReadonlyArray<SendLine>): SendSoldOut | null {
+  let units = 0;
+  const dishes: { name: string; nameMy: string | null }[] = [];
+  const seen = new Set<string>();
+  for (const l of lines) {
+    if (!(l.sendable && l.soldOut)) continue;
+    units += l.qty;
+    if (seen.has(l.name)) continue;
+    seen.add(l.name);
+    dishes.push({ name: l.name, nameMy: l.nameMy });
+  }
+  return units > 0 ? { units, dishes } : null;
+}
+
 export type StaffSendView =
   | { kind: "none" }
   | {
@@ -100,6 +141,9 @@ export type StaffSendView =
       dinerUnits: number;
       /** A counter order's pay-at-pickup Send (its label and notes differ). false on every table's. */
       counter: boolean;
+      /** P2ad — the sold-out dishes this Send would fire (`sendSoldOut`), named BEFORE the tap; null
+       *  when none. Never a block: `blocked` is untouched by it. */
+      soldOut: SendSoldOut | null;
     }
   | { kind: "allSent" }
   | { kind: "togoAtPay"; units: number }
@@ -127,6 +171,9 @@ export type StaffSendViewInput = {
   hasName: boolean;
   /** Phase 2f — `surfaceOpen("payAtPickup")`: parks NEW counter sends, never hides sent food. */
   payAtPickup: boolean;
+  /** P2ad — the detail's lines (`detail.lines`), for the sold-out re-warning (`sendSoldOut`).
+   *  REQUIRED, not defaulted: a caller that forgot it would fire a sold-out dish with no word again. */
+  lines: ReadonlyArray<SendLine>;
 };
 
 export function staffSendView(i: StaffSendViewInput): StaffSendView {
@@ -155,6 +202,7 @@ export function staffSendView(i: StaffSendViewInput): StaffSendView {
         blocked: hold,
         staffAdded: k.counterDraft,
         dinerUnits: 0,
+        soldOut: sendSoldOut(i.lines),
       };
     }
     return k.counterSentPastGrace ? { kind: "counterSent" } : { kind: "none" };
@@ -169,6 +217,7 @@ export function staffSendView(i: StaffSendViewInput): StaffSendView {
       staffAdded: c.staffAdded,
       dinerUnits: c.sendable - c.staffAdded,
       counter: false,
+      soldOut: sendSoldOut(i.lines),
     };
     // The table has asked to pay: whatever is unsent is now the counter's to settle, so the Send is
     // the counter's to press — with the question to ask first.

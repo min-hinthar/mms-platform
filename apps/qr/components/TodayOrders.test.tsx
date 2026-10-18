@@ -42,6 +42,7 @@ const row = (o: Partial<LiveOrder>): LiveOrder => ({
   hasTogoFood: true,
   hasGrocery: false,
   arrivedAt: null,
+  fireAt: null,
   paymentIntent: "pi_1",
   cartId: null,
   ...o,
