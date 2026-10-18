@@ -8,6 +8,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 - **One migration, `20261018120000_m210_team_safety.sql`, awaits its prod apply** (ruling #5: one
   file through the MCP `apply_migration`, once the PR is green, at a quiet time the owner names).
+  Apply it before the app merges. Until then the new actions' team writes fail closed.
 - **Two owners demoting each other can no longer leave the restaurant with no owner (M210).** A role
   change or an active flip is one call, `mms_staff_set`. It takes the team lock, then the caller's row
   and the target's row, and decides the caller, the self rule, the role the console showed and A6's
