@@ -34,6 +34,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   only for a paid order with money back, and fails open. The paid round's cap notes say only true
   numbers: the dishes it draws, or "Older rounds aren't listed here." with no number. The page's and
   the floor's paid-cart reads go in IN-lists of 50. All done's own-bump landing has its test.
+- **Codex on #360's head** — the wall and the expo now drop an order whose FOOD was refunded in full
+  though it is still `paid` (a cash refund of every dish, the tip kept), by the same
+  `foodRefundedInFull` rule and line ledger as the KDS; an unreadable ledger fails open, so the order
+  row alone decides and a real bag is never hidden. A bump whose answer was lost (the write threw, now
+  or after the bound) no longer stays "this tablet's own" while its dish is still on the board, so a
+  later void of that dish is said (`ownBumpsSettled`). Filed M322: the settle doors' sold-out read runs
+  outside the atomic settle (a migration).
 
 ### After paying, the diner sees the kitchen's real state and can always get back to the order (2026-10-13, lifecycle audit)
 
