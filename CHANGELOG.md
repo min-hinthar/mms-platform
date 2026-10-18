@@ -29,12 +29,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   before, the charge was acknowledged with no order and no ledger row (that one predates this PR).
   Two daily runs now overlap by an hour, and a run cut short by the page cap logs how far back it got.
 - **Bounded:** per-guest (6 per 10 min) and per-cart (10 per 10 min) budgets before any Stripe call;
-  the cron reads at most ten pages and recovers at most 25 a run, skipping anything already on record
+  the cron reads at most ten pages and attempts at most 25 recoveries a run, skipping anything already on record
   and other apps' intents on the shared Stripe account.
 - **Honest copy.** A guest charged with no order is told exactly that ("Your card was charged, but the
   order didn’t go through"), with the payment reference and a person as the next step. There's no ETA
   and no promised refund. Staff hear "went through" only for an order actually recorded. The Burmese
   lines are K15 drafts (two on /track, eight on the floor).
+- **The blind pass and Codex on #365 @ `1b760cb` — seven more holes closed.** A refund-needed row is
+  never written before a second read of the order table: a concurrent delivery could fulfill the
+  charge between this caller's first read and its ledger write, and the paid cart then read as another
+  tender's settle — a refund ask for a correctly fulfilled order. A partially captured pickup hold is
+  no longer refused as "refunded" for its released remainder (the Refund objects decide). /track
+  answers "recorded" early only for the caller's own order. The recovery limiters fail closed. A
+  diner who paid anonymously and then signed into an existing account is recognised through the
+  identity merge. A refused charge no longer spends the sweep's recovery cap, the ledger reads go in
+  chunks of 100, and the sweep stops at a 45 s budget and says what it did not reach.
 - **The cron fails closed:** without `CRON_SECRET` every call answers 503. It is not scheduled yet.
   Under owner ruling #13 the owner adds the secret (ENV.md _The stranded-payment cron_), and then the
   follow-up registers the schedule in `apps/qr/vercel.json`. No migration.
