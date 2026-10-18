@@ -55,6 +55,9 @@ export async function fulfillSucceededIntent(
 ): Promise<FulfillIntentOutcome> {
   const db = serviceClient();
   const posthog = getPostHogClient();
+  // The log prefix follows the door: a webhook delivery keeps the `[stripe webhook]` lines every
+  // existing log search and alert matches; a recovery door names itself.
+  const tag = via === "webhook" ? "[stripe webhook]" : `[payment-recovery ${via}]`;
   const cartId = intent.metadata?.cartId;
   const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
   // W6c: a register card-present charge (settleCard). Same reconcile + fulfill as every card —
@@ -72,7 +75,7 @@ export async function fulfillSucceededIntent(
   // already-recorded charge. Retry instead: the unique index is the hard backstop, but we should
   // never knowingly drive at it. maybeSingle() gives {null,null} for a genuine no-row.
   if (existingError) {
-    console.error("[fulfill-intent] existing-order lookup failed", {
+    console.error(`${tag} existing-order lookup failed`, {
       paymentIntent: intent.id,
       via,
       error: existingError.message,
@@ -83,7 +86,7 @@ export async function fulfillSucceededIntent(
   if (!cartId) {
     // Anomalous: a succeeded charge whose intent metadata has no cartId (our create-intent always
     // sets it). We can't fulfill and a retry won't help — but never let it vanish.
-    console.error("[fulfill-intent] succeeded intent missing cartId metadata", {
+    console.error(`${tag} succeeded intent missing cartId metadata`, {
       paymentIntent: intent.id,
       via,
     });
@@ -108,7 +111,7 @@ export async function fulfillSucceededIntent(
   // to fulfill, which is how a card charge gets recorded against a cart someone already settled
   // in cash. The guard is only a guard if it fails closed.
   if (cartRowError) {
-    console.error("[fulfill-intent] cart lookup failed", {
+    console.error(`${tag} cart lookup failed`, {
       cartId,
       paymentIntent: intent.id,
       via,
@@ -117,7 +120,7 @@ export async function fulfillSucceededIntent(
     return { kind: "retry", step: "cart_lookup" };
   }
   if (cartRow && cartRow.status !== "open") {
-    console.error("[fulfill-intent] card PI for an already-settled cart — refund needed", {
+    console.error(`${tag} card PI for an already-settled cart — refund needed`, {
       cartId,
       paymentIntent: intent.id,
       cartStatus: cartRow.status,
@@ -138,7 +141,7 @@ export async function fulfillSucceededIntent(
       { onConflict: "payment_intent", ignoreDuplicates: true },
     );
     if (refundErr)
-      console.error("[fulfill-intent] failed to record refund-needed", {
+      console.error(`${tag} failed to record refund-needed`, {
         paymentIntent: intent.id,
         message: refundErr.message,
       });
@@ -158,7 +161,7 @@ export async function fulfillSucceededIntent(
   } catch (e) {
     // The cart row may be unreadable/deleted between intent-create and delivery. Don't let the
     // bare throw escape without context — log the cart + PI, then retry.
-    console.error("[fulfill-intent] getCartTotals failed", {
+    console.error(`${tag} getCartTotals failed`, {
       cartId,
       paymentIntent: intent.id,
       via,
@@ -189,11 +192,11 @@ export async function fulfillSucceededIntent(
       { onConflict: "payment_intent", ignoreDuplicates: true },
     );
     if (refundErr)
-      console.error("[fulfill-intent] failed to record reconcile-mismatch refund-needed", {
+      console.error(`${tag} failed to record reconcile-mismatch refund-needed`, {
         paymentIntent: intent.id,
         message: refundErr.message,
       });
-    console.error("[fulfill-intent] amount mismatch — no order written", {
+    console.error(`${tag} amount mismatch — no order written`, {
       cartId,
       paymentIntent: intent.id,
       via,
@@ -234,7 +237,7 @@ export async function fulfillSucceededIntent(
   // cart `paid`, and RAISES — so it writes no second order, consumes no second promo redemption, and
   // reaches none of the side effects below. Its caller retries and then reads `already_recorded`.
   if (fulfillErr) {
-    console.error("[fulfill-intent] mms_fulfill_order failed", {
+    console.error(`${tag} mms_fulfill_order failed`, {
       cartId,
       paymentIntent: intent.id,
       via,
@@ -264,13 +267,13 @@ export async function fulfillSucceededIntent(
           p_cart_id: cartId,
         });
         if (fireErr)
-          console.error("[fulfill-intent] fire-at-checkout failed", {
+          console.error(`${tag} fire-at-checkout failed`, {
             cartId,
             paymentIntent: intent.id,
             error: fireErr,
           });
       } catch (e) {
-        console.error("[fulfill-intent] fire-at-checkout threw", { cartId, error: e });
+        console.error(`${tag} fire-at-checkout threw`, { cartId, error: e });
       }
       // To-go fulfillment loop (S4.3a): flag the order 'preparing' iff it has a takeaway (togo/
       // grocery) line, so the expo station picks it up + /track shows progress. Idempotent (only sets
@@ -281,13 +284,13 @@ export async function fulfillSucceededIntent(
           p_cart: cartId,
         });
         if (togoErr)
-          console.error("[fulfill-intent] init togo_status failed", {
+          console.error(`${tag} init togo_status failed`, {
             cartId,
             paymentIntent: intent.id,
             error: togoErr,
           });
       } catch (e) {
-        console.error("[fulfill-intent] init togo_status threw", { cartId, error: e });
+        console.error(`${tag} init togo_status threw`, { cartId, error: e });
       }
       // Split-tender SEAM (S4.3c): record eligibility-at-sale on the order's grocery lines (the 2027
       // EBT partition key). Idempotent; false if it hiccups (catalog stays derivable).
@@ -296,13 +299,13 @@ export async function fulfillSucceededIntent(
           p_order: orderId,
         });
         if (ebtErr)
-          console.error("[fulfill-intent] snapshot ebt eligibility failed", {
+          console.error(`${tag} snapshot ebt eligibility failed`, {
             cartId,
             paymentIntent: intent.id,
             error: ebtErr,
           });
       } catch (e) {
-        console.error("[fulfill-intent] snapshot ebt eligibility threw", {
+        console.error(`${tag} snapshot ebt eligibility threw`, {
           cartId,
           error: e,
         });
@@ -318,13 +321,13 @@ export async function fulfillSucceededIntent(
             .eq("id", cartId)
             .maybeSingle();
           if (sessErr)
-            console.error("[fulfill-intent] terminal session lookup failed", {
+            console.error(`${tag} terminal session lookup failed`, {
               cartId,
               message: sessErr.message,
             });
           else if (cartSess?.session_id) await closeCounterStyleSession(cartSess.session_id);
         } catch (e) {
-          console.error("[fulfill-intent] terminal counter close threw", {
+          console.error(`${tag} terminal counter close threw`, {
             cartId,
             error: e,
           });
@@ -346,7 +349,7 @@ export async function fulfillSucceededIntent(
         p_earner: earnerUid,
       });
       if (earnErr)
-        console.error("[fulfill-intent] rewards earn failed", {
+        console.error(`${tag} rewards earn failed`, {
           orderId,
           error: earnErr,
         });
@@ -358,7 +361,7 @@ export async function fulfillSucceededIntent(
       p_cart: cartId,
       p_order: orderId,
     });
-    if (redErr) console.error("[fulfill-intent] reward redeem failed", { orderId, error: redErr });
+    if (redErr) console.error(`${tag} reward redeem failed`, { orderId, error: redErr });
   }
   // Tab-close audit (S3.3 / T13): a card settle that closed a tab. The actor comes from the PI
   // metadata — a staff off-session close (closeSecureTab) stamps closedBy='staff'; a diner paying
