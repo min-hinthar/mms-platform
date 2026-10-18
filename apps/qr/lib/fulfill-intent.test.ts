@@ -475,7 +475,10 @@ describe("the card fulfillment has ONE call site", () => {
   }
   const fulfillCalls = (file: string) => fulfillCallsIn(readFileSync(file, "utf8"));
 
-  it("exactly one, in lib/fulfill-intent.ts", () => {
+  // Parses every app source file: ~1–2 s alone, measured 7 s under a loaded full `turbo test` (it
+  // timed out at vitest's 5 s default, 2026-10-18). The bound is the parse, not a wait — so the
+  // budget is raised rather than the walk narrowed.
+  it("exactly one, in lib/fulfill-intent.ts", { timeout: 30_000 }, () => {
     const sites = ["app", "lib", "components"]
       .flatMap((d) => sources(join(APP, d)))
       .flatMap((f) => Array(fulfillCalls(f)).fill(relative(APP, f)) as string[]);
