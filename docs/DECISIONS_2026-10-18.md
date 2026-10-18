@@ -560,7 +560,10 @@ shows no toast.
 
 - `lib/dish-sold-out.ts::readSoldOutIds()` returns the sold-out and the inactive ids, each with its kind
   (C28).
-- It runs on #361's `useEndPoll` (reconciliation 5), merging into `soldOutMarks` (freshest wins).
+- It runs on #361's `useEndPoll` (reconciliation 5). Each successful read REPLACES the marks for the ids it
+  queried, so a dish that comes back (sold out or inactive → available) loses its mark on the next poll
+  (Codex on #357). A failed read leaves the marks as they were. Test: a sold-out → available transition
+  clears the card.
 - T45: record the measured requests per open phone after the merge. Delete the poll when M300 lands.
 
 **Carrier.** Server-backed reads. The marks are an ephemeral overlay.
@@ -759,14 +762,20 @@ refund vanishes from both, while a cash one (still `paid`, M308) is tagged.
   - A manager-gated "Can't make it — cancel and refund" on the bag's ⋯ (MY: K15 draft).
   - The sheet names every dish and the amount, uses the "approve what you saw" set compare, and needs a
     manager PIN.
-  - One RPC removes the lines, refunds through the approvals path (M313), writes M306's stop record, and
-    sets `togo_status = 'cancelled'`. Today `mms_set_togo_status` knows only preparing → ready →
+  - **Not one transaction across Stripe** (Codex on #357): a card refund is an external side effect, the
+    shape `refundLine` already follows. So: (1) one RPC, under the manager's approval, removes the lines,
+    writes M306's stop record, sets `togo_status = 'cancelled'` and records a `refund owed` row keyed
+    on the order and an idempotency key; (2) the card refund runs after it through `refundLine` with
+    that key; (3) the `charge.refunded` webhook (and the manager's list) closes the row, and a refund
+    that fails leaves the row open and visible, never a silent gap. Cash tender settles in the RPC
+    itself (a drawer row). A test for each half failing. Today `mms_set_togo_status` knows only preparing → ready →
     picked_up (`20260624000000_s4_togo_fulfillment.sql:178`), and the CHECK allows only those three
     (`:11`).
   - Three migration files.
 - **③ Decided:** keep the tag. A refund never removes food from the KDS.
 
-**Carrier.** Durable, in one transaction. The sheet's snapshot is ephemeral and re-checked in SQL.
+**Carrier.** Durable: the cancel in one transaction, the card refund by the refund-owed row and its
+idempotency key. The sheet's snapshot is ephemeral and re-checked in SQL.
 
 ### K20 (+K28) — the age fold
 
@@ -1069,9 +1078,12 @@ dodges the ceiling.
 **Spec.**
 
 - `p_qty` splits the line inside the RPC.
-- The running total of `gate_reason = 'solo'` approvals of sent dishes, under the cart lock, in
-  `mms_void_line` and `mms_request_approval`.
-- SQL tests: under the total, over it, and a split that cannot dodge it.
+- The running total of `gate_reason = 'solo'` approvals of sent dishes, in `mms_void_line` and
+  `mms_request_approval`, under an EXCLUSIVE cart lock (`FOR UPDATE`). Today's lock is `FOR SHARE`, so
+  two voids on different lines could both read the same prior total and jointly pass $20 (Codex on
+  #357).
+- SQL tests: under the total, over it, and a split that cannot dodge it; plus a two-connection race
+  (two below-limit voids whose sum is over) in the `verify-*-race` harness shape, red-first.
 - A "1 of 3 off" signal on the KDS.
 - One migration. The mutants move (C20).
 
@@ -1086,7 +1098,8 @@ dodges the ceiling.
 3. Refuse and refund the whole order.
 
 **Recommendation.** **1**. The compare runs inside `mms_fulfill_cash_order` and `mms_fulfill_order`. A
-dish that sold out after the read, and was NOT acknowledged (C19), is left unfired, and a "refund owed"
+dish that became unsellable after the read, by the same rule `unavailableLines` uses (sold out,
+`!is_active`, or a missing menu row; Codex on #357), and was NOT acknowledged (C19), is left unfired, and a "refund owed"
 row goes on the manager's list for `refundLine` (`lib/refunds.ts:364`).
 
 **Spec.** One migration together with M318, with revoke/grant and a SQL test in `ci.yml`. The doors' reads
