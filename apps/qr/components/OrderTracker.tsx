@@ -206,7 +206,12 @@ export function OrderTracker({
   // (`TRACK_RECOVERY_ASK_MS`: 12 s, then past the ~30 s give-up), to retrieve the payment from Stripe
   // and run the webhook's own fulfillment if Stripe says it went through (`recoverMyPayment`).
   //
-  // Not on a resume (its order already exists), not while `processing` (Stripe has not finished),
+  // Gated on "no order on screen" (`hasOrder`), NEVER on the URL's `resume=1` (Codex on #365 @
+  // a2636db): `ActiveOrderProvider` keeps a succeeded intent's pointer before any order exists, and
+  // every link it feeds — the home card, the pill, the tray — is a resume link, so a guest who left
+  // before the 12 s ask and came back that way was never asked for. A resume whose order exists has
+  // it on screen from the at-mount snapshot long before 12 s, and the server answers `recorded`
+  // before any Stripe call either way. Not while `processing` (Stripe has not finished),
   // and not under manual capture (the card is only authorized until the hold is captured; the cron
   // covers a capture whose webhook is lost). The answer changes the screen in exactly two ways
   // (`trackRecoveryShows`): an order now exists → re-read it; or Stripe said charged and no order
@@ -214,7 +219,7 @@ export function OrderTracker({
   // own honest copy alone.
   const [stranded, setStranded] = useState(false);
   const hasOrder = !!order;
-  const recoveryArmed = !!paymentIntent && !processing && !awaitingCapture && !resume;
+  const recoveryArmed = !!paymentIntent && !processing && !awaitingCapture;
   const wakeRef = useRef(wake);
   useEffect(() => {
     wakeRef.current = wake;

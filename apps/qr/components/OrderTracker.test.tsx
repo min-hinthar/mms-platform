@@ -195,8 +195,24 @@ describe("M160(b) — a fresh payment with no order asks the server to check it,
     expect(recoverAsks).toHaveLength(1);
   });
 
+  // Codex on #365 @ a2636db (P2): `ActiveOrderProvider` keeps a succeeded intent's pointer BEFORE
+  // any order exists, and every link it feeds (the home card, the pill, the tray) is a `resume=1`
+  // link. A guest who left /track before the 12 s ask and came back that way must still be asked
+  // for — the gate is "no order on screen", never the URL's resume flag.
+  it("a RESUME with no order on screen still asks — the pill and home card carry resume=1", async () => {
+    arrive({ resume: true, justPaid: false });
+    await wait(12_100);
+    expect(recoverAsks).toEqual([{ paymentIntent: "pi_fresh" }]);
+  });
+
+  it("a resume whose order IS on screen never asks", async () => {
+    live = dineIn();
+    arrive({ resume: true, justPaid: false });
+    await wait(60_000);
+    expect(recoverAsks).toEqual([]);
+  });
+
   it.each([
-    ["a resume (its order exists)", { resume: true }],
     ["a processing payment (Stripe has not finished)", { processing: true }],
     ["an authorized pickup hold (not charged yet)", { awaitingCapture: true }],
   ])("never on %s", async (_label, over) => {
