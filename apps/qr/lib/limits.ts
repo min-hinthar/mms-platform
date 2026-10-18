@@ -88,8 +88,9 @@ export const STAFF_PROMO_RATE = { max: 30, windowSeconds: 300 } as const;
  *     question, however many devices ask it. 10 per 10 minutes leaves staff room to re-check after
  *     the guest has spent theirs.
  *
- * Fail-open like every `mms_rate_limit` consumer — and harmless to be: the recovery is idempotent on
- * the PaymentIntent id and only ever does what the signed webhook would.
+ * FAIL-CLOSED, unlike every other `mms_rate_limit` consumer (blind pass on #365 @ 1b760cb): these
+ * stand in front of Stripe calls, and an `mms_rate_limit` outage must not open an unbounded retrieve
+ * loop. A refused ask costs a guest nothing they can see; the cron is the backstop (lib/rate.ts).
  */
 export const RECOVER_RATE = { max: 6, windowSeconds: 600 } as const;
 export const RECOVER_CART_RATE = { max: 10, windowSeconds: 600 } as const;

@@ -12,7 +12,7 @@ vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidated.push(p
 
 let user: { id: string } | null = { id: "guest-uid" };
 let authError: { message: string; status?: number; name?: string } | null = null;
-let order: { id: string } | null = null;
+let order: { id: string; earned_by: string | null } | null = null;
 let linkedCart: { id: string; live_payment_intent_id?: string | null } | null = null;
 let readError: { message: string } | null = null;
 const eqs: [string, unknown][] = [];
@@ -103,11 +103,30 @@ describe("recoverMyPayment — the guest's door on /track", () => {
     ]);
   });
 
-  it("an order already on record answers recorded WITHOUT asking Stripe", async () => {
-    order = { id: "o-1" };
+  it("the caller's OWN order already on record answers recorded WITHOUT asking Stripe", async () => {
+    order = { id: "o-1", earned_by: "guest-uid" };
     expect(await recoverMyPayment({ paymentIntent: "pi_abc" })).toEqual({ kind: "recorded" });
     expect(recovered).toEqual([]);
   });
+
+  // M160(b) blind pass on #365 @ 1b760cb — the short-circuit read is keyed on the PI id alone, so
+  // answering `recorded` from it before any binding told ANY signed-in caller whether a PaymentIntent
+  // id they hold has an order. Only the caller's own order short-circuits; anyone else's falls
+  // through to the bound recovery (the cart link, then the verdict's payer check), which refuses.
+  it.each([
+    ["someone else's", "another-uid"],
+    ["an unattributed (cash/staff)", null],
+  ])(
+    "%s order on record is NOT answered from the read — it goes through the bound recovery",
+    async (_l, earnedBy) => {
+      order = { id: "o-1", earned_by: earnedBy };
+      recoverAnswer = { kind: "refused" };
+      expect(await recoverMyPayment({ paymentIntent: "pi_abc" })).toEqual({ kind: "refused" });
+      expect(recovered).toEqual([
+        { id: "pi_abc", expect: { cartId: CART, payerUid: "guest-uid" }, via: "track" },
+      ]);
+    },
+  );
 
   it("no cart links the intent: nothing — a guest door never fulfills an unlinked intent", async () => {
     linkedCart = null;

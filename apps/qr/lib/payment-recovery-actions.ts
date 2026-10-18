@@ -22,8 +22,8 @@ import type { RecoveryAnswer } from "./payment-recovery-verdict";
  * links this intent, and the intent's `earnerUid` equal to the caller's verified uid — so a guest can
  * only ever recover THEIR OWN payment, and only one Stripe still says succeeded.
  *
- * Answers `recorded` before any Stripe call when the order already exists (the ordinary case: the
- * webhook was merely slower than the guest's patience).
+ * Answers `recorded` before any Stripe call when the caller's OWN order already exists (the ordinary
+ * case: the webhook was merely slower than the guest's patience).
  */
 export async function recoverMyPayment(raw: unknown): Promise<RecoveryAnswer> {
   const parsed = recoverPaymentInput.safeParse(raw);
@@ -43,14 +43,18 @@ export async function recoverMyPayment(raw: unknown): Promise<RecoveryAnswer> {
   const db = serviceClient();
   const { data: order, error: orderErr } = await db
     .from("qr_orders")
-    .select("id")
+    .select("id,earned_by")
     .eq("stripe_payment_intent_id", paymentIntent)
     .maybeSingle();
   if (orderErr) {
     console.error("[payment-recovery] track: order read failed", { error: orderErr.message });
     return { kind: "error" };
   }
-  if (order) return { kind: "recorded" };
+  // Bound to the caller (blind pass on #365 @ 1b760cb): this read is keyed on the PI id alone, so a
+  // `recorded` answered from it for ANY order would tell any signed-in caller whether an id they hold
+  // has one. Only the caller's own order (`earned_by`, resolved through an identity merge by
+  // `mms_earn_on_fulfill`) short-circuits; anything else goes through the bound recovery below.
+  if (order && order.earned_by === user.id) return { kind: "recorded" };
 
   const { data: cart, error: cartErr } = await db
     .from("qr_carts")

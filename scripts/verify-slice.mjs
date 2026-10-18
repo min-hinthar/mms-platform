@@ -37158,8 +37158,16 @@ const MUTANTS = [
     file: "apps/qr/lib/payment-recovery-actions.ts",
     suite: "lib/payment-recovery-actions.test.ts",
     why: "the ordinary case is a slow webhook: an order on record answers at once, with no Stripe call",
-    find: '  if (order) return { kind: "recorded" };\n',
+    find: '  if (order && order.earned_by === user.id) return { kind: "recorded" };\n',
     replace: "",
+  },
+  {
+    id: "recover-actions/any-order-says-recorded",
+    file: "apps/qr/lib/payment-recovery-actions.ts",
+    suite: "lib/payment-recovery-actions.test.ts",
+    why: "M160(b) blind pass on #365 @ 1b760cb — a recorded answer from a read keyed on the PI id alone, before any binding, is an oracle: any signed-in caller learns whether an id they hold has an order",
+    find: "  if (order && order.earned_by === user.id) return",
+    replace: "  if (order) return",
   },
   {
     id: "recover-actions/auth-outage-as-refusal",
@@ -37362,6 +37370,30 @@ const MUTANTS = [
     why: "M160(b) — a charge read without amount_captured cannot say what part was refunded; unchecked, it passes",
     find: " || !isCents(captured) ||",
     replace: " ||",
+  },
+  {
+    id: "rate/recover-fails-open",
+    file: "apps/qr/lib/rate.ts",
+    suite: "lib/rate.test.ts",
+    why: "M160(b) blind pass on #365 @ 1b760cb — the guest's recovery limiter stands in front of a Stripe retrieve; failing open on an mms_rate_limit outage turns it into an unbounded retrieve loop",
+    find: 'RECOVER_RATE.windowSeconds, "closed");',
+    replace: "RECOVER_RATE.windowSeconds);",
+  },
+  {
+    id: "rate/recover-cart-fails-open",
+    file: "apps/qr/lib/rate.ts",
+    suite: "lib/rate.test.ts",
+    why: "M160(b) — the per-cart recovery limiter, shared by /track and staff's Check payment, fails closed for the same reason",
+    find: '    RECOVER_CART_RATE.windowSeconds,\n    "closed",\n',
+    replace: "    RECOVER_CART_RATE.windowSeconds,\n",
+  },
+  {
+    id: "rate/closed-branch-opens",
+    file: "apps/qr/lib/rate.ts",
+    suite: "lib/rate.test.ts",
+    why: "M160(b) — a fail-closed limiter whose closed branch answers allowed is fail-open with a different log line",
+    find: "      return false; // fail-closed: this limiter guards an external call, not a diner's order\n",
+    replace: "      return true;\n",
   },
   // ── The lifecycle audit (2026-10-13) · KITCHEN ↔ FLOOR ↔ BOARD — every staff surface tells the
   // same truth, live, and a mistake can be taken back. Prefix `lck/`. ──
