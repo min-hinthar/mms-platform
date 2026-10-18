@@ -10,10 +10,11 @@ import { sweepStrandedPayments } from "@/lib/payment-recovery";
  * FAIL-CLOSED: with the secret unset (today, until the owner adds it — ENV.md) every call is refused
  * with a 503 and a log line naming the missing variable, never run unauthenticated.
  *
- * NOT YET SCHEDULED, deliberately. Ruling #13 orders it: M160 merges, the owner adds `CRON_SECRET`
- * in Vercel Production, and the follow-up registers the schedule in `apps/qr/vercel.json` (`crons`;
- * this repo has no Vercel cron yet — its scheduled work so far is pg_cron in Supabase). Registering
- * it here before the secret exists would only fill the logs with 503s.
+ * SCHEDULED DAILY at 10:07 UTC (`apps/qr/vercel.json` `crons`), the order ruling #13 set: M160
+ * merged, the owner added `CRON_SECRET` in Vercel Production (probed 2026-10-18: no header → 401, not
+ * the unconfigured 503), then this schedule. Daily is the longest interval the sweep's window allows
+ * (`SWEEP_SCHEDULE_INTERVAL_MS`) and the tightest every Vercel plan accepts; a plan that runs a daily
+ * cron anywhere inside its hour stays covered by the window's one-hour overlap.
  *
  * verify:slice-exempt — glue: the door is `cronAuthVerdict` (lib/cron-auth.ts, mutated) and the
  * sweep is `sweepStrandedPayments` (lib/payment-recovery.ts, mutated); this handler only maps their

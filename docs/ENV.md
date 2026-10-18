@@ -215,11 +215,11 @@ secret below exists.
    - no header → **401**; `Authorization: Bearer <CRON_SECRET>` → **200** with a JSON count
      (`listed` · `candidates` · `foreign` · `answers` · `truncated`) and no ids.
    - before step 2 the same call answers **503** "Cron not configured": the fail-closed state.
-5. **Then the follow-up PR registers the schedule** in `apps/qr/vercel.json` (`crons`:
-   `{ "path": "/api/cron/stranded-payments", "schedule": … }`), per ruling #13's order. This repo has
-   no Vercel cron yet, and the Vercel plan's cron frequency limit is not measured here — on a plan
-   that allows only daily crons, a sub-daily schedule fails the deploy, so the follow-up measures
-   the plan first and picks the schedule to fit. **The schedule must run at least once every 24 h**
+5. **The schedule is registered** in `apps/qr/vercel.json`: `{ "path": "/api/cron/stranded-payments",
+"schedule": "7 10 * * *" }`, daily at 10:07 UTC (2026-10-18, after the secret was probed live). Daily
+   fits every Vercel plan, including one that only allows daily crons and fires them anywhere inside
+   the scheduled hour; the window's one-hour overlap covers that drift. A plan that allows more
+   frequent crons may shorten it (hourly overlaps more, which is safe); never lengthen it. **The schedule must run at least once every 24 h**
    (`SWEEP_SCHEDULE_INTERVAL_MS`, `lib/payment-recovery.ts`). The window is sized for that: two runs
    24 h apart share an hour. A more frequent schedule just overlaps more, which is safe because
    anything already on record is skipped. A less frequent one leaves a gap no run covers. A run that
