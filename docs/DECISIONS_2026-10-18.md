@@ -288,6 +288,10 @@ These words are binding on every string this round adds. Each one extends PATH_D
 - **M270 (6):** a recorded decline is bound to the cart's amount at the decline (or a mutation
   version), not to line inserts: a quantity change after it voids the decline too. Tests cover a
   quantity change as well as an added line.
+- **K49 ② (round 5):** `cancelled` is a terminal state on every diner surface, the failed-refund window
+  included: `getMyLiveOrders` drops it (`lib/orders.ts:157`), `liveOrderStatusWord` names it
+  (`lib/live-order.ts:65-75`), and the arrival action refuses it (`lib/arrival.ts:119,145`). Tests for
+  each.
 - **RULING#24 A:** the resolve update is scoped to `resolved = false`, first-writer-wins; a zero-row
   result reads "already resolved by …" and never overwrites `resolved_by` / `resolved_at`.
 
@@ -1258,7 +1262,8 @@ They are listed here as the record of what was signed, not as open questions.
 20. **J58:** an invitee stays a guest across a reload.
 
 **One question for the owner:** "Who besides you can refund in Stripe?" It is still UNKNOWN (ruling #24),
-and it decides whether C applies on top of RULING#24's B.
+but it no longer gates a build: B is signed and built regardless. The answer is recorded for the audit
+trail only (who may refund outside the app, so a Stripe-side refund is expected, not a surprise).
 
 **Each migration's go, one file at a time** (ruling #5; #21 covers M168).
 

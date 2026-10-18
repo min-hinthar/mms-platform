@@ -98,7 +98,8 @@ merged, in this order. The objects each one creates were verified one by one bef
 
 1. **#362**: land it on the owner's per-SHA line (and the bypass where its `codex-review` is red),
    after it takes `main`.
-2. **The cron schedule PR** (`apps/qr/vercel.json`, ruling #13), then close M160.
+2. **M160's last step:** the schedule merged in #369 (daily, 10:07 UTC). The owner confirms the job under
+   Vercel → Cron Jobs and runs it once with `CRON_SECRET` (ENV.md step 5); a 200 closes M160.
 3. **Build from the decisions record**, in its builder order. Each migration it names is one file,
    applied after its PR merges (ruling #5's mechanics).
 4. **The filed rows above**, M331 first (money).

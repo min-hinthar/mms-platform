@@ -4235,8 +4235,11 @@ re-measured the counts once and ran CI once (#367) was cheaper than a four-step 
 out on the larger calls. After each timeout, a read query (`pg_proc`, `information_schema`,
 `pg_locks`) showed that no object existed and no lock was held, so a blind re-send would have been the
 first apply, not a duplicate. Always check state with a read before re-sending. When the timeout
-repeats, apply the file's statements in order as smaller parts and verify each part's objects before
-the next. Record every resulting stamp under M125, because one repo file now maps to several prod names.
+repeats, split the file only where each part is safe to commit on its own (M210's parts were:
+additive objects, each usable alone) and verify each part's objects before the next. A file whose
+later statements make an earlier one usable (an `ALTER TABLE` then its function, grants or trigger)
+is NEVER split: a failed later part would leave prod half-applied, which the atomic file would have
+rolled back. Find a transaction-preserving path instead (Codex on #357). Record every resulting stamp under M125, because one repo file now maps to several prod names.
 
 ## #280
 
