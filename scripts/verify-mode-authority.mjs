@@ -290,6 +290,13 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261011123000_pd1_nudge_line_lock.sql"),
     test: path.join(ROOT, "supabase/tests/pd1_nudge_line_lock_test.sql"),
   },
+  // #362 (Codex P2 at lib/cart.ts:240) — `mms_cart_item_set_qty_if_open` restated with the GROWTH
+  // gate measured against the quantity under the write's row lock. Its LAST definition moves here,
+  // so P2dd's set_qty mutants patch THIS file now (`src: "lcbq"`, still judged by the p2dd suite).
+  lcbq: {
+    migration: path.join(ROOT, "supabase/migrations/20261018140000_lcb_set_qty_growth_gate.sql"),
+    test: path.join(ROOT, "supabase/tests/lcb_set_qty_growth_gate_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
 const CHAIN = [
@@ -308,6 +315,7 @@ const CHAIN = [
   "pd5b",
   "m182",
   "pd1n",
+  "lcbq",
 ];
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -764,7 +772,7 @@ const MUTANTS = [
   {
     id: "setqty/remove-sends-a-sent-line",
     fn: "mms_cart_item_set_qty_if_open",
-    src: "p2dd",
+    src: "lcbq",
     suite: "p2dd",
     expect: "P2DD.2",
     why: "the delete branch's own draft guard. Without it staff or a diner REMOVES a dish the kitchen is already cooking — a line that vanishes from the bill while the plate still comes out",
@@ -775,24 +783,105 @@ const MUTANTS = [
   {
     id: "setqty/qty-changes-a-sent-line",
     fn: "mms_cart_item_set_qty_if_open",
-    src: "p2dd",
+    src: "lcbq",
     suite: "p2dd",
     expect: "P2DD.1",
     why: "P2dd itself: another device's Send lands between staffSetQty's read and this RPC, and the quantity of a line the kitchen was just handed changes — the ticket says 2, the bill says 5",
-    find: "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped\n        and ci.state = 'draft';",
+    find: "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped\n        and ci.state = 'draft'\n",
     replace:
-      "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped;",
+      "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped\n",
   },
   {
     id: "setqty/sent-refusal-silent",
     fn: "mms_cart_item_set_qty_if_open",
-    src: "p2dd",
+    src: "lcbq",
     suite: "p2dd",
     expect: "P2DD.1",
     why: 'the refusal\'s NAME. A silent 0 reads as "no longer open" in both callers, telling staff a live table closed when the truth is "that dish already went to the kitchen"',
     find: "    if v_state is not null and v_state <> 'draft' then\n      raise exception 'line already sent' using errcode = 'P0001';",
     replace:
       "    if false then\n      raise exception 'line already sent' using errcode = 'P0001';",
+  },
+  {
+    id: "setqty/growth-gate-dropped",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.1",
+    why: "the gate itself: without it a stale '−' (a concurrent decrease 5 → 3, then a request for 4) grows a line of a dish the kitchen cannot make",
+    find: "        and (p_qty <= ci.qty or not exists (",
+    replace: "        and (true or not exists (",
+  },
+  {
+    id: "setqty/growth-gate-reads-no-catalog",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.1",
+    why: "the gate's catalog read: a predicate that never finds a sold-out row grows every line",
+    find: "              and (mi.is_sold_out or not mi.is_active)));",
+    replace: "              and false));",
+  },
+  {
+    id: "setqty/gate-blocks-the-way-out",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.3",
+    why: "growth is STRICT: an unchanged quantity (a re-sent stepper value) is not a growth, and refusing it strands a diner on a line they are trying to keep as is",
+    find: "        and (p_qty <= ci.qty or not exists (",
+    replace: "        and (p_qty < ci.qty or not exists (",
+  },
+  {
+    id: "setqty/gate-reads-a-grocery-line",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.4",
+    why: "a grocery line is never a dish: a barcode that matched a sold-out uuid would freeze a scan-and-go line",
+    find: "            where mi.id::text = ci.menu_item_id and ci.fulfillment in ('dinein','togo')\n",
+    replace: "            where mi.id::text = ci.menu_item_id\n",
+  },
+  {
+    id: "setqty/unavailable-refusal-silent",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.1",
+    why: "the refusal's NAME: a silent 0 reads as 'no longer open' — a live table told it closed, the sold-out mark never set",
+    find: "    if p_qty > 0 and v_state = 'draft' and not v_comped and p_qty > v_qty and v_why is not null then",
+    replace: "    if false then",
+  },
+  {
+    id: "setqty/gone-reads-sold-out",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.2",
+    why: "WHICH refusal: a delisting called an 86 tells the diner the dish is coming back",
+    find: "           case when not mi.is_active then 'gone' when mi.is_sold_out then 'sold_out' end",
+    replace:
+      "           case when not mi.is_active then 'sold_out' when mi.is_sold_out then 'sold_out' end",
+  },
+  {
+    id: "setqty/comped-raises",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.5",
+    why: "a comped draft keeps its old answer (0); raising 'dish unavailable' over it names a fact the comp already settled",
+    find: "    if p_qty > 0 and v_state = 'draft' and not v_comped and p_qty > v_qty and v_why is not null then",
+    replace: "    if p_qty > 0 and v_state = 'draft' and p_qty > v_qty and v_why is not null then",
+  },
+  {
+    id: "setqty/refusal-stamped-late",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "lcbq",
+    suite: "lcbq",
+    expect: "LCBQ.1",
+    why: "the stamp is the transaction start, no later than the catalog read it reports; a wall-clock stamp can postdate it and outvote a fresher 'available' on /menu",
+    find: "        hint = to_char(now() at time zone 'UTC',",
+    replace: "        hint = to_char(clock_timestamp() at time zone 'UTC',",
   },
   {
     id: "inc/grows-a-sent-line",
@@ -848,7 +937,7 @@ const MUTANTS = [
   {
     id: "setqty/freeze-ignored",
     fn: "mms_cart_item_set_qty_if_open",
-    src: "p2dd",
+    src: "lcbq",
     suite: "p2dd",
     expect: "P2CY.3",
     why: "a quantity change or removal under a live settlement moves a total staff are collecting",

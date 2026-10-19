@@ -18,8 +18,18 @@ import { STAFF_HANG_MS } from "./bounded-write";
  * A settled write has committed, so any read ISSUED after the settle sees it. Its view, once diffed
  * WITH the key still held, makes the screen's baseline include the write — every later diff compares
  * post-write rows, so a genuine change by someone else is announced again. A view from a read issued
- * BEFORE the settle may predate the write, and a mutation's own returned view carries no read ticket,
- * so neither ends a hold. The sequence is the caller's read ticket (`lib/view-seq.ts`'s `issued`).
+ * BEFORE the settle may predate the write, and a mutation's returned view carries no read ticket,
+ * so neither ends a hold in general. The sequence is the caller's read ticket (`lib/view-seq.ts`'s
+ * `issued`).
+ *
+ * ## …or the write's OWN view (#362 blind pass 9)
+ *
+ * /menu applies the write's returned view and issues no read after it, so a hold only a ticketed
+ * read could end stayed up until the NEXT read — the one carrying the next outside change, which was
+ * then diffed with the key held and never said. A write's own view was read server-side after THAT
+ * write committed, so once it has been diffed with the key held the baseline includes the write:
+ * `releaseOwnHold` ends exactly that hold. Another write's view proves nothing about this one, and
+ * other holds on the key stay up.
  *
  * ## The one bound
  *
@@ -70,4 +80,12 @@ export function releaseHolds(
       x.settledAt = readsIssued;
   if (viewSeq === undefined) return;
   h.holds = h.holds.filter((x) => x.settledAt === null || viewSeq <= x.settledAt);
+}
+
+/**
+ * The write behind `hold` returned its OWN view and that view has just been DIFFED (with the key
+ * held) and applied: it was read after this write committed, so this hold — and only it — ends.
+ */
+export function releaseOwnHold(h: OwnHolds, hold: OwnHold): void {
+  h.holds = h.holds.filter((x) => x !== hold);
 }

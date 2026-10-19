@@ -36,6 +36,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   adding is said; the "−" retraction keeps its dish's name when the re-read fails; and every
   sold-out reading is stamped on the database clock. /grocery reads a refusal `setQty` names as a
   failed write. 103 `lcb/` mutants; J65 and M302 filed; K15 · diner-changes lists the new Burmese.
+- **#362 fix round 2 (blind pass 9 and Codex round 2).** A /menu step or add whose own view landed
+  ends its own hold (`releaseOwnHold`), so the next outside change to that dish is said — /menu issues
+  no read after such a write. A cart view whose catalog read failed leaves a dish's sold-out flag
+  unknown instead of `false`, so a blip can no longer clear a real mark. A comped unsent dish offers
+  no ⋯ (every write behind it is refused), and a note save refused as not this diner's names the way
+  through — "ask a server" — instead of "please try again". A save that commits after the sheet's
+  bound re-seeds the field instead of reading as someone else's edit. Every sold-out stamp is taken
+  no later than the read it reports: the refusal stamps, then re-confirms availability (a dish
+  restocked in between is added), and the /menu render awaits its stamp before the catalog query.
+  `check-freeze-parity` pins `effectiveFreeze`'s clock to `Date.now()` and refuses more than one
+  live `locked` derivation. **One migration, `20261018140000_lcb_set_qty_growth_gate.sql`, awaits its
+  prod apply (M328, ruling #5):** `set_qty` refuses to grow a sold-out line against the quantity
+  under its row lock, so a concurrent decrease can no longer turn a stale "−" into a growth; the app
+  reads the refusal for diners and staff and works unchanged until it is applied. M328 and M329 filed.
 
 ### The stranded-payment sweep runs every day (2026-10-18, M160(b) · owner ruling #13)
 

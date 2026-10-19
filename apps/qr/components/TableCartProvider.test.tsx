@@ -2317,6 +2317,50 @@ describe("Lifecycle audit — named refusals and what changed", () => {
     expect(spoken()).not.toContain("is now");
   });
 
+  it("#362 blind pass 9 — a /menu '±' whose own view landed ENDS its hold: the next outside change is news", async () => {
+    // /menu applies the write's own view and issues no ticketed read after it, so a hold that only a
+    // ticketed read could end stayed up — and the next outside change to that line was dropped.
+    // MUTATION (lcb/provider/own-view-keeps-the-hold): never release the write's hold on its own view;
+    // the server's note clear is diffed with the line held and never said; red.
+    const noted = mine({ notes: "No peanuts — allergy" });
+    h.getCartView.mockResolvedValue(view({ items: [noted] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([noted]));
+    h.setQty.mockResolvedValue(view({ items: [{ ...noted, qty: 2 }] }));
+    await act(async () => {
+      await ctl.setItemQty("line-1", 2);
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+    // A server clears the note: someone ELSE's change, on the line this phone just stepped.
+    h.getCartView.mockResolvedValue(view({ items: [{ ...noted, qty: 2, notes: null }] }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("The note on Mohinga was removed.");
+  });
+
+  it("#362 blind pass 9 — a /menu ADD whose own view landed ENDS its dish hold: a later step-down is news", async () => {
+    // MUTATION (lcb/provider/own-view-keeps-the-hold): the same seam on the add path; red.
+    h.getCartView.mockResolvedValue(view({ items: [mine()] }));
+    mount();
+    await waitFor(() => expect(ctl.items).toEqual([mine()]));
+    h.addItem.mockResolvedValue(view({ items: [mine({ qty: 2 })] }));
+    await act(async () => {
+      await ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is now");
+    // A tablemate's host stepped it down: news about the diner's own dish.
+    h.getCartView.mockResolvedValue(view({ items: [mine({ qty: 1 })] }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe("Mohinga on your order is now 1.");
+  });
+
   it("#362 — a write whose re-read FAILED is not read back when the echo lands long after", async () => {
     // The hold used to end on a 2 s timer after the write settled; the view that finally showed the
     // edit — a realtime echo, a foreground read — arrived later and was diffed with the line free.

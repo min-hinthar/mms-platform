@@ -696,7 +696,49 @@ authzWalk(authzSf, (n) => {
       delegation = init;
   }
 });
+/**
+ * #362 blind pass 9 — is `node` parked in one of the enumerated literal-dead shapes (`if (false)`,
+ * `while (false)`, `false && …`, `false ? … : …`)? Liveness against a parked dead copy, not a
+ * reachability proof — the same exclusion the repo's other parsed guards apply.
+ */
+const isFalseLit = (n) => !!n && unwrap(n).kind === ts.SyntaxKind.FalseKeyword;
+const isLiterallyDead = (node) => {
+  for (let n = node; n; n = n.parent) {
+    const p = n.parent;
+    if (!p) return false;
+    if (ts.isIfStatement(p) && isFalseLit(p.expression) && p.thenStatement === n) return true;
+    if (ts.isWhileStatement(p) && isFalseLit(p.expression) && p.statement === n) return true;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      isFalseLit(p.left) &&
+      p.right === n
+    )
+      return true;
+    if (ts.isConditionalExpression(p) && isFalseLit(p.condition) && p.whenTrue === n) return true;
+  }
+  return false;
+};
+/** `Date.now()` — the clock the shipped delegation passes, and the only one this guard accepts. */
+const isDateNow = (e) =>
+  !!e &&
+  ts.isCallExpression(e) &&
+  e.arguments.length === 0 &&
+  ts.isPropertyAccessExpression(e.expression) &&
+  ts.isIdentifier(e.expression.expression) &&
+  e.expression.expression.text === "Date" &&
+  e.expression.name.text === "now";
 if (delegation) {
+  // #362 blind pass 9 — the CLOCK is half the freeze: `effectiveFreeze(cart, Number.MAX_SAFE_INTEGER)`
+  // reads every field below and still makes every lock stale, so every mutation unfreezes at once.
+  const clockArg = delegation.arguments[1] && unwrap(delegation.arguments[1]);
+  if (delegation.arguments.length !== 2 || !isDateNow(clockArg))
+    fail(
+      `${AUTHZ} hands \`effectiveFreeze\` a clock other than \`Date.now()\`: ` +
+        `\`${delegation.arguments[1]?.getText(authzSf) ?? "(nothing)"}\`.\n  ` +
+        "The helper judges the lock's freshness against the clock it is GIVEN — a constant there\n  " +
+        "turns every lock stale (or every lock fresh) while the reads below stay green.",
+    );
   const rowArg = delegation.arguments[0] && unwrap(delegation.arguments[0]);
   if (!rowArg || !ts.isIdentifier(rowArg) || !cartVars.has(rowArg.text))
     fail(
@@ -723,12 +765,29 @@ if (delegation) {
         `${AUTHZ} delegates the lock to it; a guard that cannot read the helper is blind, not clean.`,
     );
   else {
-    let helperLocked = null;
+    // #362 blind pass 9 — ambiguity REFUSED, never resolved by position: this took the LAST
+    // `locked:` it visited, so a returned `{ locked: false }` beside a parked live-looking copy
+    // (`void { locked: … }`) passed every check below while the helper unfroze every cart.
+    const helperLockeds = [];
     authzWalk(fn.body, (n) => {
-      if (ts.isPropertyAssignment(n) && n.name.getText(freezeSf) === "locked")
-        helperLocked = n.initializer;
+      if (
+        (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) &&
+        n.name.getText(freezeSf) === "locked" &&
+        !isLiterallyDead(n)
+      )
+        helperLockeds.push(n);
     });
-    if (!helperLocked)
+    const helperLocked =
+      helperLockeds.length === 1 && ts.isPropertyAssignment(helperLockeds[0])
+        ? helperLockeds[0].initializer
+        : null;
+    if (helperLockeds.length > 1)
+      fail(
+        `${FREEZE_RULE} — \`effectiveFreeze\` holds ${helperLockeds.length} \`locked\` properties.\n  ` +
+          "This guard proves ONE derivation; with several it cannot tell which one the helper returns,\n  " +
+          "and picking by position is how a parked copy passed for the shipped one.",
+      );
+    else if (!helperLocked)
       fail(`${FREEZE_RULE} — \`effectiveFreeze\` returns no \`locked\` this guard can read.`);
     else {
       derivFile = FREEZE_RULE;

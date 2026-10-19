@@ -6,7 +6,7 @@ import type { getCartView } from "@/lib/cart";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { KDS_UNDO_MS } from "@/lib/kds-undo";
 import { t } from "@/lib/i18n";
-import { noteChangedNotice } from "@/lib/note-edit";
+import { noteChangedNotice, noteNotYoursNotice } from "@/lib/note-edit";
 
 /**
  * M227 — the WIRING of /cart's refusal explanation, which until this file nothing could see.
@@ -5173,6 +5173,33 @@ describe("Lifecycle audit — /cart says every change to the diner's order", () 
     expect(h.setLineNote).toHaveBeenCalledWith(LINE, "No peanuts — allergy", "");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(regionText()).toContain("Note saved for Mohinga."));
+  });
+
+  it("#362 blind pass 9 — a COMPED unsent dish offers no ⋯ — every write behind it is refused", async () => {
+    // `setLineNote`, `setLineFulfillment` and `makeItNow` all refuse a comp (`canMutateLine`'s
+    // comped arm), so the ⋯ opened a sheet whose Save always failed with "please try again".
+    // MUTATION (lcb/checkout/comped-line-offers-the-sheet): drop `i.comped` from `canEdit`; red.
+    mount({ splitContext: DINE_IN, initialItems: [{ ...ITEM, comped: true }] });
+    expect(screen.queryByRole("button", { name: `More for ${ITEM.name}` })).toBeNull();
+  });
+
+  it("#362 blind pass 9 — a note save refused as NOT YOURS names the way through, never 'please try again'", async () => {
+    // A comp (or an ownership change) landed while the sheet was open: no retry can succeed.
+    // MUTATION (lcb/checkout/note-not-yours-retry): speak the generic retry copy; red.
+    h.setLineNote.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, comped: true }] }));
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("A note for the kitchen"), {
+      target: { value: "No egg" },
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    });
+    await settle();
+    await waitFor(() => expect(regionText()).toContain(noteNotYoursNotice("Mohinga")));
+    expect(regionText()).not.toContain("please try again");
   });
 
   it("a note save the server refuses because the dish already went to the kitchen is named", async () => {

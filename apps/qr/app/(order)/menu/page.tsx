@@ -67,11 +67,13 @@ export default async function Menu({
   // sticker tokens stay server-side (lib/tables.ts strips `qr_code`); a failed read is [] and the
   // section degrades to "scan your sticker". Started beside the recognition reads, awaited with them.
   const tablesP = tableGridOffered(mode) ? getDineInTables() : Promise.resolve(undefined);
-  // #362 (blind pass 9) — the render stamp on the DATABASE clock, started beside the catalog read so
-  // it is taken no later than the read: /menu weighs this render against the cart view (`dbNow`) and
-  // a refusal (`dbClockIso` too), and three clocks ordered those by skew. Advisory: a failed read
-  // falls back, logged, to this server's clock.
-  const stampP = dbClockIso("menu render");
+  // #362 (blind pass 9) — the render stamp on the DATABASE clock: /menu weighs this render against
+  // the cart view (`dbNow`) and a refusal (`dbClockIso` too), and three clocks ordered those by skew.
+  // Codex P2 on #362 — AWAITED before the catalog query starts, so it is taken no later than the
+  // snapshot it stamps (started beside the query, it could land after it, and a stale render then
+  // outvoted a fresher cart reading). Pinned by lib/menu-render-stamp.test.ts. Advisory: a failed
+  // read falls back, logged, to this server's clock.
+  const stamp = await dbClockIso("menu render");
   const { data, error: catalogErr } = await db
     .from("menu_items")
     .select(
@@ -208,8 +210,8 @@ export default async function Menu({
         // A value that changes per request is the entire definition of a render stamp; a content hash
         // cannot substitute — it could not tell "the refresh landed and nothing changed" apart from
         // "the refresh never landed", which is the one distinction this exists to make. #362 — on
-        // the DATABASE clock (`stampP`, above), the one clock every sold-out reading is stamped on.
-        catalogStamp={Date.parse(await stampP)}
+        // the DATABASE clock (`stamp`, above), the one clock every sold-out reading is stamped on.
+        catalogStamp={Date.parse(stamp)}
       />
     </TableCartProvider>
   );

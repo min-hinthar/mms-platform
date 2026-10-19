@@ -5,6 +5,7 @@ import {
   newOwnHolds,
   openHold,
   releaseHolds,
+  releaseOwnHold,
   settleHold,
 } from "./own-write-hold";
 
@@ -60,6 +61,23 @@ describe("own-write holds — released by a view that read after the write, neve
     // read issued so far — read 4 (which may predate the write) releases it; red.
     expect(heldKeys(h)).toEqual(new Set(["line-1"]));
     releaseHolds(h, 5, 5, OWN_HOLD_MAX_OPEN_MS + 2);
+    expect(heldKeys(h)).toEqual(new Set());
+  });
+
+  it("#362 blind pass 9 — the write's OWN applied view ends ITS hold, and only its", () => {
+    // /menu's writes are answered with their own view and no read follows — a hold only a ticketed
+    // read could end swallowed the next outside change.
+    const h = newOwnHolds();
+    const mine = openHold(h, "line-1", 0);
+    const other = openHold(h, "line-1", 0);
+    const elsewhere = openHold(h, "line-2", 0);
+    settleHold(mine, 1);
+    releaseOwnHold(h, mine);
+    // MUTATION (lcb/own-hold/own-view-releases-the-key): release every hold on the key — a second
+    // write still out on line-1 would read back to its diner; red.
+    expect(h.holds).toEqual([other, elsewhere]);
+    releaseOwnHold(h, other);
+    releaseOwnHold(h, elsewhere);
     expect(heldKeys(h)).toEqual(new Set());
   });
 });

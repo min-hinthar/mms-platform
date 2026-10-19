@@ -60,11 +60,16 @@ const member = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const sellable = vi.hoisted(() => ({
   current: "available" as "available" | "sold_out" | "gone" | null,
   asked: [] as unknown[],
+  /** Codex P2 on #362 — the order the clock and the availability reads were issued in. */
+  log: [] as string[],
+  /** A per-call script for the availability reads (falls back to `current`). */
+  script: [] as ("available" | "sold_out" | "gone" | null)[],
 }));
 vi.mock("./availability-read", () => ({
   dishAvailability: (id: unknown) => {
     sellable.asked.push(id);
-    return Promise.resolve(sellable.current);
+    sellable.log.push("dish");
+    return Promise.resolve(sellable.script.length ? sellable.script.shift()! : sellable.current);
   },
   sendBlockers: () => Promise.resolve([]),
 }));
@@ -104,7 +109,16 @@ Object.assign(api, {
   then: (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res),
 });
 vi.mock("@mms/db/server", () => ({
-  serviceClient: () => ({ from: () => api, rpc: () => Promise.resolve(rpcAnswer) }),
+  serviceClient: () => ({
+    from: () => api,
+    rpc: (fn: string) => {
+      if (fn === "mms_now") {
+        sellable.log.push("clock");
+        return Promise.resolve({ data: "2026-10-13T12:00:00.000Z", error: null });
+      }
+      return Promise.resolve(rpcAnswer);
+    },
+  }),
 }));
 
 const { setQty } = await import("./cart");
@@ -114,6 +128,8 @@ beforeEach(() => {
   member.current = {};
   sellable.current = "available";
   sellable.asked = [];
+  sellable.log = [];
+  sellable.script = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -124,6 +140,27 @@ describe("setQty — the RPC's draft and freeze re-check (P2dd · P2cy)", () => 
     // thrown message is redacted in production and the diner heard "We couldn’t confirm that".
     rpcAnswer = { data: null, error: { code: "P0001", message: "line already sent" } };
     await expect(setQty("line-1", 3)).resolves.toMatchObject({ refused: "not_draft" });
+  });
+
+  it("#362 — a growth the RPC refused under its row lock is NAMED, with the RPC's own stamp", async () => {
+    // 20261018140000 — a concurrent decrease 5 → 3 made a stale request for 4 a growth the
+    // pre-read could not see; the RPC compares against the quantity it replaces.
+    // MUTATION (lcb/setqty-rpc-unavailable-unnamed): drop the mapping — "Cart is no longer open"
+    // for a live table; red.
+    member.current = { lineQty: 5 };
+    rpcAnswer = {
+      data: null,
+      error: {
+        code: "P0001",
+        message: "dish unavailable",
+        details: "gone",
+        hint: "2026-10-13T11:59:59.000Z",
+      },
+    } as typeof rpcAnswer;
+    await expect(setQty("line-1", 4)).resolves.toEqual({
+      refused: "gone",
+      at: "2026-10-13T11:59:59.000Z",
+    });
   });
 
   it("a settlement that won the race reads as the table paying", async () => {
@@ -165,6 +202,25 @@ describe("setQty — named refusals (lifecycle audit)", () => {
     // MUTATION (lcb/setqty-gone-reads-sold-out): answer `sold_out` for any unavailable dish; red.
     sellable.current = "gone";
     await expect(setQty("line-1", 2)).resolves.toMatchObject({ refused: "gone" });
+  });
+
+  it("Codex P2 on #362 — the sold-out refusal's stamp precedes a read that confirms it", async () => {
+    // MUTATION (lcb/setqty-refusal-stamped-after-the-read): stamp after the growth read; red.
+    member.current = { lineQty: 1, menuItemId: "11111111-1111-1111-1111-111111111111" };
+    sellable.current = "sold_out";
+    await expect(setQty("line-1", 2)).resolves.toEqual({
+      refused: "sold_out",
+      at: "2026-10-13T12:00:00.000Z",
+    });
+    expect(sellable.log).toEqual(["dish", "clock", "dish"]);
+  });
+
+  it("Codex P2 on #362 — restocked between the growth read and the confirm, the '+' lands", async () => {
+    // MUTATION (lcb/setqty-restocked-growth-refused): refuse on the first read regardless; red.
+    member.current = { lineQty: 1, menuItemId: "11111111-1111-1111-1111-111111111111" };
+    sellable.script = ["sold_out", "available"];
+    const v = await setQty("line-1", 2);
+    expect(v && "refused" in v ? v.refused : "landed").toBe("landed");
   });
 
   it("a line staff REMOVED is refused as `voided`, never as 'gone to the kitchen' (#362 blind pass 8)", async () => {

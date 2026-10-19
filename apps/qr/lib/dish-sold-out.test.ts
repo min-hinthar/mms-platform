@@ -81,6 +81,17 @@ describe("cartSoldOutReading — the cart view's line flag, stamped with its DB 
     expect(cartSoldOutReading(lines, "laphet", NOW, true)).toBeNull();
     expect(cartSoldOutReading(lines, "rice", NOW, true)).toBeNull();
     expect(cartSoldOutReading(lines, "mohinga", null, true)).toBeNull();
+    // #362 blind pass 9 — a line whose flag is UNKNOWN (the view's catalog read failed) is no
+    // reading at all: as `false` it cleared a real sold-out mark on a blip.
+    // MUTATION (lcb/dish-sold-out/unknown-flag-clears): count an unknown flag as available; red.
+    expect(
+      cartSoldOutReading(
+        [{ menuItemId: "mohinga", soldOut: undefined, fulfillment: "dinein" }],
+        "mohinga",
+        NOW,
+        true,
+      ),
+    ).toBeNull();
   });
 });
 

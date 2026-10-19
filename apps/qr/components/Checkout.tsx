@@ -99,7 +99,7 @@ import { DINER_STATE_COPY, lineChipWord, unavailableMarkKey } from "@/lib/line-s
 import { passRowStage } from "@/lib/live-pass";
 import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
 import { heldKeys, newOwnHolds, openHold, releaseHolds, settleHold } from "@/lib/own-write-hold";
-import { noteChangedNotice } from "@/lib/note-edit";
+import { noteChangedNotice, noteNotYoursNotice } from "@/lib/note-edit";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
 import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
@@ -2672,10 +2672,14 @@ export function Checkout({
       );
       return;
     }
+    // #362 blind pass 9 — `not_yours` (a comp, or the line is no longer this diner's) cannot be
+    // retried from this phone, so it names the way through rather than inviting another tap.
     sayRefusal(
       r.reason === "rate_limited"
         ? reasonCopy.rate_limited
-        : `Couldn’t save the note for ${name} — please try again.`,
+        : r.reason === "not_yours"
+          ? noteNotYoursNotice(name)
+          : `Couldn’t save the note for ${name} — please try again.`,
     );
     await refresh();
   }
@@ -4269,11 +4273,17 @@ export function Checkout({
                 // refusal. Keeping them apart is what lets a locked control stay RENDERED and disabled
                 // instead of vanishing — a missing control is the red-team trap this repo names by
                 // name, and the pills below are gated on `canEdit &&`.
-                const canEdit = canMutateLine(i.lineState, {
-                  kind: "diner",
-                  role: splitContext?.myRole ?? "host",
-                  isOwner: i.bySeat === splitContext?.mySeat,
-                });
+                // #362 blind pass 9 — WITH the comp, as the server asks it: every write behind the
+                // ⋯ (note, For here / To go, Send now) refuses a comped line as `not_yours`.
+                const canEdit = canMutateLine(
+                  i.lineState,
+                  {
+                    kind: "diner",
+                    role: splitContext?.myRole ?? "host",
+                    isOwner: i.bySeat === splitContext?.mySeat,
+                  },
+                  !!i.comped,
+                );
                 const owner = isGroup
                   ? splitContext!.members.find((m) => m.seat === i.bySeat)
                   : undefined;

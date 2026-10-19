@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cartSoldOutReading } from "./dish-sold-out";
 
 /**
  * Lifecycle audit — the SERVER half of the diner stream: every new refusal is a definite non-write
@@ -61,6 +62,8 @@ const h = vi.hoisted(() => ({
   blocking: [] as { id: string; name: string; why: "sold_out" | "gone" }[],
   sellable: "available" as "available" | "sold_out" | "gone" | null,
   touched: [] as string[],
+  /** The order the clock and the availability reads were ISSUED in (Codex P2 on #362). */
+  log: [] as string[],
 }));
 
 vi.mock("./authz", () => ({
@@ -124,7 +127,10 @@ vi.mock("./order-lines", () => {
 });
 vi.mock("./availability-read", () => ({
   sendBlockers: () => Promise.resolve(h.blocking),
-  dishAvailability: () => Promise.resolve(h.sellable),
+  dishAvailability: () => {
+    h.log.push("dish");
+    return Promise.resolve(h.sellable);
+  },
 }));
 vi.mock("./media-url", () => ({ safeImageUrl: (u: string) => u }));
 
@@ -160,6 +166,7 @@ vi.mock("@mms/db/server", () => ({
     from,
     rpc: (fn: string, args: unknown) => {
       rpcs.push({ fn, args });
+      if (fn === "mms_now") h.log.push("clock");
       if (fn === "mms_now")
         return Promise.resolve({ data: "2026-10-13T12:00:00.000Z", error: null });
       if (fn === "mms_fire_cart")
@@ -189,6 +196,7 @@ beforeEach(() => {
   h.blocking = [];
   h.sellable = "available";
   h.touched = [];
+  h.log = [];
   answer = () => ({ data: null, error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -199,10 +207,40 @@ describe("addItemOutcome — a sold-out dish is refused as a VALUE, before anyth
     const { ItemUnsellableError } = await import("./order-lines");
     h.priceItem = () =>
       Promise.reject(new ItemUnsellableError("Mohinga just sold out", "sold_out"));
+    h.sellable = "sold_out";
     const out = await addItemOutcome("c-1", "m-1");
     expect(out).toMatchObject({ ok: false, refused: "sold_out" });
     expect(out.ok === false && Number.isFinite(Date.parse(out.at))).toBe(true);
     expect(rpcs.filter((r) => r.fn.startsWith("mms_cart_item"))).toEqual([]);
+  });
+
+  it("Codex P2 on #362 — the refusal's stamp is taken BEFORE a read that confirms the dish is unavailable", async () => {
+    // `priceItem`'s read found the 86; a stamp taken AFTER it can postdate a restock and a cart view
+    // that read the dish available, so the stale mark outvoted the fresher reading on /menu.
+    // MUTATION (lcb/cart/refusal-stamped-after-the-read): confirm first, stamp after; red.
+    const { ItemUnsellableError } = await import("./order-lines");
+    h.priceItem = () =>
+      Promise.reject(new ItemUnsellableError("Mohinga just sold out", "sold_out"));
+    h.sellable = "sold_out";
+    const out = await addItemOutcome("c-1", "m-1");
+    expect(out).toEqual({ ok: false, refused: "sold_out", at: "2026-10-13T12:00:00.000Z" });
+    expect(h.log).toEqual(["clock", "dish"]);
+  });
+
+  it("Codex P2 on #362 — a dish restocked between `priceItem`'s read and the confirm is ADDED, never refused on a stale read", async () => {
+    // MUTATION (lcb/cart/restocked-add-refused): refuse on the first read regardless; red.
+    const { ItemUnsellableError } = await import("./order-lines");
+    let calls = 0;
+    h.priceItem = () =>
+      (calls += 1) === 1
+        ? Promise.reject(new ItemUnsellableError("Mohinga just sold out", "sold_out"))
+        : Promise.resolve({});
+    h.sellable = "available";
+    answer = (s) =>
+      s.table === "qr_cart_items" ? { data: [], error: null } : { data: {}, error: null };
+    const out = await addItemOutcome("c-1", "m-1");
+    expect(out.ok).toBe(true);
+    expect(calls).toBe(2);
   });
 
   it("a dish no longer on the menu is refused as `gone` — never as an 86 (#362 Codex round 1)", async () => {
@@ -210,6 +248,7 @@ describe("addItemOutcome — a sold-out dish is refused as a VALUE, before anyth
     const { ItemUnsellableError } = await import("./order-lines");
     h.priceItem = () =>
       Promise.reject(new ItemUnsellableError("Mohinga is no longer on the menu", "gone"));
+    h.sellable = "gone";
     expect(await addItemOutcome("c-1", "m-1")).toMatchObject({ ok: false, refused: "gone" });
   });
 
@@ -624,5 +663,19 @@ describe("getCartView — each line carries WHY its dish can't be made (#362 Cod
     const v = await getCartView("c-1");
     expect(v.items.map((i) => i.unavailable ?? null)).toEqual([null, null, null, null, null]);
     expect(v.items.some((i) => i.soldOut)).toBe(false);
+    // #362 blind pass 9 — and it says NOTHING about availability either way: a dish line's flag is
+    // unknown, not "available", so /menu's freshest-reading rule cannot clear a real sold-out mark
+    // with it. MUTATION (lcb/view/failed-catalog-reads-available): answer `false` for every line;
+    // red. A grocery line is never a dish, so it stays `false`.
+    expect(v.items.map((i) => i.soldOut)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+    ]);
+    expect(cartSoldOutReading(v.items, ids.fine, v.dbNow ?? "2026-10-08T10:00:00.000Z", true)).toBe(
+      null,
+    );
   });
 });

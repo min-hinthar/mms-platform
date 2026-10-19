@@ -12,7 +12,8 @@
  *   • while the diner has not touched the field, it FOLLOWS the order (re-seeds);
  *   • once they have, their words stay, the change is SHOWN, and `seen` stays put — so a Save is
  *     refused as `changed` rather than overwriting a note the diner may not have read;
- *   • a `changed` refusal re-seeds the field from the note now on the order, and the view says so.
+ *   • a `changed` refusal re-seeds the field from the note now on the order, and the view says so;
+ *   • the order moving TO the field's own words (a late-committing save) re-seeds from it.
  *
  * Never a silent overwrite of the allergy channel.
  */
@@ -28,6 +29,11 @@ export type NoteDraft = {
 /** The order's note is now `live` ("" for none). */
 export function noteOnLiveChange(d: NoteDraft, live: string): NoteDraft {
   if (live === d.seen) return { ...d, underneath: null };
+  // Codex P2 on #362 — the order now holds the FIELD'S OWN words: the diner's save, answered past
+  // the sheet's bound and committed late (or someone wrote the same words). Either way the field
+  // matches the order, so it becomes the seed — never shown as someone else's change, which left
+  // the next Save comparing against a stale seed and refused as `changed`.
+  if (live === d.note.trim()) return { note: d.note, seen: live, underneath: null };
   if (d.note === d.seen) return { note: live, seen: live, underneath: null };
   return { ...d, underneath: live };
 }
@@ -59,4 +65,13 @@ export function noteChangedNotice(name: string, fresh: string | null): { en: str
         en: `The note on ${name} was just removed. Your change wasn’t saved.`,
         my: `${name} ရဲ့ မှတ်ချက်ကို အခုလေးတင် ဖျက်ထားပါတယ် — သင့်အပြောင်းအလဲကို မသိမ်းရသေးပါ။`,
       };
+}
+
+/**
+ * #362 (blind pass 9) — the view's sentence for a save refused as `not_yours`: the line was comped,
+ * or is no longer this diner's, while the sheet was open. No retry from this phone can land, so it
+ * names the way through instead of "please try again". EN only, like the refusal copy beside it.
+ */
+export function noteNotYoursNotice(name: string): string {
+  return `The note on ${name} can’t be changed from this phone — ask a server.`;
 }

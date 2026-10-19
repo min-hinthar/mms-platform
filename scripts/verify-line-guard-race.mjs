@@ -66,6 +66,13 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRATION = path.join(ROOT, "supabase/migrations/20260929000000_p2dd_p2cy_line_guards.sql");
+// #362 — `mms_cart_item_set_qty_if_open` is restated by 20261018140000 (the growth gate under the
+// row lock), so the chain is BOTH files in apply order: a function's statement is taken from the
+// LAST file that defines it, and restore/drift replay the whole chain.
+const MIGRATIONS = [
+  MIGRATION,
+  path.join(ROOT, "supabase/migrations/20261018140000_lcb_set_qty_growth_gate.sql"),
+];
 const TAG = "P2DK";
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
@@ -482,19 +489,22 @@ function cleanup() {
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
-const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
+const MIGRATION_TEXTS = MIGRATIONS.map((f) => readFileSync(f, "utf8"));
+const MIGRATION_TEXT = MIGRATION_TEXTS.join("\n");
 const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in (${RPCS.map((r) => `'${r.fn}'`).join(", ")})
   order by 1;`;
 
-/** This migration's `create or replace` statement for `fn`, exactly once or not at all. */
+/** The LAST chain file's `create or replace` statement for `fn`, exactly once there or not at all. */
 function statementFor(fn) {
   const head = `create or replace function public.${fn}(`;
-  const at = MIGRATION_TEXT.indexOf(head);
-  if (at < 0 || MIGRATION_TEXT.indexOf(head, at + 1) >= 0) return null;
-  const end = MIGRATION_TEXT.indexOf("\nend $$;", at);
-  return end < 0 ? null : MIGRATION_TEXT.slice(at, end + "\nend $$;".length);
+  const text = [...MIGRATION_TEXTS].reverse().find((t) => t.includes(head));
+  if (!text) return null;
+  const at = text.indexOf(head);
+  if (text.indexOf(head, at + 1) >= 0) return null;
+  const end = text.indexOf("\nend $$;", at);
+  return end < 0 ? null : text.slice(at, end + "\nend $$;".length);
 }
 
 const MUTANTS = RPCS.flatMap((rpc) => [
@@ -528,7 +538,7 @@ async function runMutants() {
   if (live !== expected) {
     throw new Error(
       `${TAG} REFUSED — ` +
-        `the live bodies are not what ${path.basename(MIGRATION)} produces — a later migration ` +
+        `the live bodies are not what ${MIGRATIONS.map((f) => path.basename(f)).join(" + ")} produce — a later migration ` +
         `redefines one (or a mutant is live). Restoring from this file would revert it, so every ` +
         `verdict would be about dead code.\n  live:\n${live}\n  migration:\n${expected}`,
     );

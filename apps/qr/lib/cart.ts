@@ -37,7 +37,7 @@ import { dishAvailability, sendBlockers } from "./availability-read";
 import { dishUnavailable, type Unavailable } from "./availability";
 import { dbClockIso } from "./db-clock";
 import type { ServerRefusal } from "./cart-freeze";
-import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
+import { CartPayingError, lineRpcRefusal, rpcDishUnavailable } from "./line-rpc-refusal";
 import { safeImageUrl } from "./media-url";
 import { TABLE_STARTER_MID } from "./confirm-copy";
 import { removedReasons } from "./line-state-copy";
@@ -191,10 +191,38 @@ export async function addItemOutcome(
     // insert, so nothing landed; every other throw keeps its old meaning (it may have committed).
     // #362 (Codex round 1) — WHICH refusal travels: an 86 (`sold_out`), or a dish no longer on the
     // menu (`gone`). Folding a delisting into "sold out" told the diner it was coming back.
-    if (e instanceof ItemUnsellableError)
-      return { ok: false, refused: e.reason, at: await dbClockIso("addItemOutcome") };
-    throw e;
+    if (!(e instanceof ItemUnsellableError)) throw e;
+    // Codex P2 on #362 — the stamp is taken BEFORE a read that confirms the refusal, never after
+    // `priceItem`'s: a stamp later than the read that found the 86 can postdate a restock and a cart
+    // view that read the dish available, and the stale mark then outvoted it on /menu.
+    const { at, why } = await stampThenConfirm(menuItemId, "addItemOutcome");
+    if (why) return { ok: false, refused: why, at };
+    // Restocked (or unreadable) since `priceItem` refused: NOTHING was written, so the diner's add is
+    // asked once more — its own `priceItem` read follows the stamp, so a second refusal carries it.
+    try {
+      return { ok: true, view: await addItem(cartId, menuItemId, modifierIds, notes, qty) };
+    } catch (again) {
+      if (again instanceof ItemUnsellableError) return { ok: false, refused: again.reason, at };
+      throw again;
+    }
   }
+}
+
+/**
+ * Codex P2 on #362 — a sold-out REFUSAL's stamp, taken no later than a read that saw the dish
+ * unavailable. /menu weighs the refusal's mark against the cart view's `dbNow` (`freshestSoldOut`),
+ * so a stamp read AFTER the availability read claims a freshness it does not have: a restock and a
+ * cart view in between read "available" at an earlier instant, and the stale mark won. So: the DB
+ * clock first, then a fresh `dishAvailability` read. `why` null = the dish can be made now (or the
+ * read failed) — the caller decides what a refusal that no longer holds means.
+ */
+async function stampThenConfirm(
+  menuItemId: string,
+  context: string,
+): Promise<{ at: string; why: Unavailable | null }> {
+  const at = await dbClockIso(context);
+  const now = await dishAvailability(menuItemId);
+  return { at, why: now === "sold_out" || now === "gone" ? now : null };
 }
 
 /**
@@ -239,8 +267,12 @@ export async function setQty(cartItemId: string, qty: number) {
   // window between this read and the RPC is the same race `priceItem`'s add-time gate accepts.
   if (input.qty > lineQty) {
     const availability = await dishAvailability(menuItemId);
-    if (availability === "sold_out" || availability === "gone")
-      return { refused: availability, at: await dbClockIso("setQty") } as const;
+    if (availability === "sold_out" || availability === "gone") {
+      // Codex P2 on #362 — stamped BEFORE a read that confirms it (`stampThenConfirm`); restocked in
+      // between, the growth lands (the gate's own fail-open posture for a dish it cannot refuse).
+      const { at, why } = await stampThenConfirm(menuItemId, "setQty");
+      if (why) return { refused: why, at } as const;
+    }
   }
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
@@ -256,6 +288,11 @@ export async function setQty(cartItemId: string, qty: number) {
   if (refusal === "sent")
     // Lifecycle audit — named, not thrown (see the docblock): the raise aborted, nothing landed.
     return { refused: "not_draft", at: new Date().toISOString() } as const;
+  // #362 (Codex P2) — the GROWTH gate under the row lock (20261018140000): `lineQty` above was read
+  // before this call, so a concurrent decrease could make a stale request a growth the pre-read never
+  // saw. The RPC compares against the quantity it replaces, and stamps the refusal itself.
+  const dish = rpcDishUnavailable(qtyErr);
+  if (dish) return { refused: dish.why, at: dish.at } as const;
   if (refusal === "paying") throw new CartPayingError();
   if (!affected) throw new Error("Cart is no longer open");
   const { error: touchErr } = await db
@@ -1063,7 +1100,10 @@ export async function getCartView(cartId: string): Promise<{
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
     // The GATE (either kind) and the WORDS (which kind) — one predicate, so they never disagree.
-    soldOut: unavailable.has(r.menu_item_id),
+    // #362 blind pass 9 — UNKNOWN (undefined) for a dish line when the catalog read failed: `false`
+    // there read as a fresh "available" on /menu and cleared a real sold-out mark
+    // (`cartSoldOutReading`). Still falsy, so the advisory "+" gate is exactly as before.
+    soldOut: catalog || !uuidRe.test(r.menu_item_id) ? unavailable.has(r.menu_item_id) : undefined,
     unavailable: unavailable.get(r.menu_item_id) ?? null,
     // Kitchen-life state (S2.2): drives the diner UI — a 'draft' line keeps its stepper, a fired/cooking/
     // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).

@@ -29,6 +29,24 @@ describe("noteOnLiveChange — the order's note moved while the sheet was open",
     expect(d).toEqual({ note: "Extra spicy", seen: "", underneath: "No peanuts" });
   });
 
+  it("Codex P2 on #362 — the order moving TO the field's own words is the diner's save landing late: adopt it as the seed", () => {
+    // A save past the sheet's bound (`boundWrite` → waiting) that then COMMITS moves the order to
+    // the submitted draft. That is not someone else's edit: shown as `underneath`, the next Save
+    // compares against the old seed and is refused as `changed` over the diner's own note.
+    // MUTATION (lcb/note-edit/own-late-save-read-as-theirs): keep the stale seed; red.
+    expect(noteOnLiveChange({ note: "No egg ", seen: "", underneath: null }, "No egg")).toEqual({
+      note: "No egg ",
+      seen: "No egg",
+      underneath: null,
+    });
+    // …and a late REMOVE the same way.
+    expect(noteOnLiveChange({ note: "", seen: "No egg", underneath: null }, "")).toEqual({
+      note: "",
+      seen: "",
+      underneath: null,
+    });
+  });
+
   it("the order moving BACK to the seed clears the shown change", () => {
     expect(
       noteOnLiveChange({ note: "Extra spicy", seen: "", underneath: "No peanuts" }, ""),

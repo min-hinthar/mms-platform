@@ -44,7 +44,7 @@ export function freshestSoldOut(
 /**
  * The cart's reading for one dish: any FOOD line of it (the viewer's or a tablemate's — every line
  * carries the dish's live flag), stamped with the view's DB clock. Null when the cart holds none of
- * the dish, or the view has no clock.
+ * the dish, the view has no clock, or the view could not read the catalog (every flag unknown).
  *
  * `canClear` — may this reading say AVAILABLE? The catalog's `is_sold_out` also folds in "a
  * required choice has nothing left to choose" (`requiredChoiceUnavailable`, the menu page), which
@@ -60,7 +60,12 @@ export function cartSoldOutReading(
   if (!dbNow) return null;
   const atMs = Date.parse(dbNow);
   if (!Number.isFinite(atMs)) return null;
-  const lines = items.filter((i) => i.menuItemId === menuItemId && i.fulfillment !== "grocery");
+  // A line whose flag is UNKNOWN (`undefined` — the view's catalog read failed, #362 blind pass 9)
+  // is no reading: counting it as `false` let a blip clear a real sold-out mark.
+  const lines = items.filter(
+    (i) =>
+      i.menuItemId === menuItemId && i.fulfillment !== "grocery" && typeof i.soldOut === "boolean",
+  );
   if (lines.length === 0) return null;
   const soldOut = lines.some((i) => i.soldOut === true);
   if (!soldOut && !canClear) return null;

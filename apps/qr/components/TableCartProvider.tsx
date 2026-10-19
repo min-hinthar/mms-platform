@@ -32,7 +32,14 @@ import {
   type RefusedWrite,
 } from "@/lib/cart-freeze";
 import { orderChangeNotice, orderChanges } from "@/lib/order-changes";
-import { heldKeys, newOwnHolds, openHold, releaseHolds, settleHold } from "@/lib/own-write-hold";
+import {
+  heldKeys,
+  newOwnHolds,
+  openHold,
+  releaseHolds,
+  releaseOwnHold,
+  settleHold,
+} from "@/lib/own-write-hold";
 import { orderUnitCount } from "@/lib/cart-bar-state";
 import { freshnessDurationMs } from "@/lib/catalog-freshness";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
@@ -446,18 +453,23 @@ export function TableCartProvider({
    * whose READ STARTED after the write settled has been diffed with it held (`lib/own-write-hold.ts`)
    * — never on a timer, which a slow re-read, or a failed one followed by the realtime echo, outran.
    * `holdPending` returns the SETTLE: call it the moment the write answers, before any recovery read
-   * is issued, so that read can be the one that ends it. Idempotent.
+   * is issued, so that read can be the one that ends it. Idempotent. `ownView` ends the hold once
+   * the write's OWN returned view has been applied (blind pass 9): /menu issues no read after a
+   * write that answered with a view, so without it the hold swallowed the next outside change.
    */
   const ownLinesRef = useRef(newOwnHolds());
   const ownDishesRef = useRef(newOwnHolds());
-  const holdPending = useCallback((which: "line" | "dish", key: string): (() => void) => {
-    const hold = openHold(
-      which === "line" ? ownLinesRef.current : ownDishesRef.current,
-      key,
-      Date.now(),
-    );
-    return () => settleHold(hold, viewSeqRef.current.issued);
-  }, []);
+  const holdPending = useCallback(
+    (which: "line" | "dish", key: string): { settle: () => void; ownView: () => void } => {
+      const holds = which === "line" ? ownLinesRef.current : ownDishesRef.current;
+      const hold = openHold(holds, key, Date.now());
+      return {
+        settle: () => settleHold(hold, viewSeqRef.current.issued),
+        ownView: () => releaseOwnHold(holds, hold),
+      };
+    },
+    [],
+  );
   /** The view diff — assigned below, once `flash` exists; `applyView` calls it for every view it
    *  accepts, with the previous confirmed lines. `diffCartRef` is the cart the baseline belongs to:
    *  the first view of a cart (arrival, a re-mint) is a situation, never news. */
@@ -1533,7 +1545,8 @@ export function TableCartProvider({
       const itemsBefore = itemsRef.current;
       // Lifecycle audit — this dish's change is OURS until a view read after the write has shown it
       // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
-      const settleOwn = holdPending("dish", menuItemId);
+      const own = holdPending("dish", menuItemId);
+      const settleOwn = own.settle;
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
@@ -1601,7 +1614,9 @@ export function TableCartProvider({
           announceShortfall(itemsBefore, reread.items, menuItemId, qty);
           return { state: "applied", view: reread.items };
         }
-        applyView(view, undefined, cartId);
+        // The write's OWN view, read after it committed: once diffed with the dish held, its hold
+        // ends — no ticketed read follows on /menu to end it (#362 blind pass 9).
+        if (applyView(view, undefined, cartId)) own.ownView();
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
         // region and the count agree with what actually landed.
         //
@@ -1760,7 +1775,8 @@ export function TableCartProvider({
       setPendingDelta((d) => d + delta);
       // Lifecycle audit — this line's change is OURS until a view read after the write has shown it
       // (the view diff skips it meanwhile — #362, `lib/own-write-hold.ts`).
-      const settleOwn = holdPending("line", cartItemId);
+      const own = holdPending("line", cartItemId);
+      const settleOwn = own.settle;
       try {
         // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
         // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
@@ -1801,7 +1817,8 @@ export function TableCartProvider({
           // `view: null` says exactly that — the next queued op re-reads rather than threading.
           return { state: "applied", view: reread.items };
         }
-        applyView(view, undefined, cartId);
+        // The write's OWN view ends its hold (see `add`) — #362 blind pass 9.
+        if (applyView(view, undefined, cartId)) own.ownView();
         return { state: "applied", view: view.items };
       } catch {
         // Re-sync from server truth (like Checkout's changeQty): a rejected remove — line already
