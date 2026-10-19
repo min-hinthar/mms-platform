@@ -295,6 +295,24 @@ These words are binding on every string this round adds. Each one extends PATH_D
 - **RULING#24 A:** the resolve update is scoped to `resolved = false`, first-writer-wins; a zero-row
   result reads "already resolved by …" and never overwrites `resolved_by` / `resolved_at`.
 
+### Codex round 6 on #357 (these win over the per-ID sections they name)
+
+- **M79:** the back stack is re-anchored on every new document navigation (a hard load clears it, or
+  each entry is bound to `history.state`), so `BackLink` never calls `history.back()` into a page
+  outside the app. Test: `/cart` → an external page → a direct `/track` load.
+- **P7d · P7e:** a nested `app/staff/manifest.ts` is not enough. The staff layout sets
+  `metadata.manifest` to a served staff manifest with its own `id`, `start_url` and `scope`; a test
+  reads the `/staff` head link.
+- **M206:** besides the counter-tender allowlist and `status = 'paid'`, the claim refuses a fully
+  refunded order by M308's full-refund derivation, and the receipt hides the claim for that state.
+  Regression: a fully refunded tipped cash order.
+- **P2hf:** "Mark served" from the counter is NOT migration-free. `mms_clear_table` treats a line
+  bumped inside `KDS_UNDO_MS` as unserved (or the clear serializes against `mms_recall_ticket`), so a
+  recall cannot strand a paid line on a closed session (the M270 (9) gap); plus a
+  mark → clear → undo race test.
+- **M270 (6):** the decline is bound to its `settleAttempt` and is honoured only while it is the
+  latest attempt; a new charge attempt supersedes it. Race test: decline → retry → clear.
+
 ### Spot-checked claims (26 of the 50 checked; the rest were confirmed and are not listed)
 
 | Claim                                                       | Ref checked                                              | Result                                          |
