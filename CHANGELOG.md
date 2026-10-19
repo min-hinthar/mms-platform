@@ -47,9 +47,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   restocked in between is added), and the /menu render awaits its stamp before the catalog query.
   `check-freeze-parity` pins `effectiveFreeze`'s clock to `Date.now()` and refuses more than one
   live `locked` derivation. **One migration, `20261018140000_lcb_set_qty_growth_gate.sql`, awaits its
-  prod apply (M328, ruling #5):** `set_qty` refuses to grow a sold-out line against the quantity
+  prod apply (M336, ruling #5):** `set_qty` refuses to grow a sold-out line against the quantity
   under its row lock, so a concurrent decrease can no longer turn a stale "−" into a growth; the app
-  reads the refusal for diners and staff and works unchanged until it is applied. M328 and M329 filed.
+  reads the refusal for diners and staff and works unchanged until it is applied. M336 and M337 filed.
 
 ### The stranded-payment sweep runs every day (2026-10-18, M160(b) · owner ruling #13)
 
