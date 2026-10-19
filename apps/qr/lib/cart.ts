@@ -107,7 +107,6 @@ type AddItemDoor = {
   mode: Awaited<ReturnType<typeof assertCartMember>>["mode"];
 };
 
-/** `addItem`'s write: price, insert-or-merge (status- and freeze-atomic in its RPC), touch, view. */
 /** `addItem`'s write: price, insert-or-merge (status- and freeze-atomic in its RPC), touch, view.
  *  Behind a door that already authorized, rate-counted and refused the freezes — `addItem`'s own,
  *  or `addItemOutcome`'s, whose restock retry re-runs THIS only (the capped blind pass on #362: a
