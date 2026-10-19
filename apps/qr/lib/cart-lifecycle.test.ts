@@ -64,6 +64,8 @@ const h = vi.hoisted(() => ({
   touched: [] as string[],
   /** The order the clock and the availability reads were ISSUED in (Codex P2 on #362). */
   log: [] as string[],
+  /** How many times one call counted against the rate limit (the capped blind pass on #362). */
+  rate: 0,
 }));
 
 vi.mock("./authz", () => ({
@@ -98,7 +100,10 @@ vi.mock("./authz", () => ({
   UNAVAILABLE: () => new FakeAuthzError("We’re having trouble on our end", 503, "unavailable"),
 }));
 vi.mock("./rate", () => ({
-  assertMutationRate: () => Promise.resolve(),
+  assertMutationRate: () => {
+    h.rate++;
+    return Promise.resolve();
+  },
   withinMutationRate: () => Promise.resolve(true),
 }));
 // The REAL ownership rule — `setLineNote`'s guest case depends on it.
@@ -197,6 +202,7 @@ beforeEach(() => {
   h.sellable = "available";
   h.touched = [];
   h.log = [];
+  h.rate = 0;
   answer = () => ({ data: null, error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -241,6 +247,10 @@ describe("addItemOutcome — a sold-out dish is refused as a VALUE, before anyth
     const out = await addItemOutcome("c-1", "m-1");
     expect(out.ok).toBe(true);
     expect(calls).toBe(2);
+    // The capped blind pass on #362 — the retry is the WRITE only: one tap authorizes and counts
+    // against the device's rate limit once. MUTATION (lcb/cart/restocked-add-counted-twice): retry
+    // the whole `addItem`; red. (`getCartView`'s own member read after the write is the view's.)
+    expect(h.rate).toBe(1);
   });
 
   it("a dish no longer on the menu is refused as `gone` — never as an 86 (#362 Codex round 1)", async () => {

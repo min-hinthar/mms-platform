@@ -24,6 +24,9 @@ export type NoteDraft = {
   seen: string;
   /** The order's note when it moved under a TOUCHED field (shown, not adopted), else null. */
   underneath: string | null;
+  /** What THIS sheet's save sent while it is still unanswered (past the sheet's bound the field
+   *  is editable again), else null/absent. The order reaching it is this sheet's save landing. */
+  submitted?: string | null;
 };
 
 /** The order's note is now `live` ("" for none). */
@@ -34,6 +37,11 @@ export function noteOnLiveChange(d: NoteDraft, live: string): NoteDraft {
   // matches the order, so it becomes the seed — never shown as someone else's change, which left
   // the next Save comparing against a stale seed and refused as `changed`.
   if (live === d.note.trim()) return { note: d.note, seen: live, underneath: null };
+  // The capped blind pass on #362 — the save answered past the bound, the diner typed on, and then
+  // it committed: the order holds what this sheet SUBMITTED. It is the seed now; the newer words
+  // stay in the field, unsaved — never "someone else's change".
+  if (d.submitted != null && live === d.submitted)
+    return { note: d.note, seen: live, underneath: null, submitted: null };
   if (d.note === d.seen) return { note: live, seen: live, underneath: null };
   return { ...d, underneath: live };
 }
@@ -68,10 +76,13 @@ export function noteChangedNotice(name: string, fresh: string | null): { en: str
 }
 
 /**
- * #362 (blind pass 9) — the view's sentence for a save refused as `not_yours`: the line was comped,
- * or is no longer this diner's, while the sheet was open. No retry from this phone can land, so it
- * names the way through instead of "please try again". EN only, like the refusal copy beside it.
+ * #362 (blind pass 9) — the view's sentence for a save refused as `not_yours`. `setLineNote` answers
+ * it from `canMutateLine` after its state checks, so it covers TWO facts it does not tell apart: the
+ * line was comped, or — for a guest — it is no longer their seat's (a reassign moved it). Neither can
+ * be retried from this phone, and both are true of the one way through it names: staff edit any
+ * unsent dish's note (`setLineNotes`). So it says only that, never which fact, and never "please try
+ * again". EN only, like the refusal copy beside it.
  */
 export function noteNotYoursNotice(name: string): string {
-  return `The note on ${name} can’t be changed from this phone — ask a server.`;
+  return `The note on ${name} can’t be changed from this phone now — a server can change it for you.`;
 }

@@ -326,6 +326,53 @@ describe("LineOptionsSheet — the note on the order moves while the sheet is op
     expect(onSaveNote).toHaveBeenCalledWith("Extra spicy", "");
   });
 
+  it("the capped blind pass on #362 — a save that commits past the bound while the diner typed on is THEIRS, never 'changed on the order'", async () => {
+    // MUTATION (lcb/line-sheet/late-save-unrecorded): never record what the save SUBMITTED — the
+    // late commit reads as someone else's change, and the next Save is refused as `changed` over
+    // the diner's own note; red.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const pending = deferred<{ ok: true }>();
+      const onSaveNote = vi.fn(() => pending.promise);
+      const props = {
+        open: true,
+        frozen: false,
+        prepMinutes: 12,
+        notice: null,
+        onOpenChange: vi.fn(),
+        onChoose: vi.fn(),
+        onMakeNow: vi.fn(() => Promise.resolve()),
+        onSaveNote,
+      };
+      const { rerender } = render(<LineOptionsSheet line={LINE} {...props} />);
+      fireEvent.change(field(screen.getByRole("dialog")), { target: { value: "No egg" } });
+      await act(async () => {
+        fireEvent.click(
+          within(screen.getByRole("dialog")).getByRole("button", { name: "Save note" }),
+        );
+      });
+      // Past the sheet's bound the field frees while the save is still out; the diner types on.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      fireEvent.change(field(screen.getByRole("dialog")), {
+        target: { value: "No egg, extra spicy" },
+      });
+      // The save commits late: the order now holds what THIS sheet sent.
+      rerender(<LineOptionsSheet line={{ ...LINE, notes: "No egg" }} {...props} />);
+      const d = screen.getByRole("dialog");
+      expect(field(d).value).toBe("No egg, extra spicy");
+      expect(d.textContent).not.toContain("Changed on the order while you were typing");
+      await act(async () => {
+        fireEvent.click(within(d).getByRole("button", { name: "Save note" }));
+      });
+      // The next save is against the note this sheet itself put there.
+      expect(onSaveNote).toHaveBeenLastCalledWith("No egg, extra spicy", "No egg");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a save refused as `changed` re-seeds the field from the note now on the order, and stays open", async () => {
     // MUTATION (lcb/line-sheet/changed-not-reseeded): keep the stale seed — every retry is refused
     // again, and the diner never sees the note they would be replacing; red.

@@ -41,7 +41,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   no read after such a write. A cart view whose catalog read failed leaves a dish's sold-out flag
   unknown instead of `false`, so a blip can no longer clear a real mark. A comped unsent dish offers
   no ⋯ (every write behind it is refused), and a note save refused as not this diner's names the way
-  through — "ask a server" — instead of "please try again". A save that commits after the sheet's
+  through — "a server can change it for you" — instead of "please try again". A save that commits after the sheet's
   bound re-seeds the field instead of reading as someone else's edit. Every sold-out stamp is taken
   no later than the read it reports: the refusal stamps, then re-confirms availability (a dish
   restocked in between is added), and the /menu render awaits its stamp before the catalog query.
@@ -50,6 +50,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   prod apply (M336, ruling #5):** `set_qty` refuses to grow a sold-out line against the quantity
   under its row lock, so a concurrent decrease can no longer turn a stale "−" into a growth; the app
   reads the refusal for diners and staff and works unchanged until it is applied. M336 and M337 filed.
+- **#362 fix round 3 (the capped blind pass).** `set_qty`'s growth gate now reads the line `FOR
+UPDATE` and decides and writes from that one row: the first draft named its refusal from a second
+  snapshot, so a restock landing mid-wait answered a silent 0 that both callers read as "no longer
+  open" — two new two-session races in `verify-line-guard-race` pin it (red on the old body and on
+  the first draft). The restock retry in `addItemOutcome` re-runs the write only, so one tap counts
+  once against the rate limit. A note save that commits past the sheet's bound while the diner typed
+  on is recognised as the sheet's own (it records what it submitted). The `not_yours` note sentence
+  names only what is true of both its causes. The /menu stamp guard refuses a nested function around
+  the clock call, and `check:freeze-parity` gains a red-first self-test of its new arms.
 
 ### The release session's handoff (2026-10-18, docs only)
 

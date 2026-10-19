@@ -25,7 +25,7 @@ declare
   sess  uuid := gen_random_uuid();
   cart  uuid := gen_random_uuid();
   out1 uuid; ok1 uuid; del1 uuid; nocat uuid; groc uuid; cmp uuid;
-  n integer; q integer; msg text; det text; hnt text;
+  n integer; q integer; msg text; det text; hnt text; cart_before jsonb; lines_before jsonb;
 begin
   insert into public.menu_categories (id, slug, name) values (cat, 'lcbq-cat', 'LCBQ fixture');
   insert into public.menu_items (id, category_id, slug, name_en, base_price_cents, is_active, is_sold_out)
@@ -58,6 +58,9 @@ begin
 
   -- ══ LCBQ.1 · the RACE: a concurrent decrease 5 → 3, then a stale "−" asking for 4 ═════════════
   update public.qr_cart_items set qty = 3 where id = out1;
+  select to_jsonb(c) into cart_before from public.qr_carts c where c.id = cart;
+  select jsonb_agg(to_jsonb(ci) order by ci.id) into lines_before
+    from public.qr_cart_items ci where ci.cart_id = cart;
   msg := null; det := null; hnt := null;
   begin
     perform public.mms_cart_item_set_qty_if_open(out1, 4);
@@ -67,6 +70,11 @@ begin
   select qty into q from public.qr_cart_items where id = out1;
   assert msg = 'dish unavailable' and det = 'sold_out' and q = 3,
     format('LCBQ.1 · growing a sold-out line past the quantity under the lock must be refused, named (msg=%s det=%s qty=%s)', msg, det, q);
+  -- Nothing else moved either: the cart row and every line on it are exactly as before the call.
+  assert (select to_jsonb(c) from public.qr_carts c where c.id = cart) = cart_before
+     and (select jsonb_agg(to_jsonb(ci) order by ci.id) from public.qr_cart_items ci
+           where ci.cart_id = cart) = lines_before,
+    'LCBQ.1 · a refused growth must leave the cart and its lines untouched';
   -- The stamp: the transaction start, as an ISO instant the app parses — no later than the read.
   assert hnt = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     format('LCBQ.1 · the refusal must carry its stamp (hint=%s)', hnt);
@@ -83,19 +91,27 @@ begin
     format('LCBQ.2 · a delisted dish must be refused as gone (msg=%s det=%s qty=%s)', msg, det, q);
 
   -- ══ LCBQ.3 · the way OUT stays open: the same quantity, a shrink, a removal ══════════════════
-  n := public.mms_cart_item_set_qty_if_open(out1, 3);
-  assert n = 1, format('LCBQ.3 · an unchanged quantity of a sold-out line must land (n=%s)', n);
-  n := public.mms_cart_item_set_qty_if_open(out1, 2);
+  -- Each call is caught, so a refusal here fails as THIS case, never as an unnamed error.
+  msg := null; n := null;
+  begin n := public.mms_cart_item_set_qty_if_open(out1, 3); exception when others then msg := sqlerrm; end;
+  assert msg is null and n = 1,
+    format('LCBQ.3 · an unchanged quantity of a sold-out line must land (n=%s msg=%s)', n, msg);
+  msg := null; n := null;
+  begin n := public.mms_cart_item_set_qty_if_open(out1, 2); exception when others then msg := sqlerrm; end;
   select qty into q from public.qr_cart_items where id = out1;
-  assert n = 1 and q = 2, format('LCBQ.3 · a shrink of a sold-out line must land (n=%s qty=%s)', n, q);
-  n := public.mms_cart_item_set_qty_if_open(out1, 0);
-  assert n = 1 and not exists (select 1 from public.qr_cart_items where id = out1),
-    format('LCBQ.3 · removing a sold-out line must land (n=%s)', n);
+  assert msg is null and n = 1 and q = 2,
+    format('LCBQ.3 · a shrink of a sold-out line must land (n=%s qty=%s msg=%s)', n, q, msg);
+  msg := null; n := null;
+  begin n := public.mms_cart_item_set_qty_if_open(out1, 0); exception when others then msg := sqlerrm; end;
+  assert msg is null and n = 1 and not exists (select 1 from public.qr_cart_items where id = out1),
+    format('LCBQ.3 · removing a sold-out line must land (n=%s msg=%s)', n, msg);
 
   -- ══ LCBQ.4 · a grocery line is never a dish ══════════════════════════════════════════════════
-  n := public.mms_cart_item_set_qty_if_open(groc, 2);
+  msg := null; n := null;
+  begin n := public.mms_cart_item_set_qty_if_open(groc, 2); exception when others then msg := sqlerrm; end;
   select qty into q from public.qr_cart_items where id = groc;
-  assert n = 1 and q = 2, format('LCBQ.4 · a grocery line must grow whatever the dish table says (n=%s qty=%s)', n, q);
+  assert msg is null and n = 1 and q = 2,
+    format('LCBQ.4 · a grocery line must grow whatever the dish table says (n=%s qty=%s msg=%s)', n, q, msg);
 
   -- ══ LCBQ.5 · a comped draft keeps its old answer (0), never the new raise ════════════════════
   msg := null;

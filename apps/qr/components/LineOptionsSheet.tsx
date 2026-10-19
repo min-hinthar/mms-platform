@@ -111,6 +111,10 @@ export function LineOptionsSheet({
     setNewerUnsaved(false);
     setBusyWith("note");
     setBusy(true);
+    // The capped blind pass on #362 — remember what THIS save sent: past the bound the field frees
+    // while it is still out, and the order reaching these words later is this save landing
+    // (`noteOnLiveChange`), never someone else's change.
+    setDraft((d) => ({ ...d, submitted }));
     try {
       // The RAW write, awaited bounded, outside any transition (9b) — the `sendNow` shape. A note is
       // the allergy channel, so the sheet holds for the answer rather than closing on a hope.
@@ -121,13 +125,16 @@ export function LineOptionsSheet({
           // says — otherwise the newer words would vanish with the sheet (Codex D).
           if (noteNowRef.current.trim() === submitted) onOpenChange(false);
           else {
-            setDraft((d) => ({ ...d, seen: submitted, underneath: null }));
+            setDraft((d) => ({ ...d, seen: submitted, underneath: null, submitted: null }));
             setNewerUnsaved(true);
           }
         } else if (out.value.reason === "changed") {
           // Someone else's note is on the order now: show it, and save against it next time. The
           // view's one region says so (the parent's `settleNote`).
           setDraft(noteAfterChanged(out.value.notes ?? null));
+        } else {
+          // Any other answer wrote nothing: there is no pending save to recognise.
+          setDraft((d) => ({ ...d, submitted: null }));
         }
       }
     } finally {

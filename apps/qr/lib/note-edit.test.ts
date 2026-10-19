@@ -47,6 +47,27 @@ describe("noteOnLiveChange — the order's note moved while the sheet was open",
     });
   });
 
+  it("the capped blind pass on #362 — a save that commits LATE while the diner typed on is adopted from what this sheet SUBMITTED", () => {
+    // Past the bound the field is editable again while the save is still out; the diner types on
+    // ("No egg" → "No egg, extra spicy"), then the save commits. The order now holds what THIS sheet
+    // sent, so it is the new seed — the diner's newer words stay, unsaved, and are not "someone
+    // else's change". MUTATION (lcb/note-edit/late-save-ignores-the-submitted): match only the
+    // field's current words; red.
+    expect(
+      noteOnLiveChange(
+        { note: "No egg, extra spicy", seen: "", underneath: null, submitted: "No egg" },
+        "No egg",
+      ),
+    ).toEqual({ note: "No egg, extra spicy", seen: "No egg", underneath: null, submitted: null });
+    // Someone ELSE's note under a pending save is still shown, never adopted.
+    expect(
+      noteOnLiveChange(
+        { note: "No egg, extra", seen: "", underneath: null, submitted: "No egg" },
+        "No peanuts",
+      ),
+    ).toEqual({ note: "No egg, extra", seen: "", underneath: "No peanuts", submitted: "No egg" });
+  });
+
   it("the order moving BACK to the seed clears the shown change", () => {
     expect(
       noteOnLiveChange({ note: "Extra spicy", seen: "", underneath: "No peanuts" }, ""),

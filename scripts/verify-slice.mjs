@@ -1158,6 +1158,14 @@ const MUTANTS = [
     replace: "    lines.filter((l) => !l.comped),",
   },
   {
+    id: "lcb/menu/render-stamp-in-a-nested-fn",
+    file: "apps/qr/app/(order)/menu/page.tsx",
+    suite: "lib/menu-render-stamp.test.ts",
+    why: "#362 (capped blind pass) — the page itself awaits the clock; an IIFE around the call satisfies 'awaited' while the page awaits a different promise",
+    find: '  const stamp = await dbClockIso("menu render");',
+    replace: '  const stamp = await (async () => await dbClockIso("menu render"))();',
+  },
+  {
     id: "lcb/menu/render-stamp-beside-the-read",
     file: "apps/qr/app/(order)/menu/page.tsx",
     suite: "lib/menu-render-stamp.test.ts",
@@ -1223,6 +1231,15 @@ const MUTANTS = [
     find: "  const at = await dbClockIso(context);\n  const now = await dishAvailability(menuItemId);\n",
     replace:
       "  const now = await dishAvailability(menuItemId);\n  const at = await dbClockIso(context);\n",
+  },
+  {
+    id: "lcb/cart/restocked-add-counted-twice",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-lifecycle.test.ts",
+    why: "#362 (capped blind pass) — the restock retry re-runs the WRITE only; through `addItem` it authorizes again and counts one tap twice against the device's rate limit",
+    find: "      return { ok: true, view: await addItemWrite(authorized) };\n    } catch (again) {",
+    replace:
+      "      return { ok: true, view: await addItem(cartId, menuItemId, modifierIds, notes, qty) };\n    } catch (again) {",
   },
   {
     id: "lcb/cart/restocked-add-refused",
@@ -1792,6 +1809,22 @@ const MUTANTS = [
     replace: '      if (!n.bySeat && n.lineState !== "voided" && !ours(n, pending))',
   },
   {
+    id: "lcb/note-edit/late-save-ignores-the-submitted",
+    file: "apps/qr/lib/note-edit.ts",
+    suite: "lib/note-edit.test.ts",
+    why: "#362 (capped blind pass) — a save that commits past the bound while the diner typed on is this sheet's own; read as someone else's change, the next Save is refused as `changed`",
+    find: "  if (d.submitted != null && live === d.submitted)\n",
+    replace: "  if (false)\n",
+  },
+  {
+    id: "lcb/line-sheet/late-save-unrecorded",
+    file: "apps/qr/components/LineOptionsSheet.tsx",
+    suite: "components/LineOptionsSheet.test.tsx",
+    why: "#362 (capped blind pass) — the sheet records what its save SUBMITTED, so a late commit is recognised as its own",
+    find: "    setDraft((d) => ({ ...d, submitted }));\n",
+    replace: "",
+  },
+  {
     id: "lcb/note-edit/own-late-save-read-as-theirs",
     file: "apps/qr/lib/note-edit.ts",
     suite: "lib/note-edit.test.ts",
@@ -1919,7 +1952,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "#362 (blind pass 2a) — /cart says 'remove it' only to a phone that can remove the dish",
-    find: "                          const k = unavailableMarkKey(i.unavailable, canEdit && !i.comped);",
+    find: "                          const k = unavailableMarkKey(i.unavailable, canEdit);",
     replace: "                          const k = unavailableMarkKey(i.unavailable, true);",
   },
   {
@@ -1927,9 +1960,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "#362 (Codex round 1) — /cart marks a delisted dish 'No longer on the menu'",
-    find: "                          const k = unavailableMarkKey(i.unavailable, canEdit && !i.comped);",
-    replace:
-      '                          const k = unavailableMarkKey("sold_out", canEdit && !i.comped);',
+    find: "                          const k = unavailableMarkKey(i.unavailable, canEdit);",
+    replace: '                          const k = unavailableMarkKey("sold_out", canEdit);',
   },
   {
     id: "lcb/checkout/comped-line-offers-the-sheet",

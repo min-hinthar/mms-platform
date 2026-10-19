@@ -96,9 +96,23 @@ export async function addItem(
   const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
   if (locked) throw new Error("Order is locked while someone checks out");
-  if (settling)
-    throw new Error("Your table is paying — you can’t change the order while everyone pays");
+  if (settling) throw new Error(ADD_WHILE_PAYING);
+  return addItemWrite({ input, uid, mode });
+}
 
+const ADD_WHILE_PAYING = "Your table is paying — you can’t change the order while everyone pays";
+type AddItemDoor = {
+  input: ReturnType<typeof addItemInput.parse>;
+  uid: string;
+  mode: Awaited<ReturnType<typeof assertCartMember>>["mode"];
+};
+
+/** `addItem`'s write: price, insert-or-merge (status- and freeze-atomic in its RPC), touch, view. */
+/** `addItem`'s write: price, insert-or-merge (status- and freeze-atomic in its RPC), touch, view.
+ *  Behind a door that already authorized, rate-counted and refused the freezes — `addItem`'s own,
+ *  or `addItemOutcome`'s, whose restock retry re-runs THIS only (the capped blind pass on #362: a
+ *  retry through `addItem` counted one tap twice against the device's rate limit). */
+async function addItemWrite({ input, uid, mode }: AddItemDoor) {
   // M108 — the mode comes from `assertCartMember`, which read it off the SAME row it used to prove
   // the session is active and throws 503 when that read fails. The second read this replaced
   // discarded its error, so an unreadable session tagged a dine-in table's line `togo` and charged
@@ -184,8 +198,16 @@ export async function addItemOutcome(
 ): Promise<
   { ok: true; view: Awaited<ReturnType<typeof addItem>> } | ({ ok: false } & ServerRefusal)
 > {
+  // The door, ONCE — the same refusals as `addItem`'s, in this function so `check:freeze-parity`
+  // reads them here: a retry below re-runs the write, never the door (its rate count included).
+  const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes, qty });
+  const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
+  await assertMutationRate(uid);
+  if (locked) throw new Error("Order is locked while someone checks out");
+  if (settling) throw new Error(ADD_WHILE_PAYING);
+  const authorized: AddItemDoor = { input, uid, mode };
   try {
-    return { ok: true, view: await addItem(cartId, menuItemId, modifierIds, notes, qty) };
+    return { ok: true, view: await addItemWrite(authorized) };
   } catch (e) {
     // ONLY the availability refusal becomes a value. It is thrown from `priceItem`, BEFORE the
     // insert, so nothing landed; every other throw keeps its old meaning (it may have committed).
@@ -200,7 +222,7 @@ export async function addItemOutcome(
     // Restocked (or unreadable) since `priceItem` refused: NOTHING was written, so the diner's add is
     // asked once more — its own `priceItem` read follows the stamp, so a second refusal carries it.
     try {
-      return { ok: true, view: await addItem(cartId, menuItemId, modifierIds, notes, qty) };
+      return { ok: true, view: await addItemWrite(authorized) };
     } catch (again) {
       if (again instanceof ItemUnsellableError) return { ok: false, refused: again.reason, at };
       throw again;

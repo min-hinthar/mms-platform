@@ -43,7 +43,12 @@ import ts from "typescript";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// `FREEZE_PARITY_ROOT` points the gate at a COPY of `apps/qr/lib` — `apps/qr/lib/check-freeze-parity.test.ts`
+// runs it against committed evasions of its own arms (each must turn it red). Unset, it reads this
+// checkout.
+const ROOT = process.env.FREEZE_PARITY_ROOT
+  ? path.resolve(process.env.FREEZE_PARITY_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIB = "apps/qr/lib";
 const CART = `${LIB}/cart.ts`;
 
@@ -1184,6 +1189,9 @@ if (deadExemptions.length)
 // rules, they had simply never been in reach.
 const EXPECTED_SUBJECTS = [
   "addItem",
+  // #362 (the capped blind pass) — the sold-out wrapper runs its own door ONCE so its restock retry
+  // re-runs the write only; read: `if (locked) throw` before `addItemWrite`, like `addItem`.
+  "addItemOutcome",
   "applyPromo",
   "applyReward",
   "assignLine",

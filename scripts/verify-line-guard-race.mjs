@@ -485,7 +485,129 @@ function cleanup() {
        where ci.cart_id = c.id and c.session_id = s.id and s.qr_code like '${TAG}-%';
      delete from public.qr_carts c using public.table_sessions s
        where c.session_id = s.id and s.qr_code like '${TAG}-%';
-     delete from public.table_sessions where qr_code like '${TAG}-%';`);
+     delete from public.table_sessions where qr_code like '${TAG}-%';
+     delete from public.menu_items where slug like '${TAG_SLUG}-%';
+     delete from public.menu_categories where slug like '${TAG_SLUG}-%';`);
+}
+
+// ── #362 — set_qty's GROWTH gate against a concurrent writer (20261018140000) ─────────────────────
+// The diner's "−" asks for an ABSOLUTE quantity computed from a view that can be stale. The gate
+// must compare against the quantity the write REPLACES, and the refusal it names must come from the
+// same read as the decision. Two sessions, because a single one cannot hold a row lock against
+// itself: A changes the line (and, in g2, restocks the dish) inside an open transaction; B's
+// set_qty must WAIT on A, and once A commits B must answer either the named refusal or the correct
+// write — NEVER a silent 0, which both callers read as "this order is no longer open".
+const TAG_SLUG = "p2dk";
+function growthFixture(id, qty) {
+  const n = ++fixtureSeq;
+  const out = q(`with cat as (
+      insert into public.menu_categories (slug, name)
+      values ('${TAG_SLUG}-${id}-${RUN}-${n}', 'P2DK growth') returning id
+    ), mi as (
+      insert into public.menu_items (category_id, slug, name_en, base_price_cents, is_active, is_sold_out)
+      select id, '${TAG_SLUG}-${id}-${RUN}-${n}', 'Sold Out Dish', 1400, true, true from cat
+      returning id
+    ), s as (
+      insert into public.table_sessions (qr_code, mode, status)
+      values ('${TAG}-${id}-${RUN}-${n}', 'dinein', 'active') returning id
+    ), c as (
+      insert into public.qr_carts (session_id) select id from s returning id
+    ), i as (
+      insert into public.qr_cart_items
+        (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+      select c.id, mi.id::text, 'Sold Out Dish', ${qty}, 1400, 147, 'dinein' from c, mi
+      returning id
+    )
+    select (select id from mi), (select id from i);`);
+  const [dish, line] = out.split("|");
+  if (!dish || !line) throw new Error(`${TAG} growth fixture ${id} did not resolve: ${out}`);
+  return { dish, line, qty: () => q(`select qty from public.qr_cart_items where id = '${line}';`) };
+}
+const setQty = (line, n) => `select public.mms_cart_item_set_qty_if_open('${line}'::uuid, ${n})`;
+
+const GROWTH = {
+  /** A steps the sold-out line 5 → 3 and holds it; B's stale "−" asks for 4 — a GROWTH from 3. */
+  async g1() {
+    const f = growthFixture("g1", 5);
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const ra = await a.run(attempt(setQty(f.line, 3)));
+      b.fire(attempt(setQty(f.line, 4)));
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const rb = await b.collect();
+      return [
+        ["A's decrease landed", ra, "ok"],
+        ["B waited for A's row lock", how, "blocked"],
+        ["B's growth was refused, named", rb, "ERR:dish unavailable"],
+        ["the line is A's 3", f.qty(), "3"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  /** A steps 5 → 3 AND restocks the dish, then holds it: B's 4 is either refused or lands — never 0. */
+  async g2() {
+    const f = growthFixture("g2", 5);
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // B reads the function's OWN answer (`p2dk_try` says 'ok' for any return value): 1 landed,
+      // 0 the silent answer both callers read as "no longer open", or the named refusal.
+      await b.run(`create function pg_temp.p2dk_sq(l uuid, n integer) returns text language plpgsql as
+        $f$ begin return public.mms_cart_item_set_qty_if_open(l, n)::text;
+        exception when others then return 'ERR:' || sqlerrm; end $f$;`);
+      await a.run("begin;");
+      await a.run(attempt(setQty(f.line, 3)));
+      await a.run(`update public.menu_items set is_sold_out = false where id = '${f.dish}';`);
+      b.fire(`select pg_temp.p2dk_sq('${f.line}'::uuid, 4);`);
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const rb = await b.collect();
+      const qty = f.qty();
+      const n = q(setQty(f.line, Number(qty)) + ";");
+      const outcome =
+        rb === "ERR:dish unavailable" && qty === "3"
+          ? "refused"
+          : rb === "1" && qty === "4"
+            ? "landed"
+            : `neither: B answered ${rb}, qty=${qty}`;
+      return [
+        ["B waited for A's row lock", how, "blocked"],
+        [
+          "B named a refusal or landed the write",
+          ["refused", "landed"].includes(outcome) ? "ok" : outcome,
+          "ok",
+        ],
+        ["the open cart still answers a write", n, "1"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+};
+
+/** Run the growth races; returns the ids that went red (printing when `loud`). */
+async function growthBattery(loud) {
+  const red_ = [];
+  red_.why = [];
+  for (const [id, run] of Object.entries(GROWTH)) {
+    const checks = await run();
+    const bad = checks.filter(([, got, want]) => String(got) !== String(want));
+    if (bad.length) red_.push(id);
+    for (const [label, got] of bad) red_.why.push(`${id}: ${label} ✗ (${got})`);
+    if (loud) {
+      console.log(`  ${bad.length ? red("✗") : green("✓")} set_qty growth (${id})`);
+      for (const [label, got, want] of bad) {
+        console.log(`      ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+      }
+    }
+  }
+  return red_;
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
@@ -522,6 +644,19 @@ const MUTANTS = RPCS.flatMap((rpc) => [
     expect: ["c"],
     why: "over-locking: correct against a claim, but every write on a busy table queues behind the last",
   },
+]).concat([
+  {
+    // #362 — the growth gate's LINE lock (20261018140000). Without it the decision reads the line
+    // while a concurrent decrease is uncommitted (5, not 3), calls 4 a shrink, and the write then
+    // waits and grows the sold-out line to 4.
+    id: "set_qty/line-lock-deleted",
+    rpc: RPCS.find((r) => r.key === "set_qty"),
+    line: /^\s*for update of ci;\s*$/,
+    to: "    ;",
+    growth: true,
+    expect: ["g1"],
+    why: "the growth gate decides on a row it does not lock — a stale '−' grows a sold-out line",
+  },
 ]);
 
 function restoreMigration() {
@@ -552,18 +687,29 @@ async function runMutants() {
       );
     }
   }
-  console.log(`  ${green("baseline")} ${dim("all nine scenarios green on the real functions")}`);
+  const growthReds = await growthBattery(false);
+  if (growthReds.length) {
+    throw new Error(
+      `${TAG} REFUSED — the UNMUTATED set_qty is already red on (${growthReds.join(", ")})`,
+    );
+  }
+  console.log(
+    `  ${green("baseline")} ${dim("all nine scenarios and both growth races green on the real functions")}`,
+  );
 
   let bad = 0;
   for (const m of MUTANTS) {
     const stmt = statementFor(m.rpc.fn);
-    const hits = stmt ? stmt.split("\n").filter((l) => /^\s*for share;\s*$/.test(l)).length : 0;
+    const line = m.line ?? /^\s*for share;\s*$/;
+    const hits = stmt ? stmt.split("\n").filter((l) => line.test(l)).length : 0;
     if (hits !== 1) {
-      console.log(`  ${red("STALE")} ${m.id} — \`for share;\` matched ${hits}× (want exactly 1)`);
+      console.log(
+        `  ${red("STALE")} ${m.id} — \`${line.source}\` matched ${hits}× (want exactly 1)`,
+      );
       bad++;
       continue;
     }
-    const mutated = stmt.replace(/^\s*for share;\s*$/m, () => m.to);
+    const mutated = stmt.replace(new RegExp(line.source, "m"), () => m.to);
     let live_ = true;
     const restoreNow = () => {
       if (!live_) return;
@@ -580,7 +726,7 @@ async function runMutants() {
         bad++;
         continue;
       }
-      const reds = await battery(m.rpc, false);
+      const reds = m.growth ? await growthBattery(false) : await battery(m.rpc, false);
       const missed = m.expect.filter((e) => !reds.includes(e));
       const leaked = reds.filter((r) => !m.expect.includes(r));
       if (!reds.length) {
@@ -634,6 +780,7 @@ async function main() {
     } else {
       console.log(`\n${TAG} — the line RPCs' cart lock against a real settlement claim\n`);
       for (const rpc of RPCS) failed += (await battery(rpc, true)).length;
+      failed += (await growthBattery(true)).length;
     }
   } finally {
     cleanup();
@@ -649,7 +796,11 @@ async function main() {
     process.exit(1);
   }
   if (!process.argv.includes("--mutants")) {
-    console.log(green(`\n✓ verify:line-race — 3 RPCs × (claim-first · add-first · control)\n`));
+    console.log(
+      green(
+        `\n✓ verify:line-race — 3 RPCs × (claim-first · add-first · control) + set_qty growth (g1 · g2)\n`,
+      ),
+    );
   }
 }
 

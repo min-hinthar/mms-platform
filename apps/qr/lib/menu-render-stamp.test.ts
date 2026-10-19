@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
  * catalog read it stamps. /menu weighs that render against the cart view's `dbNow` and a refusal's
  * stamp (`freshestSoldOut`); a stamp STARTED beside the catalog query could be taken after the
  * snapshot, and the stale render then outvoted a fresher cart reading. So the clock is AWAITED, in a
- * top-level statement of the page that finishes before the statement issuing the catalog query.
+ * top-level statement of the page that finishes before the statement issuing the catalog query —
+ * the page's own `await`, with no function (an IIFE, a callback) between it and the call.
  * Parsed, never grepped (LEARNINGS #60): exactly one `dbClockIso(…)` call and one
  * `.from("menu_items")` query in the page, each in its own top-level statement of the page body.
  */
@@ -77,6 +78,15 @@ describe("the /menu render stamp is taken before the catalog read it stamps", ()
       "the dbClockIso(…) call is itself awaited",
     ).toBe(true);
     const clockStmt = topStatement(body, clock);
+    // …by the PAGE itself, not inside a function the statement merely calls: an IIFE
+    // (`await (async () => await dbClockIso(…))()`) satisfies "awaited" while the page awaits a
+    // different promise. MUTATION (lcb/menu/render-stamp-in-a-nested-fn): wrap the call; red.
+    const nested: string[] = [];
+    for (let n: ts.Node = clock.parent; n !== clockStmt; n = n.parent)
+      if (ts.isFunctionLike(n)) nested.push(ts.SyntaxKind[n.kind]);
+    expect(nested, "no function between the page's statement and the awaited clock call").toEqual(
+      [],
+    );
     const catalogStmt = topStatement(body, catalogs[0]!);
     // A plain sequential statement (a declaration or an expression), so its await settles before the
     // next statement runs — not a branch that may never run.

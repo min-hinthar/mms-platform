@@ -4269,12 +4269,14 @@ export function Checkout({
               );
               const showHeadings = present.length > 1;
               const renderLine = (i: CartItem, leaving = false) => {
-                // `canEdit` stays the PERMISSION (state × role); the lock is a separate, transient
-                // refusal. Keeping them apart is what lets a locked control stay RENDERED and disabled
-                // instead of vanishing — a missing control is the red-team trap this repo names by
-                // name, and the pills below are gated on `canEdit &&`.
-                // #362 blind pass 9 — WITH the comp, as the server asks it: every write behind the
-                // ⋯ (note, For here / To go, Send now) refuses a comped line as `not_yours`.
+                // `canEdit` is the PERMISSION — state × role × comp, exactly `canMutateLine` as the
+                // server asks it (#362 blind pass 9: every write behind the ⋯ — note, For here /
+                // To go, Send now — refuses a comped line as `not_yours`). The lock is a separate,
+                // TRANSIENT refusal, and keeping the two apart is what lets a locked control stay
+                // RENDERED and disabled instead of vanishing — a missing control is the red-team trap
+                // this repo names by name. A permission that can never be met from this phone (a
+                // tablemate's dish, a sent one, a comp) draws no control at all, and the line says
+                // why where it stands: the owner's name, the kitchen chip, "On the house".
                 const canEdit = canMutateLine(
                   i.lineState,
                   {
@@ -4398,14 +4400,14 @@ export function Checkout({
                           was added said so only by dimming its "+" (the words lived in a screen-reader
                           label), and the Send fired it anyway. Now the mark is VISIBLE, both tongues.
                           #362 — it says WHICH fact (an 86, or no longer on the menu) and names the way
-                          through — "remove it" — only to a phone that can take it: the stepper's own
-                          permission and not a comp (a guest looking at a tablemate's dish, or any
-                          comp, reads the plain fact). Static text, not a live region: the view's one
+                          through — "remove it" — only to a phone that can take it: `canEdit`, which
+                          already refuses a comp (a guest looking at a tablemate's dish, or any comp,
+                          reads the plain fact). Static text, not a live region: the view's one
                           region says the refusal. */}
                       {i.lineState === "draft" &&
                         i.unavailable &&
                         (() => {
-                          const k = unavailableMarkKey(i.unavailable, canEdit && !i.comped);
+                          const k = unavailableMarkKey(i.unavailable, canEdit);
                           return (
                             <div
                               data-line-soldout

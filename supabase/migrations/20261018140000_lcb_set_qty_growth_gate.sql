@@ -7,11 +7,16 @@
 -- host steps it to 3, the diner's "−" asks for 4 — not a growth against 5, so no catalog read — and
 -- this function sets 4, growing a line of a sold-out dish from 3 to 4.
 --
--- The comparison has to be made against the quantity UNDER THE WRITE'S ROW LOCK, so it lives in the
--- UPDATE's own predicate: `p_qty <= ci.qty` is re-evaluated against the newest row version when the
--- update waits on a concurrent writer (READ COMMITTED's EvalPlanQual), which is the quantity the
--- write actually replaces. A growth of a dish whose catalog row is 86'd or delisted matches no row,
--- and the not-found branch names it: 'dish unavailable' (P0001), DETAIL `sold_out` | `gone` (the
+-- The comparison has to be made against the quantity UNDER THE WRITE'S ROW LOCK. So the line is read
+-- `FOR UPDATE` (after the cart's `FOR SHARE`, the lock order every settlement function uses), and
+-- the decision and the write both come from that ONE locked row version: a concurrent writer has
+-- either committed before the read (and its quantity is the one compared) or waits for this
+-- transaction. (The first draft put the gate in the UPDATE's predicate and named the refusal from a
+-- second SELECT — two READ COMMITTED snapshots: a restock or a quantity rise committing while the
+-- UPDATE waited left that SELECT with nothing to name, and the function answered a silent 0, which
+-- both callers read as "no longer open". The capped blind pass on #362; the two-session case is
+-- scripts/verify-line-guard-race.mjs's growth races.) A growth of a dish whose catalog row is 86'd
+-- or delisted is refused BEFORE any write: 'dish unavailable' (P0001), DETAIL `sold_out` | `gone` (the
 -- app's `dishUnavailable` precedence: inactive is `gone`, else sold out is `sold_out`), HINT the
 -- refusal's stamp — `now()`, the transaction start, so it precedes the catalog read it reports
 -- (Codex P2 on #362: a sold-out mark is weighed against the cart view's `dbNow` on /menu, and a stamp
@@ -32,8 +37,10 @@
 --
 -- Signature, return type, grants and every existing predicate are unchanged — `create or replace`,
 -- no drop — so the generated types do not move, and an app that predates this reads the new raise
--- the way it reads any unnamed RPC error (a thrown write it re-reads). The lock, the freeze and the
--- delete branch are 20260929000000's, verbatim.
+-- the way it reads any unnamed RPC error (a thrown write it re-reads). The cart lock, the freeze,
+-- the delete and update statements and the 'line already sent' branch are 20260929000000's,
+-- verbatim; the new line lock and gate sit between the freeze and the write. A 0 is still only a
+-- comped draft or a vanished line — never a refusal this function could have named.
 --
 -- Chained into scripts/verify-mode-authority.mjs as the LAST definition of this function (suite
 -- `lcbq`; P2dd's set_qty mutants patch THIS file now), with its own suite:
@@ -58,6 +65,21 @@ begin
   if v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then
     raise exception 'cart is being paid' using errcode = 'P0001';
   end if;
+  -- The growth gate. The LINE, locked FOR UPDATE (cart → line, the lock order every settlement
+  -- function uses): the decision and the write below read ONE row version, so a concurrent writer
+  -- has either committed before this read (and is seen) or waits for this transaction.
+  select ci.state, ci.qty, ci.comped,
+         case when not mi.is_active then 'gone' when mi.is_sold_out then 'sold_out' end
+    into v_state, v_qty, v_comped, v_why
+    from public.qr_cart_items ci
+    left join public.menu_items mi
+      on mi.id::text = ci.menu_item_id and ci.fulfillment in ('dinein','togo')
+    where ci.id = p_id
+    for update of ci;
+  if p_qty > 0 and v_state = 'draft' and not v_comped and p_qty > v_qty and v_why is not null then
+    raise exception 'dish unavailable' using errcode = 'P0001', detail = v_why,
+      hint = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+  end if;
   if p_qty <= 0 then
     delete from public.qr_cart_items ci
       using public.qr_carts c
@@ -67,28 +89,13 @@ begin
     update public.qr_cart_items ci set qty = p_qty
       from public.qr_carts c
       where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped
-        and ci.state = 'draft'
-        -- The growth gate, against the quantity this write replaces (see the header).
-        and (p_qty <= ci.qty or not exists (
-          select 1 from public.menu_items mi
-            where mi.id::text = ci.menu_item_id and ci.fulfillment in ('dinein','togo')
-              and (mi.is_sold_out or not mi.is_active)));
+        and ci.state = 'draft';
   end if;
   get diagnostics n = row_count;
   if n = 0 then
-    select ci.state, ci.qty, ci.comped,
-           case when not mi.is_active then 'gone' when mi.is_sold_out then 'sold_out' end
-      into v_state, v_qty, v_comped, v_why
-      from public.qr_cart_items ci
-      left join public.menu_items mi
-        on mi.id::text = ci.menu_item_id and ci.fulfillment in ('dinein','togo')
-      where ci.id = p_id;
+    select ci.state into v_state from public.qr_cart_items ci where ci.id = p_id;
     if v_state is not null and v_state <> 'draft' then
       raise exception 'line already sent' using errcode = 'P0001';
-    end if;
-    if p_qty > 0 and v_state = 'draft' and not v_comped and p_qty > v_qty and v_why is not null then
-      raise exception 'dish unavailable' using errcode = 'P0001', detail = v_why,
-        hint = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
     end if;
   end if;
   return n;  -- 0 here: a comped draft, or the line vanished between the lock and the write
