@@ -16750,6 +16750,30 @@ html[data-reloading] body::after {
   gap: var(--s3);
 }
 
+/* ── payments badge (owner, 2026-10-18) ── */
+/* The staff home's read-only Stripe-mode line, under the greeting (`PaymentModeBadge`): the chip,
+   then — for anything but live — one plain sentence, wrapping under the chip on a phone. A fault's
+   sentence wears the warn ink the Send's re-warning wears (never a fill: nothing here is a control).
+   Static, so no motion and nothing for reduced motion to switch off. */
+.staff-paymode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+  margin: 0 0 var(--s4);
+}
+.staff-paymode-note {
+  flex: 1 1 16rem;
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.staff-paymode-note-warn {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
+}
+
 /* ── Phase 2d · bell ── */
 /* The counter's greeting line carries the bell's chip at its right (the counter branch of /staff
    only — the doors' greeting keeps its own margin and no row). The row wraps on a phone: the chip

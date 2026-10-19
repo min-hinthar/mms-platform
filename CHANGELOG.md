@@ -51,6 +51,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   under its row lock, so a concurrent decrease can no longer turn a stale "−" into a growth; the app
   reads the refusal for diners and staff and works unchanged until it is applied. M336 and M337 filed.
 
+### The release session's handoff (2026-10-18, docs only)
+
+- **`docs/HANDOFF.md`'s top block records the session ending 2026-10-18:** what merged since the
+  triage's handoff (#351–#356, #359, #360, #363, #367 carrying #364 · #366 · #365 · #361, and #368),
+  the owner's approval of the admin bypass that #367 merged on, the two prod migrations (M309 in one
+  call; M210 in eight sequential parts), production's state (READY; `CRON_SECRET` set; Stripe still on
+  test keys while the `_TEST` variables stay in Production), and the owner's checklist. The triage's
+  block moved verbatim to `docs/HANDOFF_ARCHIVE.md` (2026-10-13).
+- **`docs/DECISIONS_2026-10-18.md`:** the decisions round's record, with the owner's same-day sign-off
+  and the session's reading of it; indexed in `docs/README.md`.
+- **Filed:** M319–M321 and M328–M335 (Codex's later rounds on #356, #359, #360 and #363, and two
+  builders' finds; M331 is the webhook's missing refund check). M326 gains Codex's round-3 note, M309
+  is applied and stays open for its residuals, M210 is closed, M125 records the eight stamps, and C2
+  and M160 carry the 2026-10-18 state.
+- **LEARNINGS #278–#281:** one integration branch over a merge train when PRs share the count lines;
+  an `apply_migration` timeout can apply nothing, so read before re-sending; a "secret is set" report is
+  not a cutover; read a cart-view value through a ref inside a `useCallback`.
+
+### The session's close: the triage's handoff (2026-10-13, docs only)
+
+- **`docs/HANDOFF.md`'s top block is the triage's.** It records the six PRs (#351–#356) as they
+  stood at 06:22Z, each waiting on the owner's per-SHA line (and the bypass where its `codex-review`
+  is red), the merge order and how each later PR takes `main`, the high-severity
+  buildable rows still open, and the owner's open questions. The path-design wave's block moved
+  verbatim to `docs/HANDOFF_ARCHIVE.md` (2026-10-11), and `CLAUDE.md`'s pointer says where each now
+  lives.
+- **Filed from the capped passes' open questions:** J58 and J59 (the owner's calls: an invitee who
+  reloads a hostless table becoming its host; whether a dish inside the undo window is "gone to the
+  kitchen"), T59 (`totals.test.ts` answers the charged reads whatever their key), M292 (the split
+  door's release owner, guarded only by prose until it reopens) and F38 (a keyboard Apply pulls focus
+  back into the promo box).
+- **LEARNINGS #271–#277:** a PR comment states only what the session has read back; reserve an ID
+  range per parallel stream; parse every registry table with its own header and set-check the read;
+  Prettier moves `_…_` emphasis around identifiers with underscores; and a fix round that makes things
+  worse is reverted to reviewed bytes and filed, not fixed a third time; and a focus assertion waits
+  for the focus move itself, never reads it straight after the commit; and the open PRs are probed
+  merged together, cumulatively, before any is called mergeable.
+
+### The staff home shows which Stripe mode payments run in (2026-10-18, owner ask · C2)
+
+- **A read-only "Payments: Live / Test" badge sits under the greeting on `/staff`** (the doors and the
+  counter's one screen, where the register lands). There is no toggle — the mode lives in Vercel
+  only. A half-done cutover shows loudly: keys from different modes, or live keys with only the
+  `_TEST` signing secret left, read "Payments: Check setup" with what is wrong and "Tell the owner to
+  check the Stripe settings in Vercel." The verdict is `paymentModeStatus` (`lib/stripe-env.ts`), fed
+  by `readPaymentMode` (`lib/stripe.ts`) from the same resolvers checkout and the webhook use — the
+  signing-secret list moved from the webhook route into `lib/stripe.ts` so both read one list. Only
+  the state reaches the page, never a credential. Eleven new staff strings (ten Burmese K15 drafts,
+  two of them HIGH, ledgered as K15 · payments-badge; one Latin by design), eleven new
+  `verify:slice` mutants.
+
 ### The stranded-payment sweep runs every day (2026-10-18, M160(b) · owner ruling #13)
 
 - **`/api/cron/stranded-payments` is scheduled daily at 10:07 UTC** (`apps/qr/vercel.json` `crons`),

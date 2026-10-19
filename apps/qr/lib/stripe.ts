@@ -4,9 +4,11 @@ import {
   keyMode,
   missingEnvMessage,
   modeDisagreement,
+  paymentModeStatus,
   pickEnv,
   resolvePublishableKey,
   type EnvCandidate,
+  type PaymentModeStatus,
   type StripeMode,
 } from "./stripe-env";
 
@@ -71,6 +73,46 @@ function secretKeyCandidates(): readonly EnvCandidate[] {
 }
 
 /**
+ * Every name the webhook signing secret may live under, most specific first — `_TEST` wins, the same
+ * rule the secret and publishable keys follow (`stripe-env.ts` carries the reasoning and the cutover
+ * warning). Here, in this `server-only` module, rather than in `stripe-env.ts`: no secret's variable
+ * name sits in a module a client component may import.
+ *
+ * It moved here from the webhook route (which a Next route file may not export) so the staff badge
+ * reads the SAME list the route signs with — `readPaymentMode` below. One list, two readers.
+ *
+ * ⚠️ A signing secret carries no mode marker of its own (`whsec_…` is the same shape in test and
+ * live), so nothing in this list can tell which mode it belongs to. That is why the mode check lives
+ * in `getStripe()`, where the two keys that DO announce their mode can be compared, and why the
+ * route filters this list by NAME (`webhookCandidatesForMode`).
+ */
+export function webhookSecretCandidates(): readonly EnvCandidate[] {
+  return [
+    ["STRIPE_WEBHOOK_SECRET_TEST", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+    ["STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET],
+  ];
+}
+
+/**
+ * The staff badge's reading of this deployment's Stripe setup (`paymentModeStatus`).
+ *
+ * Fed by the very resolvers the money path uses — the secret key `getStripe()` constructs with, the
+ * publishable key it compares against (and the browser mounts), and the signing-secret list the
+ * webhook route filters — so the badge cannot disagree with which keys checkout uses. ⚠️ It cannot
+ * check the signing secret's ENDPOINT: `whsec_…` carries no mode, so a test endpoint's secret left
+ * under `STRIPE_WEBHOOK_SECRET` still reads `live` (blind pass on #370). Only a delivered live
+ * event proves that half — ENV.md's cutover step 6. It never
+ * throws: a missing credential is a status, not an error. Only the enum leaves; no value does.
+ */
+export function readPaymentMode(): PaymentModeStatus {
+  return paymentModeStatus({
+    secretKey: pickEnv(secretKeyCandidates())?.value,
+    publishableKey: resolvePublishableKey()?.value,
+    webhookCandidates: webhookSecretCandidates(),
+  });
+}
+
+/**
  * The Stripe MODE this deployment is running in, derived from the secret key it will actually use.
  *
  * The secret key is the right source: it is the credential that moves the money, it announces its
@@ -98,8 +140,10 @@ export function getStripe(): Stripe {
   const key = resolved.value;
   // The mode gate, on the one path every server-side Stripe call already goes through. Both keys are
   // readable here (a NEXT_PUBLIC_* var is an ordinary runtime read on the server), and refusing to
-  // construct the client is the only place that can stop a LIVE charge whose fulfilment webhook is
-  // signed by a TEST secret — the failure C18 was, with real money instead of test cards.
+  // construct the client is the only place that can stop a LIVE charge made beside TEST-mode keys
+  // (the webhook route picks its signing-secret NAME by this mode) — the C18 shape, with real money.
+  // It cannot catch a test endpoint's secret stored under the live NAME: `whsec_…` carries no mode,
+  // so only a delivered live event proves that (ENV.md cutover step 6; `readPaymentMode` above).
   const mismatch = modeDisagreement(key, resolvePublishableKey()?.value);
   if (mismatch) throw new Error(mismatch);
   _stripe = new Stripe(key, {
