@@ -2,7 +2,7 @@ import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
-import { itemSellable } from "./availability";
+import { dishUnavailable } from "./availability";
 
 /**
  * Server-authoritative line pricing + insert, shared by the diner cart (lib/cart.ts addItem) and the
@@ -107,10 +107,14 @@ export async function priceItem(
   // after every line passed this check — but it stops a diner ever assembling an order around a dish
   // the kitchen already said no to. `is_active` rides along for the same reason: the diner menu
   // filters delisted items at query time, which is a fact about a page that may be minutes old.
-  if (!itemSellable(item))
+  // #362 — the KIND from the one predicate (`dishUnavailable`): a delisting is not an 86.
+  const unavailable = dishUnavailable(item);
+  if (unavailable)
     throw new ItemUnsellableError(
-      `${item.name_en} just sold out — pick something else and we'll get it going.`,
-      item.is_sold_out ? "sold_out" : "gone",
+      unavailable === "gone"
+        ? `${item.name_en} is no longer on the menu — pick something else and we'll get it going.`
+        : `${item.name_en} just sold out — pick something else and we'll get it going.`,
+      unavailable,
     );
 
   const groups = (item.item_modifier_groups ?? [])

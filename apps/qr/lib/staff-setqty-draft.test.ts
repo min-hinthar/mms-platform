@@ -105,6 +105,26 @@ describe("staffSetQty — the RPC's own re-check (P2dd · P2cy, 20260929000000)"
     });
   });
 
+  it("#362 — a growth the RPC refused for a dish the kitchen can't make says so, never the outage", async () => {
+    // 20261018140000 — the growth gate under the row lock. MUTATION
+    // (lcb/staff-setqty/unavailable-reads-outage): drop the mapping — staff are told to retry a
+    // write that can never land; red.
+    rpcAnswer = {
+      data: null,
+      error: {
+        code: "P0001",
+        message: "dish unavailable",
+        details: "sold_out",
+        hint: "2026-10-13T12:00:00.000Z",
+      },
+    } as typeof rpcAnswer;
+    const r = await staffSetQty(SESSION, { cartItemId: LINE, qty: 3 });
+    expect(r).toEqual({
+      ok: false,
+      error: "That dish can’t be made right now — you can lower or remove it, but not add more.",
+    });
+  });
+
   it("any other RPC error stays the outage sentence (it may be a transport failure)", async () => {
     rpcAnswer = { data: null, error: { code: "XX000", message: "line already sent" } };
     const r = await staffSetQty(SESSION, { cartItemId: LINE, qty: 3 });

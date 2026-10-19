@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
+import { effectiveFreeze } from "./lock-ttl";
 import type { LineState } from "./permissions";
 import { REG_PREFIX } from "./register-queue";
 import {
@@ -182,14 +182,10 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   // Effective lock: held AND fresh. A stale lock (a diner closed the pay tab) is ignored, so the
   // cart frees itself after the TTL — the next acquire takes it over. Same cutoff as lib/lock.ts.
-  const lockedFresh =
-    cart.locked &&
-    cart.locked_at !== null &&
-    new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
   // Effective settlement freeze (split-tender): a fresh settle_at means the table is paying — the
-  // whole cart is read-only until fulfillment or the TTL frees an abandoned settlement.
-  const settlingFresh =
-    cart.settle_at !== null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  // whole cart is read-only until fulfillment or the TTL frees an abandoned settlement. ONE rule for
+  // both (`effectiveFreeze`), shared with `setLineNote`'s pre-write re-read of the same row.
+  const { locked: lockedFresh, settling: settlingFresh } = effectiveFreeze(cart, Date.now());
 
   const { data: sess, error: sessErr } = await db
     .from("table_sessions")
@@ -280,14 +276,21 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
 /** Same guard, keyed by a cart *line* id (resolves the owning cart first). Also returns the line's
  *  owner seat (`lineSeat`) and its `lineState` so a caller can apply canMutateLine (host-any /
  *  guest-own-only, draft-only for diners — S2.1a). */
-export async function assertCartItemMember(
-  cartItemId: string,
-): Promise<
-  CartAuthz & { cartId: string; lineSeat: string | null; lineState: LineState; comped: boolean }
+export async function assertCartItemMember(cartItemId: string): Promise<
+  CartAuthz & {
+    cartId: string;
+    lineSeat: string | null;
+    lineState: LineState;
+    comped: boolean;
+    /** Lifecycle audit — the line's quantity and dish, off the SAME row read (no extra round trip):
+     *  `setQty` refuses to GROW a line whose dish the kitchen can no longer make. */
+    lineQty: number;
+    menuItemId: string;
+  }
 > {
   const { data: item, error: itemErr } = await serviceClient()
     .from("qr_cart_items")
-    .select("cart_id,by_seat,state,comped")
+    .select("cart_id,by_seat,state,comped,qty,menu_item_id")
     .eq("id", cartItemId)
     .maybeSingle();
   if (itemErr) throw UNAVAILABLE(); // W10a — unknowable ≠ missing line
@@ -298,5 +301,7 @@ export async function assertCartItemMember(
     lineSeat: item.by_seat ?? null,
     lineState: (item.state ?? "draft") as LineState,
     comped: item.comped ?? false,
+    lineQty: item.qty,
+    menuItemId: item.menu_item_id,
   };
 }

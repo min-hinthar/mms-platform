@@ -6,7 +6,13 @@ import { useJourneyRouter } from "./nav/TransitionNav";
 import { navEpoch } from "@/lib/nav-epoch";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
-import { cartBarCountShown, cartBarLine2, cartBarName } from "@/lib/cart-bar-state";
+import {
+  cartBarCountShown,
+  cartBarLine2,
+  cartBarName,
+  cartBarShown,
+  orderUnitCount,
+} from "@/lib/cart-bar-state";
 import { t } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
 
@@ -56,25 +62,31 @@ export function CartBar() {
   // A write is in flight exactly when the optimistic count differs from the sum of the confirmed lines
   // (see the amount note below). Pure derivations, hoisted above the early return so the effect can
   // read them.
-  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
+  // Lifecycle audit — the provider's `count` and this confirmed count are ONE binding
+  // (`orderUnitCount`: a removed line is not counted), so "pending" can only mean a write in flight.
+  const confirmedCount = orderUnitCount(items);
   const pending = totals === null || count !== confirmedCount;
+  // Lifecycle audit — shown while a unit is counted OR a removed dish is on the order (`cartBarShown`):
+  // a table whose only dish was removed counts 0 but still needs the door to "Removed — we ran out".
+  const shown = cartBarShown({ count, items });
   useEffect(() => {
-    if (cartId && count > 0 && !pending) cartBarSprung = true;
-  }, [cartId, count, pending]);
+    if (cartId && shown && !pending) cartBarSprung = true;
+  }, [cartId, shown, pending]);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
   // M126 — the bar publishes its own dock height so the ambient's pause coin clears it. Shared with
   // the grocery CTA band through `useCtaDock` (Codex #238 P1 found the grocery dock unwired, which
   // is exactly where a hand-copied second copy would have drifted).
   const barRef = useRef<HTMLButtonElement | null>(null);
-  useCtaDock(barRef, Boolean(cartId && href && count > 0 && !ended));
+  useCtaDock(barRef, Boolean(cartId && href && shown && !ended));
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
   useEffect(() => {
     if (href) router.prefetch(href);
   }, [href, router]);
   // Session truth — no bar to an order that ENDED: the card on the menu says what became of it
-  // (a paid one links its tracker), and "View order" would open a bill nobody can add to.
-  if (!cartId || !href || count === 0 || ended) return null;
+  // (a paid one links its tracker), and "View order" would open a bill nobody can add to — not even
+  // for a removed dish (`shown`): the card, not the bill, is the way on from an ended table.
+  if (!cartId || !href || !shown || ended) return null;
   // R1 (the viewport sweep, two reviewers independently) — `totals` is null until the FIRST
   // server read lands, and the count flips optimistically before it: for that beat the bar read
   // "1 · View order · $0.00" beside a row showing the dish at $14.00. A zero is a wrong money

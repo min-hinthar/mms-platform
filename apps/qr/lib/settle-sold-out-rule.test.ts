@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { displayedSoldOut, soldOutWarned, staffSettleSoldOutVerdict } from "./settle-sold-out";
 
 /** #360 — PD8's acknowledgement, for a sold-out draft: the compare, the words, what a page displays. */
-const M = { id: "m", name: "Mohinga" };
-const T = { id: "t", name: "Tea leaf salad" };
+const M = { id: "m", name: "Mohinga", why: "sold_out" as const };
+const T = { id: "t", name: "Tea leaf salad", why: "sold_out" as const };
 
 describe("staffSettleSoldOutVerdict — a re-warning, never a block", () => {
   it("nothing sold out, or everything sold out ACKNOWLEDGED: passes", () => {

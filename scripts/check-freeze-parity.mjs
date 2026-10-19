@@ -43,7 +43,12 @@ import ts from "typescript";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// `FREEZE_PARITY_ROOT` points the gate at a COPY of `apps/qr/lib` — `apps/qr/lib/check-freeze-parity.test.ts`
+// runs it against committed evasions of its own arms (each must turn it red). Unset, it reads this
+// checkout.
+const ROOT = process.env.FREEZE_PARITY_ROOT
+  ? path.resolve(process.env.FREEZE_PARITY_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIB = "apps/qr/lib";
 const CART = `${LIB}/cart.ts`;
 
@@ -663,6 +668,141 @@ if (!cartVars.size)
       "back to matching identifier TEXT, which is the evasion they exist to close. Teach the shape.",
   );
 
+// ── #362 — the derivation may DELEGATE to `effectiveFreeze` (lib/lock-ttl.ts) ────────────────────
+// `assertCartMember` reads its freeze through one pure helper since #362 (blind pass 5), shared with
+// `setLineNote`'s pre-write re-read of the same row, so the two cannot disagree about "fresh". The
+// checks below then follow the lock INTO that helper: the returned `locked` must be bound from
+// `effectiveFreeze(<the qr_carts row>, …)`, and the helper's own `locked` must read that row's
+// `locked` and `locked_at` in a conjunction with no constant operand. A delegation that passes
+// anything other than the cart row — a spread with `locked: false`, a literal — is refused, since
+// the reads inside the helper would then prove nothing about the database.
+let derivFile = AUTHZ;
+let derivSf = authzSf;
+let rowVars = cartVars;
+const FREEZE_RULE = "apps/qr/lib/lock-ttl.ts";
+let delegation = null;
+authzWalk(authzSf, (n) => {
+  if (!ts.isVariableDeclaration(n) || !ts.isObjectBindingPattern(n.name) || !n.initializer) return;
+  const init = unwrap(n.initializer);
+  if (
+    !ts.isCallExpression(init) ||
+    !ts.isIdentifier(init.expression) ||
+    init.expression.text !== "effectiveFreeze"
+  )
+    return;
+  for (const el of n.name.elements) {
+    const prop = el.propertyName ?? el.name;
+    if (
+      ts.isIdentifier(prop) &&
+      prop.text === "locked" &&
+      ts.isIdentifier(el.name) &&
+      lockedInits.some((e) => references(e, el.name.text))
+    )
+      delegation = init;
+  }
+});
+/**
+ * #362 blind pass 9 — is `node` parked in one of the enumerated literal-dead shapes (`if (false)`,
+ * `while (false)`, `false && …`, `false ? … : …`)? Liveness against a parked dead copy, not a
+ * reachability proof — the same exclusion the repo's other parsed guards apply.
+ */
+const isFalseLit = (n) => !!n && unwrap(n).kind === ts.SyntaxKind.FalseKeyword;
+const isLiterallyDead = (node) => {
+  for (let n = node; n; n = n.parent) {
+    const p = n.parent;
+    if (!p) return false;
+    if (ts.isIfStatement(p) && isFalseLit(p.expression) && p.thenStatement === n) return true;
+    if (ts.isWhileStatement(p) && isFalseLit(p.expression) && p.statement === n) return true;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      isFalseLit(p.left) &&
+      p.right === n
+    )
+      return true;
+    if (ts.isConditionalExpression(p) && isFalseLit(p.condition) && p.whenTrue === n) return true;
+  }
+  return false;
+};
+/** `Date.now()` — the clock the shipped delegation passes, and the only one this guard accepts. */
+const isDateNow = (e) =>
+  !!e &&
+  ts.isCallExpression(e) &&
+  e.arguments.length === 0 &&
+  ts.isPropertyAccessExpression(e.expression) &&
+  ts.isIdentifier(e.expression.expression) &&
+  e.expression.expression.text === "Date" &&
+  e.expression.name.text === "now";
+if (delegation) {
+  // #362 blind pass 9 — the CLOCK is half the freeze: `effectiveFreeze(cart, Number.MAX_SAFE_INTEGER)`
+  // reads every field below and still makes every lock stale, so every mutation unfreezes at once.
+  const clockArg = delegation.arguments[1] && unwrap(delegation.arguments[1]);
+  if (delegation.arguments.length !== 2 || !isDateNow(clockArg))
+    fail(
+      `${AUTHZ} hands \`effectiveFreeze\` a clock other than \`Date.now()\`: ` +
+        `\`${delegation.arguments[1]?.getText(authzSf) ?? "(nothing)"}\`.\n  ` +
+        "The helper judges the lock's freshness against the clock it is GIVEN — a constant there\n  " +
+        "turns every lock stale (or every lock fresh) while the reads below stay green.",
+    );
+  const rowArg = delegation.arguments[0] && unwrap(delegation.arguments[0]);
+  if (!rowArg || !ts.isIdentifier(rowArg) || !cartVars.has(rowArg.text))
+    fail(
+      `${AUTHZ} hands \`effectiveFreeze\` something other than the \`qr_carts\` row: ` +
+        `\`${delegation.arguments[0]?.getText(authzSf) ?? "(nothing)"}\`.\n  ` +
+        "The helper's reads prove the lock only for the row it is GIVEN — a spread or a literal there\n  " +
+        "decides every cart mutation's freeze while the checks below stay green.",
+    );
+  const freezeSf = ts.createSourceFile(
+    FREEZE_RULE,
+    readFileSync(path.join(ROOT, FREEZE_RULE), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let fn = null;
+  authzWalk(freezeSf, (n) => {
+    if (ts.isFunctionDeclaration(n) && n.name?.text === "effectiveFreeze") fn = n;
+  });
+  const param = fn?.parameters[0];
+  if (!fn || !fn.body || !param || !ts.isIdentifier(param.name))
+    fail(
+      `${FREEZE_RULE} — \`effectiveFreeze(row, …)\` is gone or no longer takes the row first.\n  ` +
+        `${AUTHZ} delegates the lock to it; a guard that cannot read the helper is blind, not clean.`,
+    );
+  else {
+    // #362 blind pass 9 — ambiguity REFUSED, never resolved by position: this took the LAST
+    // `locked:` it visited, so a returned `{ locked: false }` beside a parked live-looking copy
+    // (`void { locked: … }`) passed every check below while the helper unfroze every cart.
+    const helperLockeds = [];
+    authzWalk(fn.body, (n) => {
+      if (
+        (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) &&
+        n.name.getText(freezeSf) === "locked" &&
+        !isLiterallyDead(n)
+      )
+        helperLockeds.push(n);
+    });
+    const helperLocked =
+      helperLockeds.length === 1 && ts.isPropertyAssignment(helperLockeds[0])
+        ? helperLockeds[0].initializer
+        : null;
+    if (helperLockeds.length > 1)
+      fail(
+        `${FREEZE_RULE} — \`effectiveFreeze\` holds ${helperLockeds.length} \`locked\` properties.\n  ` +
+          "This guard proves ONE derivation; with several it cannot tell which one the helper returns,\n  " +
+          "and picking by position is how a parked copy passed for the shipped one.",
+      );
+    else if (!helperLocked)
+      fail(`${FREEZE_RULE} — \`effectiveFreeze\` returns no \`locked\` this guard can read.`);
+    else {
+      derivFile = FREEZE_RULE;
+      derivSf = freezeSf;
+      rowVars = new Set([param.name.text]);
+      lockedInits = expandAliases(helperLocked, fn.body, authzWalk);
+    }
+  }
+}
+
 /** Does any expression here read `<the cart row>.<field>`? */
 const readsCartField = (field) =>
   lockedInits.some((e) => {
@@ -672,7 +812,7 @@ const readsCartField = (field) =>
         ts.isPropertyAccessExpression(n) &&
         n.name.text === field &&
         ts.isIdentifier(n.expression) &&
-        cartVars.has(n.expression.text)
+        rowVars.has(n.expression.text)
       )
         hit = true;
     });
@@ -695,7 +835,7 @@ for (const [term, why] of [
 ]) {
   if (!readsCartField(term))
     fail(
-      `${AUTHZ} derives \`locked\` WITHOUT reading ${why} off the cart row.\n  ` +
+      `${derivFile} derives \`locked\` WITHOUT reading ${why} off the cart row.\n  ` +
         "Every cart mutation refuses on this one value, so a derivation that no longer reads the\n  " +
         "database is not a narrowing — it is an unfreeze of all fifteen at once, while\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps the CLIENT read-only. If the mechanism really changed,\n  " +
@@ -751,7 +891,7 @@ const isTriviallyConstant = (e) => {
 const conjunction = lockedInits.map(flattenAnd).find((ops) => ops.length > 1);
 if (!conjunction)
   fail(
-    `${AUTHZ} no longer derives \`locked\` as a conjunction.\n  ` +
+    `${derivFile} no longer derives \`locked\` as a conjunction.\n  ` +
       "Every cart mutation refuses on this one value, and the only shape this guard can prove is an\n  " +
       "`&&` chain whose operands all read something. If the mechanism genuinely changed, update this\n  " +
       "check in the same commit — do not let an unreadable derivation pass as a readable one.",
@@ -760,7 +900,7 @@ else {
   const dead = conjunction.find((o) => isTriviallyConstant(o));
   if (dead)
     fail(
-      `${AUTHZ} derives \`locked\` through a CONSTANT operand: \`${dead.getText(authzSf)}\`.\n  ` +
+      `${derivFile} derives \`locked\` through a CONSTANT operand: \`${dead.getText(derivSf)}\`.\n  ` +
         "A literal in an `&&` chain is a switch, and a falsy one turns the lock off for every\n  " +
         "mutation at once while the reads around it still satisfy the presence checks above. That is\n  " +
         "an unfreeze wearing a derivation's clothes, and `cart-freeze.ts` would keep the CLIENT\n  " +
@@ -771,7 +911,7 @@ else {
 for (const holder of ["locked_by", "lockedBy", "uid"]) {
   if (lockedInits.some((e) => references(e, holder)))
     fail(
-      `${AUTHZ} derives \`locked\` using \`${holder}\`.\n  ` +
+      `${derivFile} derives \`locked\` using \`${holder}\`.\n  ` +
         "That narrows the lock at its SOURCE, so all 15 cart mutations start excusing the holder at\n  " +
         "once while every per-function guard below still looks correct — and\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps blocking, making the CLIENT the stricter side. If this is\n  " +
@@ -1049,6 +1189,9 @@ if (deadExemptions.length)
 // rules, they had simply never been in reach.
 const EXPECTED_SUBJECTS = [
   "addItem",
+  // #362 (the capped blind pass) — the sold-out wrapper runs its own door ONCE so its restock retry
+  // re-runs the write only; read: `if (locked) throw` before `addItemWrite`, like `addItem`.
+  "addItemOutcome",
   "applyPromo",
   "applyReward",
   "assignLine",
@@ -1061,6 +1204,9 @@ const EXPECTED_SUBJECTS = [
   "sendToKitchen",
   "setKioskTip",
   "setLineFulfillment",
+  // Lifecycle audit (edit-notes 3) — the diner's note edit; read: `if (locked || settling) return
+  // { ok: false, reason: "busy" }` before any write, like `setLineFulfillment`.
+  "setLineNote",
   "setPickupAsap",
   "setPickupSlot",
   "setQty",

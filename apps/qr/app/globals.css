@@ -1120,7 +1120,9 @@ html[data-fx="off"] .pa-mid {
 /* Disabled glyphs fade to the same 0.6 the Add pill uses for its disabled state (consistency + keeps the
    aria-hidden −/+ icon above the 3:1 non-text-contrast bar on the accent fill; full-contrast text/qty is
    unaffected — only the icon glyph dims). */
-.mms-qty-stepper button:disabled {
+.mms-qty-stepper button:disabled,
+.mms-qty-stepper button[aria-disabled="true"] {
+  /* F30 — a "−" holding focus under a freeze is `aria-disabled`, not `disabled`: it must still LOOK inert. */
   opacity: 0.6;
   cursor: default;
 }
@@ -1136,11 +1138,11 @@ html[data-fx="off"] .pa-mid {
     transition: none;
   }
 }
-.mms-qty-stepper button:active:not(:disabled) {
+.mms-qty-stepper button:active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(0.9);
 }
 @media (prefers-reduced-motion: reduce) {
-  .mms-qty-stepper button:active:not(:disabled) {
+  .mms-qty-stepper button:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
 }

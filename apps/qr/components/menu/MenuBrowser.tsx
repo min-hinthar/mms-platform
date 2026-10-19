@@ -34,6 +34,7 @@ import { reorderOrder } from "@/lib/reorder";
 import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
 import { spyAdoption } from "@/lib/menu-spy";
 import { PaperAmbient } from "@/components/PaperAmbient";
+import { cartSoldOutReading, freshestSoldOut } from "@/lib/dish-sold-out";
 import type { WelcomeBack } from "@/lib/rewards";
 import type { DineInTable } from "@/lib/tables"; // type-only: the read stays server-side
 
@@ -219,7 +220,19 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
   // sheet cannot read it itself and the menu — which has it — passes it down.
-  const { cartId, announce, refresh, tableNumber, role, members, me, ended } = useCart();
+  const {
+    cartId,
+    announce,
+    refresh,
+    tableNumber,
+    items: cartLines,
+    dbNow,
+    soldOutMarks,
+    role,
+    members,
+    me,
+    ended,
+  } = useCart();
   // Session truth (finding 5) — this phone SENDS the table's orders (only the host can, `sendToKitchen`)
   // and someone else is in the table's DURABLE party: leaving takes the Send with it, and the DoorSheet
   // says so before the tap. The party is `session_members` (`useDurableParty`), never presence — empty
@@ -248,6 +261,43 @@ export function MenuBrowser({
     `${seenSeats.size}·${doorOpens}`,
   );
   const leaveNote = leaveWarning({ role, mySeat: me?.seat ?? null, ended: tableEnded, party });
+
+  // Lifecycle audit (out-of-stock 0 · 5) — each dish's sold-out fact from the FRESHEST reading this
+  // phone holds (`lib/dish-sold-out.ts`): the catalog this page rendered (a last-good copy served on
+  // a failed read is older than anything, so it never outvotes a live reading), the cart view's own
+  // line flag, and a sold-out refusal an add just met. Every surface on the page reads THIS — the
+  // row's mark, the "+", the item sheet — so a restock or a fresh 86 reaches all three at once.
+  const soldOutNow = useMemo(() => {
+    const lines = cartLines ?? [];
+    const marks = soldOutMarks ?? new Map<string, number>();
+    const out = new Map<string, boolean>();
+    for (const i of items) {
+      const mark = marks.get(i.id);
+      out.set(
+        i.id,
+        freshestSoldOut([
+          { soldOut: i.is_sold_out, atMs: catalogStale ? 0 : catalogStamp },
+          cartSoldOutReading(
+            lines,
+            i.id,
+            dbNow ?? null,
+            !i.modifierGroups.some((g) => g.minSelect >= 1),
+          ),
+          mark === undefined ? null : { soldOut: true, atMs: mark },
+        ]),
+      );
+    }
+    return out;
+  }, [items, catalogStale, catalogStamp, cartLines, dbNow, soldOutMarks]);
+  const soldOutOf = (i: MenuItem) => soldOutNow.get(i.id) ?? i.is_sold_out;
+  // The open sheet reads the LIVE row by id — the object captured at open goes stale on a refresh —
+  // with the same freshest sold-out fact, so a dish that sells out under an open sheet says so on
+  // its CTA instead of taking the tap to a refusal.
+  const sheetLive = useMemo(() => {
+    if (!sheetItem) return null;
+    const live = items.find((x) => x.id === sheetItem.id) ?? sheetItem;
+    return { ...live, is_sold_out: soldOutNow.get(live.id) ?? live.is_sold_out };
+  }, [sheetItem, items, soldOutNow]);
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -700,8 +750,12 @@ export function MenuBrowser({
             Prices are confirmed when you add a dish.
           </DegradedStrip>
         )}
-        {/* W22c — the catalog is the one diner surface with neither a push channel nor a wake
-            re-read, so an 86 landing mid-service never reaches a phone already sitting here. The
+        {/* W22c — the catalog is the one diner surface with no push channel: an 86 landing
+            mid-service reaches a phone already sitting here only when the page re-reads — on WAKE
+            (PullToRefresh's visibilitychange + focus re-read), on a pull, or on this Refresh button
+            (and, for a dish already in the cart, on the cart's next view — `soldOutNow`). A phone
+            left in the FOREGROUND, never switched away from, gets none of those until the diner
+            acts; that residual and its poll-budget question are filed in OPEN-ITEMS (J64). The
             control lives on the eyebrow row because it IS the mechanism (WCAG 2.5.1 — the pull is
             the shortcut); the transient pull indicator it also renders is viewport-fixed, so this
             spot in the flow only positions the button. Suppressed while an ItemSheet is open: the
@@ -881,7 +935,7 @@ export function MenuBrowser({
                       display: "flex",
                       gap: "var(--s3)", // W16e — was 13/11, off the spacing grid
                       padding: "var(--s3)",
-                      opacity: i.is_sold_out ? 0.5 : 1,
+                      opacity: soldOutOf(i) ? 0.5 : 1,
                     }}
                   >
                     {/* Tap photo+text → open the detail sheet (customize). A real <button> so Radix can
@@ -933,7 +987,7 @@ export function MenuBrowser({
                               name that fills the line drops "· Sold out" whole onto the next one —
                               never a dot orphaned at the end of line one and "Sold out" under it
                               (seen at 375 and 390 on Ohno Khao-Swe). */}
-                          {i.is_sold_out && (
+                          {soldOutOf(i) && (
                             <>
                               {" "}
                               <span
@@ -996,18 +1050,18 @@ export function MenuBrowser({
                       <button
                         type="button"
                         className="menu-choose-btn menu-add-plus"
-                        data-soldout={i.is_sold_out || undefined}
+                        data-soldout={soldOutOf(i) || undefined}
                         onClick={() => setSheetItem(i)}
                         aria-label={
-                          i.is_sold_out
+                          soldOutOf(i)
                             ? `${i.name_en}, sold out — view details`
                             : `Choose options for ${i.name_en}`
                         }
                       >
-                        {i.is_sold_out ? "Sold out" : <span aria-hidden>+</span>}
+                        {soldOutOf(i) ? "Sold out" : <span aria-hidden>+</span>}
                       </button>
                     ) : (
-                      <AddButton menuItemId={i.id} name={i.name_en} soldOut={i.is_sold_out} />
+                      <AddButton menuItemId={i.id} name={i.name_en} soldOut={soldOutOf(i)} />
                     )}
                   </li>
                 );
@@ -1073,7 +1127,7 @@ export function MenuBrowser({
 
       {/* Item detail sheet (R6b). One instance, fed the open item; an upsell tap swaps the open item. */}
       <ItemSheet
-        item={sheetItem}
+        item={sheetLive}
         allItems={items}
         diets={diets}
         open={!!sheetItem}

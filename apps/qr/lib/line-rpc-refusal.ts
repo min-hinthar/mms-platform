@@ -41,3 +41,32 @@ export class CartPayingError extends Error {
     this.name = "CartPayingError";
   }
 }
+
+/**
+ * #362 (Codex P2 at lib/cart.ts:240) — `mms_cart_item_set_qty_if_open` refused to GROW a line whose
+ * dish the kitchen can no longer make (20261018140000): the comparison is against the quantity under
+ * the write's row lock, so a concurrent decrease can no longer let a stale "−" grow a sold-out line.
+ * A DEFINITE non-write like the two above. DETAIL says which fact (`sold_out` | `gone`); HINT is the
+ * refusal's stamp — the transaction start, no later than the catalog read it reports — so the mark
+ * it sets on /menu is weighed on the one DB clock. Anything else (another code, another kind, an
+ * unreadable stamp) is not this refusal: ambiguity is refused, never guessed.
+ */
+export const RPC_DISH_UNAVAILABLE = "dish unavailable";
+
+export function rpcDishUnavailable(
+  error:
+    | {
+        code?: string | null;
+        message?: string | null;
+        details?: string | null;
+        hint?: string | null;
+      }
+    | null
+    | undefined,
+): { why: "sold_out" | "gone"; at: string } | null {
+  if (!error || error.code !== "P0001" || error.message !== RPC_DISH_UNAVAILABLE) return null;
+  const why = error.details === "sold_out" || error.details === "gone" ? error.details : null;
+  const at = error.hint ?? "";
+  if (!why || !Number.isFinite(Date.parse(at))) return null;
+  return { why, at };
+}

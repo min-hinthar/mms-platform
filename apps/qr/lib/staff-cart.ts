@@ -44,7 +44,7 @@ import { maybeRenewSession } from "./authz";
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
 import { unavailableLines } from "./availability-read";
-import { lineRpcRefusal } from "./line-rpc-refusal";
+import { lineRpcRefusal, rpcDishUnavailable } from "./line-rpc-refusal";
 import { REROUTE_SENT, staffRerouteOutcome } from "./staff-fulfillment";
 import { readPendingApprovalFlags } from "./approvals-read";
 import {
@@ -61,6 +61,8 @@ const PAYING_REFUSAL = "This table is mid-payment — wait until they’ve finis
 const SENT_LINE_REFUSAL =
   "That dish already went to the kitchen — use Remove or Make it free instead.";
 const NOTHING_TO_SETTLE = "There’s nothing on this table to settle.";
+const UNAVAILABLE_LINE_REFUSAL =
+  "That dish can’t be made right now — you can lower or remove it, but not add more.";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -293,6 +295,9 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   const refusal = lineRpcRefusal(rpcError);
   if (refusal === "sent") return { ok: false, error: SENT_LINE_REFUSAL };
   if (refusal === "paying") return { ok: false, error: PAYING_REFUSAL };
+  // #362 — the growth gate (20261018140000): the server now agrees with the stepper staff see,
+  // which already refuses "+" on a sold-out line. Definite — nothing was written.
+  if (rpcDishUnavailable(rpcError)) return { ok: false, error: UNAVAILABLE_LINE_REFUSAL };
   if (rpcError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!affected) return { ok: false, error: "This table’s order is no longer open." };
   await touchCart(cart.id, "staffSetQty");

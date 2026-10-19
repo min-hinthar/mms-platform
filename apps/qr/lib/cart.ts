@@ -12,6 +12,7 @@ import {
   sendToKitchenInput,
   setKioskTipInput,
   setLineFulfillmentInput,
+  setLineNotesInput,
   setQtyInput,
   undoFireInput,
 } from "@mms/db/schemas";
@@ -23,7 +24,7 @@ import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from 
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releasePayAttemptSafely } from "./supersede";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, effectiveFreeze } from "./lock-ttl";
 // P3 — the refusal diagnosis moved to its own server-only module when `lib/staff-promo.ts`
 // became the second writer of `qr_carts.promo_code`. One verdict, both doors; see its docblock.
 import { refusedPromoReason } from "./promo-refusal";
@@ -31,10 +32,15 @@ import { refusedPromoReason } from "./promo-refusal";
 import { undoMissReason } from "./undo-miss";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
-import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
-import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
+import { insertOrIncLine, ItemUnsellableError, priceItem, touchCart } from "./order-lines";
+import { dishAvailability, sendBlockers } from "./availability-read";
+import { dishUnavailable, type Unavailable } from "./availability";
+import { dbClockIso } from "./db-clock";
+import type { ServerRefusal } from "./cart-freeze";
+import { CartPayingError, lineRpcRefusal, rpcDishUnavailable } from "./line-rpc-refusal";
 import { safeImageUrl } from "./media-url";
 import { TABLE_STARTER_MID } from "./confirm-copy";
+import { removedReasons } from "./line-state-copy";
 
 /**
  * The view a MUTATION returns — and it must never fail the mutation.
@@ -90,9 +96,22 @@ export async function addItem(
   const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
   if (locked) throw new Error("Order is locked while someone checks out");
-  if (settling)
-    throw new Error("Your table is paying — you can’t change the order while everyone pays");
+  if (settling) throw new Error(ADD_WHILE_PAYING);
+  return addItemWrite({ input, uid, mode });
+}
 
+const ADD_WHILE_PAYING = "Your table is paying — you can’t change the order while everyone pays";
+type AddItemDoor = {
+  input: ReturnType<typeof addItemInput.parse>;
+  uid: string;
+  mode: Awaited<ReturnType<typeof assertCartMember>>["mode"];
+};
+
+/** `addItem`'s write: price, insert-or-merge (status- and freeze-atomic in its RPC), touch, view.
+ *  Behind a door that already authorized, rate-counted and refused the freezes — `addItem`'s own,
+ *  or `addItemOutcome`'s, whose restock retry re-runs THIS only (the capped blind pass on #362: a
+ *  retry through `addItem` counted one tap twice against the device's rate limit). */
+async function addItemWrite({ input, uid, mode }: AddItemDoor) {
   // M108 — the mode comes from `assertCartMember`, which read it off the SAME row it used to prove
   // the session is active and throws 503 when that read fails. The second read this replaced
   // discarded its error, so an unreadable session tagged a dine-in table's line `togo` and charged
@@ -153,14 +172,107 @@ export async function addItem(
   return viewAfterWrite(input.cartId);
 }
 
+/**
+ * Lifecycle audit (out-of-stock 0) — the DINER's add, with a sold-out refusal answered as a VALUE.
+ *
+ * `priceItem` refuses an 86'd (or delisted) dish with a sentence of its own — but it THROWS, and
+ * Next redacts a thrown Server Action's message in production, so /menu never heard it: the
+ * provider re-read the cart, found no lock, and hedged "We couldn’t confirm Mohinga — the order
+ * below is up to date." over a card that stayed live, and every retry met the same hedge. The refusal
+ * is DEFINITE — `priceItem` runs before `insertOrIncLine`, so nothing was written — and so it can be
+ * named, the M230 shape (`ServerRefusal`, lib/cart-freeze.ts). `at` is the DATABASE clock as it
+ * refused (`dbClockIso`, #362): the menu weighs the mark against its catalog render stamp and the
+ * cart view's `dbNow` — one clock for all three, never the phone's or an app server's.
+ *
+ * A WRAPPER, not a change to `addItem`'s contract: the kiosk awaits `addItem` raw and reads any
+ * answer as a landing (`KioskMenu`'s `landed`), so a refusal-as-value there would be counted as an
+ * added dish. Every other outcome is `addItem`'s own, untouched — including its throws.
+ */
+export async function addItemOutcome(
+  cartId: string,
+  menuItemId: string,
+  modifierIds: string[] = [],
+  notes?: string,
+  qty?: number,
+): Promise<
+  { ok: true; view: Awaited<ReturnType<typeof addItem>> } | ({ ok: false } & ServerRefusal)
+> {
+  // The door, ONCE — the same refusals as `addItem`'s, in this function so `check:freeze-parity`
+  // reads them here: a retry below re-runs the write, never the door (its rate count included).
+  const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes, qty });
+  const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
+  await assertMutationRate(uid);
+  if (locked) throw new Error("Order is locked while someone checks out");
+  if (settling) throw new Error(ADD_WHILE_PAYING);
+  const authorized: AddItemDoor = { input, uid, mode };
+  try {
+    return { ok: true, view: await addItemWrite(authorized) };
+  } catch (e) {
+    // ONLY the availability refusal becomes a value. It is thrown from `priceItem`, BEFORE the
+    // insert, so nothing landed; every other throw keeps its old meaning (it may have committed).
+    // #362 (Codex round 1) — WHICH refusal travels: an 86 (`sold_out`), or a dish no longer on the
+    // menu (`gone`). Folding a delisting into "sold out" told the diner it was coming back.
+    if (!(e instanceof ItemUnsellableError)) throw e;
+    // Codex P2 on #362 — the stamp is taken BEFORE a read that confirms the refusal, never after
+    // `priceItem`'s: a stamp later than the read that found the 86 can postdate a restock and a cart
+    // view that read the dish available, and the stale mark then outvoted it on /menu.
+    const { at, why } = await stampThenConfirm(menuItemId, "addItemOutcome");
+    if (why) return { ok: false, refused: why, at };
+    // Restocked (or unreadable) since `priceItem` refused: NOTHING was written, so the diner's add is
+    // asked once more — its own `priceItem` read follows the stamp, so a second refusal carries it.
+    try {
+      return { ok: true, view: await addItemWrite(authorized) };
+    } catch (again) {
+      if (again instanceof ItemUnsellableError) return { ok: false, refused: again.reason, at };
+      throw again;
+    }
+  }
+}
+
+/**
+ * Codex P2 on #362 — a sold-out REFUSAL's stamp, taken no later than a read that saw the dish
+ * unavailable. /menu weighs the refusal's mark against the cart view's `dbNow` (`freshestSoldOut`),
+ * so a stamp read AFTER the availability read claims a freshness it does not have: a restock and a
+ * cart view in between read "available" at an earlier instant, and the stale mark won. So: the DB
+ * clock first, then a fresh `dishAvailability` read. `why` null = the dish can be made now (or the
+ * read failed) — the caller decides what a refusal that no longer holds means.
+ */
+async function stampThenConfirm(
+  menuItemId: string,
+  context: string,
+): Promise<{ at: string; why: Unavailable | null }> {
+  const at = await dbClockIso(context);
+  const now = await dishAvailability(menuItemId);
+  return { at, why: now === "sold_out" || now === "gone" ? now : null };
+}
+
+/**
+ * Lifecycle audit (edit-notes 6 · out-of-stock 1) — a definite, NAMED refusal comes back as a VALUE
+ * (`ServerRefusal`); everything else is unchanged (a view, `null` for written-but-unreadable, or a
+ * throw). The two named ones:
+ *
+ *   • `not_draft` — the line already went to the kitchen: the pre-check saw it, or the RPC's own
+ *     re-check under the row lock raised `sent` (P2dd). It used to THROW "Ask our staff…", which the
+ *     redaction swallowed, so a menu "−" on a dish a tablemate had just sent said "Removed Mohinga",
+ *     then hedged "We couldn’t confirm that", while the dish was cooking and stayed on the bill;
+ *   • `sold_out` / `gone` — the write would GROW a line whose dish the kitchen can no longer make
+ *     (/cart's "+" on a draft whose dish was 86'd, or delisted, after the view that drew it). WHICH
+ *     one travels (#362). Shrinking and removing are always allowed: they are the way OUT of it;
+ *   • `voided` — staff REMOVED the line (#362 blind pass 8). It used to answer `not_draft`, and the
+ *     provider then said "it's already gone to the kitchen" about a dish that had been taken off.
+ */
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
-  const { cartId, locked, settling, role, lineSeat, lineState, comped, uid } =
+  const { cartId, locked, settling, role, lineSeat, lineState, comped, uid, lineQty, menuItemId } =
     await assertCartItemMember(input.cartItemId);
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling)
     throw new Error("Your table is paying — you can’t change the order while everyone pays");
+  // Lifecycle audit (edit-notes 6) — a line that LEFT draft is the server's own fact to NAME, the M230
+  // order `setLineFulfillment` already uses: before the ownership rule, which also answers for it.
+  if (lineState === "voided") return { refused: "voided", at: new Date().toISOString() } as const;
+  if (lineState !== "draft") return { refused: "not_draft", at: new Date().toISOString() } as const;
   // canMutate (M3·P3.3a → S2.1a): a diner may change/remove only an OWN, still-'draft' line (host any
   // draft; guest own). Once fired, editing is staff-only. A comped line is immutable (S2-audit B1). Honest
   // reason per case — a fired line isn't an ownership problem (S2.2 also disables the control client-side).
@@ -170,6 +282,19 @@ export async function setQty(cartItemId: string, qty: number) {
         ? `Only ${TABLE_STARTER_MID} can change someone else’s item`
         : "Ask our staff to change an item that’s already gone to the kitchen",
     );
+  // Lifecycle audit (out-of-stock 1) — never GROW a line whose dish the kitchen can no longer make.
+  // Only a growth asks (one read, off the hot "−" path); `null` (unknowable, or a grocery barcode)
+  // is FAIL-OPEN like every availability pre-read — the charge boundary re-reads regardless. The
+  // window between this read and the RPC is the same race `priceItem`'s add-time gate accepts.
+  if (input.qty > lineQty) {
+    const availability = await dishAvailability(menuItemId);
+    if (availability === "sold_out" || availability === "gone") {
+      // Codex P2 on #362 — stamped BEFORE a read that confirms it (`stampThenConfirm`); restocked in
+      // between, the growth lands (the gate's own fail-open posture for a dish it cannot refuse).
+      const { at, why } = await stampThenConfirm(menuItemId, "setQty");
+      if (why) return { refused: why, at } as const;
+    }
+  }
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
@@ -182,7 +307,13 @@ export async function setQty(cartItemId: string, qty: number) {
   // refusals and say what the pre-checks would have said.
   const refusal = lineRpcRefusal(qtyErr);
   if (refusal === "sent")
-    throw new Error("Ask our staff to change an item that’s already gone to the kitchen");
+    // Lifecycle audit — named, not thrown (see the docblock): the raise aborted, nothing landed.
+    return { refused: "not_draft", at: new Date().toISOString() } as const;
+  // #362 (Codex P2) — the GROWTH gate under the row lock (20261018140000): `lineQty` above was read
+  // before this call, so a concurrent decrease could make a stale request a growth the pre-read never
+  // saw. The RPC compares against the quantity it replaces, and stamps the refusal itself.
+  const dish = rpcDishUnavailable(qtyErr);
+  if (dish) return { refused: dish.why, at: dish.at } as const;
   if (refusal === "paying") throw new CartPayingError();
   if (!affected) throw new Error("Cart is no longer open");
   const { error: touchErr } = await db
@@ -261,6 +392,14 @@ export type SendToKitchenResult =
   | {
       ok: false;
       reason: "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error";
+    }
+  /** Lifecycle audit (out-of-stock 1) — dine-in drafts whose dish the kitchen can no longer make;
+   *  nothing was fired. Each dish carries the catalog's name and WHY (#362 — sold out, or no longer
+   *  on the menu), for the sentence (`unavailableSendNotice`). */
+  | {
+      ok: false;
+      reason: "unavailable";
+      dishes: { name: string; why: Unavailable }[];
     };
 
 /**
@@ -281,6 +420,17 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   if (locked) return { ok: false, reason: "locked" };
   if (settling) return { ok: false, reason: "settling" };
   if (role !== "host") return { ok: false, reason: "not_host" };
+  // Lifecycle audit (out-of-stock 1 · kitchen-board-sync 6) — `mms_fire_cart` reads no availability,
+  // so a dish 86'd while it sat in a cart went to the board with the rest. Refuse the Send and NAME
+  // the dishes; the guest removes them and sends the rest. Fail-open on an unreadable catalog (a
+  // secondary check must never stop a table's food). The read→fire race is filed for the SQL fix.
+  const blocking = await sendBlockers(input.cartId);
+  if (blocking.length > 0)
+    return {
+      ok: false,
+      reason: "unavailable",
+      dishes: blocking.map((d) => ({ name: d.name, why: d.why })),
+    };
 
   const db = serviceClient();
   const { data: rows, error } = await db.rpc("mms_fire_cart", {
@@ -599,9 +749,8 @@ export async function setLineFulfillment(
  */
 export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResult> {
   const input = makeItNowInput.parse({ cartItemId });
-  const { locked, settling, role, lineSeat, lineState, comped, uid } = await assertCartItemMember(
-    input.cartItemId,
-  );
+  const { locked, settling, role, lineSeat, lineState, comped, uid, menuItemId } =
+    await assertCartItemMember(input.cartItemId);
   await assertMutationRate(uid);
   if (locked || settling) return { ok: false, reason: "busy" };
   // M230 — already with the kitchen: the same fact as the toggle's, in the word `mms_fire_line`
@@ -609,6 +758,12 @@ export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResul
   if (lineState !== "draft") return { ok: false, reason: "not_draft" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
+  // Lifecycle audit (out-of-stock 1) — "Send to kitchen now" on a dish the kitchen can no longer
+  // make: refused and NAMED with WHY (`serverNamedRefusal` — `sold_out` or `gone`, #362), never
+  // fired. Fail-open on `null`.
+  const availability = await dishAvailability(menuItemId);
+  if (availability === "sold_out" || availability === "gone")
+    return { ok: false, reason: availability };
   const { data, error } = await serviceClient().rpc("mms_fire_line", { p_line: input.cartItemId });
   if (error) {
     console.error("[cart] mms_fire_line failed", error.message);
@@ -617,6 +772,126 @@ export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResul
   if (data !== "ok") return { ok: false, reason: data ?? "error" };
   // No touchCart: mms_fire_line's write to qr_cart_items (state→fired) is itself the realtime trigger the
   // KDS + cart peers subscribe to (same as setLineFulfillment). The grace window is the fire_at stamp.
+  return { ok: true };
+}
+
+export type SetLineNoteResult =
+  | { ok: true }
+  /** #362 (blind pass 1) — the note on the order is no longer the one the sheet was seeded from:
+   *  someone (staff, the host) wrote it while the sheet was open. NOTHING was written; `notes` is the
+   *  note now on the order, so the sheet re-seeds from it and the view says so. */
+  | { ok: false; reason: "changed"; notes: string | null }
+  | {
+      ok: false;
+      /** `busy` a pay lock / split freeze · `not_draft` the line went to the kitchen (named, M230) ·
+       *  `voided` staff removed it (named — never "gone to the kitchen") · `not_yours` a guest's note
+       *  on someone else's dish, or a comp · `closed` the cart is no longer open · `stale` a race the
+       *  reason does not name · `rate_limited` · `error`. */
+      reason:
+        | "busy"
+        | "not_draft"
+        | "voided"
+        | "not_yours"
+        | "closed"
+        | "stale"
+        | "rate_limited"
+        | "error";
+    };
+
+/**
+ * Lifecycle audit (edit-notes 3) — the DINER adds, changes or clears the kitchen note on their own
+ * UNSENT dish ("no peanuts — allergy"). Before this the note was read-only on /cart ("remove/re-add
+ * to change it"), so a diner who only wanted to add an allergy had to trash the dish, find it on the
+ * menu, re-pick its options and type the note — and some would skip the note — while a server could
+ * edit the very same draft note from the floor (`setLineNotes`). The diner was the only party with
+ * no edit path to their own allergy channel.
+ *
+ * Guarded like the other draft-only diner writes: member-gated (`assertCartItemMember`), rate-
+ * limited, refused under a pay lock or split freeze, `not_draft` NAMED before the ownership rule
+ * (M230's order — `voided` for a line staff removed), then `canMutateLine` (host any draft, guest
+ * their own, never a comp). The UPDATE itself carries the line's guards IN THE STATEMENT — this line,
+ * this cart, still `draft`, not comped, for a guest still their own seat, and the note still the one
+ * the sheet was seeded from (`seen`, a compare-and-swap — #362) — and its row count is READ
+ * (`.select("id")`): a blocked UPDATE answers success otherwise (the W17 lesson).
+ *
+ * The cart's `open` status and its two freezes live on `qr_carts`, which one PostgREST UPDATE on
+ * `qr_cart_items` cannot test, so they are RE-READ in one query immediately before the write —
+ * `status,locked,locked_at,settle_at`, judged by `effectiveFreeze`, the rule `assertCartMember`
+ * applies (#362 blind pass 5: this read used to take `status` alone while this paragraph claimed the
+ * freezes). That narrows the window to the gap between two statements; it does not close it. A note
+ * carries no money, so the residual costs at most a note landing beside a payment; a status-atomic
+ * RPC (with options editing) is filed as needing a migration (M299). `touchCart` re-syncs every
+ * phone at the table.
+ *
+ * ⚠️ THE COMPARE-AND-SWAP (`seen`). The sheet seeds its field from the line once; a staff allergy
+ * note written while it was open was overwritten on Save — or, with the field untouched, ERASED (the
+ * button became "Remove the note"). So the write lands only while the stored note is still `seen`
+ * (`notes is null` for an empty one: every writer stores an empty note as NULL — this one, staff
+ * `setLineNotes`, `addItem`'s `|| undefined`). On zero rows the re-read names `changed` and hands
+ * back the note now on the order. Never a silent overwrite.
+ */
+export async function setLineNote(
+  cartItemId: string,
+  notes: string,
+  seen: string,
+): Promise<SetLineNoteResult> {
+  // Zod trims and bounds it at 160, the column CHECK's own bound (`qr_cart_items.notes`).
+  const parsed = setLineNotesInput.safeParse({ cartItemId, notes });
+  if (!parsed.success) return { ok: false, reason: "error" };
+  // `seen` is compared RAW against the stored value, so it carries the column's own bound and no
+  // trim; anything else is a value the sheet could never have been seeded from.
+  if (typeof seen !== "string" || seen.length > 160) return { ok: false, reason: "error" };
+  const input = parsed.data;
+  const { cartId, locked, settling, role, lineSeat, lineState, comped, uid } =
+    await assertCartItemMember(input.cartItemId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "rate_limited" };
+  if (locked || settling) return { ok: false, reason: "busy" };
+  if (lineState === "voided") return { ok: false, reason: "voided" };
+  if (lineState !== "draft") return { ok: false, reason: "not_draft" };
+  if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
+    return { ok: false, reason: "not_yours" };
+  const db = serviceClient();
+  const { data: cartRow, error: cartErr } = await db
+    .from("qr_carts")
+    .select("status,locked,locked_at,settle_at")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (cartErr) return { ok: false, reason: "error" };
+  if (cartRow?.status !== "open") return { ok: false, reason: "closed" };
+  const freeze = effectiveFreeze(cartRow, Date.now());
+  if (freeze.locked || freeze.settling) return { ok: false, reason: "busy" };
+  let write = db
+    .from("qr_cart_items")
+    .update({ notes: input.notes || null })
+    .eq("id", input.cartItemId)
+    .eq("cart_id", cartId)
+    .eq("state", "draft")
+    .eq("comped", false);
+  // A guest's note may only ever land on a dish that is STILL theirs (a reassign can move it).
+  if (role !== "host") write = write.eq("by_seat", uid);
+  // The compare-and-swap (see the docblock): only over the note the sheet was seeded from.
+  write = seen === "" ? write.is("notes", null) : write.eq("notes", seen);
+  const { data: noted, error: noteErr } = await write.select("id");
+  if (noteErr) {
+    console.error("[cart] setLineNote failed", noteErr.message);
+    return { ok: false, reason: "error" };
+  }
+  if (!noted || noted.length === 0) {
+    // Zero rows: a guard in the statement refused. Name only what a re-read establishes — a line
+    // that left draft is the kitchen's (M230) or staff's (`voided`), a note that is no longer the one
+    // the sheet saw is `changed`; anything else is a race we do not name.
+    const { data: now } = await db
+      .from("qr_cart_items")
+      .select("state,notes")
+      .eq("id", input.cartItemId)
+      .maybeSingle();
+    if (now?.state === "voided") return { ok: false, reason: "voided" };
+    if (now && now.state !== "draft") return { ok: false, reason: "not_draft" };
+    if (now && (now.notes ?? "") !== seen)
+      return { ok: false, reason: "changed", notes: now.notes ?? null };
+    return { ok: false, reason: "stale" };
+  }
+  await touchCart(cartId, "setLineNote");
   return { ok: true };
 }
 
@@ -688,7 +963,7 @@ export async function getCartView(cartId: string): Promise<{
   mode: string;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { uid, locked, lockedBy, settling, settleBy, mode } = await assertCartMember(id);
+  const { uid, sessionId, locked, lockedBy, settling, settleBy, mode } = await assertCartMember(id);
   const db = serviceClient();
   // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
   // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
@@ -755,7 +1030,10 @@ export async function getCartView(cartId: string): Promise<{
   const menuIds = [
     ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => uuidRe.test(x))),
   ];
-  const soldOut = new Set<string>();
+  // #362 (Codex round 1) — WHY each dish can't be made, from the ONE predicate (`dishUnavailable`):
+  // an 86 (`sold_out`), or delisted / gone from the catalog (`gone`). Null = it can be made, or the
+  // catalog read failed (advisory: a blip marks NOTHING, never "gone" for every line).
+  const unavailable = new Map<string, Unavailable>();
   // W13 — line media + Burmese names, keyed by the soft ref (menu uuid OR grocery barcode); the
   // keyspaces are disjoint by the uuidRe partition. Display-only; a failed lookup degrades to
   // placeholder/EN (same advisory posture as soldOut). `safeImageUrl` = containment only; W16d
@@ -765,14 +1043,16 @@ export async function getCartView(cartId: string): Promise<{
   const barcodes = [
     ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => !uuidRe.test(x))),
   ];
+  // Lifecycle audit (out-of-stock 2) — the lines staff REMOVED, whose reason the audit holds.
+  const voidedIds = (rows ?? []).filter((r) => r.state === "voided").map((r) => r.id);
   // getCartView runs in every mutation response — the two advisory reads go out TOGETHER
   // (review LOW: sequential awaits taxed the add/scan hot path with a second serial RTT).
-  const [menuRes, groceryRes, nudgeRes] = await Promise.all([
+  const [menuRes, groceryRes, nudgeRes, voidRes, droppedRes] = await Promise.all([
     menuIds.length
       ? // Deliberate swallow posture: sold-out is an advisory disable on the "+", not load-bearing;
         // a failed lookup degrades to "nothing sold-out" + no media rather than blocking the view.
         // image_url + name_my ride the SAME query — zero extra round trips on the menu side.
-        db.from("menu_items").select("id,is_sold_out,image_url,name_my").in("id", menuIds)
+        db.from("menu_items").select("id,is_sold_out,is_active,image_url,name_my").in("id", menuIds)
       : Promise.resolve({ data: null }),
     barcodes.length
       ? db.from("grocery_items").select("barcode,image_url,name_my").in("barcode", barcodes)
@@ -785,13 +1065,52 @@ export async function getCartView(cartId: string): Promise<{
     // project the previews share with prod (docs/ENV.md, T3): until it is applied this read answers
     // 42703, and /cart must still render every order exactly as before.
     db.from("qr_carts").select("send_nudge_seat,send_nudge_at").eq("id", id).maybeSingle(),
+    // Lifecycle audit (out-of-stock 2) — WHY staff removed a line, from the loss audit
+    // (`mms_approvals`, written in the void's own transaction). ADVISORY like the reads beside it:
+    // a failed read degrades to a bare "Removed", never the outage screen. Only when a line IS
+    // voided (no cost on the ordinary view), and through the session index the ledger already has.
+    voidedIds.length
+      ? db
+          .from("mms_approvals")
+          .select("line_id,reason_code,created_at")
+          .eq("session_id", sessionId)
+          .eq("kind", "void")
+          .in("line_id", voidedIds)
+      : Promise.resolve({ data: null }),
+    // #362 (blind pass 7) — the SETTLEMENT's own voids. `mms_settle_precheck_and_void` (W23c · M72)
+    // voids a draft the capture found it cannot make and ledgers it here as `sold_out`, never in
+    // `mms_approvals`; the cart stays OPEN after it whenever the capture is retried or the hold is
+    // cancelled, so tablemates' phones apply that view and said "Our staff removed …" with no "we
+    // ran out". Advisory and voided-only like the audit read beside it, through
+    // `qr_dropped_lines_cart_idx (cart_id, dropped_at)`.
+    voidedIds.length
+      ? db
+          .from("qr_dropped_lines")
+          .select("line_id,reason_code,dropped_at")
+          .eq("cart_id", id)
+          .in("line_id", voidedIds)
+      : Promise.resolve({ data: null }),
   ]);
-  for (const f of menuRes.data ?? []) {
-    if (f.is_sold_out) soldOut.add(f.id);
+  // A catalog read that FAILED (or was never needed) marks nothing; one that answered judges every
+  // uuid line — a row it did not return is a dish gone from the catalog.
+  const catalog = menuRes.data ? new Map(menuRes.data.map((f) => [f.id, f])) : null;
+  if (catalog)
+    for (const id of menuIds) {
+      const why = dishUnavailable(catalog.get(id));
+      if (why) unavailable.set(id, why);
+    }
+  for (const f of menuRes.data ?? [])
     media.set(f.id, { imageUrl: safeImageUrl(f.image_url), nameMy: f.name_my ?? null });
-  }
   for (const g of groceryRes.data ?? [])
     media.set(g.barcode, { imageUrl: safeImageUrl(g.image_url), nameMy: g.name_my ?? null });
+  const removedReason = removedReasons([
+    ...(voidRes.data ?? []),
+    ...(droppedRes.data ?? []).map((d) => ({
+      line_id: d.line_id,
+      reason_code: d.reason_code,
+      created_at: d.dropped_at,
+    })),
+  ]);
   const items: CartItem[] = (rows ?? []).map((r) => ({
     id: r.id,
     menuItemId: r.menu_item_id,
@@ -801,7 +1120,12 @@ export async function getCartView(cartId: string): Promise<{
     unitPriceCents: r.unit_price_cents,
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
-    soldOut: soldOut.has(r.menu_item_id),
+    // The GATE (either kind) and the WORDS (which kind) — one predicate, so they never disagree.
+    // #362 blind pass 9 — UNKNOWN (undefined) for a dish line when the catalog read failed: `false`
+    // there read as a fresh "available" on /menu and cleared a real sold-out mark
+    // (`cartSoldOutReading`). Still falsy, so the advisory "+" gate is exactly as before.
+    soldOut: catalog || !uuidRe.test(r.menu_item_id) ? unavailable.has(r.menu_item_id) : undefined,
+    unavailable: unavailable.get(r.menu_item_id) ?? null,
     // Kitchen-life state (S2.2): drives the diner UI — a 'draft' line keeps its stepper, a fired/cooking/
     // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).
     lineState: (r.state ?? "draft") as LineState,
@@ -824,6 +1148,9 @@ export async function getCartView(cartId: string): Promise<{
     // name_my snapshot if it ever bites).
     imageUrl: media.get(r.menu_item_id)?.imageUrl ?? null,
     nameMy: media.get(r.menu_item_id)?.nameMy ?? null,
+    // Lifecycle audit (out-of-stock 2) — a removed line says "we ran out" when that is what staff
+    // picked; every other reason (and an unreadable audit) keeps the bare "Removed".
+    removedReason: r.state === "voided" ? (removedReason.get(r.id) ?? null) : null,
   }));
   return {
     items,

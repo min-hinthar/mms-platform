@@ -16,8 +16,9 @@ import type { MenuItem } from "./MenuBrowser";
  * the spy — the region itself is the provider's, pinned by its own suite.
  */
 const announce = vi.fn();
-/** Session truth — the cart fields a case overrides (a HOST at a table, for the leave warning). */
-let cartOver: Record<string, unknown> = {};
+/** The cart fields a case overrides — session truth: a HOST at a table, for the leave warning;
+ *  lifecycle audit: the cart view's lines and clock, the sold-out marks. */
+const cart = vi.hoisted(() => ({ extra: {} as Record<string, unknown> }));
 vi.mock("@/components/TableCartProvider", () => ({
   useCart: () => ({
     cartId: null,
@@ -28,11 +29,16 @@ vi.mock("@/components/TableCartProvider", () => ({
     members: [],
     me: null,
     ended: null,
-    ...cartOver,
+    ...cart.extra,
   }),
 }));
 const none = () => null;
-vi.mock("@/components/AddButton", () => ({ AddButton: none }));
+// A MARKER carrying the one prop the lifecycle cases ask about: the sold-out fact the page decided.
+vi.mock("@/components/AddButton", () => ({
+  AddButton: ({ menuItemId, soldOut }: { menuItemId: string; soldOut?: boolean }) => (
+    <span data-add={menuItemId} data-soldout={String(!!soldOut)} />
+  ),
+}));
 vi.mock("@/components/CartBar", () => ({ CartBar: none }));
 vi.mock("@/components/GuestList", () => ({ GuestList: none }));
 vi.mock("@/components/TableTimeline", () => ({ MenuTimeline: none }));
@@ -113,7 +119,7 @@ const spoken = () =>
 
 beforeEach(() => {
   announce.mockClear();
-  cartOver = {};
+  cart.extra = {};
   partyCalls.length = 0;
   partyAnswer = null;
   doorProps = {};
@@ -269,7 +275,7 @@ describe("session truth (finding 5) — the host's leave warning is read when th
     // MUTATION (lcs/leave-flow-never-re-reads): the party is re-read only when presence grows — a
     // tablemate who joined with their phone already face down never shows in presence, and the
     // host's leave goes out under a minutes-old "alone".
-    cartOver = HOST;
+    cart.extra = HOST;
     render(<Page />);
     const epochs = () => partyCalls.map((c) => c[2]);
     expect(partyCalls.at(-1)?.slice(0, 2)).toEqual(["cart-1", true]);
@@ -285,7 +291,7 @@ describe("session truth (finding 5) — the host's leave warning is read when th
   });
 
   it("while that read is out the warning is HEDGED, never the silence that claims 'alone'; a current 'alone' says nothing", () => {
-    cartOver = HOST;
+    cart.extra = HOST;
     partyAnswer = { seats: ["me"], current: false };
     render(<Page />);
     expect(doorProps.leaveWarning).toBe("maybe");
@@ -303,7 +309,7 @@ describe("session truth (finding 5) — the host's leave warning is read when th
     // After a clear or a merge the held session keeps role host and the last good party (the read
     // on the closed session fails and keeps it), so "the others will need a server to send theirs"
     // was drawn under "this table closed". MUTATION (lcs/menu-leave-warning-ignores-the-end).
-    cartOver = { ...HOST, ended: { kind: "ended", why: "cleared" } };
+    cart.extra = { ...HOST, ended: { kind: "ended", why: "cleared" } };
     partyAnswer = { seats: ["me", "aye"], current: true };
     render(<Page />);
     expect(doorProps.leaveWarning).toBeNull();
@@ -315,13 +321,13 @@ describe("session truth (finding 5) — the host's leave warning is read when th
     // "Start a new order" re-joins the SAME session at a paid, still-seated table, so the host's
     // leave still strands the next round's Send. MUTATION (lcs/menu-paid-seated-silences-the-leave).
     const paid = { kind: "paid", tender: "counter", orderId: null, complete: true };
-    cartOver = { ...HOST, ended: { ...paid, sessionLive: true } };
+    cart.extra = { ...HOST, ended: { ...paid, sessionLive: true } };
     partyAnswer = { seats: ["me", "aye"], current: false };
     render(<Page />);
     expect(doorProps.leaveWarning).toBe("sends");
     expect(partyCalls.at(-1)?.[1]).toBe(true);
     cleanup();
-    cartOver = { ...HOST, ended: { ...paid, sessionLive: false } };
+    cart.extra = { ...HOST, ended: { ...paid, sessionLive: false } };
     render(<Page />);
     expect(doorProps.leaveWarning).toBeNull();
     expect(partyCalls.at(-1)?.[1]).toBe(false);
@@ -330,21 +336,69 @@ describe("session truth (finding 5) — the host's leave warning is read when th
   it("the blind pass on #361 (A4) — a presence FLAP never re-reads the party; a seat presence has never seen does", () => {
     // MUTATION (lcs/leave-party-reads-on-every-flap): the epoch keyed on the presence COUNT — a
     // face-down phone dropping out and back fired the durable-party read on every flap.
-    cartOver = HOST;
+    cart.extra = HOST;
     const { rerender } = render(<Page />);
     const epochs = () => partyCalls.map((c) => c[2]);
     const first = epochs().at(-1);
     const aye = { seat: "aye", name: "Aye" };
-    cartOver = { ...HOST, members: [...HOST.members, aye] };
+    cart.extra = { ...HOST, members: [...HOST.members, aye] };
     rerender(<Page />);
     const joined = epochs().at(-1);
     expect(joined).not.toBe(first); // a new seat is a reason to ask
     const mark = partyCalls.length;
-    cartOver = HOST; // Aye's phone goes face down…
+    cart.extra = HOST; // Aye's phone goes face down…
     rerender(<Page />);
-    cartOver = { ...HOST, members: [...HOST.members, aye] }; // …and comes back
+    cart.extra = { ...HOST, members: [...HOST.members, aye] }; // …and comes back
     rerender(<Page />);
     // Every render through the flap asked under the SAME epoch — the read never re-fired.
     expect(new Set(epochs().slice(mark))).toEqual(new Set([joined]));
+  });
+});
+
+/**
+ * Lifecycle audit (out-of-stock 0 · 5) — every surface on the page reads ONE sold-out fact, the
+ * FRESHEST this phone holds (`lib/dish-sold-out.ts`): a refusal an add just met flips the card at
+ * once, and a fresher cart reading puts a restocked dish back — the render's stale flag no longer
+ * outvotes it.
+ */
+describe("the menu's sold-out fact is the freshest reading", () => {
+  const soldOutOf = (id: string) =>
+    document.querySelector(`[data-add="${id}"]`)?.getAttribute("data-soldout");
+
+  it("a sold-out refusal's MARK flips the card to Sold out, with no reload", () => {
+    // MUTATION (lcb/menu/refusal-mark-ignored): drop the mark — the card stays live under every
+    // retry, each meeting the same refusal; red.
+    cart.extra = { soldOutMarks: new Map([["m1", Date.parse("2026-10-13T12:00:05Z")]]) };
+    render(
+      <MenuBrowser
+        items={ITEMS}
+        mode="dinein"
+        usual={{ kind: "none" } as never}
+        catalogStamp={Date.parse("2026-10-13T12:00:00Z")}
+      />,
+    );
+    expect(soldOutOf("m1")).toBe("true");
+    expect(soldOutOf("t1")).toBe("false");
+    expect(screen.getByText("· Sold out")).toBeTruthy();
+  });
+
+  it("a FRESHER cart reading puts a restocked dish back, over the render's stale Sold out", () => {
+    // MUTATION (lcb/menu/cart-reading-ignored): read only the render — the restocked dish stays dead
+    // on /menu while /cart's "+" is live; red.
+    const stale = ITEMS.map((i) => (i.id === "m1" ? { ...i, is_sold_out: true } : i));
+    cart.extra = {
+      items: [{ menuItemId: "m1", soldOut: false, fulfillment: "dinein" }],
+      dbNow: "2026-10-13T12:05:00.000Z",
+    };
+    render(
+      <MenuBrowser
+        items={stale}
+        mode="dinein"
+        usual={{ kind: "none" } as never}
+        catalogStamp={Date.parse("2026-10-13T12:00:00Z")}
+      />,
+    );
+    expect(soldOutOf("m1")).toBe("false");
+    expect(screen.queryByText("· Sold out")).toBeNull();
   });
 });

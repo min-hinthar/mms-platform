@@ -179,8 +179,16 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-const MOHINGA = { id: "11111111-1111-4111-8111-111111111111", name: "Mohinga" };
-const TEA = { id: "22222222-2222-4222-8222-222222222222", name: "Tea leaf salad" };
+const MOHINGA = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Mohinga",
+  why: "sold_out" as const,
+};
+const TEA = {
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Tea leaf salad",
+  why: "sold_out" as const,
+};
 const cash = (ack: string[] = []) =>
   settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368, acknowledgedSoldOutIds: ack });
 const tabClose = (ack: string[] = []) =>
