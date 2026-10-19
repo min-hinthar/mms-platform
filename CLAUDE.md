@@ -15,7 +15,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go, the staff console under `/staff` — register, kitchen and expo, tables, approvals, team, tips — the kiosk and the order-ready board) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
-## Where things stand (2026-10-12)
+## Where things stand (2026-10-18)
 
 Shipped the polish plan's Phase 0–2 and Phase 3a–3d's receipt stack (#299–#315; `ROADMAP.md`).
 3d·counter's cash-sheet re-host (K39 · K44) shipped later, in PD6 (#334); K39 stays open for the Team
@@ -27,9 +27,14 @@ built (2026-10-08 to 10-11):** PD1–PD12 merged with their follow-ups (#326–#
 2026-10-09 instruction ("I trust you to make all decisions, apply migrations, and merge all"). 15 of
 the merges went in before Codex had reviewed their head. The owner answered 2026-10-12 that the
 instruction covered them ("Yes it covered", OWNER_RULINGS §H1), for this wave only. Neither the instruction nor that answer grants anything to a
-later session: the rules below (G3 · G4) govern every merge from here on. **Next:** `docs/HANDOFF.md`'s top block. It lists the merged PRs, the
-migrations in order, and the decisions and gate calls for the owner to ratify. Its next tasks include
-the PD10 flip's conditions and M276 · T55.
+later session: the rules below (G3 · G4) govern every merge from here on. **2026-10-12 to 10-18:**
+every open OPEN-ITEMS row was read against the code (`docs/OPEN-ITEMS_TRIAGE_2026-10-12.md`, #351);
+#351–#356, #359, #360, #363, #367 (the release of #364 · #366 · #365 · #361) and #368 merged; M309's
+and M210's migrations were applied to prod on 2026-10-18; and the decisions round is
+`docs/DECISIONS_2026-10-18.md`. #367 merged under the owner's approval of the admin bypass for that
+session only. Production runs on Stripe TEST keys until C2's `_TEST` variables are removed.
+**Next:** `docs/HANDOFF.md`'s top block: what merged, the migrations, production's state, the next
+tasks and the owner's checklist. Earlier records are in `docs/HANDOFF_ARCHIVE.md`.
 
 - **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
   with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and
