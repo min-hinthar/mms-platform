@@ -1584,7 +1584,7 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
 - **The no-show.** "They didn't come — remove the order" REPLACES Clear on a counter order with sent
   food (Clear refuses it and names the way out). It writes off only the SENT set past its grace, as
   approved `void` rows with `reason_code = 'no_show'` through `mms_void_line`'s own loss gate — a
-  manager's PIN when any sent dish was started or served (`cooked`), or the sent value exceeds
+  manager when any sent dish was started or served (`cooked`), or the sent value exceeds
   `mms_loss_config.max_loss_cents` (`ceiling`); drafts and grocery drop with NO row and never count
   toward the ceiling; in-grace lines go back to draft; pending approvals on the cart are superseded;
   the cart is cancelled and the session closed. It records a loss and nothing else: no order, no
@@ -1603,7 +1603,13 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   off the kitchen screen" (`compedKitchenLineIds`, DB clock) — never counted as a loss. A manager roster
   that fails to load is an OUTAGE, never an empty shift: "Couldn’t load managers", a 44px **Try
   again**, and the step stays blocked (`useApproverRoster`, shared with the loss sheet); a retry that recovers
-  restores "a manager needs to approve" while the step-up is pending, in both sheets.
+  restores "a manager needs to approve" while the step-up is pending, in both sheets. **No-PIN
+  (owner, 2026-10-24: "Remove PIN for all requests"):** there is no step-up any more — a manager or
+  owner writes the no-show off on their OWN sign-in in one tap (recorded as the approver), and a
+  server's gated tap is told a manager must do it on their own sign-in. The same holds for a void or
+  comp (a server's gated tap is offered the approvals-queue request) and for the queue itself (the
+  decision names the signed-in manager — "Deciding as Aye"). The roster survives only to say who is
+  signed in.
 - **The lane never blanks over the unpaid read.** Unpaid bags are drawn beside the paid ones, with
   ONE action, **Take payment** (the table page's payment). An unreadable unpaid read is an outage,
   said; a SATURATED one keeps every paid bag and says "more unpaid than shown" — in the count line
@@ -2646,7 +2652,7 @@ food in the kitchen is shown, dish by dish. What that may and may not look like:
   says so in place of the key — never "All clear" over a full wok: "All clear" is said only when the
   server read no food of ANY channel on the wok (the tables are dine-in only), and never on a frozen
   snapshot.
-- **Privacy is the payload's shape.** A table number and dish names only: no guest name, count, price,
+- **Privacy is the payload's shape.** A table number and dish names only: no count, price,
   clock, age, ETA, approval, Undo word or pay word, and a dish not yet sent never appears. Beside
   them the route sends `{ orders, tables, kitchenIdle, serverNow }` and nothing else — `kitchenIdle`
   is one boolean (is any food of any channel on the wok?), never a count. The pickup
@@ -2657,6 +2663,12 @@ food in the kitchen is shown, dish by dish. What that may and may not look like:
 Decided in `lib/guide-seen.ts` (the ONE seen-key rule every guide reads — the staff guides now, the
 diner's guide with PD11) and `lib/staff-guide.ts` (the steps, the arm, the quiet); drawn by `StepGuide`
 and `GuidePicture`. What a first-run guide may and may not be:
+
+**Guest names (owner, 2026-10-24 — m9 decision 19 reversed: "guest names should also be in kitchen
+tickets and boards"):** a bag carries the call-out name its guest gave at checkout beside its code,
+and a dish row names the guests who added it on its echo line (first-added first, each once — a
+name never implies a count). The KDS line says "For Aung" inside its button, and its name says it
+too. Names are the guest's own text, shaped once (`lib/guest-names.ts`, 24 characters at most).
 
 - **It lives in the screen's quiet space, never as a modal over live work.** The counter's guide is
   where "Pick a table" stands (the idle pane, from 64em, beside a floor that stays live and tappable);

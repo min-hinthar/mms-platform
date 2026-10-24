@@ -4,6 +4,38 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The owner's four asks — menu studio, custom items, no PIN, guest names (2026-10-24, `claude/blissful-cerf-jxz37k`)
+
+- **Guest names on the kitchen's screens** (the owner reversed K16 and m9 decision 19: "guest names
+  should also be in kitchen tickets and boards"). Each KDS line says who added it ("For Aung", from
+  `session_members.display_name` by `added_by`), and its name says so too; a table ticket carries a
+  cart call-out name when one exists. The TV board shows each bag's checkout name beside its code and
+  who each dish row is for, on the echo line so a row never grows. `lib/guest-names.ts` shapes the
+  guest's own text once (24 characters at most); the member read is advisory.
+- **No PIN on any request** ("Remove PIN for all requests"). A manager or owner acts on their own
+  sign-in: a gated void, comp or counter no-show records them as the approver in one tap, the
+  approvals queue decides as the signed-in manager ("Deciding as Aye"), and a refund has no PIN
+  re-auth. A server's gated tap is offered the approvals-queue request. The PD8 approval slip and the
+  PIN picker are gone; the tablet lock-screen PIN is unchanged. **Migration
+  `20261024120000_no_pin_manager_self_approve.sql` is written, NOT applied** (OPEN-ITEMS OA1); until
+  it applies the app reads the old `self_approve` as "ask a manager".
+- **A custom item on a table's order** ("manual new item add to tables orders"). The add pad's rail
+  gains a Custom item chip (managers and owners) for a dish or charge not on the menu: name, price
+  each, quantity, kitchen note. No catalog row is needed (every total and fulfill reads the line
+  snapshot); `lib/custom-item.ts` gives it a unique `custom:<key>` id and `hot_prepared` tax, the
+  SQL's own fallback, and a lost answer keeps its key so Add again cannot ring it twice.
+- **The menu studio** ("elevate full features … to menu-editor"). A manager's `/staff/menu` leads
+  each row with its photo as the door to a dish sheet (both names and descriptions, category, tax
+  category, price through `setMenuPrice`, an on-the-menu switch, and a photo taken or chosen on the
+  phone, resized on the device to 1600px JPEG), with Add a dish, a Categories sheet (rename, reorder,
+  hide, add) and the hidden dishes listed apart. A hidden category takes its dishes off the menu, the
+  kiosk and the pad. Writes are manager-gated, compare-and-swapped and write only changed columns.
+  **Migration `20261024120100_menu_studio.sql` is written, NOT applied** (OA2): the photo bucket, the
+  `menu_edit_audit` ledger and the text bounds.
+- Every new money or authority rule carries a `verify:slice` mutant; the two migrations carry SQL
+  tests registered in `ci.yml` (`nopin_manager_self_approve_test.sql`, `menu_studio_test.sql`) and a
+  `verify-mode-authority` suite (`nopin`). Every new Burmese string is a K15 draft (OA6).
+
 ### Path design round 4 — eight new moments, three ways (2026-10-23, `claude/blissful-cerf-jxz37k`)
 
 - **The record `docs/PATH_DESIGN_2026-10-23.md` and eight specs under `docs/path-design-2026-10-23/`**

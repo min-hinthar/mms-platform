@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-18 · the tranche merged, production on test keys)
+# Session Handoff — MMS Platform (2026-10-24 · the owner's four asks on #373; production on test keys)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -11,6 +11,28 @@ The chat context does not carry across sessions — **this file is the durable p
 entries that cite `docs/HANDOFF.md` for history resolve there — and two of them are still BINDING despite the archive's banner: the p2f apply procedure and the `PICKUP_MANUAL_CAPTURE` flip gate (restated in [`docs/ENV.md`](ENV.md)'s row) — plus the M17 / M109 notes, the `lemon-salad` tax note, the Terminal
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
+
+## Where things stand (2026-10-24 — the owner's four asks, on PR #373)
+
+The owner asked, verbatim: "elevate full features (iOS photo upload, add new menu items categories
+etc, updates to names prices categories etc,) to menu-editor and with world-class UI UX. manual new
+item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
+and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
+so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
+(OA1–OA8) is what is left.
+
+- **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
+  instruction (G3 · G4); (2) **OA1** — apply `20261024120000_no_pin_manager_self_approve.sql`;
+  (3) **OA2** — apply `20261024120100_menu_studio.sql`. Each is one file through the Supabase MCP
+  `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header says, before the
+  next. The deploy and the applies can land in either order: before OA1, a manager's gated void is
+  offered the request queue; before OA2, a photo upload says "Photo storage isn't set up yet".
+- **Decisions waiting on the owner:** OA3 (does a manager approve their own queued request?) and
+  OA4 (a custom item for servers?). Both ship the conservative side.
+- **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on
+  the throwaway Postgres 16 (`/var/tmp/mmspg`, rebuilt by `/var/tmp/mmspg-kit/rebuild.sh` — gone with
+  the container), and red-first for each new file; `verify-mode-authority` accounted for 349 mutants
+  (27 documented survivors, as before) with the new `nopin` suite.
 
 ## Where things stand (2026-10-18 — the tranche merged, two migrations applied, production live on test keys)
 
