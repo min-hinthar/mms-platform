@@ -3313,6 +3313,122 @@ export const STAFF = {
   "pad.a11y.skipToOrder": { en: "Skip to the order", my: "အော်ဒါဆီ တန်းသွား" },
   // The tile corner's sr-only name — spice, add-ons, qty and a kitchen note, one corner away.
   "pad.a11y.options": { en: "Options for {x}", my: "{x} အတွက် ရွေးချယ်စရာ" },
+  // Menu studio (owner, 2026-10-24: "elevate full features … to menu-editor") — the menu editor's
+  // words. Every Burmese string here is a K15 draft (Claude-authored), grounded where noted.
+  "studio.add": { en: "Add a dish", my: "ဟင်းအသစ် ထည့်မယ်" }, // K15 draft
+  "studio.categories": { en: "Categories", my: "အမျိုးအစားများ" }, // K15 draft
+  "studio.hidden": { en: "Hidden dishes · {n}", my: "ဖျောက်ထားတဲ့ ဟင်း · {n}" }, // K15 draft
+  "studio.hidden.lead": {
+    en: "Off every menu until you show them again.",
+    my: "ပြန်ပြတဲ့အထိ မီနူးအားလုံးကနေ ဖျောက်ထားပါတယ်။",
+  }, // K15 draft
+  "studio.dish.open": {
+    en: "Edit {x} — photo, names, category",
+    my: "{x} ကို ပြင်မယ် — ဓာတ်ပုံ၊ အမည်၊ အမျိုးအစား",
+  }, // K15 draft
+  "studio.dish.titleNew": { en: "A new dish", my: "ဟင်းအသစ်" }, // K15 draft
+  "studio.dish.titleEdit": { en: "Edit {x}", my: "{x} ကို ပြင်မယ်" }, // K15 draft
+  "studio.dish.photo": { en: "Photo", my: "ဓာတ်ပုံ" }, // K15 draft
+  "studio.dish.photo.take": { en: "Take or choose a photo", my: "ဓာတ်ပုံ ရိုက်မယ် (သို့) ရွေးမယ်" }, // K15 draft
+  "studio.dish.photo.replace": { en: "Replace the photo", my: "ဓာတ်ပုံ အသစ်လဲမယ်" }, // K15 draft
+  "studio.dish.photo.remove": { en: "Remove the photo", my: "ဓာတ်ပုံ ဖယ်မယ်" }, // K15 draft
+  "studio.dish.photo.saving": { en: "Saving the photo…", my: "ဓာတ်ပုံ သိမ်းနေပါတယ်…" }, // K15 draft
+  "studio.dish.photo.saved": {
+    en: "Photo saved — it’s on the menu now.",
+    my: "ဓာတ်ပုံ သိမ်းပြီးပါပြီ — မီနူးမှာ ပေါ်နေပါပြီ။",
+  }, // K15 draft
+  "studio.dish.photo.removed": { en: "Photo removed.", my: "ဓာတ်ပုံ ဖယ်ပြီးပါပြီ။" }, // K15 draft
+  "studio.dish.photo.afterAdd": {
+    en: "Add the dish first — then its photo.",
+    my: "ဟင်းကို အရင်ထည့်ပါ — ပြီးမှ ဓာတ်ပုံ။",
+  }, // K15 draft
+  "studio.dish.nameEn": { en: "Name (English)", my: "အမည် (အင်္ဂလိပ်)" }, // K15 draft
+  "studio.dish.nameMy": { en: "Name (Burmese)", my: "အမည် (မြန်မာ)" }, // K15 draft
+  "studio.dish.descEn": { en: "Description (English)", my: "ဖော်ပြချက် (အင်္ဂလိပ်)" }, // K15 draft
+  "studio.dish.descMy": { en: "Description (Burmese)", my: "ဖော်ပြချက် (မြန်မာ)" }, // K15 draft
+  "studio.dish.category": { en: "Category", my: "အမျိုးအစား" }, // K15 draft
+  "studio.dish.tax": { en: "Tax", my: "အခွန်" }, // K15 draft
+  "studio.dish.price": { en: "Price", my: "ဈေးနှုန်း" }, // K15 draft
+  "studio.dish.onMenu": { en: "On the menu", my: "မီနူးမှာ ပြမယ်" }, // K15 draft
+  "studio.dish.onMenu.off": {
+    en: "Hidden — guests, the kiosk and the pad don’t see it.",
+    my: "ဖျောက်ထားတယ် — ဧည့်သည်၊ ကီယော့စ်နဲ့ အော်ဒါပြားမှာ မမြင်ရပါ။",
+  }, // K15 draft
+  "studio.dish.save": { en: "Save", my: "သိမ်းမယ်" }, // K15 draft
+  "studio.dish.create": { en: "Add to the menu · {m}", my: "မီနူးထဲ ထည့်မယ် · {m}" }, // K15 draft
+  "studio.dish.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" }, // K15 draft
+  "studio.dish.saved": { en: "{x} saved.", my: "{x} ကို သိမ်းပြီးပါပြီ။" }, // K15 draft
+  "studio.dish.created": { en: "{x} is on the menu.", my: "{x} မီနူးမှာ ပေါ်နေပါပြီ။" }, // K15 draft
+  "studio.dish.nothing": { en: "Nothing changed.", my: "ဘာမှ မပြောင်းပါ။" }, // K15 draft
+  "studio.dish.unaudited": {
+    en: "Saved — but the edit history couldn’t be written yet.",
+    my: "သိမ်းပြီးပါပြီ — ဒါပေမဲ့ ပြင်ဆင်မှု မှတ်တမ်း မရေးနိုင်သေးပါ။",
+  }, // K15 draft — the edit stands; only its record is missing
+  "studio.tax.hot_prepared": { en: "Hot food", my: "ပူတဲ့ အစားအစာ" }, // K15 draft
+  "studio.tax.cold_food": {
+    en: "Cold food (exempt to go)",
+    my: "အေးတဲ့ အစားအစာ (ပါဆယ် အခွန်ကင်း)",
+  }, // K15 draft
+  "studio.tax.beverage_hot": { en: "Hot drink", my: "ပူတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.beverage_cold": { en: "Cold drink", my: "အေးတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.grocery_food": { en: "Grocery food", my: "ကုန်စုံ အစားအစာ" }, // K15 draft
+  "studio.tax.retail_nonfood": { en: "Not food (retail)", my: "အစားအစာ မဟုတ် (လက်လီ)" }, // K15 draft
+  "studio.err.name": { en: "Give it an English name.", my: "အင်္ဂလိပ် အမည် ရိုက်ပါ။" }, // K15 draft
+  "studio.err.stale": {
+    en: "Someone changed this dish while you were editing — close and open it again.",
+    my: "သင် ပြင်နေတုန်း တခြားသူက ဒီဟင်းကို ပြောင်းသွားပါတယ် — ပိတ်ပြီး ပြန်ဖွင့်ပါ။",
+  }, // K15 draft
+  "studio.err.gone": {
+    en: "That dish is no longer in the menu.",
+    my: "ဒီဟင်း မီနူးထဲ မရှိတော့ပါ။",
+  }, // K15 draft
+  "studio.err.category": {
+    en: "That category is gone — pick another.",
+    my: "ဒီအမျိုးအစား မရှိတော့ပါ — တခြားတစ်ခု ရွေးပါ။",
+  }, // K15 draft
+  "studio.err.storage": {
+    en: "Photo storage isn’t set up yet — ask the owner to finish the menu update.",
+    my: "ဓာတ်ပုံ သိမ်းဖို့ နေရာ မပြင်ဆင်ရသေးပါ — မီနူး အပ်ဒိတ် ပြီးအောင် ပိုင်ရှင်ကို ပြောပါ။",
+  }, // K15 draft
+  "studio.err.type": {
+    en: "That file isn’t a photo we can use — a JPEG, PNG or WebP.",
+    my: "ဒီဖိုင်ကို သုံးလို့ မရပါ — JPEG၊ PNG (သို့) WebP ဓာတ်ပုံ ဖြစ်ရပါမယ်။",
+  }, // K15 draft
+  "studio.err.size": {
+    en: "That photo is too large — try another.",
+    my: "ဒီဓာတ်ပုံ ကြီးလွန်းပါတယ် — တခြားတစ်ပုံ စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.read": {
+    en: "Couldn’t open that photo on this device — try another.",
+    my: "ဒီစက်ပေါ်မှာ ဒီဓာတ်ပုံကို မဖွင့်နိုင်ပါ — တခြားတစ်ပုံ စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.failed": {
+    en: "Couldn’t save that — nothing was changed. Try again.",
+    my: "မသိမ်းနိုင်ပါ — ဘာမှ မပြောင်းရသေးပါ။ ထပ်စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.unknown": {
+    en: "We couldn’t confirm that save — reopen the dish to check before trying again.",
+    my: "သိမ်းပြီးမပြီး မသေချာပါ — ထပ်မစမ်းခင် ဟင်းကို ပြန်ဖွင့်ပြီး စစ်ပါ။",
+  }, // K15 draft
+  "studio.cat.title": { en: "Categories", my: "အမျိုးအစားများ" }, // K15 draft
+  "studio.cat.lead": {
+    en: "The order here is the menu’s order. A hidden category takes its dishes off the menu.",
+    my: "ဒီက အစီအစဉ်က မီနူးရဲ့ အစီအစဉ်ပါ။ ဖျောက်ထားတဲ့ အမျိုးအစားက သူ့ဟင်းတွေကို မီနူးကနေ ဖယ်ပါတယ်။",
+  }, // K15 draft
+  "studio.cat.name": { en: "Name", my: "အမည်" }, // K15 draft
+  "studio.cat.rename": { en: "Rename {x}", my: "{x} ကို အမည်ပြောင်းမယ်" }, // K15 draft
+  "studio.cat.up": { en: "Move {x} up", my: "{x} ကို အပေါ်တင်မယ်" }, // K15 draft
+  "studio.cat.down": { en: "Move {x} down", my: "{x} ကို အောက်ချမယ်" }, // K15 draft
+  "studio.cat.hide": { en: "Hide", my: "ဖျောက်မယ်" }, // K15 draft
+  "studio.cat.show": { en: "Show", my: "ပြမယ်" }, // K15 draft
+  "studio.cat.hiddenTag": { en: "Hidden", my: "ဖျောက်ထား" }, // K15 draft
+  "studio.cat.count.one": { en: "{n} dish", my: "ဟင်း {n} မျိုး" }, // K15 draft
+  "studio.cat.count.many": { en: "{n} dishes", my: "ဟင်း {n} မျိုး" }, // K15 draft
+  "studio.cat.add": { en: "Add a category", my: "အမျိုးအစား အသစ် ထည့်မယ်" }, // K15 draft
+  "studio.cat.addField": { en: "New category name", my: "အမျိုးအစား အသစ်ရဲ့ အမည်" }, // K15 draft
+  "studio.cat.saved": { en: "{x} saved.", my: "{x} ကို သိမ်းပြီးပါပြီ။" }, // K15 draft
+  "studio.cat.moved": { en: "{x} moved.", my: "{x} ကို ရွှေ့ပြီးပါပြီ။" }, // K15 draft
+  "studio.cat.err.name": { en: "Give the category a name.", my: "အမျိုးအစားကို အမည်ပေးပါ။" }, // K15 draft
   // A CUSTOM item (owner, 2026-10-24: "manual new item add to tables orders") — a dish or charge
   // that is not on the menu, typed by a manager. Every Burmese string here is a K15 draft.
   "pad.custom.open": { en: "Custom item", my: "မီနူးပြင်ပ ပစ္စည်း" }, // K15 draft

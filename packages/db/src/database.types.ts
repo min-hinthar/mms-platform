@@ -158,6 +158,54 @@ export type Database = {
         }
         Relationships: []
       }
+      menu_edit_audit: {
+        Row: {
+          category_id: string | null
+          changed_at: string
+          changed_by: string
+          field: string
+          id: string
+          menu_item_id: string | null
+          new_value: string | null
+          old_value: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          changed_at?: string
+          changed_by: string
+          field: string
+          id?: string
+          menu_item_id?: string | null
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          changed_at?: string
+          changed_by?: string
+          field?: string
+          id?: string
+          menu_item_id?: string | null
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_edit_audit_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "menu_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_edit_audit_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       menu_items: {
         Row: {
           allergens: string[]

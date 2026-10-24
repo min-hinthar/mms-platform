@@ -18306,3 +18306,164 @@ html[data-reloading] body::after {
     animation: none;
   }
 }
+
+/* ── Menu studio (owner, 2026-10-24) — the manager's menu editor. Tokens only; every target ≥ 44px. */
+.studio-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s4);
+}
+.studio-bar-primary,
+.studio-bar-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 48px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-full);
+  font-weight: var(--fw-bold);
+}
+.studio-bar-primary {
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+}
+.studio-bar-secondary {
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+}
+/* The row's photo — the door to the dish sheet. */
+.menu-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 0;
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--t3);
+}
+.menu-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.menu-thumb:has(.menu-thumb-img) {
+  border-style: solid;
+}
+.studio-photo {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+}
+.studio-photo-img,
+.studio-photo-empty {
+  flex: none;
+  width: 112px;
+  height: 112px;
+  border-radius: var(--r-card);
+  object-fit: cover;
+  background: var(--sf);
+}
+.studio-photo-empty {
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+  border: 1px dashed var(--bd);
+}
+.studio-photo-actions {
+  display: grid;
+  gap: var(--s2);
+  min-width: 0;
+}
+.studio-photo-btn,
+.studio-photo-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+/* The file input is visually hidden, so its keyboard focus is drawn on the label that opens it. */
+.studio-photo-actions:has(#dish-photo:focus-visible) > .studio-photo-btn {
+  box-shadow: 0 0 0 var(--focus-w) var(--ac);
+}
+.studio-photo-remove {
+  color: var(--t2);
+}
+.studio-switch {
+  width: 48px;
+  height: 28px;
+  accent-color: var(--ac);
+}
+.studio-cat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+}
+.studio-cat[data-hidden] {
+  opacity: 0.72;
+}
+.studio-cat-main {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.studio-cat-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.studio-cat-save,
+.studio-cat-vis {
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+}
+.studio-cat-save {
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+}
+.studio-hidden {
+  margin-top: var(--s6);
+}
+.studio-hidden-h {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-body);
+}
+.studio-hidden-row {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--s2) var(--s4);
+  text-align: left;
+  color: var(--tx);
+}
+.studio-hidden-my {
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-bar-primary,
+  .studio-bar-secondary,
+  .menu-thumb {
+    transition: none;
+  }
+}

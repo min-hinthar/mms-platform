@@ -9,7 +9,11 @@ import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
-import { MenuPriceEditor, type PricedItem } from "@/components/staff/MenuPriceEditor";
+import { type PricedItem } from "@/components/staff/MenuPriceEditor";
+import { MenuStudio } from "@/components/staff/MenuStudio";
+import type { StudioCategory, StudioDish } from "@/components/staff/DishSheet";
+import { safeImageUrl } from "@/lib/media-url";
+import { categoryShown, TAX_CATEGORIES, type MenuTaxCategory } from "@/lib/menu-studio-rules";
 import { MarketShelfEditor, type ShelfItem } from "@/components/staff/MarketShelfEditor";
 import { aisleBySlug } from "@/lib/grocery-aisles";
 import { shelfDetail } from "@/lib/market-shelf";
@@ -73,18 +77,27 @@ export default async function StaffMenuPrices({
   if (market) return <MarketShelf lang={lang} door={door} hasPin={hasPin} />;
 
   const db = publicClient();
-  const { data, error } = await db
-    .from("menu_items")
-    .select(
-      "id,name_en,name_my,base_price_cents,is_sold_out,sold_out_at,menu_categories(name,sort_order)",
-    )
-    .eq("is_active", true)
-    .order("name_en");
+  // Menu studio (owner, 2026-10-24) — a manager reads EVERY dish (a hidden one must stay findable
+  // to be shown again) and every category; the price list below still lists the dishes on the menu.
+  const [itemsRes, catsRes] = await Promise.all([
+    db
+      .from("menu_items")
+      .select(
+        "id,name_en,name_my,description_en,description_my,category_id,tax_category,is_active,image_url,updated_at,base_price_cents,is_sold_out,sold_out_at,menu_categories(name,sort_order,is_active)",
+      )
+      .order("name_en"),
+    canEditPrice
+      ? db.from("menu_categories").select("id,name,sort_order,is_active").order("sort_order")
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const { data: all, error } = itemsRes;
   // A failed read is UNKNOWABLE, not "the menu is empty" — an empty editor would read as a catalog
   // that lost its dishes (W10a: a failure must never render as emptiness).
-  if (error) return <StaffOutageShell what="what.menuPrices" />;
+  if (error || catsRes.error) return <StaffOutageShell what="what.menuPrices" />;
+  // The list a guest sees: on the menu, and in a shown category.
+  const data = (all ?? []).filter((i) => i.is_active && categoryShown(i.menu_categories));
 
-  const items: PricedItem[] = (data ?? []).map((i) => ({
+  const items: PricedItem[] = data.map((i) => ({
     id: i.id,
     nameEn: i.name_en,
     nameMy: i.name_my,
@@ -129,10 +142,11 @@ export default async function StaffMenuPrices({
         </p>
         {/* menu-4 — the request's clock, so the server render and the hydrating client agree on
             which 86 stamps are from another service day (`lib/sold-out-since.ts`). */}
-        <MenuPriceEditor
+        <MenuStudio
           items={items}
           canEditPrice={canEditPrice}
           nowIso={new Date().toISOString()}
+          studio={canEditPrice ? studioOf(all ?? [], catsRes.data ?? []) : undefined}
         />
       </div>
     </main>
@@ -245,6 +259,53 @@ function ShelfSwitch({ lang, market }: { lang: StaffLang; market: boolean }) {
       </Link>
     </nav>
   );
+}
+
+/** The studio's view of the catalog: every dish (its photo contained) and every category with its
+ *  dish count. A tax category outside the known set reads as hot food — the column CHECK makes it
+ *  unreachable, and the picker must show SOME selected value. */
+function studioOf(
+  dishes: readonly {
+    id: string;
+    name_en: string;
+    name_my: string | null;
+    description_en: string | null;
+    description_my: string | null;
+    category_id: string;
+    tax_category: string;
+    is_active: boolean;
+    image_url: string | null;
+    updated_at: string;
+    base_price_cents: number;
+  }[],
+  cats: readonly { id: string; name: string; sort_order: number; is_active: boolean }[],
+): { dishes: StudioDish[]; categories: StudioCategory[] } {
+  const counts = new Map<string, number>();
+  for (const d of dishes) counts.set(d.category_id, (counts.get(d.category_id) ?? 0) + 1);
+  return {
+    dishes: dishes.map((d) => ({
+      id: d.id,
+      nameEn: d.name_en,
+      nameMy: d.name_my,
+      descriptionEn: d.description_en,
+      descriptionMy: d.description_my,
+      categoryId: d.category_id,
+      taxCategory: (TAX_CATEGORIES as readonly string[]).includes(d.tax_category)
+        ? (d.tax_category as MenuTaxCategory)
+        : "hot_prepared",
+      isActive: d.is_active,
+      priceCents: d.base_price_cents,
+      imageUrl: safeImageUrl(d.image_url),
+      updatedAt: d.updated_at,
+    })),
+    categories: cats.map((c) => ({
+      id: c.id,
+      name: c.name,
+      sortOrder: c.sort_order,
+      isActive: c.is_active,
+      dishCount: counts.get(c.id) ?? 0,
+    })),
+  };
 }
 
 /** PostgREST's `max_rows` (`supabase/config.toml`): a larger limit would be clamped to it silently,

@@ -5,6 +5,7 @@ import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 import { surfaceOpen } from "@/lib/surfaces";
 import { t as kt } from "@/lib/kiosk/strings";
+import { categoryShown } from "@/lib/menu-studio-rules";
 
 export const metadata = {
   title: "Order — Mandalay Morning Star",
@@ -56,11 +57,12 @@ export default async function KioskPage({
   const { data } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,tags,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
+      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,tags,menu_categories(name,sort_order,is_active),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
-  const raw = data ?? [];
+  // Menu studio — a hidden category takes its dishes off the kiosk too (`categoryShown`).
+  const raw = (data ?? []).filter((i) => categoryShown(i.menu_categories));
 
   const items: KioskItem[] = raw.map((i) => ({
     id: i.id,

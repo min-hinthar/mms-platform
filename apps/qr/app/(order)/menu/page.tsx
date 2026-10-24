@@ -15,6 +15,7 @@ import { getYourUsual } from "@/lib/menu/your-usual-read";
 import { safeImageUrl } from "@/lib/media-url";
 import { getDineInTables } from "@/lib/tables";
 import { tableGridOffered } from "@/lib/table-pick";
+import { categoryShown } from "@/lib/menu-studio-rules";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege). Fetches the fields the R6 browse layer needs (name EN/MY,
@@ -77,7 +78,7 @@ export default async function Menu({
   const { data, error: catalogErr } = await db
     .from("menu_items")
     .select(
-      "id,slug,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
+      "id,slug,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order,is_active),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
@@ -104,7 +105,9 @@ export default async function Menu({
   }
   // Stable-sort by category sort_order (the fetch already ordered by name_en, so rows stay name-ordered
   // within a category). Flatten the to-one `menu_categories` embed to a plain `category` string.
+  // Menu studio — a hidden category takes its dishes off the menu (`categoryShown`).
   const shaped: MenuItem[] = [...(data ?? [])]
+    .filter((i) => categoryShown(i.menu_categories))
     .sort((a, b) => (a.menu_categories?.sort_order ?? 999) - (b.menu_categories?.sort_order ?? 999))
     .map((i) => ({
       id: i.id,

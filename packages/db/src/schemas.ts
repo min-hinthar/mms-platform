@@ -677,6 +677,62 @@ export const setKioskTipInput = z.object({
  *  fat-fingered extra zero a refusal instead of a money incident. This is the ONE place a price
  *  crosses from a human into the system — every OTHER money amount in this app is server-derived and
  *  must stay that way (see priceItem: it reads this stored price, it never accepts one). */
+// ── Menu studio (owner, 2026-10-24) — the menu editor's writes. Shape + bounds only: the actions
+// (`apps/qr/lib/menu-studio.ts`) re-check the manager floor and write through the service role; the
+// bounds mirror `apps/qr/lib/menu-studio-rules.ts` and the 20261024120100 column CHECKs.
+const menuTaxCategory = z.enum([
+  "hot_prepared",
+  "cold_food",
+  "beverage_hot",
+  "beverage_cold",
+  "grocery_food",
+  "retail_nonfood",
+]);
+const menuName = z.string().trim().min(1).max(80);
+const menuNameMy = z.string().trim().max(80).nullable();
+const menuDescription = z.string().trim().max(400).nullable();
+
+/** Edit a dish's names, descriptions, category, tax category and whether it is on the menu. The
+ *  `expectedUpdatedAt` is the row's stamp as the sheet READ it — a save over a newer edit is refused. */
+export const menuDishEditInput = z.object({
+  itemId: uuid,
+  expectedUpdatedAt: z.string().max(40).datetime({ offset: true }),
+  nameEn: menuName,
+  nameMy: menuNameMy,
+  descriptionEn: menuDescription,
+  descriptionMy: menuDescription,
+  categoryId: uuid,
+  taxCategory: menuTaxCategory,
+  isActive: z.boolean(),
+});
+export type MenuDishEditInput = z.infer<typeof menuDishEditInput>;
+
+/** Add a dish. Its price rides the menu price's bounds; its slug is server-derived. */
+export const menuDishCreateInput = z.object({
+  nameEn: menuName,
+  nameMy: menuNameMy,
+  descriptionEn: menuDescription,
+  descriptionMy: menuDescription,
+  categoryId: uuid,
+  taxCategory: menuTaxCategory,
+  priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
+});
+export type MenuDishCreateInput = z.infer<typeof menuDishCreateInput>;
+
+/** Add (no id) or rename / show / hide (an id) a category. */
+export const menuCategorySaveInput = z.object({
+  categoryId: uuid.optional(),
+  name: z.string().trim().min(1).max(60),
+  isActive: z.boolean(),
+});
+export type MenuCategorySaveInput = z.infer<typeof menuCategorySaveInput>;
+
+/** Move a category one place up or down the menu. */
+export const menuCategoryMoveInput = z.object({
+  categoryId: uuid,
+  direction: z.enum(["up", "down"]),
+});
+
 export const setMenuPriceInput = z.object({
   menuItemId: uuid,
   priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
