@@ -15314,6 +15314,13 @@ html[data-reloading] body::after {
   scroll-behavior: smooth;
   scrollbar-width: none;
 }
+/* A custom item (owner, 2026-10-24): the rail's last chip opens a sheet, it never filters — so it
+   reads as an action, with a dashed edge, never the lit cap. */
+.pad-custom-chip {
+  border-style: dashed;
+  color: var(--ac);
+  white-space: nowrap;
+}
 .pad-rail::-webkit-scrollbar {
   display: none;
 }

@@ -3313,6 +3313,30 @@ export const STAFF = {
   "pad.a11y.skipToOrder": { en: "Skip to the order", my: "အော်ဒါဆီ တန်းသွား" },
   // The tile corner's sr-only name — spice, add-ons, qty and a kitchen note, one corner away.
   "pad.a11y.options": { en: "Options for {x}", my: "{x} အတွက် ရွေးချယ်စရာ" },
+  // A CUSTOM item (owner, 2026-10-24: "manual new item add to tables orders") — a dish or charge
+  // that is not on the menu, typed by a manager. Every Burmese string here is a K15 draft.
+  "pad.custom.open": { en: "Custom item", my: "မီနူးပြင်ပ ပစ္စည်း" }, // K15 draft
+  "pad.custom.title": {
+    en: "Add an item that isn’t on the menu",
+    my: "မီနူးမှာ မပါတဲ့ ပစ္စည်း ထည့်မယ်",
+  }, // K15 draft
+  "pad.custom.lead": {
+    en: "A special, a cake brought in, a corkage — it goes on this order at the price you type.",
+    my: "အထူးဟင်း၊ ယူလာတဲ့ ကိတ်မုန့်၊ ဝိုင်ဖွင့်ခ — ရိုက်ထည့်တဲ့ ဈေးနဲ့ ဒီအော်ဒါထဲ ထည့်ပါမယ်။",
+  }, // K15 draft — says the price is the one typed
+  "pad.custom.name": { en: "Name", my: "အမည်" }, // K15 draft
+  "pad.custom.price": { en: "Price each", my: "တစ်ခုချင်း ဈေး" }, // K15 draft
+  "pad.custom.qty": { en: "How many", my: "အရေအတွက်" }, // K15 draft
+  "pad.custom.less": { en: "One fewer", my: "တစ်ခု လျှော့" }, // K15 draft
+  "pad.custom.more": { en: "One more", my: "တစ်ခု တိုး" }, // K15 draft
+  "pad.custom.note": {
+    en: "Kitchen note (optional)",
+    my: "မီးဖိုချောင် မှတ်ချက် (မဖြစ်မနေ မဟုတ်)",
+  }, // K15 draft
+  "pad.custom.add": { en: "Add {n} · {m}", my: "{n} ခု ထည့်မယ် · {m}" }, // K15 draft — the amount the bill grows by
+  "pad.custom.addBare": { en: "Add to the order", my: "အော်ဒါထဲ ထည့်မယ်" }, // K15 draft
+  "pad.custom.err.name": { en: "Give it a name first.", my: "အမည် အရင် ရိုက်ပါ။" }, // K15 draft
+  "pad.custom.added": { en: "{x} is on the order.", my: "{x} ကို အော်ဒါထဲ ထည့်ပြီးပါပြီ။" }, // K15 draft
   "pad.search.clear": { en: "Clear search", my: "ရှာတာ ရှင်း" },
   "pad.search.none": { en: "No dish matches “{x}”.", my: "“{x}” နဲ့ ကိုက်တဲ့ ဟင်း မရှိပါ။" },
   "pad.menu.outage": {

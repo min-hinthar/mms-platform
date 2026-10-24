@@ -630,6 +630,21 @@ export const setLineNotesInput = z.object({
  *  diner addItem the client asserts only an item id + chosen modifier OPTION ids (never a price); the
  *  server resolves the session's open cart, re-derives every amount, and attributes the line to no seat
  *  (by_seat = null, "added by server"). menuItemId stays a uuid — staff order from the restaurant menu. */
+/** staffAddCustomItem (owner, 2026-10-24) — a manager adds a dish or charge that is NOT on the menu
+ *  to a table's order, with its own name and price. Shape + bounds only: the action re-checks the
+ *  manager floor, and `apps/qr/lib/custom-item.ts` decides the line (its item id, its tax). The price
+ *  rides the SAME bounds as a menu price ($0.25–$5,000, `@mms/db/bounds`). */
+export const staffAddCustomItemInput = z.object({
+  sessionId: uuid,
+  name: z.string().trim().min(1).max(60),
+  priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
+  qty: z.number().int().min(1).max(9).default(1),
+  notes: lineNotes.optional(),
+  // The add's idempotency key, as `staffAddItem`'s (the scan-event ledger): REQUIRED here, because it
+  // is also the custom line's identity (`custom:<addKey>`).
+  addKey: uuid,
+});
+
 export const staffAddItemInput = z.object({
   sessionId: uuid,
   menuItemId: uuid,
@@ -969,6 +984,7 @@ export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;
 export type SetGroceryAvailableInput = z.infer<typeof setGroceryAvailableInput>;
 export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
+export type StaffAddCustomItemInput = z.infer<typeof staffAddCustomItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type TerminalPollInput = z.infer<typeof terminalPollInput>;
 export type OpenRegisterInput = z.infer<typeof openRegisterInput>;

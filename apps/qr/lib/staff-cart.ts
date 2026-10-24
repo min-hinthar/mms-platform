@@ -7,8 +7,10 @@ import {
   setQtyInput,
   settleCashInput,
   staffAddItemInput,
+  staffAddCustomItemInput,
   setLineFulfillmentInput,
 } from "@mms/db/schemas";
+import { customItemLine } from "./custom-item";
 import { staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
 import { addFailureCode, type StaffWriteCode } from "./staff-add-outcome";
 import { openCartFor, closeCounterStyleSession } from "./staff-open-cart";
@@ -232,6 +234,84 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
           distinctId: `staff:${caller.staffId}`,
           event: "staff_added_item",
           properties: { role: caller.role, sessionId, menuItemId },
+        });
+        await ph.flush();
+      } catch {
+        /* analytics best-effort */
+      }
+    });
+  }
+  revalidatePath(`/staff/table/${sessionId}`);
+  return { ok: true };
+}
+
+/**
+ * A CUSTOM item on a table's order (owner, 2026-10-24: "manual new item add to tables orders") — a
+ * dish or charge that is not on the menu, with the manager's own name and price.
+ *
+ * MANAGER-AND-UP: typing a price is the `setMenuPrice` authority (a server who could ring any dish
+ * at any figure could undercharge every bill), so the floor is the same, re-checked here because a
+ * Server Action is a public POST. The line itself is decided by `customItemLine` (its unique item id,
+ * its `hot_prepared` tax); it is unattributed (by_seat null) like every staff add, refused while a
+ * payment is in flight, and idempotent on `addKey` through the same scan-event ledger.
+ */
+export async function staffAddCustomItem(raw: unknown): Promise<StaffWriteResult> {
+  const gate = await staffGate("manager");
+  if (!gate.ok)
+    return {
+      ok: false,
+      error: gate.error,
+      code: gate.error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence",
+    };
+  const caller = gate.caller;
+  const parsed = staffAddCustomItemInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
+  const { sessionId, name, priceCents, qty, notes, addKey } = parsed.data;
+
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "outage" };
+  if (!session) return { ok: false, error: "That table is closed.", code: "closed" };
+  if (!cart) return { ok: false, error: "This table has no open order.", code: "no-cart" };
+  // The shared pay mutex (cash settle / split / clear): a total a guest is paying never moves.
+  const paying = await paymentInFlightReason(cart);
+  if (paying) return { ok: false, error: PAYING_REFUSAL, code: "paying" };
+
+  const line = customItemLine({
+    addKey,
+    name,
+    priceCents,
+    dineIn: session.mode === "dinein",
+    notes,
+  });
+  try {
+    await insertOrIncLine(cart.id, line, null, qty, addKey);
+    await touchCart(cart.id, "staffAddCustomItem");
+    await maybeRenewSession(serviceClient(), session.id, session.expires_at); // the add is activity
+  } catch (e) {
+    // Anything thrown from the write may have committed with its answer lost (`addFailureCode`'s
+    // write phase); a typed "not open" is a definite non-write.
+    const code = addFailureCode("write", e);
+    return {
+      ok: false,
+      error:
+        code === "closed"
+          ? "This table has no open order."
+          : code === "paying"
+            ? PAYING_REFUSAL
+            : "Couldn’t add that item.",
+      code,
+    };
+  }
+
+  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    after(async () => {
+      try {
+        const ph = getPostHogClient();
+        // Non-PII: the role, the table and the amount — never the typed name.
+        ph.capture({
+          distinctId: `staff:${caller.staffId}`,
+          event: "staff_added_custom_item",
+          properties: { role: caller.role, sessionId, priceCents, qty },
         });
         await ph.flush();
       } catch {
