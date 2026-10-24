@@ -34,6 +34,79 @@ Seven read-only mappers walked the paths as built (dine-in, to-go, grocery, coun
 
 **Burmese:** every new Burmese string in the specs is a draft for the native sitting (K15), never final copy. Reused shipped strings are cited to their file and line. Strings with no draft stay English-only and are listed in each spec.
 
+## The shared vocabulary (round 4)
+
+The 2026-10-07 vocabulary (one voice in two registers, the CounterPass, the one kitchen track, the one Undo form, the staff colours and loudness ladder) and its round 3 still hold. This round extends it; it does not replace it.
+
+ONE VOICE, TWO REGISTERS; ONE SET OF MARKS (the 2026-10-07 vocabulary, PATH_DESIGN_2026-10-07.md:74-135, extended — never paralleled). DINER (m13–m16, guided, English leading; D5's "မင်္ဂလာပါ · Good evening" is the one Burmese-first line): each screen says NOW once as its heading; then ONE actor-first next-step sentence with no label — when the hero is DOCKED its one line slot carries that sentence (live) or the hero's held reason (held), never both and never a third line ("Ready to pay." is neither); the Order · Pay rail (+ /track's status path) is the only step vocabulary, so no dots, rings or "n of m" marks appear beside it; a shared cart never shows a count; inside any window the words are future/-ing, past tense only after a confirmed write; a link's Burmese rides inline after the English (margin, never a whitespace flex child), stacking inside the same ≥44px target only when it does not fit; back links are the shipped `.nav-link` (14px 700 `--ac`, arrow aria-hidden) with Burmese ≥13px. STAFF (m17–m20, glanceable, Burmese first, English echo stacked on headings/slots, inline on count lines, NEVER on a 44px chip): the next step lives in the control's own words; counts in prose render Burmese numerals under `my` (`fill.ts` `{n}`), standalone figures (clocks, money, codes, table numbers, the KDS stat row) stay Latin; every refusal is keyed by code and twinned in `OUTAGE_TWINS`. SHARED MARKS: lit-gold cap (`--ac` fill, `--oa` ink, sheen + gold halo; `.checkout-pill-on` on phones, the `.kds-chip[aria-pressed]`/`.staff-seg` rule on the console) = chosen or you-are-here, never a recommendation, never a status; solid ✓ disc in `--ok` = done (a diner line answered, PAID on a settled row); half disc (left `--warn`, right paper) = partly returned; full `--warn` disc = returned in full; HOLLOW RING = "Not sent yet · မပို့ရသေး" and nothing else (`--t2` on phones, `--warn` on the console) — no eyebrow dot, no refund state, no inert control may use it; DASHED `--ac` edge on `--sf` = provisional, which on every surface here means the open Undo window (the diner's `.arrival-undo`/`.checkout-undo`, the console's `.clear-undo`/`undoBtn`): the SAME node that committed relabels "Undo" + the D3 Burmese (ပြန်ဖျက် when a mark you made is erased, ပြန်ယူ when something sent comes back), arms after the same-gesture guard (350 ms phones / 400 ms console), writes at `PICKED_UNDO_MS` named once per consumer (`FEEDBACK_UNDO_MS`, `TEAM_UNDO_MS`, `ARRIVAL_UNDO_MS` = 6 000), the seconds an aria-hidden leaf in the register's shipped shape (diner " — 6s", staff "· 6s"), the KDS cream pill its one shipped exception, Esc never an Undo unless every window has it; HELD/INERT CONTROL = the real control at its real shape, `aria-disabled` (never native) with the reason in its name or `aria-describedby`, dimmed by the shipped rule (`.ui-btn` .55, `.checkout-pill` .65, `.staff-btn` .6) — never a dashed ghost, never a hollow ring; BUSY = `aria-busy` with the label KEPT (on a `.staff-btn` plus the .6 dim — D8; on an `@mms/ui .ui-btn` the full-ink spinner plus a stated word like "Refunding…"), never "…", never native disabled, and busy marks only the ONE control that is writing (the zone's fact is `aria-disabled`); WARN = a 6px `--warn` disc (the one warn mark; no squares, no second glyph) beside a word — light: the word in `--warn` (the console's shipped `.entry-msg-warn`/`Badge warn` pair); Night: the word in `--tx`, only the mark in `--warn` (P2bm) — a warn GROUND fill only on a Late ticket/bag, the floor's one ask tile and the money-in-doubt badge; GREEN = done and settled, calm (never counted, never pulsing, filled only where it just landed: the picked header, the ✓ disc); GOLD TINT = the till (money taken/owed/waived) and the brand mark, never an alarm; a REMOVING verb (Deactivate, Mark sold out) is a paper pill with `--warn` ink, a RESTORING verb (Reactivate, Put back) a paper pill with `--ok` ink — no tinted fills on routine verbs so nothing shouts during normal service; CHEVRON › = opens/collapsed, ⌄ = expanded, inside the row button; one dismiss word "Close · ပိတ်", one cancel word "Cancel · မလုပ်တော့(ပါ)", one search field recipe on the console (the pad's 48px `--sf` radius-12 field + the 44px `pad.search.clear` circle); ONE live region per view, the count/kicker/hint/next-step lines all static; the receipt code is ONE glyph string on both sides of the counter ("#A1B2C3" on the guest's slip and on Dad's desk); the ONE KITCHEN TRACK's stamps (ပို့ပြီး · ချက်နေဆဲ · ထုတ်ပြီး) are the words for the kitchen's state on every surface that shows it. LOUDNESS LADDER (console): ALARM may tint and move — KDS Late, a late bag, money in doubt (the stranded charge, the unpaid badge) said once in the view's one region; CALL — one filled tile per room (the guest asking to pay, the rung lane card's one-shot ring); MARK — glyph + word, no fill, no motion (refund shapes, the dated since-clock, the not-sent ring, dashed pending, the stale disc); CALM — done, paid, picked up, put back. No fact is marked twice on one screen; delight is one moment per pass, never on a first read or inside a window; glass is Night-only, the bar alone.
+
+## Cross-spec reconciliations (these win over every spec and appendix)
+
+The consistency agent read all eight specs after they were refined in isolation and set the vocabulary above; these are the per-moment changes it required, applied in the drawn screens and copied into each spec's appendix A.
+
+### 13 · what the consistency pass changed (its appendix A; binding)
+
+1. The next-step sentence moves INTO the docked hero's one line slot: held → the held reason ("Pay opens when the slip is filled in." / "Pick a pickup time first."), live → "Your ticket comes after you pay — show it at the counter." + its K15 draft, replacing the EN-only "Ready to pay." (PATH_DESIGN_2026-10-07.md:78-80: a docked hero's slot carries that sentence or the held reason, never both; a third line is neither). The standalone <p> under the slip (y520–580 / y543–603) is removed — one owner per sentence, 60px back on 320×568. Raise `.counter-dock-line`'s min-height once so the two-line EN + MY sentence fits in BOTH states and the column never moves (dock ≈137px; re-run graft (k)'s three frames). D4's "first-visit line" is thereby subsumed by the register's rule and shown whenever Pay is live; record the reversible gate (`!remembered` → the sentence, else a one-line slot) for the owner.
+2. The back link is the SHIPPED `.nav-link` recipe (globals.css:4510-4521: 14px `--fs-label` 700 `--ac`, arrow aria-hidden), not "11px/700 `--t3`" — Checkout.tsx:4247-4255 renders `.nav-link` with `<My size="var(--fs-xs)">`; lift that Burmese from 11px to `--fs-sm` 13px (the Burmese floor; the same one-token lift m14 OPEN RISK 6 asks for `bodyMy`).
+3. State the digit rule for the slot sheet's counts the way the staff specs do: "{n} left" / "{n} times" are EN-only here so Latin is right; but the kicker's "2 lines left" and "✓ All set" stay plain static text (not a live region) — already so; add the sentence "the ✓ ring on an answered row is the rail's own `is-done` ring (globals.css:2263-2269), the diner's one done mark; the solid ✓ disc is the console's" so the reader does not read two done marks.
+4. Note the one gold mark that is NOT a selection: the slot sheet's EARLIEST chip wears the shipped gold border + glow with no fill (`.slot-time-soonest`) — say explicitly that it is a suggestion, never the lit cap (no `--ac` fill, no `--oa` ink), so the one-selection-vocabulary rule holds.
+
+### 14 · what the consistency pass changed (its appendix A; binding)
+
+1. Drop the two aria-hidden eyebrow dots (8px solid `--ac` / 6px ring `--t3`): the 6px ring is the diner's HOLLOW RING ("Not sent yet", PATH_DESIGN:88-91) and a dot pair is a second step vocabulary beside the Order · Pay rail (PATH_DESIGN:80). The eyebrow's words "BEFORE YOU GO · 1 OF 2" / "BEFORE YOU GO" carry the count alone; the slot geometry is unchanged.
+2. Say that D1's "Undo · 6s" is rendered by the SHIPPED diner leaf " — 6s" (`ArrivalUndoCount`, PickupPromise.tsx:588-598) — one leaf shape per register (diner " — {n}s", staff "· {n}s" from `table.send.undoLeft`), reuse beating a new string; flag the glyph difference for the owner as a non-change.
+3. Write the link-Burmese rule the register shares: the stub links' K15 drafts ride INLINE after the English with `margin-inline-start: 8px` (the `browseMenu` / m13 / m16 shape) and stack inside the same 48px target only because these two drafts do not fit on one line — so the stacked form is the fit fallback, not a new recipe.
+4. Cross-register word check, no change: "Paid in full · Cash" and "Partly refunded · Cash" (`receiptStatusLabel`) are the same keys Dad's desk prints (m17); "Served · ထုတ်ပြီး" on the settled card is the ONE KITCHEN TRACK's third stamp — cite `lib/kitchen-track.ts` as the source so m19's lane is held to the same word.
+
+### 15 · what the consistency pass changed (its appendix A; binding)
+
+1. The inert '+' during the mint is the house's HELD mark, not a dashed vellum ghost: the shipped `.menu-add-plus` disc at the `[aria-disabled]` dim (opacity .55, the `.ui-btn` rule; `.checkout-pill` uses .65) with the reason in its name ("Mohinga — setting up your table…"), never native `disabled`. A dashed `--ac` edge on `--sf` is the open Undo window on every diner surface (`.arrival-undo`, `.checkout-undo`, m14's feedback Undo) and PATH_DESIGN:92-93's "provisional" list; a '+' that has nothing to take back must not wear it. The light-up stays D5's: an opacity crossfade .55 → 1 in `--dur-base`, no transform, every row together; the `aria-disabled` and the clause drop in the same commit. If the critic wants a shape change, the other SHIPPED inert face is the sold-out `--sf` word pill (AddButton.tsx:508-520) — never a hollow ring, never dashed.
+2. Remove `aria-busy="true"` from the '+' pills: `aria-busy` is the ONE control's that is writing, `aria-disabled` is the zone's fact (DESIGN-LANGUAGE.md:776-778). No '+' is minting; the mint is the page's. The name's clause and the one toast carry the reason.
+3. The refused-arm '+' keeps the same held mark (dimmed disc, `aria-disabled`, name "— your table isn’t set up yet"); only the clause differs. Keep OPEN RISK 4's fallback (drop the toast if the blind pass reads a double) as written.
+4. No change to the resume face (vellum + hairline, §14) or to the question-in-slot: both already honour "recognition never wears the gold cap" and "one face".
+
+### 16 · what the consistency pass changed (its appendix A; binding)
+
+1. The "Save my Stars / Sign in" segmented control is the DINER's own two-way pill row — `.checkout-pill-row` with two `.checkout-pill` buttons (`aria-pressed`, the label over `<small lang="my">`, 44px+ tall, flex 1 1 0) and `.checkout-pill-on` on the chosen one (globals.css:3629-3639) — not `.staff-seg` brought over from the console. Same lit-gold cap, the diner's shipped chrome; the pills can be 52px tall to hold the Burmese sub-line. Everything else about the control (toggle body, focus, links with scripts off) stands.
+2. Keep the arrow LAST on the row door ("Receipt · ဘောက်ချာ →") and say that D6's "Receipt → ဘောက်ချာ" is descriptive: the register puts the Burmese inline after the English and the arrow at the end (m13's back link, m14's stub links, the shipped `nav-arrow-fwd`).
+3. Add to OPEN RISKS, no redraw: the ✦ in the masthead kicker is the brand mark AND the Stars' glyph (m14 DECISION 5 removes it from the farewell for that reason); on the You panel the eyebrow "✦ Save your Stars" is the Stars meaning — one glyph, two meanings, as shipped; flag for the owner rather than invent a second mark.
+
+### 17 · what the consistency pass changed (its appendix A; binding)
+
+1. PAID row shape = the shared SOLID ✓ DISC in `--ok` (PATH_DESIGN:92 "Solid ✓ disc: done … 'paid' on staff screens"), not a bare disc: 14px `--ok` disc with a 9px `--oa` stroke check, aria-hidden, beside "ငွေရှင်းပြီး · PAID".
+2. REFUNDED IN FULL must not be a hollow ring: on Dad's console the hollow `--warn` ring already means "Not sent yet · မပို့ရသေး" (PATH_DESIGN:88-91; the floor's owed-Send mark). Complete the half-disc instead: a FULL `--warn` disc (the half disc's progression — all of it went back) beside "ပြန်အမ်းပြီး · REFUNDED"; Night mark #e0855f, word `--tx`.
+3. ONE warn mark: the clamp line's 8×8 square becomes the same 6px `--warn` disc used on the stranded row and the stale arm; no second warn glyph on the console.
+4. Theme rule for warn words, aligned with m18/m19/m20 (the console's shipped light pair): in LIGHT the warn chip word, the stranded "REFUND NEEDED", the clamp sentence and a refusal sentence are in `--warn` (`.entry-msg-warn`, `Badge tone="warn"`), the disc beside them; in NIGHT the word is `--tx` and only the mark `--warn` — P2bm is the Night glass-floor rule (OPEN-ITEMS.md:205), not a light rule. Today the spec applies the Night fallback in light (every #1b1714 word beside a #a44b34 disc).
+5. The count line's `{n}` follows the product's numeral rule: `floor.settled.count.one/.many` fill through `{n}` (staff.ts:1246-1247; `fill.ts:7-8, 34` — a COUNT in prose → Burmese numerals under `my`), so a Burmese device reads "အော်ဒါ ၄ ခု" and the English echo "4 orders"; the artboard may draw Latin per RULES.md, the spec says the product (the same sentence m18 DECISION 20 carries).
+6. Print the receipt code as the guest's slip prints it: "#A1B2C3" (the # in the 28px Fraunces figure, `lang="en"`), so the string Dad reads and the string on the guest's phone (m14/m16 "ORDER #A1B2C3") are glyph-for-glyph the same match key; the shipped sr prefix "ပြေစာ · Receipt" stays.
+7. The find line takes the console's one search-field recipe (m20 / the pad): a 48px `--sf` radius-12 field with 16px type, placeholder = `aria-label`, the 44px `pad.search.clear` circle inside its right end — persistent on the desk (no collapsing circle: the desk has no chip rail to share the row), magnifier glyph allowed. Not a 52px `--cd` field of its own.
+8. The "Marked done today" fold takes the console's fold-row recipe m18 uses: a one-row `.staff-inset` whose row is a 62px `.staff-row` `<button aria-expanded aria-controls>` (16px Padauk 700 `--t2` + inline echo, chevron › closed / ⌄ open), the rows beneath in the same inset; its head still carries no number (graft 3 stands — a count of refunds is a money figure; m18's count is of people).
+9. No change to RULING#24 B: the citation is verified — DECISIONS_2026-10-18.md:1270 lists "RULING#24 B: amend ruling #24. A, the ruled default, is built regardless." among the twenty signed 2026-10-18 (:1256-1258), and :1282-1284 says "B is signed and built regardless"; the stranded row's hero stands behind the server flag, split shares on the Stripe sentence.
+
+### 18 · what the consistency pass changed (its appendix A; binding)
+
+1. Reactivate is a RESTORING verb: paper pill with `--ok` ink and a `color-mix(--ok 40%, --bd)` hairline (the recipe m20's Put back takes), not `.team-toggle-ok`'s `--ac` ink (globals.css:13047-13049) — accent is for chosen/act-here, green for bringing back; Deactivate stays the paper pill with `--warn` ink (the removing verb). One verb vocabulary across Team and Menu.
+2. Drop Esc = Undo (graft 5's keyboard half) unless the same PR adds it to every open-window surface (the lane's pick, the KDS pill, the Clear): the house has ONE Undo form and the lane/KDS do not take Esc; the Undo is a 392×54 button in the Tab order and `:focus-visible` already holds the window. Keep the stable `al()` name and the aria-hidden leaf.
+3. An opened row's chevron turns ⌄ while `aria-expanded="true"` (m17's card heads do this); closed rows keep ›. The fold row too.
+4. State the leaf and window-word shapes as the register's: the seconds leaf is the shipped staff "· {n}s" (`table.send.undoLeft`), the window word is -ing ("Deactivating", PATH_DESIGN:80-81) — and cite that m19's lane prints past tense inside its window from shipped keys, so the record knows which one follows the rule.
+5. No change to D7 items (managers+owner row, `?show=team`, STAFF keys, active→ROLE_ORDER→name, whole-row Undo, `TEAM_WRITE_OUTAGE`, ruling #18): all applied exactly.
+
+### 19 · what the consistency pass changed (its appendix A; binding)
+
+1. The stage fact for `kitchen === "done"` must speak the ONE KITCHEN TRACK's third stamp that the guest's phone and the settled card show ("Served · ထုတ်ပြီး", `DINER_STAGE_WORD.served` / `lib/kitchen-track.ts`, PATH_DESIGN:500-509 "one key per stamp … identical everywhere") — either the lane adopts the track's word + ✓ glyph for that fact, or DECISIONS records why the lane keeps `expo.kitchenDone` ("Kitchen done · မီးဖိုချောင် ပြီးပြီ") for the same fact Dad and the guest compare across the counter. Verify against `kitchenStateOf` before choosing; do not keep two words for one state silently.
+2. Inside the pick window the lane's words are past tense ("ယူသွားပြီ — ပြန်ဖျက်မလား / Picked up — undo?", "Table 11 picked up") against the register's rule (future/-ing inside a window, PATH_DESIGN:80-81); both are shipped keys (`expo.picked.pending`, `expo.toast.pickedTable`), so no re-word here — add them to OPEN RISKS and the K15 · native-sitting ledger under D3 (c) ("any re-word of shipped copy that names these acts goes to the native sitting").
+3. Name the ONE Undo in the stage: the pinned card's dashed `undoBtn` slot IS the Undo form; the xl thumb pill is the lane's shipped second control for the same act ("No fact is marked twice on one screen", PATH_DESIGN:128). State which is primary in the stage and why the pill stays (thumb reach across 2–3 columns) or drop its action to a drain + sentence (`live={false}` already) — a decision, not an omission.
+4. Say the slot's dashed edge is the shipped `undoBtn` declaration (`expo-stage.ts:11-31`, 1px) and that no `.station-*` rule re-declares a dash width or weight (the `check:style-literals` ratchet; the form's 1.5px is `.arrival-undo`/`.clear-undo`'s own).
+5. Warn words: light keeps the shipped `--warn` ink (badge, refunded line), Night the P2bm split — already so; add that the Night `--warn` mark/`--tx` word pair on the dotted face is the SAME pair m17 and m20 use, pinned once in `composite-contrast.test.ts` (P2db) rather than per moment.
+
+### 20 · what the consistency pass changed (its appendix A; binding)
+
+1. BUSY per D8 exactly: the row pill keeps its label with `aria-busy` + the 0.6 dim (the `.staff-btn[aria-busy]` / `[aria-disabled]` rule the lane uses, globals.css:4249-4256), no spinner, never "…". Decision 11's move to the `@mms/ui` Button (opacity 1 + 1em spinner) is the primitive's other lawful busy (DESIGN-LANGUAGE.md:779-781 — which also wants a STATED word like "Putting back…"); it is not D8's. Keep the pill a `.staff-btn`-class control, or record the deviation as an owner question.
+2. Put back and Mark sold out become PAPER pills with ink by direction — `--ok` ink + `color-mix(--ok 40%, --bd)` hairline for Put back, `--warn` ink + warn-mixed hairline for Mark sold out — dropping the shipped `--okb` / `--warnb` fills (`restoreBtn` / `eightySixBtn`): a warn GROUND fill is reserved for a Late ticket, the ask tile and the money-in-doubt badge (PATH_DESIGN:116-119), and forty warn-filled pills on /staff/menu nag during normal service; this is the same verb recipe as m18's Deactivate/Reactivate. One CSS change each; add both to `composite-contrast`'s pairs.
+3. The dated since-clock gains the ONE warn mark: a 6px `--warn` disc before the clock on a row from another day (both themes), so in Night — where P2bm turns the words `--tx` — a warn cue survives; the date in text and the sr-only "From another day" stay. In light the words keep the shipped `soldOutTagOld` warn ink.
+4. Section rows: the sold-out tag after the English name (" · 6:40 PM ကတည်းက ကုန်သွားပြီ") keeps the shipped 0.55em warn dot (`.kds-line-off-dot`) rather than none — the same 6px-class warn disc + word that the KDS line tag and m17's rows use; one warn mark on the console.
+5. The KDS door and chip numerals: keep as specified (prose count "(၃)" Burmese, the stat figure Latin — `fill.ts`'s construction rule) and point OPEN RISK 11 at `fill.ts:27-34` so a reader sees it is the owner's 2026-09-05 rule, not drift.
+
 ## The judges' scores
 
 Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at the counter on a busy night, a first-time diner on their phone, the owner who pays for every refund) on clarity for the parents, speed, honesty, accessibility, feasibility in this codebase and design language, and delight; the total is the sum (30 max).
@@ -67,6 +140,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 
 **In flight:** J24 · Phase 3e (filed, not built); M16 ruled (#17); M73 decided (no SMS); F29 decided. The slot-sheet address literal is named only in brand.ts's docblock — no row.
 
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m13-1.dc.html` — First visit: When open, two lines folded, Pay held (phone, light)
+- `picked-m13-2.dc.html` — A regular: read-back rows, 'Saved on this phone.', When open, Pay live (phone, light)
+- `picked-m13-3.dc.html` — The slot sheet: bilingual, the full address, the earliest chip, '{n} left' (phone, light)
+
+**English-only strings the spec lists for the K15 ledger:** 16 · **Open risks the spec names:** 11 (both in the spec).
+
 **The three concepts and the judges' pick:**
 
 - **Quiet · One Slip, Then Pay** (effort M) — The to-go checkout asks who and when once, on one card at the top, says only what the code keeps, and holds Pay in reach instead of refusing it.
@@ -94,6 +175,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 **Binding rules:** M206 (sign-off, money): the guest claims a counter settle's Stars on the receipt link, one claim per order, after M309 — no Star pill or count for a counter settle before it lands. `successRewardsDoor`'s one-door rule and the two-decline cap (SAVE_STARS_DECLINE_CAP) stay. A resume is never an arrival (track/page.tsx:28-45; every in-app link carries `resume=1`). Delight is one moment per pass, never on a first read or inside an Undo window. J4's food-in-hand clock for to-go stays (the goodbye lands when the bag is handed over) — design the counter case, do not move the to-go clock. Receipt rows are the fulfillment-time snapshot verbatim; a refunded order never reads 'Paid in full' (receiptStatusLabel). Copy promises only what the code keeps: K13 is read-only on purpose for the pilot (PILOT_PLAN §3 P5) — no 'follow up' promise until a handled state exists. C24 ② (sign-off): the manual-capture line adds 'your bank may show it as pending'. Burmese reused verbatim (ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ, ကျေးဇူးတင်ပါတယ်); new lines are EN plus K15 drafts. Ungated public review link stays (compliance: reviews ungated). 'Cash-paid orders aren’t shown here.' stays true until M206.
 
 **In flight:** M206 decided 2026-10-18 (post-pay + money-rails, after M309); K13 kept read-only for the pilot; F36 open; J61 adjacent; M79 BackLink rule decided.
+
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m14-1.dc.html` — Before you go · 1 of 2 — the card-paid to-go exit (phone, light)
+- `picked-m14-2.dc.html` — Before you go · 2 of 2 — the feedback ask, armed → sent (phone, light)
+- `picked-m14-3.dc.html` — The cash-settled table, walked to the door (from the Bill's 'See your receipt →') (phone, light)
+
+**English-only strings the spec lists for the K15 ledger:** 15 · **Open risks the spec names:** 10 (both in the spec).
 
 **The three concepts and the judges' pick:**
 
@@ -123,6 +212,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 
 **In flight:** F5 (high, reopened), F34 (measure first), S2, S19, M66, M88/M89 — all open, no stream; PD11 built.
 
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m15-1.dc.html` — Home — a first-time phone: folded mark + one-line name, bilingual hello (Burmese first), the v7.2 question as the reserved host slot's face, three glyph doors fully above the tabs, Join (phone, light)
+- `picked-m15-2.dc.html` — Home — a returning phone: the host slot as the one resume face ('Table 5 is still open →'), nothing else moved (phone, light)
+- `picked-m15-3.dc.html` — /menu after the sticker scan: 'Setting up your table…' said in place, the dashed vellum ghost '+', and the one toast after a tap on it (phone, light)
+
+**English-only strings the spec lists for the K15 ledger:** 8 · **Open risks the spec names:** 8 (both in the spec).
+
 **The three concepts and the judges' pick:**
 
 - **Quiet · One Word, Three Doors** (effort M) — The front door says hello in both tongues once, holds one still line for whatever the house actually knows about this phone, and opens three quiet doors that never move under a thumb; after the sticker scan the menu says "Setting up your table…" in the line that already sets the place, and the first '+' lights in place without a jump.
@@ -150,6 +247,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 **Binding rules:** ONE receipt derivation (`buildReceiptRows` · `receiptStatusLabel`): a refunded order never reads 'Paid in full'; refund rows follow the Total; dropped dishes are a notice, never a money row. The 90-day token's honesty: the expired-link card diagnoses nothing and never promises the account holds the order. W9c — degrade the hub, never the history. M79 (decided) — one BackLink rule: pop when the previous in-app entry is the target, otherwise replace, never push. SHARED_DEVICE.md — the chooser discloses its cost BEFORE the tap (shorten the sentence only with the same facts; M237's stranded split note stays). M206 — no cash history or cash Stars until the claim lands; 'Cash-paid orders aren’t shown here.' stays true until then. S17 — no retention window named: never claim deletion. §14 recognition — the name line only when real. Tabs stay real links (`?tab=`), manual ARIA activation. 'saved to your account' only when upgraded; 'with your rewards' otherwise. Ruling #16 — the reward minimum prints the live `mms_rewards_config` value. Burmese never invented; the tier names' Burmese (rewards-tiers.ts:21-24) is reused as shipped.
 
 **In flight:** S16 · M60 · S15 · M213 · F36 (form before chips) · M79 decided · M206 decided; the lede and the coupon formatter are unowned.
+
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m16-1.dc.html` — Orders · the record — every row a door (Receipt → ဘောက်ချာ), the partly refunded row says You paid, the kitchen note on the line (phone, light)
+- `picked-m16-2.dc.html` — The durable receipt (/track?r=) opened from a row — partly refunded, refund rows after the Total, '← All your orders' on top (phone, light)
+- `picked-m16-3.dc.html` — You · the save card — one bilingual question over Save / Sign in, the chooser's cost said in two sentences before the chips, the form behind the switch (phone, light)
+
+**English-only strings the spec lists for the K15 ledger:** 17 · **Open risks the spec names:** 12 (both in the spec).
 
 **The three concepts and the judges' pick:**
 
@@ -179,6 +284,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 
 **In flight:** M185 (open), P2j (open), RULING#24 A/B (decided 2026-10-18, sign-off on B), M308 (sign-off), P2di (open), P2cm (button idioms).
 
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m17-1.dc.html` — The desk: one find line, one stranded charge in plain words, three shapes, Earlier → (tablet, light)
+- `picked-m17-2.dc.html` — The slip over the desk: the code and the figure at arm's length, six blank chips, one lit name, one PIN, one key (tablet, light)
+- `picked-m17-3.dc.html` — Found: yesterday's guest after a find, the Done line with who and when, the 'Marked done today' fold (tablet, light)
+
+**English-only strings the spec lists for the K15 ledger:** 5 · **Open risks the spec names:** 8 (both in the spec).
+
 **The three concepts and the judges' pick:**
 
 - **Quiet · One Line, One Slip** (effort L) — Type what you know, tap the line, enter your PIN — yesterday's guest is found in one line, refunded with the one slip the whole console already signs with, and the record says who and when.
@@ -206,6 +319,13 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 **Binding rules:** Owner ruling #18 — 'Staff' replaces 'Server' only with the owner's (or the parents') Burmese word, never ဝန်ထမ်း; until it arrives the badge stays 'Server' / စားပွဲထိုး (a K15 draft) — do not rename. Authority is server-held: `requireStaff("manager")`, the role select offers only what the caller may grant (`grantable`), never a role above self, never self-deactivation. A failed read must never render as an empty roster (lib/staff.ts:229-231). DESIGN-LANGUAGE §22 — Undo beats are-you-sure; a deferred Deactivate must say so honestly ('will be deactivated in a few seconds — Undo now to stop it', the lane's PICKED shape) and flush on unmount, lock and sign-out like ExpoBoard does. Nothing natively disabled. The language pill stays off every in-service bar (owner 2026-09-24, decision 2) — Language is reached through Help or More. One polite live region per view (`ViewStatusProvider`). Burmese never invented: K15 drafts flagged, autonyms are constants. P7d/P7e (staff manifest shortcuts) is decided elsewhere — not this moment.
 
 **In flight:** K39 (the Team tile — 'this row stays open for it'), P2m, P2ez, K37, M35 — all open, none in a PR; ruling #18 waits on the owner's word.
+
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m18-1.dc.html` — Team, One Sheet — the Team row in More (managers and the owner only) and the sheet at rest (tablet, light)
+- `picked-m18-2.dc.html` — Six Seconds Back — Deactivate armed on Ko Zaw's row (tablet, light)
+
+**English-only strings the spec lists for the K15 ledger:** 8 · **Open risks the spec names:** 9 (both in the spec).
 
 **The three concepts and the judges' pick:**
 
@@ -235,6 +355,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 
 **In flight:** K24 remainder, K40 (owner's word sweep), P2du/P2dr/P2ds (bell), R2 (kitchen-ops on #360's follow-ups), K49 ② sign-off, M86 (owner-blocked hue).
 
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m19-1.dc.html` — The bag stage, Night, text size Small (tablet, night)
+- `picked-m19-2.dc.html` — The same stage at Large, two columns (tablet, night)
+- `picked-m19-3.dc.html` — The counter home in Light: the stage's door and the bell (tablet, light)
+
+**English-only strings the spec lists for the K15 ledger:** 6 · **Open risks the spec names:** 12 (both in the spec).
+
 **The three concepts and the judges' pick:**
 
 - **Quiet · The Bag Shelf** (effort M) — A full-height, Night-by-default "Takeaway bags" station at the KDS's arm's-length type tiers, where each bag card says who · how long · one stage line · the dishes · one 64px verb — and nothing else.
@@ -262,6 +390,14 @@ Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at t
 **Binding rules:** P2az and P2ax (decided) — put-back stays OFF the ticket and 'Mark sold out' stays on each line's ⋯; P2ay — no idle auto-close on the ⋯ sheet. Price bounds $0.25–$5000 (packages/db/src/bounds.ts:9-10); the two-step price confirm and its sentence ('Every new order pays the new price. Lines already in a cart keep what they were quoted, and paid orders never change.') stay; prices are managers only (`canEditPrice = role !== "server"`); every change recorded with the person's name (append-only audit, `unlogged` said out loud). One-tap 86 both ways with no timer — never a silent auto-put-back. K50 (decided) — the register's sold-out re-warning stays. M300 and J64+T45 (decided) own the diner side — this moment changes no diner read. Owner 2026-09-05 — station chip words stay Latin; P2cc — Burmese category names are owner-gated (a `name_my` column): section headings may group by category but render the English `menu_categories.name` marked `lang="en"` until then. Nothing natively disabled; the sr-only live region plus the acted row's `aria-hidden` echo stays the one announcer. Burmese never invented: twins are K15 drafts flagged; the K15-HIGH band keeps 'Mark sold out' / 'Sold out' English under Burmese-only.
 
 **In flight:** M332 (filed 2026-10-18, no PR), P2i (design question), M300 / J64+T45 decided (diner-cart), P2cc owner-gated, K48 decided (guide crop).
+
+**The refined screens (on the canvas's launch page):**
+
+- `picked-m20-1.dc.html` — /staff/menu on a manager's kitchen-door tablet: the shelf first, then the kitchen's own order (tablet, light)
+- `picked-m20-2.dc.html` — The kitchen board's one door: Open · Late · Sold out → (tablet, night)
+- `picked-m20-3.dc.html` — When a put-back misfires, on a Burmese-only kitchen tablet: outage · someone else already · not logged (tablet, light)
+
+**English-only strings the spec lists for the K15 ledger:** 3 · **Open risks the spec names:** 12 (both in the spec).
 
 **The three concepts and the judges' pick:**
 

@@ -4256,3 +4256,26 @@ new PaymentIntent's `livemode` say live.
 the first view lands, so `refresh` is re-created, which re-arms the freeze re-check and drops the
 coalescer's pending read. Mutant m227 survived behind that re-arm. Read such a value through a ref
 inside the callback.
+
+## #282
+
+**A Workflow runs at most `CPUs − 2` agents at once, and this box has four cores (#373, round 4).** One
+diverge workflow queued 32 agents two at a time, so a run the 2026-10-07 session finished in an hour
+took most of a day and lost two container restarts along the way. Split a fan-out across several
+workflows by moment (each gets its own cap), pass the big inputs by file path and let the agents read
+them (the `args` stay small), and keep the per-moment outputs in the scratchpad so a restart resumes
+from the journal instead of starting over.
+
+## #283
+
+**The canvas refuses a publish built in the same turn as its read.** `Artifact` wants the live version
+read in an EARLIER turn: a `read` of `project/canvas.json` by path is not enough, and a `read` of the
+artifact followed by the publish in one response is refused as "could not have been built on it". Read
+the artifact (not only a file of it), end the turn, then publish; the refusal costs a turn each time.
+
+## #284
+
+**When the owner's one question is declined, the round stands on the recommended answers, recorded as
+reversible (#373).** The design loop asks once; a declined prompt is not an answer, and a round that
+stops there delivers nothing. Record each default in the decisions table with the alternative beside
+it and list every one under "What still goes to the owner", so one word reverses it without a re-run.
