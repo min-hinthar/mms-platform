@@ -18893,7 +18893,7 @@ const MUTANTS = [
   {
     id: "p2f-cx2-roster/hook/failure-reads-empty",
     file: "apps/qr/components/staff/ManagerPinStepUp.tsx",
-    suite: "components/staff/CounterNoShowButton.test.tsx",
+    suite: "components/staff/ManagerPinStepUp.test.tsx",
     why: "Codex round 2 on #308 — a failed roster read is an OUTAGE; falling back to [] says no manager is on shift and blocks a manager-gated write-off with one present",
     find: "        if (alive.current) setFailed(true);",
     replace: "        if (alive.current) setApprovers([]);",
@@ -18901,7 +18901,7 @@ const MUTANTS = [
   {
     id: "p2f-cx2-roster/hook/retry-stays-failed",
     file: "apps/qr/components/staff/ManagerPinStepUp.tsx",
-    suite: "components/staff/CounterNoShowButton.test.tsx",
+    suite: "components/staff/ManagerPinStepUp.test.tsx",
     why: "Codex round 2 on #308 — a successful Try again must clear the failure, or the picker stays blocked with the list in hand",
     find: "      setFailed(false);\n      return true;",
     replace: "      return true;",

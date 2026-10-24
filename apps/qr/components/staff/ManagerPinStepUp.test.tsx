@@ -34,6 +34,30 @@ describe("secondsUntil — the lock screen's countdown", () => {
   });
 });
 
+describe("useApproverRoster — an unreadable roster is an OUTAGE (Codex round 2 on #308)", () => {
+  it("a rejected read is `failed`, never an empty roster; a Try again that answers clears it (`p2f-cx2-roster/hook/*`)", async () => {
+    let calls = 0;
+    const roster: Approver[] = [
+      { staffId: "m1", displayName: "Aye", role: "manager", active: true, self: true },
+    ];
+    const load = vi.fn((): Promise<Approver[]> => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error("503")) : Promise.resolve(roster);
+    });
+    const { result } = renderHook(() => useApproverRoster(load));
+    await act(async () => {});
+    expect(result.current.failed).toBe(true);
+    expect(result.current.approvers).toBeNull();
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.retry();
+    });
+    expect(ok).toBe(true);
+    expect(result.current.failed).toBe(false);
+    expect(result.current.approvers).toEqual(roster);
+  });
+});
+
 describe("useApproverRoster — Phase 2h: both reads end at the bound", () => {
   afterEach(() => {
     vi.useRealTimers();
