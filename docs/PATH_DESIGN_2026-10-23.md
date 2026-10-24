@@ -107,6 +107,24 @@ The consistency agent read all eight specs after they were refined in isolation 
 4. Section rows: the sold-out tag after the English name (" · 6:40 PM ကတည်းက ကုန်သွားပြီ") keeps the shipped 0.55em warn dot (`.kds-line-off-dot`) rather than none — the same 6px-class warn disc + word that the KDS line tag and m17's rows use; one warn mark on the console.
 5. The KDS door and chip numerals: keep as specified (prose count "(၃)" Burmese, the stat figure Latin — `fill.ts`'s construction rule) and point OPEN RISK 11 at `fill.ts:27-34` so a reader sees it is the owner's 2026-09-05 rule, not drift.
 
+## The critics' blocking fixes
+
+After the consistency pass, one adversarial critic per moment reviewed the amended spec against the code at `09c1c2a`, the rules and the defaults, and listed BLOCKING defects only: a promise the code cannot keep, a wrong citation, two primaries in one state, invented Burmese, a control without a name, a staff state that nags. **Every blocking fix was applied in the drawn screens** and is written into the spec's appendix B with its evidence; the suggestions are appendix C. Each spec's appendix wins over its body.
+
+| Moment  | Verdict | Blocking fixes | Suggestions |
+| ------- | ------- | -------------- | ----------- |
+| 13      | fix     | 9              | 11          |
+| 14      | fix     | 9              | 6           |
+| 15      | fix     | 7              | 6           |
+| 16      | fix     | 13             | 12          |
+| 17      | fix     | 10             | 10          |
+| 18      | fix     | 10             | 6           |
+| 19      | fix     | 16             | 11          |
+| 20      | fix     | 15             | 6           |
+| **all** |         | **89**         | **68**      |
+
+The defects the critics found most often, so the builders look for them first: a held or inert control drawn as a dashed ghost or a hollow ring (both are taken: dashed means an open Undo window, the hollow ring means "Not sent yet"); a second live region beside the view's one; Burmese placed in an ARIA attribute, which cannot carry `lang="my"`; a sentence with two owners on one screen; and geometry claimed against a layout the code does not render (CounterSplit's pane column, the docked hero's height with the keyboard up). Where a critic proved a spec's product claim false — the closed-table face firing on a rate-limited peek (m15), a keyset that could skip or repeat orders (m17), a dashboard refund that no code path records on a line (m17) — the design changed, not the claim.
+
 ## The judges' scores
 
 Each concept was scored 1–5 by a three-seat panel (a Burmese-first parent at the counter on a busy night, a first-time diner on their phone, the owner who pays for every refund) on clarity for the parents, speed, honesty, accessibility, feasibility in this codebase and design language, and delight; the total is the sum (30 max).
