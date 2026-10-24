@@ -94,6 +94,16 @@ merged, in this order. The objects each one creates were verified one by one bef
   closed, and M160 and C2 carry the 2026-10-18 state.
 - The decisions round's record is [`docs/DECISIONS_2026-10-18.md`](DECISIONS_2026-10-18.md).
 
+### Design round 4 (2026-10-23/24, `claude/blissful-cerf-jxz37k`)
+
+The owner asked for a "creative design-thinking revamp enhance enrich refine expand improve UI UX". The
+standard loop ran on eight NEW moments (m13–m20: the to-go slip, the exit after paying, the front door,
+the account record, the money desk, Team, the bag station, the menu editor). The record is
+[`docs/PATH_DESIGN_2026-10-23.md`](PATH_DESIGN_2026-10-23.md); the specs are under
+[`docs/path-design-2026-10-23/`](path-design-2026-10-23/); the registry rows are PD14–PD21. The owner
+was asked once and the prompt was declined, so the round stands on recorded defaults (R4·0–R4·8), each
+reversible on the owner's word. Nothing was built and no migration was applied; the migrations it depends on (PD15's seat-membership authorization; PD18's two find indexes and RULING#24 A's `resolved_by` / `resolved_at` columns, each its own file) wait for the owner's go.
+
 ### Next tasks
 
 1. **#362**: land it on the owner's per-SHA line (and the bypass where its `codex-review` is red),
@@ -109,6 +119,8 @@ merged, in this order. The objects each one creates were verified one by one bef
 
 ### The owner's checklist (still open)
 
+0. **Round 4's defaults** (PATH_DESIGN_2026-10-23 R4·0–R4·8): reverse any with one word; the concept
+   screens for every direction stay on the canvas. K40's take-out word for the native round.
 1. **Finish C2.** Remove `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_SECRET_KEY_TEST` from
    Vercel Production, then redeploy production. Confirm the bundle serves `pk_live_…`, then make one
    small real-card sale and refund it.
