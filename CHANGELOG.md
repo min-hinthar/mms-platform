@@ -15,9 +15,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   directions for each (48 concept screens on the canvas), judged them, asked the owner once (the prompt
   was declined, so the recommended answers stand as defaults R4·0–R4·8, each reversible), and refined
   the picks with a consistency pass and an adversarial critic (the refined screens on the canvas's
-  launch page). OPEN-ITEMS gains PD14–PD21, one per moment, naming the stream that builds each. No
-  migration is applied: the two the round names (m14's seat-membership authorization, m17's find
-  indexes) wait for the owner's go.
+  launch page). OPEN-ITEMS gains PD14–PD21, one per moment, naming the stream that builds each. No migration is applied: the migrations it depends on (PD15's seat-membership authorization; PD18's two find indexes and RULING#24 A's `resolved_by` / `resolved_at` columns, each its own file) wait for the owner's go.
 
 ### Lifecycle audit — the diner side of sold out, removals and edits (2026-10-13, `claude/fix/lifecycle-diner-sold-out-edits`)
 

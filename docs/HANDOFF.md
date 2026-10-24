@@ -102,8 +102,7 @@ the account record, the money desk, Team, the bag station, the menu editor). The
 [`docs/PATH_DESIGN_2026-10-23.md`](PATH_DESIGN_2026-10-23.md); the specs are under
 [`docs/path-design-2026-10-23/`](path-design-2026-10-23/); the registry rows are PD14–PD21. The owner
 was asked once and the prompt was declined, so the round stands on recorded defaults (R4·0–R4·8), each
-reversible on the owner's word. Nothing was built and no migration was applied; the two the round names
-(PD15's seat-membership authorization, PD18's find indexes) wait for the owner's go.
+reversible on the owner's word. Nothing was built and no migration was applied; the migrations it depends on (PD15's seat-membership authorization; PD18's two find indexes and RULING#24 A's `resolved_by` / `resolved_at` columns, each its own file) wait for the owner's go.
 
 ### Next tasks
 
