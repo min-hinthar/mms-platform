@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Icon, Sheet } from "@mms/ui";
-import { moveCategoryAction, saveCategory } from "@/lib/menu-studio";
+import { moveCategoryAction, saveCategory, type MenuStudioResult } from "@/lib/menu-studio";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { CATEGORY_NAME_MAX } from "@/lib/menu-studio-rules";
 import { plural } from "@/lib/i18n/fill";
@@ -35,7 +35,9 @@ export function CategoriesSheet({
   const lang = useStaffLang();
   const [names, setNames] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Which write is out (busy is the Sheet's lock, M82).
+  const [doing, setDoing] = useState<string | null>(null);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const inFlight = useRef(false);
   const said = useResaid(msg);
@@ -43,71 +45,83 @@ export function CategoriesSheet({
     (a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 
-  async function run(key: string, write: () => Promise<{ kind: string }>) {
-    if (inFlight.current) return;
+  /** Refused AT THE TAP while the tablet is stalled (9d) or a write of this sheet is out. */
+  function refusedAtTap(): boolean {
+    if (inFlight.current) return true;
     const refused = tapRefusal(null, stalledSince(), "out.stalled");
-    if (refused !== null) return setMsg({ k: refused });
+    if (refused === null) return false;
+    setMsg({ k: refused });
+    return true;
+  }
+  /** The tap-time guard and the in-flight marker, taken with the sheet's lock below. */
+  function lock(key: string) {
     inFlight.current = true;
-    setBusy(key);
+    setDoing(key);
     setMsg(null);
+  }
+  function answered(
+    res: Awaited<ReturnType<typeof boundWrite<MenuStudioResult>>>,
+    landed: StaffMsg,
+  ) {
+    if (res.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
+    if (!res.value.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.value.reason] });
+    setMsg(landed);
+    onChanged();
+  }
+
+  async function save(c: StudioCategory, isActive: boolean) {
+    const name = (names[c.id] ?? c.name).trim();
+    if (name === "") return setMsg({ k: "studio.cat.err.name" });
+    if (refusedAtTap()) return;
+    lock(`save:${c.id}`);
+    setBusy(true);
     try {
-      await write();
+      const out = await boundWrite(saveCategory({ categoryId: c.id, name, isActive }));
+      answered(out, { k: "studio.cat.saved", vars: { x: name } });
     } finally {
       inFlight.current = false;
-      setBusy(null);
+      setBusy(false);
+      setDoing(null);
     }
   }
 
-  function save(c: StudioCategory, isActive: boolean) {
-    const name = (names[c.id] ?? c.name).trim();
-    if (name === "") return setMsg({ k: "studio.cat.err.name" });
-    return run(`save:${c.id}`, async () => {
-      const out = await boundWrite(saveCategory({ categoryId: c.id, name, isActive }));
-      if (out.kind !== "answer") setMsg({ k: "studio.err.unknown" });
-      else if (!out.value.ok) setMsg({ k: STUDIO_REFUSAL_KEY[out.value.reason] });
-      else {
-        setMsg({ k: "studio.cat.saved", vars: { x: name } });
-        onChanged();
-      }
-      return out;
-    });
-  }
-
-  function move(c: StudioCategory, direction: "up" | "down") {
-    return run(`move:${c.id}`, async () => {
+  async function move(c: StudioCategory, direction: "up" | "down") {
+    if (refusedAtTap()) return;
+    lock(`move:${c.id}`);
+    setBusy(true);
+    try {
       const out = await boundWrite(moveCategoryAction({ categoryId: c.id, direction }));
-      if (out.kind !== "answer") setMsg({ k: "studio.err.unknown" });
-      else if (!out.value.ok) setMsg({ k: STUDIO_REFUSAL_KEY[out.value.reason] });
-      else {
-        setMsg({ k: "studio.cat.moved", vars: { x: c.name } });
-        onChanged();
-      }
-      return out;
-    });
+      answered(out, { k: "studio.cat.moved", vars: { x: c.name } });
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+      setDoing(null);
+    }
   }
 
-  function add(e: FormEvent) {
+  async function add(e: FormEvent) {
     e.preventDefault();
     const name = adding.trim();
     if (name === "") return setMsg({ k: "studio.cat.err.name" });
-    return run("add", async () => {
+    if (refusedAtTap()) return;
+    lock("add");
+    setBusy(true);
+    try {
       const out = await boundWrite(saveCategory({ name, isActive: true }));
-      if (out.kind !== "answer") setMsg({ k: "studio.err.unknown" });
-      else if (!out.value.ok) setMsg({ k: STUDIO_REFUSAL_KEY[out.value.reason] });
-      else {
-        setAdding("");
-        setMsg({ k: "studio.cat.saved", vars: { x: name } });
-        onChanged();
-      }
-      return out;
-    });
+      if (out.kind === "answer" && out.value.ok) setAdding("");
+      answered(out, { k: "studio.cat.saved", vars: { x: name } });
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+      setDoing(null);
+    }
   }
 
-  const dim = busy !== null || undefined;
+  const dim = busy || undefined;
   return (
     <Sheet
       open
-      busy={busy !== null}
+      busy={busy}
       closeLabel={sheetCloseLabel(lang)}
       onOpenChange={(next) => !next && onClose()}
       title={<Chrome lang={lang} k="studio.cat.title" />}
@@ -225,7 +239,7 @@ export function CategoriesSheet({
           className="staff-btn staff-press"
           style={addBtn}
           aria-disabled={dim}
-          aria-busy={busy === "add" || undefined}
+          aria-busy={doing === "add" || undefined}
         >
           <Chrome lang={lang} k="studio.cat.add" echo="inline" />
         </button>

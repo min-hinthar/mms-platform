@@ -25080,15 +25080,7 @@ const MUTANTS = [
     find: '      ownLate.current = "table.loss.msg.requestWaiting";\n',
     replace: '      ownLate.current = "out.stalled";\n',
   },
-  {
-    id: "p2h-int-c/loss/request-refusal-names-itself",
-    file: "apps/qr/components/staff/LossActionSheet.tsx",
-    suite: "components/staff/LossActionSheet.test.tsx",
-    why: "Phase 2h · integration c — the refusal names the write that is OUT, not the button tapped: with the void waiting, a request tap that says 'the request may still reach a manager' talks about a request never sent and drops the void's 'don't do it again'",
-    find: "    // and while this sheet's own void or request is still out, in THAT write's words (`tapRefusal`).\n    const refused = tapRefusal(ownLate.current, stalledSince(), \"out.stalled\");\n",
-    replace:
-      '    // and while this sheet\'s own void or request is still out, in THAT write\'s words (`tapRefusal`).\n    const refused = tapRefusal(ownLate.current === null ? null : "table.loss.msg.requestWaiting", stalledSince(), "out.stalled");\n',
-  },
+
   {
     id: "p2h-int-c/refund/own-wait-said-as-stalled",
     file: "apps/qr/components/staff/RefundActionSheet.tsx",

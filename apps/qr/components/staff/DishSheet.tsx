@@ -104,7 +104,9 @@ export function DishSheet({
   const [price, setPrice] = useState(dish ? (dish.priceCents / 100).toFixed(2) : "");
   const [photo, setPhoto] = useState<string | null>(dish?.imageUrl ?? null);
   const [updatedAt, setUpdatedAt] = useState(dish?.updatedAt ?? "");
-  const [busy, setBusy] = useState<null | "save" | "photo">(null);
+  const [busy, setBusy] = useState(false);
+  // Which write is out — the button that says "Saving…" (busy is the Sheet's lock, M82).
+  const [doing, setDoing] = useState<null | "save" | "photo">(null);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const [tried, setTried] = useState(false);
   const inFlight = useRef(false);
@@ -126,7 +128,7 @@ export function DishSheet({
           : verdict === "empty"
             ? { k: "browse.price.draft.empty", vars: { m: dollars(1200) } }
             : { k: "browse.price.draft.nan", vars: { m: dollars(1200) } };
-  const ready = nameOk && cents !== null && categoryId !== "" && busy === null;
+  const ready = nameOk && cents !== null && categoryId !== "" && !busy;
 
   /** Refused AT THE TAP while the tablet is stalled (9d) — a write would only queue behind it. */
   function stalled(): boolean {
@@ -152,7 +154,8 @@ export function DishSheet({
     }
     if (stalled()) return;
     inFlight.current = true;
-    setBusy("save");
+    setBusy(true);
+    setDoing("save");
     setMsg(null);
     try {
       const fields = {
@@ -202,7 +205,8 @@ export function DishSheet({
       onClose();
     } finally {
       inFlight.current = false;
-      setBusy(null);
+      setBusy(false);
+      setDoing(null);
     }
   }
 
@@ -211,12 +215,19 @@ export function DishSheet({
     e.target.value = ""; // the same photo picked twice still fires
     if (!file || !dish || inFlight.current) return;
     if (stalled()) return;
+    // The resize is the device's own work (no write, nothing to lose on a dismissal), so it runs
+    // BEFORE the sheet's lock — the lock covers only the upload, a bounded write (M82 · 9a).
     inFlight.current = true;
-    setBusy("photo");
     setMsg({ k: "studio.dish.photo.saving" });
+    const small = await resizePhoto(file);
+    if (!small) {
+      inFlight.current = false;
+      setMsg({ k: "studio.err.read" });
+      return;
+    }
+    setBusy(true);
+    setDoing("photo");
     try {
-      const small = await resizePhoto(file);
-      if (!small) return setMsg({ k: "studio.err.read" });
       const form = new FormData();
       form.set("itemId", dish.id);
       form.set("photo", new File([small], "photo.jpg", { type: "image/jpeg" }));
@@ -229,14 +240,16 @@ export function DishSheet({
       setMsg({ k: "studio.dish.photo.saved" });
     } finally {
       inFlight.current = false;
-      setBusy(null);
+      setBusy(false);
+      setDoing(null);
     }
   }
 
   async function removePhoto() {
     if (!dish || inFlight.current || stalled()) return;
     inFlight.current = true;
-    setBusy("photo");
+    setBusy(true);
+    setDoing("photo");
     setMsg(null);
     try {
       const out = await boundWrite(clearDishPhoto({ itemId: dish.id }));
@@ -247,14 +260,15 @@ export function DishSheet({
       setMsg({ k: "studio.dish.photo.removed" });
     } finally {
       inFlight.current = false;
-      setBusy(null);
+      setBusy(false);
+      setDoing(null);
     }
   }
 
   return (
     <Sheet
       open
-      busy={busy !== null}
+      busy={busy}
       closeLabel={sheetCloseLabel(lang)}
       onOpenChange={(next) => !next && onClose()}
       title={
@@ -288,7 +302,7 @@ export function DishSheet({
                 <label
                   htmlFor="dish-photo"
                   className="staff-btn staff-press studio-photo-btn"
-                  aria-disabled={busy !== null || undefined}
+                  aria-disabled={busy || undefined}
                 >
                   <Icon name="camera" size={18} aria-hidden />
                   <Chrome
@@ -309,7 +323,7 @@ export function DishSheet({
                   <button
                     type="button"
                     className="staff-btn staff-press studio-photo-remove"
-                    aria-disabled={busy !== null || undefined}
+                    aria-disabled={busy || undefined}
                     onClick={() => void removePhoto()}
                   >
                     <Chrome lang={lang} k="studio.dish.photo.remove" echo="inline" />
@@ -453,9 +467,9 @@ export function DishSheet({
           className="staff-btn staff-press"
           style={{ ...primaryBtn, opacity: ready ? 1 : 0.6 }}
           aria-disabled={!ready || undefined}
-          aria-busy={busy === "save" || undefined}
+          aria-busy={doing === "save" || undefined}
         >
-          {busy === "save" ? (
+          {doing === "save" ? (
             <Chrome lang={lang} k="studio.dish.saving" echo="inline" />
           ) : isNew ? (
             <Chrome
@@ -484,12 +498,12 @@ export function DishSheet({
 /** An <option> holds text only, so each tax label is the dictionary's plain string in the device
  *  tongue (the <select> carries the `lang`). */
 const TAX_KEY: Record<MenuTaxCategory, StaffKey> = {
-  hot_prepared: "studio.tax.hot_prepared",
-  cold_food: "studio.tax.cold_food",
-  beverage_hot: "studio.tax.beverage_hot",
-  beverage_cold: "studio.tax.beverage_cold",
-  grocery_food: "studio.tax.grocery_food",
-  retail_nonfood: "studio.tax.retail_nonfood",
+  hot_prepared: "studio.tax.hotPrepared",
+  cold_food: "studio.tax.coldFood",
+  beverage_hot: "studio.tax.beverageHot",
+  beverage_cold: "studio.tax.beverageCold",
+  grocery_food: "studio.tax.groceryFood",
+  retail_nonfood: "studio.tax.retailNonfood",
 };
 
 const body: CSSProperties = { marginTop: "var(--s2)" };

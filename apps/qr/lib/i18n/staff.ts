@@ -3364,15 +3364,15 @@ export const STAFF = {
     en: "Saved — but the edit history couldn’t be written yet.",
     my: "သိမ်းပြီးပါပြီ — ဒါပေမဲ့ ပြင်ဆင်မှု မှတ်တမ်း မရေးနိုင်သေးပါ။",
   }, // K15 draft — the edit stands; only its record is missing
-  "studio.tax.hot_prepared": { en: "Hot food", my: "ပူတဲ့ အစားအစာ" }, // K15 draft
-  "studio.tax.cold_food": {
+  "studio.tax.hotPrepared": { en: "Hot food", my: "ပူတဲ့ အစားအစာ" }, // K15 draft
+  "studio.tax.coldFood": {
     en: "Cold food (exempt to go)",
     my: "အေးတဲ့ အစားအစာ (ပါဆယ် အခွန်ကင်း)",
   }, // K15 draft
-  "studio.tax.beverage_hot": { en: "Hot drink", my: "ပူတဲ့ အဖျော်ယမကာ" }, // K15 draft
-  "studio.tax.beverage_cold": { en: "Cold drink", my: "အေးတဲ့ အဖျော်ယမကာ" }, // K15 draft
-  "studio.tax.grocery_food": { en: "Grocery food", my: "ကုန်စုံ အစားအစာ" }, // K15 draft
-  "studio.tax.retail_nonfood": { en: "Not food (retail)", my: "အစားအစာ မဟုတ် (လက်လီ)" }, // K15 draft
+  "studio.tax.beverageHot": { en: "Hot drink", my: "ပူတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.beverageCold": { en: "Cold drink", my: "အေးတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.groceryFood": { en: "Grocery food", my: "ကုန်စုံ အစားအစာ" }, // K15 draft
+  "studio.tax.retailNonfood": { en: "Not food (retail)", my: "အစားအစာ မဟုတ် (လက်လီ)" }, // K15 draft
   "studio.err.name": { en: "Give it an English name.", my: "အင်္ဂလိပ် အမည် ရိုက်ပါ။" }, // K15 draft
   "studio.err.stale": {
     en: "Someone changed this dish while you were editing — close and open it again.",
@@ -3392,7 +3392,7 @@ export const STAFF = {
   }, // K15 draft
   "studio.err.type": {
     en: "That file isn’t a photo we can use — a JPEG, PNG or WebP.",
-    my: "ဒီဖိုင်ကို သုံးလို့ မရပါ — JPEG၊ PNG (သို့) WebP ဓာတ်ပုံ ဖြစ်ရပါမယ်။",
+    my: "ဒီဖိုင်ကို သုံးလို့ မရပါ — ဓာတ်ပုံ ဖိုင် ဖြစ်ရပါမယ်။",
   }, // K15 draft
   "studio.err.size": {
     en: "That photo is too large — try another.",
@@ -4906,6 +4906,7 @@ export type StaffKey = keyof typeof STAFF;
  * `countItem`/`countItems`.
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
+  ["studio.cat.count.one", "studio.cat.count.many"],
   ["table.detail.paidKitchen.capped.one", "table.detail.paidKitchen.capped.many"],
   ["floor.tables.count.one", "floor.tables.count.many"],
   ["floor.counter.count.one", "floor.counter.count.many"],
