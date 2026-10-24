@@ -29,6 +29,7 @@ import { cardStamp, heldKey, ticketKey } from "./kitchen-rounds";
 import { readRounds, roundFor } from "./kitchen-round-read";
 import { catalogNameMy, pairModifiersMy, UUID_RE } from "./ticket-names";
 import { loadLineNames } from "./line-names";
+import { guestCallName, lineGuest, readGuestNames } from "./guest-names";
 import { dayStartIso, resolveServiceTz } from "./day-window";
 import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
@@ -201,7 +202,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // PD5 — `fire_batch` keys the card and `created_at` stamps the no-fire-time bucket (m5 §F);
     // both are read RAW here and never re-derived from the shaped line.
     .select(
-      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,fire_batch,created_at,cart_id,fulfillment,notes,menu_item_id,comped",
+      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,fire_batch,created_at,cart_id,fulfillment,notes,menu_item_id,comped,added_by",
     )
     .in("state", ["fired", "in_progress"])
     // Phase 2f review M2 — a fired line with NO fire_at (`mms_line_transition`'s draft→fired edge
@@ -323,6 +324,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // a working kitchen over a label would be the over-blocking direction. Started HERE and awaited
   // after the owing read, so the two run concurrently; `readRounds` never rejects (any failure,
   // a thrown one included, answers `null`), so an `outage` return below abandons nothing unhandled.
+  // Guest names (owner, 2026-10-24 — the reversal of K16): who ADDED each dish, by the seat
+  // `added_by` froze (`lib/guest-names.ts`). ADVISORY like the rounds: a failure leaves every line
+  // nameless, never `outage`. Started here, awaited beside the rounds.
+  const guestsRead = readGuestNames(db, [...sessById.keys()], "kitchen");
   const roundsRead = readRounds(
     db,
     [...sessById.values()].filter((s) => s.mode === "dinein").map((s) => s.id),
@@ -365,7 +370,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     for (const [cartId, ls] of linesByCart) if (counterOwes(ls)) owingCarts.add(cartId);
   }
 
-  const rounds = await roundsRead;
+  const [rounds, guestBySeat] = await Promise.all([roundsRead, guestsRead]);
 
   // Assemble cards, preserving the oldest-first line order (lines is already sorted by fire_at).
   // Keyed by `ticketKey` from the RAW row — never the shaped `firedAt`, which is the poll clock for
@@ -410,6 +415,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       menuItemId: UUID_RE.test(l.menu_item_id) ? l.menu_item_id : null,
       soldOut: soldOutItems.has(l.menu_item_id),
       station: stationByItem.get(l.menu_item_id) ?? "wok",
+      guest: lineGuest(guestBySeat, cart.session_id, l.added_by),
     };
     // A HELD line keys by its cart (`heldKey`): "Cook now" is `mms_fire_ticket_now(p_cart)`, which
     // fires every future-fired line of the cart, so the held card IS the cart (Codex on #328).
@@ -441,7 +447,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         channel,
         label: sess.qr_code,
         tableNumber: channel === "dinein" ? (sess.table_number ?? null) : null,
-        customerName: channel === "dinein" ? null : (cart.customer_name ?? null),
+        // A table's call-out name too, now (the K16 reversal): a counter order names its guest on
+        // the cart whatever the channel, and a dine-in tab may carry one the server typed.
+        customerName: guestCallName(cart.customer_name),
         shortCode: channel === "dinein" || !orderId ? null : orderId.slice(-6).toUpperCase(),
         pickupSlot: cart.pickup_slot ?? null,
         held: gate.held,

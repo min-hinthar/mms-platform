@@ -33,6 +33,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       nameMy: MOHINGA_MY,
       modifiers: [],
       soldOut: false,
+      guest: null,
     },
   ],
   [
@@ -45,6 +46,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       nameMy: MOHINGA_MY,
       modifiers: ["No egg", "Extra chili"],
       soldOut: false,
+      guest: null,
     },
   ],
   [
@@ -57,6 +59,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       nameMy: null,
       modifiers: [],
       soldOut: false,
+      guest: null,
     },
   ],
   [
@@ -69,6 +72,20 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       nameMy: MOHINGA_MY,
       modifiers: ["No egg"],
       soldOut: true,
+      guest: null,
+    },
+  ],
+  [
+    "a line a guest added (guest names, 2026-10-24)",
+    {
+      kind: "line",
+      done: false,
+      qty: 1,
+      name: MOHINGA,
+      nameMy: MOHINGA_MY,
+      modifiers: [],
+      soldOut: false,
+      guest: "Aung",
     },
   ],
   ["the bump", { kind: "bump", id: "#A12", items: 3 }],
@@ -157,6 +174,7 @@ describe("the visible label is what the screen actually shows", () => {
       nameMy: MOHINGA_MY,
       modifiers: [],
       soldOut: false,
+      guest: null,
     });
     expect(visible).toBe(MOHINGA_MY);
     // The mutant: building the name from the English snapshot while the screen shows Burmese —
@@ -182,6 +200,7 @@ describe("the visible label is what the screen actually shows", () => {
       nameMy: null,
       modifiers: [],
       soldOut: false,
+      guest: null,
     });
     expect(visible).toBe("Tea Leaf Salad");
     expect(aria).toContain("Tea Leaf Salad");
@@ -196,6 +215,7 @@ describe("the visible label is what the screen actually shows", () => {
       nameMy: MOHINGA_MY,
       modifiers: ["No egg"],
       soldOut: false,
+      guest: null,
     });
     expect(visible).toBe(MOHINGA);
     expect(aria).toBe("Done — 2 Mohinga, No egg");
@@ -213,6 +233,7 @@ describe("the visible label is what the screen actually shows", () => {
       name: MOHINGA,
       nameMy: MOHINGA_MY,
       modifiers: ["No egg"],
+      guest: null,
     } as const;
     expect(al("en", { ...base, soldOut: true }).aria).toBe(
       `Start — 1 Mohinga, No egg — ${ts("en", "kds.86.done")}`,
@@ -226,6 +247,29 @@ describe("the visible label is what the screen actually shows", () => {
     expect(al("en", { ...base, soldOut: false }).aria).not.toContain(ts("en", "kds.86.done"));
     // visible is unchanged either way — the dish name the button shows.
     expect(al("en", { ...base, soldOut: true }).visible).toBe(MOHINGA);
+  });
+
+  it("guest names — a line a guest added ENDS with “For <name>”, after the sold-out clause; none adds nothing", () => {
+    // The tag is drawn inside the line button, whose aria-label replaces its content (WCAG 2.5.3:
+    // the name must carry what the button shows). MUTATION staff-labels/line-drops-guest.
+    const base = {
+      kind: "line",
+      done: false,
+      qty: 1,
+      name: MOHINGA,
+      nameMy: MOHINGA_MY,
+      modifiers: [],
+    } as const;
+    expect(al("en", { ...base, soldOut: false, guest: "Aung" }).aria).toBe(
+      "Start — 1 Mohinga — For Aung",
+    );
+    expect(al("en", { ...base, soldOut: true, guest: "Aung" }).aria).toBe(
+      `Start — 1 Mohinga — ${ts("en", "kds.86.done")} — For Aung`,
+    );
+    expect(
+      al("my", { ...base, soldOut: false, guest: "Aung" }).aria.endsWith(" — Aung အတွက်"),
+    ).toBe(true);
+    expect(al("en", { ...base, soldOut: false, guest: null }).aria).toBe("Start — 1 Mohinga");
   });
 
   it("the bump and the 86 BEGIN with their visible label — their whole content is the label", () => {

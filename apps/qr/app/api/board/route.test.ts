@@ -34,6 +34,8 @@ type OrderRow = {
   pickup_slot: string | null;
   fire_at: string | null;
   cart_id: string | null;
+  /** Guest names — the checkout call-out name (absent = none given). */
+  customer_name?: string | null;
 };
 
 type LineRow = {
@@ -47,6 +49,7 @@ type LineRow = {
   fulfillment: string | null;
   created_at: string;
   bumped_at: string | null;
+  added_by?: string | null;
 };
 
 type CartRow = { id: string; session_id: string; status: string };
@@ -106,6 +109,9 @@ vi.mock("@/lib/device-auth", () => ({ authorizeDevice: () => Promise.resolve(gat
 
 /** The ids the route actually asked the session read for — the predicate, not just the shape. */
 let requestedSessionIds: unknown[] = [];
+/** Guest names — the members the route may read, and the session ids it asked for (`null` = never). */
+let members: { session_id: string; seat_id: string; display_name: string }[] = [];
+let memberSessions: unknown[] | null = null;
 /** The statuses the orders read demanded, and its columns. */
 let orderStatuses: unknown[] = [];
 let orderCols = "";
@@ -388,6 +394,22 @@ vi.mock("@mms/db/server", () => ({
         };
         return chain;
       }
+      if (table === "session_members") {
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: (_col: string, ids: unknown[]) => {
+            memberSessions = ids;
+            return {
+              limit: () =>
+                Promise.resolve({
+                  data: members.filter((m) => ids.includes(m.session_id)),
+                  error: null,
+                }),
+            };
+          },
+        };
+        return chain;
+      }
       if (table === "grocery_items") {
         // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table.
         const chain: Record<string, unknown> = {
@@ -488,6 +510,8 @@ beforeEach(() => {
   rereadIds = null;
   rereadError = null;
   requestedSessionIds = [];
+  members = [];
+  memberSessions = null;
   orderStatuses = [];
   orderCols = "";
   lineCols = [];
@@ -514,14 +538,25 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
     const res = await GET(req());
     expect(res.status).toBe(200);
     const body = (await res.json()) as Body;
-    expect(body.orders).toEqual([{ code: "AA0001", status: "ready" }]);
+    expect(body.orders).toEqual([{ code: "AA0001", name: null, status: "ready" }]);
   });
 
-  it("publishes a code and a status ONLY — no name, no wait, no time; the name is never even read (m9 decision 19, critic B4; `board/orders-read-the-name`)", async () => {
+  it("publishes a code, the guest's call-out name and a status ONLY — no wait, no time (critic B4; owner 2026-10-24 reversed m9 decision 19's no-name rule)", async () => {
     const body = (await (await GET(req())).json()) as Body;
-    expect(Object.keys(body.orders![0]!).sort()).toEqual(["code", "status"]);
-    expect(orderCols).not.toContain("customer_name");
+    expect(Object.keys(body.orders![0]!).sort()).toEqual(["code", "name", "status"]);
+    expect(orderCols.split(",")).toContain("customer_name");
     expect(orderCols).not.toContain("picked_up");
+  });
+
+  it("the call-out name is the guest's own, SHAPED — trimmed, collapsed, blank is none (`board/orders-drop-the-name`)", async () => {
+    orders = orders.map((o) =>
+      o.session_id === "sess-togo" ? { ...o, customer_name: "  Ko   Aung " } : o,
+    );
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders).toEqual([{ code: "AA0001", name: "Ko Aung", status: "ready" }]);
+    orders = orders.map((o) => ({ ...o, customer_name: "   " }));
+    const blank = (await (await GET(req())).json()) as Body;
+    expect(blank.orders).toEqual([{ code: "AA0001", name: null, status: "ready" }]);
   });
 
   it("narrows the orders read with ONE `or` parameter — the window AND the fire gate, explicitly (#360, question a)", async () => {
@@ -628,10 +663,10 @@ describe("GET /api/board — the code column: a dine-in bag never reaches it, an
     ];
     const body = (await (await GET(req())).json()) as Body;
     expect(body.orders).toEqual([
-      { code: "AA0R02", status: "ready" },
-      { code: "AA0R01", status: "ready" },
-      { code: "AA0P01", status: "preparing" },
-      { code: "AA0P02", status: "preparing" },
+      { code: "AA0R02", name: null, status: "ready" },
+      { code: "AA0R01", name: null, status: "ready" },
+      { code: "AA0P01", name: null, status: "preparing" },
+      { code: "AA0P02", name: null, status: "preparing" },
     ]);
   });
 });
@@ -669,11 +704,37 @@ describe("GET /api/board — PD9: the kitchen half publishes a table number and 
           {
             n: 1,
             next: false,
-            dishes: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "cooking", togo: false }],
+            dishes: [
+              {
+                name: "Mohinga",
+                nameMy: "မုန့်ဟင်းခါး",
+                stage: "cooking",
+                togo: false,
+                guests: [],
+              },
+            ],
           },
         ],
       },
     ]);
+  });
+
+  it("guest names — a dish names who added it, read for the drawn tables' sessions only (`board/guests-unread`)", async () => {
+    seedCookingTable({ added_by: "seat-a" });
+    members = [
+      { session_id: "sess-dinein", seat_id: "seat-a", display_name: "Aung" },
+      { session_id: "sess-other", seat_id: "seat-a", display_name: "Not this table" },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.tables![0]!.rounds[0]!.dishes[0]!.guests).toEqual(["Aung"]);
+    expect(memberSessions).toEqual(["sess-dinein"]);
+    // The seat id is the key, never published.
+    expect(JSON.stringify(body)).not.toContain("seat-a");
+  });
+
+  it("guest names are ADVISORY — no tables drawn, no member read", async () => {
+    await GET(req());
+    expect(memberSessions).toBeNull();
   });
 
   it("reads only the columns the wall draws — never a quantity, a modifier or a note", async () => {
@@ -1093,14 +1154,14 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     pickupOnly();
     orders = [{ ...order(TOGO, "sess-togo"), fire_at: AHEAD }];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([
-      { code: "AA0001", status: "ready" },
+      { code: "AA0001", name: null, status: "ready" },
     ]);
     // …while a PREPARING bag still held for its schedule stays off, and one past it is on
     orders = [{ ...order(TOGO, "sess-togo", "preparing"), fire_at: AHEAD }];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([]);
     orders = [{ ...order(TOGO, "sess-togo", "preparing"), fire_at: PAST }];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([
-      { code: "AA0001", status: "preparing" },
+      { code: "AA0001", name: null, status: "preparing" },
     ]);
   });
 
@@ -1140,9 +1201,9 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     ];
     const body = (await (await GET(req())).json()) as Body;
     expect(body.orders).toEqual([
-      { code: "AA0001", status: "ready" },
-      { code: "AA0002", status: "preparing" },
-      { code: "AA0003", status: "preparing" },
+      { code: "AA0001", name: null, status: "ready" },
+      { code: "AA0002", name: null, status: "preparing" },
+      { code: "AA0003", name: null, status: "preparing" },
     ]);
     expect(orderSettled).toEqual(["paid", "refunded"]);
     expect(orderEqs.filter(([c]) => c === "status")).toEqual([]);
@@ -1183,13 +1244,13 @@ describe("the lifecycle audit — which codes the wall may publish", () => {
     } as OrderRow;
     orders = [refundedRow];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([
-      { code: "AA0001", status: "ready" },
+      { code: "AA0001", name: null, status: "ready" },
     ]);
     // …and a comp-only bag on that cart is still a bag, still called (M250)
     orderItems = [{ order_id: TOGO, fulfillment: "grocery" }];
     compLines = [{ cart_id: `cart-${TOGO}`, state: "served", fulfillment: "togo" }];
     expect(((await (await GET(req())).json()) as Body).orders).toEqual([
-      { code: "AA0001", status: "ready" },
+      { code: "AA0001", name: null, status: "ready" },
     ]);
   });
 

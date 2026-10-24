@@ -130,6 +130,9 @@ export type StaffControl =
        * that band. The fact now rides the name.
        */
       soldOut: boolean;
+      /** Guest names (owner, 2026-10-24) — REQUIRED for the same reason as `soldOut`: the "For Aung"
+       *  tag is drawn inside the line button, whose `aria-label` replaces its content. */
+      guest: string | null;
     }
   /** The full-width bump. Visible: BUMP / ပြီးပြီ. */
   | ({ kind: "bump"; id: string; items: number } & Echoed)
@@ -255,8 +258,10 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       };
       // Phase 2b — the sold-out clause, appended AFTER the name above (which stays byte-identical:
       // it is a verify:slice anchor), so a line that is on the menu reads exactly as before.
-      if (!control.soldOut) return name;
-      return { ...name, aria: `${name.aria} — ${ts(lang, "kds.86.done")}` };
+      // Guest names — the "For Aung" clause, likewise appended after the anchored name.
+      const forGuest = control.guest ? ` — ${tf(lang, "kds.line.for", { x: control.guest })}` : "";
+      if (!control.soldOut) return { ...name, aria: `${name.aria}${forGuest}` };
+      return { ...name, aria: `${name.aria} — ${ts(lang, "kds.86.done")}${forGuest}` };
     }
     case "bump": {
       const visible = chromeVisible(lang, "kds.bump", control.echo ?? false, !!control.shown);

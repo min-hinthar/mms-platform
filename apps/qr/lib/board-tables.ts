@@ -3,6 +3,7 @@ import type { KitchenRound } from "./kitchen-types";
 import { cardStamp, ticketKey } from "./kitchen-rounds";
 import { groupStage, rollUp, trackStage, type KitchenStage, type TrackLine } from "./kitchen-track";
 import { catalogNameMy } from "./ticket-names";
+import { distinctGuests, lineGuest } from "./guest-names";
 import {
   PULSE_PASS_LINGER_MS,
   PULSE_TABLE_MODES,
@@ -19,11 +20,16 @@ import {
  * this wall shipped with (OPEN-ITEMS K32(b), P6a; `lib/board-pulse.ts` keeps the record):
  *
  *   PUBLISHED   a table number · per Send, its round number (or "next round") · per dish row, the
- *               snapshot name, the catalog's Burmese, the stage and a to-go flag · whether the table
- *               is all served.
- *   WITHHELD    every guest name, every id (session, cart, line, order, batch), every quantity,
+ *               snapshot name, the catalog's Burmese, the stage, a to-go flag and the names of the
+ *               guests who added it · whether the table is all served.
+ *   WITHHELD    every id (session, cart, line, order, batch), every quantity,
  *               modifier, note, seat, comp, void, amount and staff attribution, every time and age.
  *               None has a field below, so none can leak by a later edit at a call site.
+ *
+ * GUEST NAMES (owner, 2026-10-24: "guest names should also be in kitchen tickets and boards" — the
+ * reversal of m9's no-name rule): a dish row lists the distinct names of the guests who ADDED its
+ * lines (`session_members.display_name` by `added_by`, shaped by `lib/guest-names.ts`), in the
+ * order they first added it — never how many each added, so a name never implies a quantity.
  *
  * A QUANTITY IS NEVER PUBLISHED, NOR IMPLIED: two bowls of Mohinga in one Send are ONE row (the
  * group key is the Send, the snapshot name and the fulfillment — Codex round 4 on #319: a to-go bowl
@@ -65,6 +71,8 @@ export type BoardDish = {
   nameMy: string | null;
   stage: BoardDishStage;
   togo: boolean;
+  /** Who added the dish — distinct names, first-added first; empty when nobody named is known. */
+  guests: string[];
 };
 
 /** One Send of the table: its round number when known (`n`), or "next round" (`next`) when the
@@ -86,6 +94,8 @@ export type BoardLineRow = {
   fulfillment: string | null;
   created_at: string;
   bumped_at: string | null;
+  /** The seat that added the line (M87) — the key to its guest's name; never published as is. */
+  added_by: string | null;
 };
 
 export type ShapeTablesInput = {
@@ -94,6 +104,8 @@ export type ShapeTablesInput = {
   sessionById: ReadonlyMap<string, PulseSessionRow>;
   /** `menu_items.name_my` by id — ADVISORY. An absent entry draws the English snapshot name alone. */
   nameMyByItem: ReadonlyMap<string, string | null | undefined>;
+  /** Guest names by `seatKey(session, seat)` — ADVISORY: an empty map draws every row nameless. */
+  guestBySeat: ReadonlyMap<string, string>;
   /** The Send's round from the KDS's own read (`roundFor`); `unknown` when it did not answer. */
   roundOf: (sessionId: string, batch: string | null) => KitchenRound;
   /** The DATABASE clock. */
@@ -119,7 +131,7 @@ export function wallDishLines(input: WallInput): BoardLineRow[] {
 }
 
 export function shapeBoardTables(input: ShapeTablesInput): BoardTable[] {
-  const { nameMyByItem, roundOf, nowIso } = input;
+  const { nameMyByItem, guestBySeat, roundOf, nowIso } = input;
 
   // Tables: each Send that still has something to say, oldest first.
   const byTable = new Map<number, Send[]>();
@@ -141,7 +153,12 @@ export function shapeBoardTables(input: ShapeTablesInput): BoardTable[] {
           n: round.kind === "n" ? round.n : null,
           // "Next round" only for an UNKNOWN number with an older round on this pass (decision 17).
           next: round.kind === "unknown" && i > 0,
-          dishes: shapeDishes(send.lines, nameMyByItem, nowIso),
+          dishes: shapeDishes(
+            send.lines,
+            nameMyByItem,
+            (l) => lineGuest(guestBySeat, send.sessionId, l.added_by),
+            nowIso,
+          ),
         };
       });
       const all = ordered.flatMap((s) => s.lines);
@@ -235,6 +252,7 @@ function lingeredOut(lines: readonly BoardLineRow[], nowIso: string, floorMs: nu
 function shapeDishes(
   lines: readonly BoardLineRow[],
   nameMyByItem: ReadonlyMap<string, string | null | undefined>,
+  guestOf: (l: BoardLineRow) => string | null,
   nowIso: string,
 ): BoardDish[] {
   const groups = new Map<
@@ -268,6 +286,12 @@ function shapeDishes(
       // Every line passed the stage allowlist, so the least advanced is one of the three.
       stage: groupStage(g.lines, nowIso) as BoardDishStage,
       togo: g.togo,
+      // Oldest-added first: the lines are in fire order, and a name is listed once.
+      guests: distinctGuests(
+        [...g.lines]
+          .sort((a, b) => cmp(a.created_at, b.created_at) || cmp(a.id, b.id))
+          .map(guestOf),
+      ),
     }));
 }
 

@@ -31,6 +31,7 @@ const line = (id: string, over: Partial<KitchenLine> = {}): KitchenLine => ({
   firedAt: "2026-10-13T18:00:00.000Z",
   fulfillment: "dinein",
   station: "wok",
+  guest: null,
   ...over,
 });
 const card = (

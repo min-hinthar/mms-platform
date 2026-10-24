@@ -52,6 +52,7 @@ const ticketQ = (): KitchenQueue => ({
           firedAt: NOW,
           fulfillment: "dinein",
           station: "wok",
+          guest: null,
         },
       ],
     },

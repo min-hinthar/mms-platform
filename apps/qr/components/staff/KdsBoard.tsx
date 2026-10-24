@@ -247,7 +247,8 @@ function ticketId(
     return {
       main: `${table}${tail}`,
       node: <Chrome lang={lang} k="kds.table" vars={vars} />,
-      sub: null,
+      // The K16 reversal — a table tab's call-out name, under the table number when it has one.
+      sub: t.customerName,
     };
   }
   // Phase 2f — an UNPAID counter ticket has no #CODE yet (the order does not exist until it is
@@ -2790,6 +2791,7 @@ function KdsLineRow({
               // Phase 2b — the name REPLACES the content for assistive tech, so the OFF THE MENU tag
               // below is announced only through this clause.
               soldOut: line.soldOut,
+              guest: line.guest,
             }).aria
           }
         >
@@ -2809,8 +2811,16 @@ function KdsLineRow({
                 block <p> (§6's flex whitespace rule cannot eat them). Phase 2b — sold out is a FACT
                 on the line, in --tx beside a warn dot (warn ink measured 4.44:1 on the started
                 tint), never the full-width band a control used to leave behind. */}
-            {(togo || cooking || line.soldOut) && (
+            {(togo || cooking || line.soldOut || line.guest) && (
               <p className="kds-line-tag" lang={lang}>
+                {/* Guest names (owner, 2026-10-24 — K16 reversed): who added the dish, first, so
+                    the runner knows whose bowl it is. The name is the guest's own text. */}
+                {line.guest && (
+                  <span className="kds-line-guest">
+                    {tf(lang, "kds.line.for", { x: line.guest })}
+                  </span>
+                )}
+                {line.guest && (togo || cooking || line.soldOut) ? " · " : ""}
                 {togo ? ts(lang, "kds.line.bagit") : ""}
                 {togo && cooking ? " · " : ""}
                 {cooking ? ts(lang, "kds.line.cooking") : ""}

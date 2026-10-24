@@ -9304,6 +9304,14 @@ a .chrome-en {
   letter-spacing: var(--track-wide);
   color: var(--ac);
 }
+/* Guest names (owner, 2026-10-24) — "For Aung": who the dish is for, in --tx ink so it reads as a
+   fact about the order rather than a kitchen instruction (the accent tags are those). The name is
+   the guest's own text, so it is never case-transformed. */
+.kds-line-guest {
+  color: var(--tx);
+  text-transform: none;
+  letter-spacing: normal;
+}
 /* Phase 2b — OFF THE MENU, a fact on the line: --tx ink (warn measures 4.44:1 on the started tint,
    under 4.5 at 13px; --tx is ≥10:1) with the hue carried by a ≥3:1 warn dot, so colour is never the
    only signal. Pinned by composite-contrast.test.ts. */
@@ -10039,8 +10047,9 @@ a .chrome-en {
   font-size: clamp(18px, 1.8vw, 30px);
   font-weight: var(--fw-bold);
 }
-/* A Preparing row (PD9): the code alone, the phone pass's code face at the board's row tier — no
-   name and no wait; it becomes a pass when it turns Ready. */
+/* A Preparing row (PD9): the code, the phone pass's code face at the board's row tier, then the
+   guest's call-out name when they gave one (owner, 2026-10-24) — no wait; it becomes a pass when it
+   turns Ready. */
 .orb-card {
   display: flex;
   align-items: baseline;
@@ -10244,6 +10253,24 @@ a .chrome-en {
   color: var(--pass-ink);
   font-size: var(--tv-dish);
   font-weight: var(--fw-bold);
+}
+/* Guest names on the wall (owner, 2026-10-24): the guest's own text, quieter than the code it
+   follows; one line like every row (the fit's rule), truncating rather than wrapping. */
+.orb-guest {
+  min-width: 0;
+  color: var(--t2);
+  font-size: var(--tv-dish-en);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orb-ready .orb-guest {
+  margin: 0;
+  color: var(--pass-ink-2);
+}
+.orb-dish-guests {
+  color: var(--pass-ink);
 }
 .orb-dish-en {
   color: var(--pass-ink-2);

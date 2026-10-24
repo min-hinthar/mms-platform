@@ -236,6 +236,8 @@ export const STAFF = {
   "kds.line.done": { en: "Done", my: "ပြီးပြီ" },
   "kds.line.bagit": { en: "Bag it", my: "ထုပ်ရန်" },
   "kds.line.cooking": { en: "Cooking", my: "ချက်နေဆဲ" },
+  // Guest names on tickets (owner, 2026-10-24 — K16 reversed): who added the dish. {x} = the name.
+  "kds.line.for": { en: "For {x}", my: "{x} အတွက်" }, // K15 draft — Claude-authored, grounded: အတွက် "for"
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဒီဟင်း ဖြုတ်”.
   "kds.86": { en: "Mark sold out", my: "ကုန်ပြီ လို့ မှတ်မယ်" }, // K15-HIGH — a 6s undo in the bar, then /staff/menu
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “မီနူးက ဖြုတ်ထားပြီ”.

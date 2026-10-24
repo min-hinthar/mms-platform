@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { authorizeDevice } from "@/lib/device-auth";
 import { loadLineNames } from "@/lib/line-names";
+import { guestCallName, readGuestNames } from "@/lib/guest-names";
 import { queueEmptiness, queueFloorIso } from "@/lib/queue-window";
 import {
   PULSE_PASS_LINGER_MS,
@@ -61,16 +62,16 @@ const SEND_LINE_CAP = 500;
  * WHAT IT PUBLISHES (PD9 — the owner's 2026-10-07 reversal of the shipped boundary; m9; PATH_DESIGN
  * decision 11), and nothing else:
  *
- *  · `orders` — pickup and scan-and-go bags as `{ code, status }`: the 6-character uuid tail the
- *    guest's own /track and claim ticket show, and `preparing` / `ready`. NO guest name (m9 decision
- *    19: the code is the one identity on the wall; Dad still calls the name aloud, the shipped
- *    checkout promise), NO wait or ready time (m9 critic B4: the wall never shows an age that ticks
+ *  · `orders` — pickup and scan-and-go bags as `{ code, name, status }`: the 6-character uuid tail
+ *    the guest's own /track and claim ticket show, the call-out name the guest gave at checkout
+ *    (or null — owner, 2026-10-24, reversing m9 decision 19's no-name rule), and `preparing` /
+ *    `ready`. NO wait or ready time (m9 critic B4: the wall never shows an age that ticks
  *    with no food changing state), and NO collected bag (critic B4: a handed-over bag drawn as a
  *    Ready pass would be the room's one CALL for food someone is holding). Ready newest readiness
  *    first, then Preparing next up first — the order the wall draws them in.
  *  · `tables` — every dine-in table with food in the kitchen: a table number, per Send its round,
  *    per dish its name and stage on the ONE KITCHEN TRACK. The boundary is `lib/board-tables.ts`'s
- *    output type: no name, id, quantity, modifier, note, seat, comp, void, amount, time or age.
+ *    output type: the guests who added each dish, and no id, quantity, modifier, note, seat, comp, void, amount, time or age.
  *    THIS IS THE REVERSAL: the room now reads what each table ordered while it cooks (OPEN-ITEMS
  *    K32(b), P6a; `lib/board-pulse.ts` keeps the record of the rule it replaces).
  *  · `kitchenIdle` — true only when no food of ANY channel is on the wok (`kitchenIdle`, the KDS's own
@@ -209,7 +210,9 @@ export async function GET(req: NextRequest) {
   const dayFloor = queueFloorIso(dbNowIso);
   const ordersRes = await db
     .from("qr_orders")
-    .select("id,session_id,togo_status,togo_ready_at,created_at,status,pickup_slot,fire_at,cart_id")
+    .select(
+      "id,session_id,togo_status,togo_ready_at,created_at,status,pickup_slot,fire_at,cart_id,customer_name",
+    )
     .is("table_number", null)
     .in("togo_status", ["preparing", "ready"])
     // The lifecycle audit — these filters only NARROW the read; `boardOrderLive` decides (and the
@@ -253,7 +256,7 @@ export async function GET(req: NextRequest) {
   const tableDayFloor = queueFloorIso(dbNowIso);
   const passFloor = new Date(dbNowMs - PULSE_PASS_LINGER_MS).toISOString();
   const LINE_COLS =
-    "id,cart_id,menu_item_id,name,state,fire_at,fire_batch,fulfillment,created_at,bumped_at";
+    "id,cart_id,menu_item_id,name,state,fire_at,fire_batch,fulfillment,created_at,bumped_at,added_by";
   const linesRes = await db
     .from("qr_cart_items")
     .select(LINE_COLS)
@@ -336,6 +339,9 @@ export async function GET(req: NextRequest) {
     .filter((o) => boardOrderIsBag(linesByOrder?.get(o.id) ?? (linesByOrder ? [] : undefined)))
     .map((o) => ({
       code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the guest's /track + claim ticket show
+      // Guest names (owner, 2026-10-24 — m9 decision 19 reversed): the call-out name the guest gave
+      // at checkout, shaped once (`guestCallName`), or null; the code stays the one sure identity.
+      name: guestCallName(o.customer_name),
       status: o.togo_status === "ready" ? ("ready" as const) : ("preparing" as const),
       created: o.created_at,
     }));
@@ -346,7 +352,7 @@ export async function GET(req: NextRequest) {
     ...orders
       .filter((o) => o.status === "preparing")
       .sort((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : 0)),
-  ].map(({ code, status }) => ({ code, status }));
+  ].map(({ code, name, status }) => ({ code, name, status }));
 
   // Every Send on the wall, COMPLETE (Codex round 4 on #319): the line read's `bumped_at >=
   // passFloor` cut would drop a dish served long before its round finished, so every line of each
@@ -405,9 +411,17 @@ export async function GET(req: NextRequest) {
   const drawn = tablesReadable
     ? wallDishLines({ lines: allLines, cartById, sessionById, nowIso: dbNowIso })
     : [];
-  const names = drawn.length
-    ? await loadLineNames(db, drawn, { tag: "board" })
-    : { nameMyByRef: new Map<string, string | null>() };
+  // Guest names — ADVISORY, the same posture: asked only for the sessions of the dishes drawn, and a
+  // failure draws every dish row nameless (`readGuestNames` never throws).
+  const drawnSessions = [
+    ...new Set(drawn.flatMap((l) => cartById.get(l.cart_id)?.session_id ?? [])),
+  ];
+  const [names, guestBySeat] = await Promise.all([
+    drawn.length
+      ? loadLineNames(db, drawn, { tag: "board" })
+      : Promise.resolve({ nameMyByRef: new Map<string, string | null>() }),
+    readGuestNames(db, drawnSessions, "board"),
+  ]);
 
   // PD9 (the blind pass on #336) — "All clear" is a claim about the WHOLE kitchen, and the tables are
   // dine-in only: a pickup bag on the wok, a counter order sent before it was paid, or a table the wall
@@ -441,6 +455,7 @@ export async function GET(req: NextRequest) {
         cartById,
         sessionById,
         nameMyByItem: names.nameMyByRef,
+        guestBySeat,
         roundOf: (sessionId, batch) => roundFor(rounds, sessionId, batch),
         nowIso: dbNowIso,
       })

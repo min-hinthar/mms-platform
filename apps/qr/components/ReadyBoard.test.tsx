@@ -81,6 +81,7 @@ const dish = (over: Partial<BoardDish> = {}): BoardDish => ({
   nameMy: "မုန့်ဟင်းခါး",
   stage: "cooking",
   togo: false,
+  guests: [],
   ...over,
 });
 const tableOf = (n: number, dishes: BoardDish[], over: Partial<BoardTable> = {}): BoardTable => ({
@@ -449,7 +450,7 @@ describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
     expect(old.container.querySelector(".orb-kitchen .orb-empty")).toBeNull();
   });
 
-  it("an OLDER server that sends no `tables` reads as unreadable — and a `name` it still sends is never drawn", async () => {
+  it("an OLDER server that sends no `tables` reads as unreadable — the bag's name draws, a wait never does", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -464,7 +465,8 @@ describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
     const { container } = render(<ReadyBoard token="t" lang="en" />);
     await waitFor(() => expect(container.querySelector(".orb-kitchen-note")).not.toBeNull());
     expect(container.textContent).toContain("#A1B2C3");
-    expect(container.textContent).not.toContain("Nilar");
+    // Guest names (owner, 2026-10-24 — m9 decision 19 reversed): the call-out name rides the pass.
+    expect(container.querySelector(".orb-ready .orb-guest")?.textContent).toBe("Nilar");
     expect(container.textContent).not.toContain("5 min");
   });
 
@@ -480,6 +482,36 @@ describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
     // The list of passes is named; one live region on the page.
     expect(screen.getByRole("list", { name: STAFF["board.a11y.tables"].en })).toBeTruthy();
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it("guest names — a dish row says who it is for, on its echo line; a folded row names no guest", async () => {
+    const { container } = await renderTables("en", [
+      tableOf(4, [dish({ guests: ["Aung", "Mya"] }), dish({ name: "Tea", nameMy: null })]),
+    ]);
+    const rows = [...container.querySelectorAll(".orb-dish")];
+    expect(rows[0]!.querySelector(".orb-dish-en .orb-dish-guests")?.textContent).toBe(
+      "For Aung, Mya",
+    );
+    // A dish with no Burmese and no guests draws no echo line at all.
+    expect(rows[1]!.querySelector(".orb-dish-en")).toBeNull();
+  });
+
+  it("a Preparing bag carries its guest's name beside its code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          orders: [{ code: "B1B2C3", name: "Thida", status: "preparing" }],
+          tables: [],
+          kitchenIdle: false,
+        }),
+      })),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await waitFor(() => expect(container.querySelector(".orb-card .orb-guest")).not.toBeNull());
+    expect(container.querySelector(".orb-card .orb-guest")!.textContent).toBe("Thida");
   });
 
   it("nothing a guest's privacy forbids reaches the wall: no count, no price, no clock beside a dish", async () => {

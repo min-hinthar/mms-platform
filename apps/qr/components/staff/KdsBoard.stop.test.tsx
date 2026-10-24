@@ -50,6 +50,7 @@ const ticket = (n: number, min: number, station: "wok" | "drinks" = "wok"): Kitc
       firedAt: at(min),
       fulfillment: "dinein",
       station,
+      guest: null,
     },
   ],
 });

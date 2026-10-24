@@ -69,8 +69,9 @@ const BOARD_SIGNIN_PATH = "/staff/login?next=/board";
  * A missing/unauthorized token renders the not-linked state, never a spinner forever.
  */
 
-/** One bag on the wall: its code and its status. No name, no wait, no time (m9 decision 19, B4). */
-type BoardOrder = { code: string; status: "preparing" | "ready" };
+/** One bag on the wall: its code, the guest's call-out name when they gave one (owner, 2026-10-24 —
+ *  m9 decision 19 reversed) and its status. No wait, no time (B4). */
+type BoardOrder = { code: string; name: string | null; status: "preparing" | "ready" };
 
 type BoardState =
   | { kind: "loading" }
@@ -206,7 +207,12 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         tables?: BoardTable[] | null;
         kitchenIdle?: boolean | null;
       };
-      const orders = (data.orders ?? []).map((o) => ({ code: o.code, status: o.status }));
+      // `name` read DEFENSIVELY too: an older deploy sends none, and a non-string is never drawn.
+      const orders = (data.orders ?? []).map((o) => ({
+        code: o.code,
+        name: typeof o.name === "string" && o.name !== "" ? o.name : null,
+        status: o.status,
+      }));
       const tables = data.tables ?? null;
       // Read STRICTLY: only a literal `true` lets the wall say "All clear" (an older server sends none).
       const kitchenIdle =
@@ -500,10 +506,14 @@ function BoardColumn({
               lang={lang}
               headingLevel={3}
               className={`orb-ready${flash === o.code ? " orb-ready-flash" : ""}`}
-            />
+            >
+              {/* The guest's own name under the code — their text, so never marked Burmese. */}
+              {o.name && <p className="orb-guest">{o.name}</p>}
+            </CounterPass>
           ) : (
             <li key={o.code} className="orb-card">
               <span className="orb-name">#{o.code}</span>
+              {o.name && <span className="orb-guest">{o.name}</span>}
             </li>
           ),
         )}
@@ -828,6 +838,8 @@ function DishRow({
   // Dish by dish (`dishNameLines`, Codex round 1 on #336): a fold names each dish as its own row would.
   const { lead, echo } = dishNameLines(row.kind === "dish" ? [row.dish] : row.dishes);
   const togo = row.kind === "dish" && row.dish.togo;
+  // Guest names (owner, 2026-10-24) — who the dish is for; a folded row names dishes, not guests.
+  const guests = row.kind === "dish" ? row.dish.guests : [];
   return (
     <li className={`orb-dish${row.kind === "folded" ? " orb-dish-folded" : ""}`}>
       <span className="orb-dish-names">
@@ -855,7 +867,19 @@ function DishRow({
             </span>
           )}
         </span>
-        {echo.length > 0 && <span className="orb-dish-en">{echo.join(" · ")}</span>}
+        {/* The names ride the echo line (or take it when there is no echo), so a row never grows a
+            third line the column fit did not measure. */}
+        {(echo.length > 0 || guests.length > 0) && (
+          <span className="orb-dish-en">
+            {echo.join(" · ")}
+            {echo.length > 0 && guests.length > 0 ? " · " : ""}
+            {guests.length > 0 && (
+              <span className="orb-dish-guests">
+                {tf(lang, "kds.line.for", { x: guests.join(", ") })}
+              </span>
+            )}
+          </span>
+        )}
       </span>
       {showStage && (
         <KitchenTrack
