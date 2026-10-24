@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Path design round 4 — eight new moments, three ways (2026-10-23, `claude/blissful-cerf-jxz37k`)
+
+- **The record `docs/PATH_DESIGN_2026-10-23.md` and eight specs under `docs/path-design-2026-10-23/`**
+  (docs only, no code). The owner asked for a "creative design-thinking revamp enhance enrich refine
+  expand improve UI UX"; the standard loop mapped the paths as built at `09c1c2a`, picked eight moments
+  the first round had not designed — the to-go Who/When slip (m13), the exit after paying (m14), the
+  front door and the first seconds (m15), the account record (m16), the manager's money desk (m17),
+  Team (m18), the bag station (m19) and the menu editor's way back to a dish (m20) — drew three
+  directions for each (48 concept screens on the canvas), judged them, asked the owner once (the prompt
+  was declined, so the recommended answers stand as defaults R4·0–R4·8, each reversible), and refined
+  the picks with a consistency pass and an adversarial critic (the refined screens on the canvas's
+  launch page). OPEN-ITEMS gains PD14–PD21, one per moment, naming the stream that builds each. No
+  migration is applied: the two the round names (m14's seat-membership authorization, m17's find
+  indexes) wait for the owner's go.
+
 ### Lifecycle audit — the diner side of sold out, removals and edits (2026-10-13, `claude/fix/lifecycle-diner-sold-out-edits`)
 
 - **Every change to a diner's order is shown and said, live.** A sold-out add is refused by name
