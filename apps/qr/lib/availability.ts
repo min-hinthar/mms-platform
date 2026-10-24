@@ -87,9 +87,23 @@ export function itemSellable(i: { is_sold_out: boolean; is_active: boolean }): b
  */
 function blockableLines(lines: CartLineish[]): CartLineish[] {
   return lines.filter(
-    (l) => l.state === "draft" && l.menu_item_id != null && FOOD_FULFILLMENTS.has(l.fulfillment),
+    (l) =>
+      l.state === "draft" &&
+      l.menu_item_id != null &&
+      !l.menu_item_id.startsWith(CUSTOM_ITEM_REF) &&
+      FOOD_FULFILLMENTS.has(l.fulfillment),
   );
 }
+
+/**
+ * OA4 — a manager's CUSTOM item (`custom-item.ts`, `CUSTOM_ITEM_PREFIX`; restated here because this
+ * module imports nothing — `availability.test.ts` pins the two equal) has no catalog row by design,
+ * so nothing can 86 it. Left in, its `custom:<key>` ref reached the uuid-typed `menu_items.id` read,
+ * which FAILED rather than answering, and every charge path that refuses an unreadable availability
+ * read (cash settle, the terminal, the authorised-pickup capture) could not take the payment (Codex
+ * round 1 on #373, P1); a read that did answer would call it `gone`.
+ */
+const CUSTOM_ITEM_REF = "custom:";
 
 /**
  * The names of any cart lines whose menu item is no longer sellable — sold out, delisted, or gone from

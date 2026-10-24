@@ -5,6 +5,7 @@ import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
 import { staffAddCustomItem, type StaffWriteResult } from "@/lib/staff-cart";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { addAttemptOutcome, heldAfter, keyForAttempt, type HeldAddKey } from "@/lib/staff-add-key";
 import { dollars } from "@/lib/receipt-view";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { sheetCloseLabel } from "./SheetCloseLabel";
@@ -60,7 +61,10 @@ export function CustomItemSheet({
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const [tried, setTried] = useState(false);
   const inFlight = useRef(false);
-  const addKey = useRef<string>(newKey());
+  // The key held for a retry, bound to the payload it was minted for (`staff-add-key.ts`): a retry of
+  // the SAME add resends it, and an edited name, price, quantity or note is a new add with a new key —
+  // never swallowed by the ledger as a duplicate of the first (Codex round 1 on #373).
+  const held = useRef<HeldAddKey>(null);
   const said = useResaid(msg);
 
   const trimmed = name.replace(/\s+/g, " ").trim();
@@ -99,35 +103,31 @@ export function CustomItemSheet({
       setMsg({ k: refused });
       return;
     }
+    const notes = note.trim() || undefined;
+    const intent = JSON.stringify([trimmed, cents, qty, notes ?? null]);
+    const addKey = keyForAttempt(held.current, intent, newKey);
     inFlight.current = true;
     setBusy(true);
     setMsg(null);
     try {
       const out = await boundWrite(
-        staffAddCustomItem({
-          sessionId,
-          name: trimmed,
-          priceCents: cents,
-          qty,
-          notes: note.trim() || undefined,
-          addKey: addKey.current,
-        }),
+        staffAddCustomItem({ sessionId, name: trimmed, priceCents: cents, qty, notes, addKey }),
       );
       if (out.kind === "answer") {
         const res = out.value;
+        // A definite answer retires the key; an unconfirmed one keeps it for the SAME add.
+        held.current = heldAfter(intent, addKey, addAttemptOutcome(res));
         if (res.ok) {
-          addKey.current = newKey();
           onAdded(trimmed);
           onClose();
           return;
         }
-        // A definite refusal mints a new key; an unconfirmed one keeps it (Add again is the SAME add).
-        if (res.code !== "unconfirmed") addKey.current = newKey();
         const k = (res.code && FAILURE_KEY[res.code]) || "pad.err.add.failed";
         setMsg(res.code === "sentence" ? res.error : { k, vars: { x: trimmed } });
         return;
       }
       // No answer, or a lost one: it may have landed — the key stays, so Add again cannot double it.
+      held.current = heldAfter(intent, addKey, "unknown");
       setMsg({ k: "pad.err.add.unconfirmed", vars: { x: trimmed } });
     } finally {
       inFlight.current = false;

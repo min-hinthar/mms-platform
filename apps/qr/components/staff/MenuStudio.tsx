@@ -126,8 +126,12 @@ export function MenuStudio({
       )}
       {open && (
         <DishSheet
-          // A fresh sheet per dish (and per re-read stamp): never one dish's draft under another's.
-          key={`${open.id}:${open.updatedAt}`}
+          // A fresh sheet per DISH, never one dish's draft under another's — and NOT per re-read stamp:
+          // the sheet's own photo write moves `updated_at` and revalidates the page, and a stamp in
+          // the key remounted the sheet, discarding the manager's unsaved edits (Codex round 1 on
+          // #373). The sheet carries the stamp its own writes return; another manager's edit since is
+          // refused at Save as stale, never silently overwritten.
+          key={open.id}
           dish={open}
           categories={studio.categories}
           onClose={() => setSheet(null)}

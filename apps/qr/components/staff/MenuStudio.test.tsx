@@ -214,6 +214,32 @@ describe("MenuStudio", () => {
     expect(setDishPhoto).not.toHaveBeenCalled();
   });
 
+  it("a re-read of the same dish (its own photo write) keeps the sheet's unsaved draft (`studio-ui/sheet-remounts-on-stamp`)", async () => {
+    const view = mount();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: tf("en", "studio.dish.open", { x: "Mohinga" }) }),
+      );
+    });
+    fireEvent.change(document.getElementById("dish-name-my")!, { target: { value: "ဒေါ်" } });
+    view.rerender(
+      <StaffLangProvider lang="en">
+        <MenuStudio
+          items={priced}
+          canEditPrice
+          nowIso="2026-10-24T12:00:00.000Z"
+          studio={{
+            dishes: dishes.map((d) =>
+              d.id === "d1" ? { ...d, updatedAt: "2026-10-24T09:05:00.000Z", imageUrl: "x" } : d,
+            ),
+            categories,
+          }}
+        />
+      </StaffLangProvider>,
+    );
+    expect((document.getElementById("dish-name-my") as HTMLInputElement).value).toBe("ဒေါ်");
+  });
+
   it("categories: the top one cannot move up; Hide sends the category hidden (`studio-ui/hide-sends-shown`)", async () => {
     mount();
     await act(async () => {
@@ -229,6 +255,11 @@ describe("MenuStudio", () => {
     await act(async () => {
       fireEvent.click(within(items[1]!).getByRole("button", { name: /Hide/ }));
     });
-    expect(saveCategory).toHaveBeenCalledWith({ categoryId: CAT2, name: "Curry", isActive: false });
+    expect(saveCategory).toHaveBeenCalledWith({
+      categoryId: CAT2,
+      name: "Curry",
+      isActive: false,
+      expected: { name: "Curry", isActive: true },
+    });
   });
 });

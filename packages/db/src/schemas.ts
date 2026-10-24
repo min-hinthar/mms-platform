@@ -719,12 +719,16 @@ export const menuDishCreateInput = z.object({
 });
 export type MenuDishCreateInput = z.infer<typeof menuDishCreateInput>;
 
-/** Add (no id) or rename / show / hide (an id) a category. */
-export const menuCategorySaveInput = z.object({
-  categoryId: uuid.optional(),
-  name: z.string().trim().min(1).max(60),
-  isActive: z.boolean(),
-});
+/** Add (no id) or rename / show / hide (an id) a category. An edit carries the name and visibility
+ *  the sheet SHOWED, and is refused when the row no longer holds them (Codex round 1 on #373). */
+export const menuCategorySaveInput = z
+  .object({
+    categoryId: uuid.optional(),
+    name: z.string().trim().min(1).max(60),
+    isActive: z.boolean(),
+    expected: z.object({ name: z.string().max(200), isActive: z.boolean() }).optional(),
+  })
+  .refine((v) => !v.categoryId || v.expected !== undefined, { message: "expected required" });
 export type MenuCategorySaveInput = z.infer<typeof menuCategorySaveInput>;
 
 /** Move a category one place up or down the menu. */

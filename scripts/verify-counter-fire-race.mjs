@@ -216,6 +216,16 @@ const LATER = {
     ROOT,
     "supabase/migrations/20261009120300_pd5b_settlement_batch_and_fold.sql",
   ),
+  // No-PIN (OA1, 2026-10-24) restates p2f's `mms_void_line` and `mms_counter_no_show` without the
+  // initiator = approver refusal; their locks (the no-show and void races, h · h2) are unchanged.
+  mms_void_line: path.join(
+    ROOT,
+    "supabase/migrations/20261024120000_no_pin_manager_self_approve.sql",
+  ),
+  mms_counter_no_show: path.join(
+    ROOT,
+    "supabase/migrations/20261024120000_no_pin_manager_self_approve.sql",
+  ),
 };
 const TAG = "P2FR";
 const CODE_PREFIX = `reg-${TAG}-`;

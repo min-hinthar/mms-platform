@@ -76,7 +76,14 @@ export function CategoriesSheet({
     lock(`save:${c.id}`);
     setBusy(true);
     try {
-      const out = await boundWrite(saveCategory({ categoryId: c.id, name, isActive }));
+      const out = await boundWrite(
+        saveCategory({
+          categoryId: c.id,
+          name,
+          isActive,
+          expected: { name: c.name, isActive: c.isActive },
+        }),
+      );
       answered(out, { k: "studio.cat.saved", vars: { x: name } });
     } finally {
       inFlight.current = false;

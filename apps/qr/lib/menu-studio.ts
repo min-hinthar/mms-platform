@@ -381,6 +381,11 @@ export async function saveCategory(
     .maybeSingle();
   if (readErr) return { ok: false, reason: "outage" };
   if (!row) return { ok: false, reason: "gone" };
+  // The sheet's values, not this read, are what the manager decided against: another manager's hide
+  // or rename since then is refused here, never silently undone by a write carrying the old field.
+  const expected = parsed.data.expected;
+  if (!expected || row.name !== expected.name || row.is_active !== expected.isActive)
+    return { ok: false, reason: "stale" };
   const changes: FieldChange[] = [];
   if (row.name !== name) changes.push({ field: "name", oldValue: row.name, newValue: name });
   if (row.is_active !== isActive)

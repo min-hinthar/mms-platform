@@ -9,6 +9,7 @@ import {
   type CartLineish,
   type CatalogItemish,
 } from "./availability";
+import { CUSTOM_ITEM_PREFIX } from "./custom-item";
 
 /**
  * W23a — the availability gate that stands between an 86'd dish and a charge.
@@ -190,6 +191,18 @@ describe("foodMenuIds", () => {
 
   it("asks nothing of the catalog for a grocery-only basket", () => {
     expect(foodMenuIds([line({ menu_item_id: "a", fulfillment: "grocery" })])).toEqual([]);
+  });
+
+  it("never asks the catalog about a custom item, and never calls one gone (OA4 · `availability/custom-item-asked`)", () => {
+    const custom = `${CUSTOM_ITEM_PREFIX}6f1c2d3e-0000-4000-8000-000000000001`;
+    const lines = [
+      line({ menu_item_id: custom, name: "Birthday cake" }),
+      line({ menu_item_id: custom, fulfillment: "dinein", name: "Birthday cake" }),
+      line({ menu_item_id: "a" }),
+    ];
+    expect(foodMenuIds(lines)).toEqual(["a"]);
+    expect(pickUnavailable(lines, [item({ id: "a" })])).toEqual([]);
+    expect(sendBlockingDishes(lines, [item({ id: "a" })])).toEqual([]);
   });
 });
 

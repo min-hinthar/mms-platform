@@ -268,11 +268,36 @@ describe("categories", () => {
   it("a rename is swapped on the name it read; no match is stale (`menu-studio/category-cas-dropped`)", async () => {
     reads = { menu_categories: { id: CAT, name: "Soups", is_active: true } };
     writes["menu_categories:update"] = [{ data: null, error: null }];
-    expect(await saveCategory({ categoryId: CAT, name: "Soup", isActive: true })).toEqual({
+    expect(
+      await saveCategory({
+        categoryId: CAT,
+        name: "Soup",
+        isActive: true,
+        expected: { name: "Soups", isActive: true },
+      }),
+    ).toEqual({
       ok: false,
       reason: "stale",
     });
     expect(updates()[0]!.filters).toContainEqual(["eq", "name", "Soups"]);
+  });
+  it("an edit compares against what the SHEET showed: a category hidden since is refused, never re-shown (`menu-studio/category-expected-ignored`)", async () => {
+    // Another manager hid it after this sheet read it shown; this sheet's rename carries isActive:true.
+    reads = { menu_categories: { id: CAT, name: "Soups", is_active: false } };
+    expect(
+      await saveCategory({
+        categoryId: CAT,
+        name: "Soup",
+        isActive: true,
+        expected: { name: "Soups", isActive: true },
+      }),
+    ).toEqual({ ok: false, reason: "stale" });
+    expect(updates()).toHaveLength(0);
+    // An edit with no expected values is refused at the schema.
+    expect(await saveCategory({ categoryId: CAT, name: "Soup", isActive: true })).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
   });
   it("a move swaps the two orders, each guarded on the order read", async () => {
     lists = {

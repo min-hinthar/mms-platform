@@ -93,6 +93,21 @@ describe("CustomItemSheet", () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
+  it("an UNCONFIRMED add retried with an EDITED price is a new add with a new key (`custom-sheet/edited-retry-reuses-key`)", async () => {
+    add.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+    mount();
+    type("custom-name", "Cake");
+    type("custom-price", "12");
+    await submit();
+    type("custom-price", "15");
+    await submit();
+    const calls = add.mock.calls.map(
+      (c) => (c as unknown as [{ addKey: string; priceCents: number }])[0],
+    );
+    expect(calls.map((c) => c.priceCents)).toEqual([1200, 1500]);
+    expect(calls[0]!.addKey).not.toBe(calls[1]!.addKey);
+  });
+
   it("a DEFINITE refusal mints a new key, and says the shipped sentence naming the item", async () => {
     add.mockResolvedValueOnce({ ok: false, error: "x", code: "paying" });
     mount();
