@@ -709,6 +709,9 @@ export type MenuDishEditInput = z.infer<typeof menuDishEditInput>;
 
 /** Add a dish. Its price rides the menu price's bounds; its slug is server-derived. */
 export const menuDishCreateInput = z.object({
+  /** The sheet's creation key, minted on the device: a retry after an unknown outcome resends it, so
+   *  one Add can never publish two dishes (Codex round 2 on #373). */
+  itemId: uuid,
   nameEn: menuName,
   nameMy: menuNameMy,
   descriptionEn: menuDescription,

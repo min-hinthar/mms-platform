@@ -118,9 +118,12 @@ export function LossActionSheet({
   const [action, setAction] = useState<Action>("void");
   const [reason, setReason] = useState<Reason | "">("");
   const [reasonInvalid, setReasonInvalid] = useState(false); // S14: inline "pick a reason" validation
-  // No-PIN — the server said this line needs a manager and the caller is not one: the sheet's
-  // primary action is now the request (never a dead "Remove" that refuses again).
-  const [needsManager, setNeedsManager] = useState(false);
+  // No-PIN — the server said THIS action needs a manager and the caller is not one: the sheet's
+  // primary action is now the request (never a dead "Remove" that refuses again). Bound to the action
+  // that was refused, so picking another (a below-ceiling void after a refused comp) offers that
+  // action's own button again, never a request the SQL refuses as `no_approval_needed` (Codex r2).
+  const [needsManagerFor, setNeedsManagerFor] = useState<Action | null>(null);
+  const needsManager = needsManagerFor === action;
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
@@ -173,7 +176,7 @@ export function LossActionSheet({
     }
     switch (res.reason) {
       case "needs_manager":
-        setNeedsManager(true);
+        setNeedsManagerFor(action);
         setMsg({ k: "table.loss.msg.needsManager" });
         break;
       case "in_flight":

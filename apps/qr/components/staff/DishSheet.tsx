@@ -11,6 +11,7 @@ import {
 } from "@/lib/menu-studio";
 import { setMenuPrice } from "@/lib/menu-price";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import { heldAfter, keyForAttempt, type HeldAddKey } from "@/lib/staff-add-key";
 import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
 import {
   MENU_DESCRIPTION_MAX,
@@ -104,6 +105,7 @@ export function DishSheet({
   const [price, setPrice] = useState(dish ? (dish.priceCents / 100).toFixed(2) : "");
   const [photo, setPhoto] = useState<string | null>(dish?.imageUrl ?? null);
   const [updatedAt, setUpdatedAt] = useState(dish?.updatedAt ?? "");
+  const createKey = useRef<HeldAddKey>(null);
   const [busy, setBusy] = useState(false);
   // Which write is out — the button that says "Saving…" (busy is the Sheet's lock, M82).
   const [doing, setDoing] = useState<null | "save" | "photo">(null);
@@ -167,9 +169,21 @@ export function DishSheet({
         taxCategory: tax,
       };
       if (isNew) {
-        const out = await boundWrite(createDish({ ...fields, priceCents: cents }));
-        if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
+        // The creation key rides retries of the SAME dish (`staff-add-key.ts`): an Add whose answer
+        // was lost or late resends it, and the action answers ok for the dish it already made.
+        const intent = JSON.stringify([fields, cents]);
+        const itemId = keyForAttempt(createKey.current, intent, () => crypto.randomUUID());
+        const out = await boundWrite(createDish({ ...fields, priceCents: cents, itemId }));
+        if (out.kind !== "answer") {
+          createKey.current = heldAfter(intent, itemId, "unknown");
+          return setMsg({ k: "studio.err.unknown" });
+        }
         const res = out.value;
+        createKey.current = heldAfter(
+          intent,
+          itemId,
+          res.ok ? "ok" : res.reason === "error" ? "unknown" : "definite",
+        );
         if (!res.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.reason] });
         onSaved({ k: "studio.dish.created", vars: { x: nameEn.trim() } });
         onClose();
@@ -230,6 +244,7 @@ export function DishSheet({
     try {
       const form = new FormData();
       form.set("itemId", dish.id);
+      form.set("expectedUpdatedAt", updatedAt);
       form.set("photo", new File([small], "photo.jpg", { type: "image/jpeg" }));
       const out = await boundWrite(setDishPhoto(form));
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
@@ -252,7 +267,9 @@ export function DishSheet({
     setDoing("photo");
     setMsg(null);
     try {
-      const out = await boundWrite(clearDishPhoto({ itemId: dish.id }));
+      const out = await boundWrite(
+        clearDishPhoto({ itemId: dish.id, expectedUpdatedAt: updatedAt }),
+      );
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
       if (!out.value.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[out.value.reason] });
       setPhoto(null);

@@ -56,7 +56,7 @@ export async function unavailableLines(cartId: string): Promise<AvailabilityRead
 
   const { data: items, error: itemsErr } = await db
     .from("menu_items")
-    .select("id,name_en,is_sold_out,is_active")
+    .select("id,name_en,is_sold_out,is_active,menu_categories(is_active)")
     .in("id", ids);
   if (itemsErr || !items) {
     console.error("[availability] catalog read failed", itemsErr?.message);
@@ -89,7 +89,7 @@ export async function sendBlockers(cartId: string): Promise<UnavailableLine[]> {
   if (ids.length === 0) return [];
   const { data: items, error: itemsErr } = await db
     .from("menu_items")
-    .select("id,name_en,is_sold_out,is_active")
+    .select("id,name_en,is_sold_out,is_active,menu_categories(is_active)")
     .in("id", ids);
   if (itemsErr || !items) {
     console.error("[availability] send pre-read: catalog unreadable", itemsErr?.message);
@@ -111,7 +111,7 @@ export async function dishAvailability(
   if (!menuItemId || !/^[0-9a-f-]{36}$/i.test(menuItemId)) return null;
   const { data, error } = await serviceClient()
     .from("menu_items")
-    .select("is_sold_out,is_active")
+    .select("is_sold_out,is_active,menu_categories(is_active)")
     .eq("id", menuItemId)
     .maybeSingle();
   if (error) {

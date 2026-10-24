@@ -196,6 +196,19 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
   const db = serviceClient();
   const nameEn = cleanText(input.nameEn) ?? input.nameEn;
   const base = slugify(nameEn);
+  // The creation key is the row's id: a retry of an Add that already landed finds its dish and
+  // answers ok, never a second dish under the next free slug.
+  const landed = async () => {
+    const { data, error } = await db
+      .from("menu_items")
+      .select("id")
+      .eq("id", input.itemId)
+      .maybeSingle();
+    return error ? ("outage" as const) : data ? ("yes" as const) : ("no" as const);
+  };
+  const before = await landed();
+  if (before === "outage") return { ok: false, reason: "outage" };
+  if (before === "yes") return { ok: true, audited: true, itemId: input.itemId };
 
   // Two tries: a slug taken between the read and the insert (another manager adding the same name)
   // answers 23505, and the second read sees it.
@@ -210,6 +223,7 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
     const { data: inserted, error: insErr } = await db
       .from("menu_items")
       .insert({
+        id: input.itemId,
         category_id: input.categoryId,
         slug,
         name_en: nameEn,
@@ -222,7 +236,12 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
       })
       .select("id")
       .maybeSingle();
-    if (insErr?.code === "23505") continue;
+    if (insErr?.code === "23505") {
+      // Either the slug was taken since the read, or this very Add landed meanwhile (its id).
+      const now = await landed();
+      if (now === "yes") return { ok: true, audited: true, itemId: input.itemId };
+      continue;
+    }
     if (insErr?.code === "23503") return { ok: false, reason: "category" };
     if (insErr || !inserted) {
       console.error("[menu-studio] dish add failed", { message: insErr?.message });
@@ -250,7 +269,10 @@ export async function setDishPhoto(
 ): Promise<MenuStudioResult<{ imageUrl: string; updatedAt: string }>> {
   const itemId = form.get("itemId");
   const photo = form.get("photo");
+  const expectedUpdatedAt = form.get("expectedUpdatedAt");
   if (typeof itemId !== "string" || !uuidShape(itemId)) return { ok: false, reason: "invalid" };
+  if (typeof expectedUpdatedAt !== "string" || expectedUpdatedAt === "")
+    return { ok: false, reason: "invalid" };
   if (!(photo instanceof Blob)) return { ok: false, reason: "empty" };
   const verdict = photoVerdict({ type: photo.type, size: photo.size });
   if (verdict !== "ok") return { ok: false, reason: verdict };
@@ -260,11 +282,15 @@ export async function setDishPhoto(
 
   const { data: row, error: readErr } = await db
     .from("menu_items")
-    .select("id,image_url")
+    .select("id,image_url,updated_at")
     .eq("id", itemId)
     .maybeSingle();
   if (readErr) return { ok: false, reason: "outage" };
   if (!row) return { ok: false, reason: "gone" };
+  // A photo write is swapped on the stamp the SHEET read, like every other dish write: advancing it
+  // past another manager's edit would let the sheet's older fields pass their own stale check at
+  // Save and silently revert that edit (Codex round 2 on #373).
+  if (!sameInstant(row.updated_at, expectedUpdatedAt)) return { ok: false, reason: "stale" };
 
   const path = photoPath(itemId, photo.type, Date.now());
   const bucket = db.storage.from("menu-photos");
@@ -284,6 +310,7 @@ export async function setDishPhoto(
     .from("menu_items")
     .update({ image_url: imageUrl, image_updated_at: stamp, updated_at: stamp })
     .eq("id", itemId)
+    .eq("updated_at", row.updated_at)
     .select("id,updated_at")
     .maybeSingle();
   if (writeErr || !written) {
@@ -291,7 +318,7 @@ export async function setDishPhoto(
       itemId,
       message: writeErr?.message,
     });
-    return { ok: false, reason: writeErr ? "error" : "gone" };
+    return { ok: false, reason: writeErr ? "error" : "stale" };
   }
   const audited = await audit(db, gate.staffId, { menuItemId: itemId }, [
     { field: "image_url", oldValue: row.image_url, newValue: imageUrl },
@@ -306,25 +333,33 @@ export async function clearDishPhoto(
   raw: unknown,
 ): Promise<MenuStudioResult<{ updatedAt: string }>> {
   const itemId = (raw as { itemId?: unknown } | null)?.itemId;
+  const expectedUpdatedAt = (raw as { expectedUpdatedAt?: unknown } | null)?.expectedUpdatedAt;
   if (typeof itemId !== "string" || !uuidShape(itemId)) return { ok: false, reason: "invalid" };
+  if (typeof expectedUpdatedAt !== "string" || expectedUpdatedAt === "")
+    return { ok: false, reason: "invalid" };
   const gate = await managerGate();
   if (!gate.ok) return gate;
   const db = serviceClient();
   const { data: row, error: readErr } = await db
     .from("menu_items")
-    .select("id,image_url")
+    .select("id,image_url,updated_at")
     .eq("id", itemId)
     .maybeSingle();
   if (readErr) return { ok: false, reason: "outage" };
   if (!row) return { ok: false, reason: "gone" };
+  // A photo write is swapped on the stamp the SHEET read, like every other dish write: advancing it
+  // past another manager's edit would let the sheet's older fields pass their own stale check at
+  // Save and silently revert that edit (Codex round 2 on #373).
+  if (!sameInstant(row.updated_at, expectedUpdatedAt)) return { ok: false, reason: "stale" };
   const stamp = new Date().toISOString();
   const { data: written, error } = await db
     .from("menu_items")
     .update({ image_url: null, image_updated_at: stamp, updated_at: stamp })
     .eq("id", itemId)
+    .eq("updated_at", row.updated_at)
     .select("id,updated_at")
     .maybeSingle();
-  if (error || !written) return { ok: false, reason: error ? "error" : "gone" };
+  if (error || !written) return { ok: false, reason: error ? "error" : "stale" };
   const audited = await audit(db, gate.staffId, { menuItemId: itemId }, [
     { field: "image_url", oldValue: row.image_url, newValue: null },
   ]);

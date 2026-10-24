@@ -38,6 +38,10 @@ export type CatalogItemish = {
   name_en: string;
   is_sold_out: boolean;
   is_active: boolean;
+  /** The dish's category, when the read embeds `menu_categories(is_active)` (OA2, Codex round 2 on
+   *  #373): every server-side availability read does, so a HIDDEN category is off the menu for a menu
+   *  open since before the Hide, a reorder and the kiosk too — not only on the pages that filter it. */
+  menu_categories?: { is_active: boolean } | null;
 };
 
 /** Why a dish cannot be made now: 86'd today (`sold_out`), or delisted / gone from the catalog. */
@@ -58,9 +62,14 @@ export type Unavailable = "sold_out" | "gone";
  * delisting is the fact that outlives the 86.
  */
 export function dishUnavailable(
-  i: { is_sold_out: boolean; is_active: boolean } | null | undefined,
+  i:
+    | { is_sold_out: boolean; is_active: boolean; menu_categories?: { is_active: boolean } | null }
+    | null
+    | undefined,
 ): Unavailable | null {
-  if (!i || !i.is_active) return "gone";
+  // A dish in a HIDDEN category is off the menu (`categoryShown`'s rule: only an explicit false hides;
+  // a read without the embed, or a dish with no category, is shown).
+  if (!i || !i.is_active || i.menu_categories?.is_active === false) return "gone";
   return i.is_sold_out ? "sold_out" : null;
 }
 

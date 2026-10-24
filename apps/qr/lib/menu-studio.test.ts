@@ -187,7 +187,13 @@ describe("editDish", () => {
 });
 
 describe("createDish", () => {
+  // The creation key is looked up first: by default no dish holds it yet.
+  beforeEach(() => {
+    reads = {};
+  });
+  const NEW = "44444444-4444-4444-8444-444444444444";
   const add = {
+    itemId: NEW,
     nameEn: " Tea Leaf  Salad ",
     nameMy: null,
     descriptionEn: null,
@@ -210,6 +216,20 @@ describe("createDish", () => {
     });
     expect(gateRoles).toEqual(["manager"]);
   });
+  it("a retry of an Add that already landed answers ok for that dish and inserts nothing (`menu-studio/create-key-ignored`)", async () => {
+    reads = { menu_items: { id: NEW } };
+    expect(await createDish(add)).toEqual({ ok: true, audited: true, itemId: NEW });
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+  it("the insert carries the creation key as the row's id", async () => {
+    reads = {};
+    await createDish(add);
+    expect(calls.find((c) => c.table === "menu_items" && c.op === "insert")!.payload).toMatchObject(
+      {
+        id: NEW,
+      },
+    );
+  });
   it("a slug taken between the read and the insert is retried once", async () => {
     writes["menu_items:insert"] = [{ data: null, error: { code: "23505", message: "dup" } }];
     expect(await createDish(add)).toMatchObject({ ok: true });
@@ -225,6 +245,7 @@ describe("setDishPhoto", () => {
   const form = (type = "image/jpeg", size = 2000) => {
     const f = new FormData();
     f.set("itemId", ITEM);
+    f.set("expectedUpdatedAt", STAMP);
     f.set("photo", new File([new Uint8Array(size)], "p", { type }));
     return f;
   };
@@ -234,7 +255,7 @@ describe("setDishPhoto", () => {
     expect(gateRoles).toHaveLength(0);
   });
   it("uploads under the dish's folder and points the dish at the public URL", async () => {
-    reads = { menu_items: { id: ITEM, image_url: null } };
+    reads = { menu_items: { id: ITEM, image_url: null, updated_at: STAMP } };
     const res = await setDishPhoto(form());
     expect(res).toMatchObject({ ok: true });
     expect(uploads[0]!.path).toMatch(new RegExp(`^${ITEM}/\\d+\\.jpg$`));
@@ -244,8 +265,21 @@ describe("setDishPhoto", () => {
       `https://fasnpdhtvqtzjlvruqcu.supabase.co/storage/v1/object/public/menu-photos/${uploads[0]!.path}`,
     );
   });
+  it("a sheet that read an OLDER dish cannot advance its stamp with a photo (`menu-studio/photo-stale-ignored`)", async () => {
+    reads = {
+      menu_items: { id: ITEM, image_url: null, updated_at: "2026-10-24T09:30:00.000Z" },
+    };
+    expect(await setDishPhoto(form())).toEqual({ ok: false, reason: "stale" });
+    expect(uploads).toHaveLength(0);
+    expect(updates()).toHaveLength(0);
+  });
+  it("the pointer write is swapped on the stamp it read", async () => {
+    reads = { menu_items: { id: ITEM, image_url: null, updated_at: STAMP } };
+    await setDishPhoto(form());
+    expect(updates()[0]!.filters).toContainEqual(["eq", "updated_at", STAMP]);
+  });
   it("no bucket yet is `storage` — said, never a generic failure", async () => {
-    reads = { menu_items: { id: ITEM, image_url: null } };
+    reads = { menu_items: { id: ITEM, image_url: null, updated_at: STAMP } };
     uploadError = { message: "Bucket not found" };
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await setDishPhoto(form())).toEqual({ ok: false, reason: "storage" });

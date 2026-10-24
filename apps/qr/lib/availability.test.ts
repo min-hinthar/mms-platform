@@ -248,6 +248,16 @@ describe("sendBlockingDishes — what a Send would put on the board that the kit
  * temporary 86, and every surface that names the reason ("Sold out" vs "No longer on the menu") reads
  * it from here, so /cart, the Send's names and the refusals agree.
  */
+describe("dishUnavailable — a HIDDEN category is off the menu (OA2)", () => {
+  it("a dish whose category is hidden is gone; a shown category or a read without the embed is not (`availability/hidden-category-sells`)", () => {
+    const dish = { is_sold_out: false, is_active: true };
+    expect(dishUnavailable({ ...dish, menu_categories: { is_active: false } })).toBe("gone");
+    expect(dishUnavailable({ ...dish, menu_categories: { is_active: true } })).toBeNull();
+    expect(dishUnavailable({ ...dish, menu_categories: null })).toBeNull();
+    expect(dishUnavailable(dish)).toBeNull();
+  });
+});
+
 describe("dishUnavailable — sold out, or no longer on the menu", () => {
   it("names the kind: an 86 is `sold_out`; a delisted dish, or no catalog row at all, is `gone`", () => {
     // MUTATION (lcb/availability/delisted-reads-sold-out): answer `sold_out` for an inactive dish —

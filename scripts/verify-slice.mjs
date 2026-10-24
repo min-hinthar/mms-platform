@@ -1700,9 +1700,9 @@ const MUTANTS = [
     file: "apps/qr/lib/availability.ts",
     suite: "lib/availability.test.ts",
     why: "#362 (Codex round 1) — the one predicate returns the KIND; an inactive dish read as `sold_out` is a delisting told as a temporary 86",
-    find: '  if (!i || !i.is_active) return "gone";\n  return i.is_sold_out ? "sold_out" : null;',
+    find: '  if (!i || !i.is_active || i.menu_categories?.is_active === false) return "gone";\n  return i.is_sold_out ? "sold_out" : null;',
     replace:
-      '  if (!i) return "gone";\n  return i.is_sold_out || !i.is_active ? "sold_out" : null;',
+      '  if (!i || i.menu_categories?.is_active === false) return "gone";\n  return i.is_sold_out || !i.is_active ? "sold_out" : null;',
   },
   {
     id: "lcb/availability/comp-blocks-the-send",
@@ -4086,8 +4086,8 @@ const MUTANTS = [
     file: "apps/qr/lib/availability.ts",
     suite: "lib/availability.test.ts",
     why: "W23a — the diner menu filters is_active at QUERY time, which is a fact about a page that may be minutes old; without the server-side half a stale phone (or a forged POST) pays for a dish that was pulled from the menu. Drops the delisted arm from the ONE sellability predicate, so BOTH halves of the gate (add-time and charge-time) go blind at once — which is exactly why it is one function.",
-    find: '  if (!i || !i.is_active) return "gone";',
-    replace: '  if (!i) return "gone";',
+    find: "  if (!i || !i.is_active || i.menu_categories",
+    replace: "  if (!i || i.menu_categories",
   },
   {
     id: "availability/gate-widens-past-draft",
@@ -11972,7 +11972,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/LossActionSheet.tsx",
     suite: "components/staff/LossActionSheet.test.tsx",
     why: "No-PIN — needs_manager turns the one button into the request; without it a server's comp has no way forward",
-    find: "        setNeedsManager(true);\n",
+    find: "        setNeedsManagerFor(action);\n",
     replace: "",
   },
   {
@@ -12085,8 +12085,8 @@ const MUTANTS = [
     file: "apps/qr/lib/menu-studio.ts",
     suite: "lib/menu-studio.test.ts",
     why: "Menu studio — the write is swapped on the stamp it read; dropped, an edit landing between the read and the write is overwritten",
-    find: '    .eq("updated_at", row.updated_at)\n',
-    replace: "",
+    find: '    .eq("id", input.itemId)\n    .eq("updated_at", row.updated_at)\n',
+    replace: '    .eq("id", input.itemId)\n',
   },
   {
     id: "menu-studio/edit-zero-rows-ok",
@@ -12202,6 +12202,30 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "menu-studio/create-key-ignored",
+    file: "apps/qr/lib/menu-studio.ts",
+    suite: "lib/menu-studio.test.ts",
+    why: "Codex round 2 on #373 — an Add whose answer was lost or late is retried with the same creation key; without the lookup, the retry picks the next free slug and publishes a second dish",
+    find: '  if (before === "yes") return { ok: true, audited: true, itemId: input.itemId };\n',
+    replace: "",
+  },
+  {
+    id: "menu-studio/photo-stale-ignored",
+    file: "apps/qr/lib/menu-studio.ts",
+    suite: "lib/menu-studio.test.ts",
+    why: "Codex round 2 on #373 — a photo write advances the dish's stamp; done from a sheet that read an older dish, the sheet's stale fields then pass their own check at Save and silently revert another manager's edit",
+    find: '  if (!sameInstant(row.updated_at, expectedUpdatedAt)) return { ok: false, reason: "stale" };\n\n  const path',
+    replace: "  const path",
+  },
+  {
+    id: "availability/hidden-category-sells",
+    file: "apps/qr/lib/availability.ts",
+    suite: "lib/availability.test.ts",
+    why: "Codex round 2 on #373 — Hide on a category must take its dishes off the menu server-side; without it a menu open since before the Hide, a reorder or the kiosk still adds and charges them",
+    find: ' || i.menu_categories?.is_active === false) return "gone";',
+    replace: ') return "gone";',
+  },
+  {
     id: "menu-studio/move-no-undo",
     file: "apps/qr/lib/menu-studio.ts",
     suite: "lib/menu-studio.test.ts",
@@ -12216,6 +12240,14 @@ const MUTANTS = [
     why: "Codex round 1 on #373 — the dish sheet's own photo write moves updated_at and revalidates the page; a stamp in the sheet's key remounts it and silently discards the manager's unsaved edits",
     find: "          key={open.id}",
     replace: "          key={`${open.id}:${open.updatedAt}`}",
+  },
+  {
+    id: "loss-sheet/escalation-sticks",
+    file: "apps/qr/components/staff/LossActionSheet.tsx",
+    suite: "components/staff/LossActionSheet.test.tsx",
+    why: "Codex round 2 on #373 — the manager escalation belongs to the action the server refused; kept across a chip change, a refused comp turns a permitted void into a request the SQL refuses as no_approval_needed, and the void cannot be done from the sheet",
+    find: "  const needsManager = needsManagerFor === action;",
+    replace: "  const needsManager = needsManagerFor !== null;",
   },
   {
     id: "studio-ui/server-gets-studio",

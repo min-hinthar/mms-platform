@@ -93,7 +93,7 @@ export async function priceItem(
   const { data: item, error } = await db
     .from("menu_items")
     .select(
-      "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,item_modifier_groups(modifier_groups(id,min_select,max_select))",
+      "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,menu_categories(is_active),item_modifier_groups(modifier_groups(id,min_select,max_select))",
     )
     .eq("id", menuItemId)
     .maybeSingle();

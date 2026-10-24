@@ -614,6 +614,28 @@ describe("LossActionSheet — No-PIN (owner, 2026-10-24): one button, the server
   });
 });
 
+describe("the escalation is the refused action's alone", () => {
+  it("a refused comp offers the request; picking a void brings back the void's own button (`loss-sheet/escalation-sticks`)", async () => {
+    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_manager" });
+    render(
+      <StaffLangProvider lang="en">
+        <LossActionSheet open onOpenChange={() => {}} sessionId="s1" line={line} onDone={vi.fn()} />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(compChip());
+    });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('[role="dialog"] form')!);
+    });
+    expect(document.querySelector('[role="dialog"] form button[type="submit"]')).toBeNull();
+    await act(async () => {
+      fireEvent.click(reason());
+    });
+    expect(confirmVoid()).toBeTruthy();
+  });
+});
+
 describe("the lifecycle audit — the sheet says WHICH bowl", () => {
   it("shows the line's options and its kitchen note under the summary", async () => {
     // lck/loss-sheet/which-bowl-unsaid — two "1× Mohinga" rows, one with "no peanuts — allergy":

@@ -1052,7 +1052,10 @@ export async function getCartView(cartId: string): Promise<{
       ? // Deliberate swallow posture: sold-out is an advisory disable on the "+", not load-bearing;
         // a failed lookup degrades to "nothing sold-out" + no media rather than blocking the view.
         // image_url + name_my ride the SAME query — zero extra round trips on the menu side.
-        db.from("menu_items").select("id,is_sold_out,is_active,image_url,name_my").in("id", menuIds)
+        db
+          .from("menu_items")
+          .select("id,is_sold_out,is_active,image_url,name_my,menu_categories(is_active)")
+          .in("id", menuIds)
       : Promise.resolve({ data: null }),
     barcodes.length
       ? db.from("grocery_items").select("barcode,image_url,name_my").in("barcode", barcodes)
