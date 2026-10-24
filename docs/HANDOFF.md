@@ -19,14 +19,15 @@ etc, updates to names prices categories etc,) to menu-editor and with world-clas
 item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
 and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
 so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
-(OA1–OA8) is what is left.
+(OA1–OA9) is what is left.
 
 - **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
   instruction (G3 · G4); (2) **OA1** — apply `20261024120000_no_pin_manager_self_approve.sql`;
   (3) **OA2** — apply `20261024120100_menu_studio.sql`. Each is one file through the Supabase MCP
   `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header says, before the
-  next. The deploy and the applies can land in either order: before OA1, a manager's gated void is
-  offered the request queue; before OA2, a photo upload says "Photo storage isn't set up yet".
+  next. ⚠️ **OA1 must apply BEFORE the merge** (production deploys from `main`): before it, a gated
+  no-show can be written off by nobody, and a void or comp needs a second manager. OA2 can land in
+  either order: before it, a photo upload says "Photo storage isn't set up yet".
 - **Decisions waiting on the owner:** OA3 (does a manager approve their own queued request?) and
   OA4 (a custom item for servers?). Both ship the conservative side.
 - **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on

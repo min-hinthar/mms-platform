@@ -83,6 +83,7 @@ const sibling = (over: Record<string, unknown> = {}) => ({
   by_seat: SEAT,
   added_by: SEAT,
   unit_price_cents: LINE.unitPriceCents,
+  tax_cents: LINE.taxCents,
   comped: false,
   ...over,
 });

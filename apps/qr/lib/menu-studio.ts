@@ -422,17 +422,27 @@ export async function moveCategoryAction(raw: unknown): Promise<MenuStudioResult
   // At an edge (or an id no longer listed) there is nothing to write — not an error.
   if (!pair) return { ok: true, audited: true };
   const before = new Map(rows.map((r) => [r.id, r.sortOrder]));
-  for (const p of pair) {
-    // Each row swapped only if it still holds the order read (a crossing move is refused).
-    const { data: written, error } = await db
+  // Each row swapped only if it still holds the order read (a crossing move is refused).
+  const swap = (id: string, from: number, to: number) =>
+    db
       .from("menu_categories")
-      .update({ sort_order: p.sortOrder })
-      .eq("id", p.id)
-      .eq("sort_order", before.get(p.id) ?? -1)
+      .update({ sort_order: to })
+      .eq("id", id)
+      .eq("sort_order", from)
       .select("id")
       .maybeSingle();
-    if (error) return { ok: false, reason: "error" };
-    if (!written) return { ok: false, reason: "stale" };
+  const [first, second] = pair;
+  const one = await swap(first.id, before.get(first.id) ?? -1, first.sortOrder);
+  if (one.error) return { ok: false, reason: "error" };
+  if (!one.data) return { ok: false, reason: "stale" };
+  const two = await swap(second.id, before.get(second.id) ?? -1, second.sortOrder);
+  if (two.error || !two.data) {
+    // Two writes, no transaction: a crossing move refused the second, so put the first back (guarded
+    // on the order it just wrote) rather than leave two categories sharing one place in the menu.
+    // A failed undo is logged — the next move re-reads the orders, and `moveCategory` separates a tie.
+    const undo = await swap(first.id, first.sortOrder, before.get(first.id) ?? -1);
+    if (undo.error || !undo.data) console.error("[menu-studio] move undo failed", first.id);
+    return { ok: false, reason: two.error ? "error" : "stale" };
   }
   let audited = true;
   for (const p of pair)

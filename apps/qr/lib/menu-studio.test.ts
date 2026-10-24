@@ -289,4 +289,28 @@ describe("categories", () => {
     expect(u[0]!.filters).toContainEqual(["eq", "sort_order", 20]);
     expect(u[1]!.filters).toContainEqual(["eq", "sort_order", 10]);
   });
+  it("a crossing move that refuses the second write puts the first back (`menu-studio/move-no-undo`)", async () => {
+    lists = {
+      menu_categories: [
+        { id: CAT, sort_order: 10 },
+        { id: CAT2, sort_order: 20 },
+      ],
+    };
+    writes["menu_categories:update"] = [
+      { data: { id: CAT2 }, error: null },
+      { data: null, error: null },
+    ];
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await moveCategoryAction({ categoryId: CAT2, direction: "up" })).toEqual({
+      ok: false,
+      reason: "stale",
+    });
+    const u = updates();
+    expect(u).toHaveLength(3);
+    // The undo writes CAT2 back to 20, guarded on the 10 it just wrote.
+    expect(u[2]!.payload).toEqual({ sort_order: 20 });
+    expect(u[2]!.filters).toContainEqual(["eq", "id", CAT2]);
+    expect(u[2]!.filters).toContainEqual(["eq", "sort_order", 10]);
+    expect(audits()).toHaveLength(0);
+  });
 });

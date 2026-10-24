@@ -336,7 +336,7 @@ export type RefundResult =
     };
 
 /**
- * Refund ONE paid line. Manager-gated + self-PIN step-up (money-out re-auth).
+ * Refund ONE paid line. Manager-gated on the caller's own sign-in (OA1, 2026-10-24: no PIN re-auth).
  *
  * TWO paths, chosen from the order's own stored facts by `refundPathFor` — the same pure rule the
  * console used to decide what to SHOW, so the sheet and the server can never disagree about which

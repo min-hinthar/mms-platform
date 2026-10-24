@@ -3972,6 +3972,14 @@ const MUTANTS = [
     find: '  siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);',
     replace: "  siblingQuery = siblingQuery;",
   },
+  {
+    id: "order-lines/merge-keeps-a-stale-tax",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-seat.test.ts",
+    why: "OA2 · blind review (#373) — the menu studio can recategorise a dish, and totals read each line's tax_cents as its taxable flag. Without the per-unit tax in the merge key, a unit added after a recategorisation folds into a line quoted under the OLD category and is charged that category's tax: the same dish taxed two ways in one cart",
+    find: '  siblingQuery = siblingQuery.eq("tax_cents", line.taxCents);\n',
+    replace: "",
+  },
   // ── T25 · M188 — the sibling read that picks MERGE or FRESH LINE ──────────────────────────────
   {
     id: "order-lines/comped-sibling-swallows-an-add",
@@ -12169,6 +12177,14 @@ const MUTANTS = [
     why: "Menu studio — Up swaps with the category above; reversed, every move goes the other way",
     find: '  const j = direction === "up" ? i - 1 : i + 1;',
     replace: '  const j = direction === "up" ? i + 1 : i - 1;',
+  },
+  {
+    id: "menu-studio/move-no-undo",
+    file: "apps/qr/lib/menu-studio.ts",
+    suite: "lib/menu-studio.test.ts",
+    why: "Blind review (#373) — a category move is two writes with no transaction; when a crossing move refuses the second, dropping the undo leaves two categories sharing one sort order, so the menu's order is undefined",
+    find: "    const undo = await swap(first.id, first.sortOrder, before.get(first.id) ?? -1);\n",
+    replace: "    const undo = { error: null, data: true };\n",
   },
   {
     id: "studio-ui/server-gets-studio",

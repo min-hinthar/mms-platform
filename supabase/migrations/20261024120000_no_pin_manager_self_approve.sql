@@ -14,8 +14,11 @@
 -- `mms_resolve_approval` is unchanged: a request is a SERVER's ask (a manager now acts directly), and
 -- the asker still cannot approve their own request — they may only close it.
 --
--- Until this applies, the app reads the old 'self_approve' answer as "ask another manager" (the
--- request queue), so the deploy and the apply can land in either order.
+-- ⚠️ APPLY THIS BEFORE THE APP THAT DROPS THE PIN DEPLOYS. Until it applies, the old function answers
+-- a manager acting on their own sign-in with 'self_approve', which the app reads as "ask another
+-- manager": a void or comp then needs a SECOND manager to approve the request (the asker cannot), and a
+-- gated no-show has no request queue at all, so nobody on the shift can write one off. (The blind
+-- review on #373 caught an earlier copy of this header claiming either order was safe.)
 --
 -- Verify after apply: `has_function_privilege('service_role', …, 'execute')` true and anon /
 -- authenticated false for both signatures, and neither `prosrc` contains `self_approve`.
