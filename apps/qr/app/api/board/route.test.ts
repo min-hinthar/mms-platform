@@ -452,7 +452,7 @@ const DINEIN = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002";
 const DISH = "cccccccc-cccc-4ccc-8ccc-cccccccc0003";
 
 type Body = {
-  orders?: { code: string; status: string }[];
+  orders?: { code: string; name: string | null; status: string }[];
   tables?:
     | {
         table: number;
@@ -460,7 +460,13 @@ type Body = {
         rounds: {
           n: number | null;
           next: boolean;
-          dishes: { name: string; nameMy: string | null; stage: string; togo: boolean }[];
+          dishes: {
+            name: string;
+            nameMy: string | null;
+            stage: string;
+            togo: boolean;
+            guests: string[];
+          }[];
         }[];
       }[]
     | null;

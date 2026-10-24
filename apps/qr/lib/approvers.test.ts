@@ -1,88 +1,57 @@
 import { describe, expect, it } from "vitest";
-import {
-  eligibleApprovers,
-  preselectApprover,
-  zeroEligibleReason,
-  type ApproverCandidate,
-} from "./approvers";
+import { approverFor, canApproveLoss, decideAs, type DeciderRow } from "./approvers";
 
 /**
- * PD8 (m8 decisions 8 · 9 · 13) — the picker lists ONLY people who can sign, and a name is pre-lit
- * only when it is the one name. Each rule is a VALUE here; the roster below separates every rule from
- * every other (one candidate fails exactly one rule), so a dropped term is caught by name, never by
- * a fixture where two rules happen to agree.
+ * No-PIN (owner, 2026-10-24) — the approver is the SIGNED-IN caller, and only when their role may
+ * sign. Each rule is a VALUE here, on fixtures where exactly one rule separates the cases, so a
+ * dropped term is caught by name. Every rule carries an `approvers/*` mutant.
  */
-const aye: ApproverCandidate = {
-  staffId: "aye",
-  displayName: "Aye",
-  role: "manager",
-  active: true,
-  hasPin: true,
-};
-const owner: ApproverCandidate = { ...aye, staffId: "min", displayName: "Min", role: "owner" };
-const server: ApproverCandidate = {
-  ...aye,
-  staffId: "thiri",
-  displayName: "Thiri",
-  role: "server",
-};
-const inactive: ApproverCandidate = { ...aye, staffId: "zaw", displayName: "Zaw", active: false };
-const noPin: ApproverCandidate = { ...aye, staffId: "nu", displayName: "Nu", hasPin: false };
-
-describe("eligibleApprovers — only those who can sign", () => {
-  it("keeps an active manager or owner with a PIN who is not the asker", () => {
-    expect(eligibleApprovers([aye, owner], "thiri").map((a) => a.staffId)).toEqual(["aye", "min"]);
-  });
-  it("drops a server even with a PIN — the role rule", () => {
-    expect(eligibleApprovers([aye, server], "someone")).toEqual([aye]);
-  });
-  it("drops an inactive manager — the active rule", () => {
-    expect(eligibleApprovers([aye, inactive], "someone")).toEqual([aye]);
-  });
-  it("drops a manager with no tablet PIN — the PIN rule", () => {
-    expect(eligibleApprovers([aye, noPin], "someone")).toEqual([aye]);
-  });
-  it("drops the asker themself — nobody approves their own request", () => {
-    expect(eligibleApprovers([aye, owner], "aye")).toEqual([owner]);
-  });
-  it("the asker may sign a CLOSE (selfAllowed) — the paid-table card's one exception", () => {
-    expect(eligibleApprovers([aye, owner], "aye", { selfAllowed: true })).toEqual([aye, owner]);
-    // selfAllowed widens nothing else: the role, active and PIN rules still hold.
-    expect(eligibleApprovers([server, inactive, noPin], "aye", { selfAllowed: true })).toEqual([]);
-  });
-  it("keeps the roster's order and never invents a person", () => {
-    expect(eligibleApprovers([owner, aye], "x")).toEqual([owner, aye]);
-    expect(eligibleApprovers([], "x")).toEqual([]);
+describe("canApproveLoss — the SQL's role in ('manager','owner')", () => {
+  it("a manager and an owner may; a server and an unknown role may not", () => {
+    expect(canApproveLoss("manager")).toBe(true);
+    expect(canApproveLoss("owner")).toBe(true);
+    expect(canApproveLoss("server")).toBe(false);
+    expect(canApproveLoss("")).toBe(false);
   });
 });
 
-describe("preselectApprover — exactly one eligible arrives lit", () => {
-  it("one eligible: that id", () => {
-    expect(preselectApprover([aye])).toBe("aye");
+describe("approverFor — what a gated write SENDS as its approver", () => {
+  it("a manager or owner is sent as their own approver (`approvers/manager-not-sent`)", () => {
+    expect(approverFor({ staffId: "aye", role: "manager" })).toBe("aye");
+    expect(approverFor({ staffId: "min", role: "owner" })).toBe("min");
   });
-  it("two or more: none — a pre-lit wrong name spends someone else's lockout", () => {
-    expect(preselectApprover([aye, owner])).toBe("");
-  });
-  it("none: nothing to light", () => {
-    expect(preselectApprover([])).toBe("");
+  it("a server is sent with NONE — never their own id in the approver slot (`approvers/server-sent`)", () => {
+    expect(approverFor({ staffId: "thiri", role: "server" })).toBeUndefined();
   });
 });
 
-describe("zeroEligibleReason — the two TRUE sentences, never 'none are signed in'", () => {
-  it("the asker is the only signer here: 'only {x} can approve, and nobody approves their own'", () => {
-    expect(zeroEligibleReason([aye, server, noPin], "aye")).toEqual({
-      kind: "only_self",
+describe("decideAs — who decides a queued request on this device", () => {
+  const aye: DeciderRow = { staffId: "aye", displayName: "Aye", role: "manager", self: true };
+  const min: DeciderRow = { staffId: "min", displayName: "Min", role: "owner", self: false };
+  const thiri: DeciderRow = { staffId: "thiri", displayName: "Thiri", role: "server", self: true };
+
+  it("the signed-in manager decides a server's request, by name", () => {
+    expect(decideAs([aye, min], false, "thiri", false)).toEqual({
+      kind: "as",
+      staffId: "aye",
       name: "Aye",
     });
   });
-  it("no manager has a tablet PIN: 'nobody can approve it here'", () => {
-    expect(zeroEligibleReason([noPin, server], "thiri")).toEqual({ kind: "no_pin" });
-    expect(zeroEligibleReason([], "thiri")).toEqual({ kind: "no_pin" });
+  it("reads the SELF row, never the first manager listed (`approvers/decider-not-self`)", () => {
+    const meMin: DeciderRow = { ...min, self: true };
+    const notMe: DeciderRow = { ...aye, self: false };
+    expect(decideAs([notMe, meMin], false, "thiri", false)).toMatchObject({ staffId: "min" });
   });
-  it("an INACTIVE manager with a PIN is not a signer: still 'no PIN here'", () => {
-    expect(zeroEligibleReason([inactive], "thiri")).toEqual({ kind: "no_pin" });
+  it("a server cannot decide (`approvers/server-decides`)", () => {
+    expect(decideAs([thiri, min], false, "someone", false)).toEqual({ kind: "not_manager" });
   });
-  it("someone else can sign: no zero-eligible sentence at all", () => {
-    expect(zeroEligibleReason([aye, owner], "aye")).toBeNull();
+  it("the asker cannot approve or deny their own request, but may CLOSE it (`approvers/own-request-decides`)", () => {
+    expect(decideAs([aye], false, "aye", false)).toEqual({ kind: "own_request" });
+    expect(decideAs([aye], false, "aye", true)).toMatchObject({ kind: "as", staffId: "aye" });
+  });
+  it("a roster still loading is loading; an unreadable one, or one with no self row, is unknown — never a verdict", () => {
+    expect(decideAs(null, false, "x", false)).toEqual({ kind: "loading" });
+    expect(decideAs(null, true, "x", false)).toEqual({ kind: "unknown" });
+    expect(decideAs([min], false, "x", false)).toEqual({ kind: "unknown" });
   });
 });

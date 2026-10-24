@@ -1528,6 +1528,18 @@ export const STAFF = {
     en: "Make free with approval",
     my: "ခွင့်ပြုချက်နဲ့ အခမဲ့ပေး",
   }, // K15-HIGH
+  // No-PIN (owner, 2026-10-24) — a counter no-show that needs a manager, tapped by someone who is not
+  // one: a no-show has no request queue, so the manager does it on their own sign-in.
+  "table.noshow.err.needsManager": {
+    en: "A manager needs to do this on their own sign-in. Nothing was written off — the order is still open.",
+    my: "ဒါကို မန်နေဂျာက ကိုယ့်အကောင့်နဲ့ လုပ်ဖို့ လိုပါတယ်။ ဘာမှ မဖျက်ရသေးပါ — အော်ဒါ ဖွင့်ထားဆဲပါ။",
+  }, // K15 draft — Claude-authored; "says nothing was written off" is the load-bearing half
+  // No-PIN (owner, 2026-10-24) — the region's sentence when a server's tap needs a manager: the
+  // one button below it becomes the request.
+  "table.loss.msg.needsManager": {
+    en: "A manager needs to approve this. Send it to Open requests — it stays on the bill until a manager decides.",
+    my: "ဒါကို မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ်။ ဖွင့်ထားတဲ့ တောင်းဆိုချက်များဆီ ပို့လိုက်ပါ — မန်နေဂျာ ဆုံးဖြတ်တဲ့အထိ စာရင်းထဲမှာ ရှိနေပါမယ်။",
+  }, // K15 draft — Claude-authored from table.loss.requestApproval + pin.sendToQueue's shipped words
   "table.loss.noManager": {
     en: "No manager here? Request approval",
     my: "မန်နေဂျာ မရှိဘူးလား? ခွင့်ပြုချက် တောင်းပါ",
@@ -2709,6 +2721,21 @@ export const STAFF = {
     en: "Pick a manager other than yourself to approve.",
     my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
   },
+  // No-PIN (owner, 2026-10-24) — the decision slip is one line now: who is deciding, on their own
+  // sign-in, or why this device cannot. {x} = the signed-in manager's name.
+  "table.appr.decideAs": { en: "Deciding as {x}", my: "{x} အနေနဲ့ ဆုံးဖြတ်မယ်" }, // K15 draft
+  "table.appr.notManager": {
+    en: "Only a manager or owner can decide this — ask one to open it on their own sign-in.",
+    my: "ဒါကို မန်နေဂျာ ဒါမှမဟုတ် ပိုင်ရှင်ပဲ ဆုံးဖြတ်နိုင်ပါတယ် — သူတို့ အကောင့်နဲ့ ဖွင့်ခိုင်းပါ။",
+  }, // K15 draft
+  "table.appr.ownRequest": {
+    en: "This is your own request — another manager decides it.",
+    my: "ဒါက ကိုယ့်တောင်းဆိုချက်ပါ — တခြား မန်နေဂျာက ဆုံးဖြတ်ပါမယ်။",
+  }, // K15 draft — grounded: pin.onlySelf's "ကိုယ့်တောင်းဆိုချက်"
+  "table.appr.whoFailed": {
+    en: "Couldn’t check who is signed in — that doesn’t decide anything. Try again.",
+    my: "ဘယ်သူ အကောင့်ဝင်ထားလဲ မစစ်နိုင်ပါ — ဘာမှ မဆုံးဖြတ်ရသေးပါ။ ထပ်စမ်းပါ။",
+  }, // K15 draft — an outage must never read as a verdict
   "pin.badApprover.requester": {
     en: "Pick a manager other than whoever requested this.",
     my: "တောင်းဆိုသူ မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",

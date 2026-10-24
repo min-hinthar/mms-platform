@@ -8,7 +8,7 @@ import { padDishName } from "@/lib/order-pad";
 import { sx } from "@/lib/staff-labels";
 import { ApprovalDecision } from "./ApprovalsBoard";
 import { useApproverRoster } from "./ManagerPinStepUp";
-import { signersFor } from "./ApprovalSlip";
+import { decideAs } from "@/lib/approvers";
 import { Chrome } from "./Chrome";
 import { RelativeTime } from "./RelativeTime";
 import { useStaffLang } from "./StaffLangProvider";
@@ -25,8 +25,9 @@ export const FLAG_CONSEQUENCE_ID = "flag-consequence";
  * cooked · from {asker} · age beneath), ONE paper secondary "Decide it here", and the consequence
  * sentence. Take cash below stays the live hero at full ink — it is NEVER dimmed: tapping it with a
  * flag up IS the acknowledgement (the page sends exactly the ids this card shows). "Decide it here"
- * opens the shipped centred Sheet around `ApprovalDecision` (the ONE SLIP), so the deciding state's
- * only primary is Approve (B2). Nobody here can decide (the filtered roster is empty): no Decide, and
+ * opens the shipped centred Sheet around `ApprovalDecision` (No-PIN: "Deciding as {the signed-in
+ * manager}"), so the deciding state's only primary is Approve (B2). The signed-in caller cannot decide
+ * (not a manager, or it is their own request — `decideAs`): no Decide, and
  * the consequence becomes the Help sentence on the counter pane (the standalone table page has no
  * Help, so it keeps the consequence). An UNREADABLE roster still offers Decide — it never fails
  * closed (decision 25). Plain text, never a live region; the pane's one region speaks.
@@ -90,9 +91,10 @@ export function ApprovalFlagCard({
   if (!oldest) return null;
   const deciding = decidingId === oldest.id;
   const state = flagCardState(oldest);
-  const eligible = signersFor(roster.approvers, oldest.initiatorStaffId);
-  // Nobody here can decide: a READ roster with no signer. A failed read keeps Decide (fail open).
-  const nobody = !roster.failed && eligible !== null && eligible.length === 0;
+  // Nobody here can decide: the signed-in caller is not a manager, or it is their own request. A
+  // roster still loading or unreadable keeps Decide (fail open — the decision says why if not).
+  const who = decideAs(roster.approvers, roster.failed, oldest.initiatorStaffId, false);
+  const nobody = who.kind === "not_manager" || who.kind === "own_request";
   // An unreadable line offers no decision here (`flagCardState` → null); the consequence still says
   // what Take payment does.
   const decidable = state !== null;

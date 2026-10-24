@@ -28,8 +28,6 @@ const h = vi.hoisted(() => ({
     unavailable: boolean;
   },
   paying: null as null | string,
-  stepUp: "ok" as "ok" | "bad_approver" | "step_up_rate_limited",
-  pin: { status: "ok" } as Record<string, unknown>,
   rpc: { data: "ok", error: null } as { data: unknown; error: { message: string } | null },
   calls: [] as string[],
   rpcArgs: null as null | Record<string, unknown>,
@@ -57,16 +55,6 @@ vi.mock("./pay-guard", () => ({
   paymentInFlightReason: () => {
     h.calls.push("payGuard");
     return Promise.resolve(h.paying);
-  },
-}));
-vi.mock("./staff-pin", () => ({
-  approverStepUpAllowed: () => {
-    h.calls.push("stepUp");
-    return Promise.resolve(h.stepUp);
-  },
-  verifyStaffPin: () => {
-    h.calls.push("pin");
-    return Promise.resolve(h.pin);
   },
 }));
 vi.mock("./order-lines", () => ({
@@ -122,8 +110,6 @@ beforeEach(() => {
     unavailable: false,
   };
   h.paying = null;
-  h.stepUp = "ok";
-  h.pin = { status: "ok" };
   h.rpc = { data: "ok", error: null };
   h.calls = [];
   h.rpcArgs = null;
@@ -202,56 +188,6 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
     });
     expect(h.calls).not.toContain("mms_counter_no_show");
   });
-
-  it("the step-up refuses a bad approver / a rate-limited caller before any PIN is spent", async () => {
-    // no-show-step-up-skipped
-    h.stepUp = "bad_approver";
-    expect(
-      await recordCounterNoShow({
-        sessionId: SESSION,
-        expectedLineIds: SAW,
-        approverStaffId: MANAGER,
-        pin: "1234",
-      }),
-    ).toEqual({ ok: false, reason: "bad_approver" });
-    h.stepUp = "step_up_rate_limited";
-    expect(
-      await recordCounterNoShow({
-        sessionId: SESSION,
-        expectedLineIds: SAW,
-        approverStaffId: MANAGER,
-        pin: "1234",
-      }),
-    ).toEqual({ ok: false, reason: "step_up_rate_limited" });
-    expect(h.calls).not.toContain("pin");
-    expect(h.calls).not.toContain("mms_counter_no_show");
-  });
-
-  it("a wrong, locked or missing PIN answers its own reason and never reaches the RPC", async () => {
-    const args = {
-      sessionId: SESSION,
-      expectedLineIds: SAW,
-      approverStaffId: MANAGER,
-      pin: "1234",
-    };
-    h.pin = { status: "wrong", attemptsRemaining: 2 };
-    expect(await recordCounterNoShow(args)).toEqual({
-      ok: false,
-      reason: "pin_wrong",
-      attemptsRemaining: 2,
-    });
-    h.pin = { status: "locked", lockedUntil: "2026-10-01T19:00:00Z" };
-    expect(await recordCounterNoShow(args)).toEqual({
-      ok: false,
-      reason: "pin_locked",
-      lockedUntil: "2026-10-01T19:00:00Z",
-    });
-    h.pin = { status: "no_pin" };
-    expect(await recordCounterNoShow(args)).toEqual({ ok: false, reason: "pin_no_pin" });
-    h.pin = { status: "error" };
-    expect(await recordCounterNoShow(args)).toEqual({ ok: false, reason: "error" });
-    expect(h.calls).not.toContain("mms_counter_no_show");
-  });
 });
 
 describe("recordCounterNoShow — the RPC", () => {
@@ -273,31 +209,25 @@ describe("recordCounterNoShow — the RPC", () => {
     expect(h.rpcArgs?.p_expected_line_ids).toEqual([LINE_B]);
   });
 
-  it("a verified approver is forwarded — and the PIN is verified BEFORE the RPC", async () => {
-    // no-show-approver-not-forwarded
+  it("No-PIN — a MANAGER caller is forwarded as the approver of their own write-off (`p2f-lib/voids/no-show-approver-not-forwarded`)", async () => {
+    h.auth = { kind: "staff", caller: { uid: "u-2", staffId: MANAGER, role: "manager" } };
+    await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW });
+    expect(h.rpcArgs).toMatchObject({ p_initiator: MANAGER, p_approver: MANAGER });
+  });
+
+  it("an approver id and PIN an older client still sends are never forwarded — a server stays solo", async () => {
     await recordCounterNoShow({
       sessionId: SESSION,
       expectedLineIds: SAW,
       approverStaffId: MANAGER,
       pin: "1234",
     });
-    expect(h.rpcArgs?.p_approver).toBe(MANAGER);
-    expect(h.calls).toEqual(["payGuard", "stepUp", "pin", "mms_counter_no_show"]);
-  });
-
-  it("an approver without a PIN is never forwarded (it would be an unverified claim)", async () => {
-    await recordCounterNoShow({
-      sessionId: SESSION,
-      expectedLineIds: SAW,
-      approverStaffId: MANAGER,
-    });
     expect(h.rpcArgs?.p_approver).toBeUndefined();
-    expect(h.calls).not.toContain("pin");
   });
 
   it.each([
-    ["needs_approval", "needs_pin"],
-    ["self_approve", "bad_approver"],
+    ["needs_approval", "needs_manager"],
+    ["self_approve", "needs_manager"],
     ["bad_approver", "bad_approver"],
     ["not_found", "not_open"],
     ["not_open", "not_open"],

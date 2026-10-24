@@ -1,21 +1,9 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Approver } from "@/lib/voids";
 import { STAFF_HANG_MS, resetOutReadsForTests, youngWrite } from "@/lib/bounded-write";
-import { StaffLangProvider } from "./StaffLangProvider";
-import {
-  ManagerPinFields,
-  PIN_NO_PIN_COPY,
-  ROSTER_FAILED_COPY,
-  lockoutDuration,
-  pinFailureCopy,
-  rosterHeldMsg,
-  secondsUntil,
-  useApproverRoster,
-} from "./ManagerPinStepUp";
-import { STAFF } from "@/lib/i18n/staff";
-import type { StaffMsg } from "./StaffMsg";
+import { lockoutDuration, secondsUntil, useApproverRoster } from "./ManagerPinStepUp";
 
 /**
  * P7·2 — the shared PIN vocabulary. The mapper returns KEYS, not sentences, so what is pinned is the
@@ -37,84 +25,15 @@ describe("lockoutDuration", () => {
   });
 });
 
-describe("pinFailureCopy", () => {
-  const noop = vi.fn();
-  it("a wrong PIN with tries left picks the plural key for the count", () => {
-    expect(pinFailureCopy({ reason: "pin_wrong", attemptsRemaining: 3 }, noop)).toEqual({
-      k: "pin.wrong.many",
-      vars: { n: 3 },
-    });
-    expect(pinFailureCopy({ reason: "pin_wrong", attemptsRemaining: 1 }, noop)).toEqual({
-      k: "pin.wrong.one",
-      vars: { n: 1 },
-    });
-  });
-  it("a wrong PIN with no tries left carries no count", () => {
-    expect(pinFailureCopy({ reason: "pin_wrong", attemptsRemaining: 0 }, noop)).toEqual({
-      k: "pin.wrong",
-    });
-  });
-  it("a lockout seeds the countdown from the server clock and returns NO message — the countdown is the sentence", () => {
-    // A message returned here outlived the lockout: "Too many tries on that PIN." stayed in the
-    // region after the countdown reached zero (blind pass, CRITICAL). `lockCopy` says everything.
-    const setLockLeft = vi.fn();
-    const lockedUntil = new Date(Date.now() + 30_000).toISOString();
-    expect(pinFailureCopy({ reason: "pin_locked", lockedUntil }, setLockLeft)).toBeNull();
-    expect(setLockLeft).toHaveBeenCalledTimes(1);
-    expect(setLockLeft.mock.calls[0]![0]).toBeGreaterThanOrEqual(29);
-    expect(setLockLeft.mock.calls[0]![0]).toBeLessThanOrEqual(30);
-  });
+describe("secondsUntil — the lock screen's countdown", () => {
   it("secondsUntil is ceiled and floored at zero", () => {
     const now = Date.parse("2026-01-01T00:00:00Z");
     expect(secondsUntil("2026-01-01T00:01:00Z", now)).toBe(60);
     expect(secondsUntil("2026-01-01T00:00:00.400Z", now)).toBe(1);
     expect(secondsUntil("2025-12-31T23:59:00Z", now)).toBe(0);
   });
-  it("the no-PIN constant is a key, so the live region can mark it", () => {
-    expect(PIN_NO_PIN_COPY).toEqual({ k: "pin.noPin.manager" });
-  });
 });
 
-describe("ManagerPinFields", () => {
-  const props = {
-    idPrefix: "t",
-    approverStaffId: "",
-    onApproverChange: () => {},
-    pin: "",
-    onPinChange: () => {},
-    locked: false,
-  };
-  it("under Burmese the labels are marked and the placeholder option carries the mark itself", () => {
-    render(
-      <StaffLangProvider lang="my">
-        <ManagerPinFields {...props} approvers={null} />
-      </StaffLangProvider>,
-    );
-    expect(document.querySelector('label[for="t-mgr"] [lang="my"]')?.textContent).toBe("မန်နေဂျာ");
-    expect(document.querySelector('label[for="t-pin"] [lang="my"]')?.textContent).toBe("ပင်နံပါတ်");
-    const placeholder = document.querySelector('option[value=""]')!;
-    expect(placeholder.getAttribute("lang")).toBe("my");
-    expect(placeholder.textContent).toBe("ဖွင့်နေပါတယ်…");
-  });
-  it("an empty roster says so in the option AND in the honest note beneath", () => {
-    render(
-      <StaffLangProvider lang="en">
-        <ManagerPinFields {...props} approvers={[]} />
-      </StaffLangProvider>,
-    );
-    expect(document.querySelector('option[value=""]')?.textContent).toBe("No managers available");
-    expect((screen.getByLabelText("Manager") as HTMLSelectElement).disabled).toBe(true);
-    expect(screen.getByText(/none are signed in right now/)).not.toBeNull();
-  });
-});
-
-/**
- * Phase 2h (P2fc) — the roster reads are BOUNDED. Next runs Server Actions one at a time per tab, so
- * behind a stuck action the mount read sat on "Loading…" and Try again on "Trying again…" forever,
- * with nothing saying why — and a write-off that needs a manager could not even be asked for. A read
- * with no answer at STAFF_HANG_MS is a failure like any other (`pin.manager.loadFailed`, with Try
- * again), never an empty roster and never a spinner that cannot end.
- */
 describe("useApproverRoster — Phase 2h: both reads end at the bound", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -209,7 +128,7 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
       await vi.advanceTimersByTimeAsync(ms);
     });
   const AYE: Approver[] = [
-    { staffId: "m1", displayName: "Aye", role: "manager", active: true, hasPin: true, self: false },
+    { staffId: "m1", displayName: "Aye", role: "manager", active: true, self: false },
   ];
   /** A roster read that answers only when told to — the hung raw at the head of the queue. */
   function hungLoad() {
@@ -421,96 +340,3 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
  * back to "a manager needs to approve" while the server's step-up is pending, else to silence; any
  * other sentence is the SAME object (nothing re-said).
  */
-describe("rosterHeldMsg — the failure sentence never stands over a list in hand (V1)", () => {
-  const other: StaffMsg = { k: "table.loss.msg.failed" };
-  it("while the roster is FAILED, whatever the region holds stands — the failure sentence included", () => {
-    // MUTATION (p2h-cx1/roster-region/retired-while-failed): the failure sentence is retired while
-    // the list is still unreadable — a Try again that fails again says nothing; red.
-    expect(rosterHeldMsg(ROSTER_FAILED_COPY, true, true)).toBe(ROSTER_FAILED_COPY);
-    expect(rosterHeldMsg(ROSTER_FAILED_COPY, true, false)).toBe(ROSTER_FAILED_COPY);
-    expect(rosterHeldMsg(other, true, false)).toBe(other);
-    expect(rosterHeldMsg(null, true, true)).toBeNull();
-  });
-  it("with the list in hand the failure sentence goes: back to 'a manager needs to approve' while the step-up is pending, else silence", () => {
-    // MUTATION (p2h-cx1/roster-region/late-drops-needs-manager): the pending step-up's sentence is
-    // not put back — the fields stand with nothing saying why; red.
-    expect(rosterHeldMsg(ROSTER_FAILED_COPY, false, true)).toEqual({ k: "pin.needsManager" });
-    expect(rosterHeldMsg(ROSTER_FAILED_COPY, false, false)).toBeNull();
-  });
-  it("any other sentence — or none — is left alone, as the SAME object", () => {
-    expect(rosterHeldMsg(other, false, true)).toBe(other);
-    expect(rosterHeldMsg(other, false, false)).toBe(other);
-    expect(rosterHeldMsg(null, false, true)).toBeNull();
-  });
-});
-
-/**
- * Codex r1 follow-up on #310 (V2) — a recovery unmounts the Try again. On time, the tap that asked
- * moves focus to the picker; a LATE answer comes with no tap pending, and the button that held focus
- * vanished under it (focus fell to the dialog). So focus that was ON the vanished Try again goes to
- * the picker either way — and focus the person has put anywhere else is never taken.
- */
-describe("ManagerPinFields — a Try again that vanishes with focus hands it to the picker (V2)", () => {
-  const AYE: Approver[] = [
-    { staffId: "m1", displayName: "Aye", role: "manager", active: true, hasPin: true, self: false },
-  ];
-  const base = {
-    idPrefix: "v2",
-    approverStaffId: "",
-    onApproverChange: () => {},
-    pin: "",
-    onPinChange: () => {},
-    locked: false,
-  };
-  function fields(failed: boolean, onRetry: () => Promise<boolean>) {
-    return (
-      <StaffLangProvider lang="en">
-        <ManagerPinFields
-          {...base}
-          approvers={failed ? null : AYE}
-          rosterFailed={failed}
-          onRetry={onRetry}
-        />
-      </StaffLangProvider>
-    );
-  }
-  const retryBtn = () => screen.queryByRole("button", { name: STAFF["out.shell.retry"].en });
-
-  it("a recovery with NO tap pending (the late answer) moves focus from the vanished Try again to the picker", () => {
-    const onRetry = vi.fn(async () => false);
-    const { rerender } = render(fields(true, onRetry));
-    retryBtn()!.focus();
-    expect(document.activeElement).toBe(retryBtn());
-    rerender(fields(false, onRetry));
-    expect(retryBtn()).toBeNull();
-    // MUTATION (p2h-cx1/fields/late-load-no-focus): focus falls with the button; red.
-    expect(document.activeElement).toBe(screen.getByLabelText("Manager"));
-  });
-
-  it("focus the person put elsewhere (the PIN field) is never taken by the recovery", () => {
-    const onRetry = vi.fn(async () => false);
-    const { rerender } = render(fields(true, onRetry));
-    const pinField = screen.getByLabelText("PIN");
-    pinField.focus();
-    rerender(fields(false, onRetry));
-    // MUTATION (p2h-cx1/fields/late-load-steals-focus): the picker takes focus from the PIN field; red.
-    expect(document.activeElement).toBe(pinField);
-  });
-
-  it("a Try again that comes BACK after a recovery starts clean: a later recovery with focus elsewhere takes nothing", () => {
-    const onRetry = vi.fn(async () => false);
-    const { rerender } = render(fields(true, onRetry));
-    retryBtn()!.focus();
-    rerender(fields(false, onRetry));
-    expect(document.activeElement).toBe(screen.getByLabelText("Manager"));
-    // The list fails again (a fresh sheet would re-read; here the same fields re-fail) and the person
-    // moves on to the PIN before the next recovery.
-    rerender(fields(true, onRetry));
-    const pinField = screen.getByLabelText("PIN");
-    pinField.focus();
-    rerender(fields(false, onRetry));
-    // MUTATION (p2h-cx1/fields/held-focus-latched): the first vanish's "had focus" outlives it and the
-    // second recovery takes focus from the PIN field; red.
-    expect(document.activeElement).toBe(pinField);
-  });
-});

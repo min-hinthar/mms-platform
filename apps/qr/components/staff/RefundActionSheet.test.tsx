@@ -7,14 +7,11 @@ import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
- * manager-5 — the refund sheet's PIN discipline, pinned where it lives: a refused PIN leaves the
- * masked field (the next tap used to re-send the same wrong digits and burn an attempt toward the
- * lockout) with focus back in it; a lockout makes the field READ-ONLY and refuses the submit
- * (§17 — never native `disabled`, and `locked` was never read here at all).
+ * The refund sheet's tap discipline (§17 — never native `disabled`) and its bounded write (Phase 2h).
+ * No-PIN (owner, 2026-10-24): there is no PIN field — the signed-in manager's tap is the authority.
  */
 const refundLine = vi.fn(
-  (): Promise<RefundResult> =>
-    Promise.resolve({ ok: false, reason: "pin_wrong", attemptsRemaining: 2 }),
+  (): Promise<RefundResult> => Promise.resolve({ ok: false, reason: "not_paid" }),
 );
 vi.mock("@/lib/refunds", () => ({ refundLine: (...a: unknown[]) => refundLine(...(a as [])) }));
 vi.mock("./TicketText", () => ({ ExpoLineMy: () => null }));
@@ -57,54 +54,33 @@ function mount() {
       <RefundActionSheet open order={order} line={line} onClose={() => {}} onDone={() => {}} />
     </StaffLangProvider>,
   );
-  const pin = () => document.getElementById("refund-pin") as HTMLInputElement;
   const refund = () =>
     screen.getByRole("button", { name: /Refund \$13\.00|Refunding/ }) as HTMLButtonElement;
-  return { pin, refund };
+  return { refund };
 }
 
-describe("RefundActionSheet — the PIN discipline", () => {
-  it("a wrong PIN empties the field and hands focus back to it; the Refund button is aria-disabled, never native", async () => {
-    const { pin, refund } = mount();
-    fireEvent.change(pin(), { target: { value: "1234" } });
+describe("RefundActionSheet — No-PIN (owner, 2026-10-24): the signed-in manager's tap is the authority", () => {
+  it("there is no PIN field; a tap sends the line and the reason ONLY (`refund-sheet/sends-a-pin`)", async () => {
+    const { refund } = mount();
+    expect(document.getElementById("refund-pin")).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
     expect(refund().getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
       fireEvent.click(refund());
     });
-    expect(refundLine).toHaveBeenCalledTimes(1);
-    // MUTATION: drop `setPin("")` from the refusal — the field keeps "1234" and this reddens.
-    expect(pin().value).toBe("");
-    expect(document.activeElement).toBe(pin());
-    expect(refund().disabled).toBe(false);
-    expect(refund().getAttribute("aria-disabled")).toBe("true"); // empty PIN — a stated refusal
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("2");
+    expect(refundLine).toHaveBeenCalledWith({ orderItemId: "li1", reason: "unhappy" });
   });
 
-  it("a lockout makes the field read-only and refuses the submit until it lifts", async () => {
-    const { pin, refund } = mount();
-    fireEvent.change(pin(), { target: { value: "1234" } });
-    refundLine.mockResolvedValueOnce({
-      ok: false,
-      reason: "pin_locked",
-      lockedUntil: new Date(Date.now() + 30_000).toISOString(),
-    });
+  it("a refusal keeps the sheet, says why, and hands focus to the reason", async () => {
+    const { refund } = mount();
     await act(async () => {
       fireEvent.click(refund());
     });
-    expect(refundLine).toHaveBeenCalledTimes(1);
-    // MUTATION: leave `locked` out of `useLockout`'s destructure — the field stays editable and the
-    // button live, and this reddens on both.
-    expect(pin().readOnly).toBe(true);
-    expect(pin().disabled).toBe(false);
-    fireEvent.change(pin(), { target: { value: "5678" } });
-    expect(refund().getAttribute("aria-disabled")).toBe("true");
-    await act(async () => {
-      fireEvent.click(refund());
-    });
-    expect(refundLine).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="status"]')?.textContent).toMatch(
-      new RegExp(STAFF["pin.lockedFor"].en.split("{x}")[0]!.trim()),
+    expect(document.activeElement?.id).toBe("refund-reason");
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(
+      STAFF["floor.refund.err.notPaid"].en,
     );
+    expect(refund().disabled).toBe(false);
   });
 
   it("§17 — while the refund runs the button is aria-disabled + busy and says a stated word", async () => {
@@ -114,8 +90,7 @@ describe("RefundActionSheet — the PIN discipline", () => {
         release = r;
       }),
     );
-    const { pin, refund } = mount();
-    fireEvent.change(pin(), { target: { value: "1234" } });
+    const { refund } = mount();
     await act(async () => {
       fireEvent.click(refund());
     });
@@ -195,22 +170,20 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
         <RefundActionSheet open order={order} line={line} onClose={onClose} onDone={onDone} />
       </StaffLangProvider>,
     );
-    const pin = () => document.getElementById("refund-pin") as HTMLInputElement;
     const refund = () =>
       screen.getByRole("button", { name: /Refund \$13\.00|Refunding/ }) as HTMLButtonElement;
-    const tap = async (digits = "1234") => {
-      fireEvent.change(pin(), { target: { value: digits } });
+    const tap = async () => {
       await act(async () => {
         fireEvent.click(refund());
       });
     };
-    return { onDone, onClose, pin, refund, tap };
+    return { onDone, onClose, refund, tap };
   }
 
-  it("no answer at STAFF_HANG_MS: the sheet frees (✕ and Cancel live), says the refund may still go through, offers the reload, and keeps no PIN", async () => {
+  it("no answer at STAFF_HANG_MS: the sheet frees (✕ and Cancel live), says the refund may still go through, offers the reload", async () => {
     vi.useFakeTimers();
     refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
-    const { refund, pin, tap, onClose } = mountSpied();
+    const { refund, tap, onClose } = mountSpied();
     await tap();
     expect(refund().getAttribute("aria-busy")).toBe("true");
     expect(closeX().getAttribute("aria-disabled")).toBe("true");
@@ -226,8 +199,6 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
     // MUTATION (p2h-sheets/refund/no-reload): red.
     expect(reloadBtn()).not.toBeNull();
-    // MUTATION (p2h-sheets/refund/waiting-keeps-the-pin): the masked digits stay, to be re-sent; red.
-    expect(pin().value).toBe("");
     await act(async () => {
       fireEvent.click(cancelBtn());
     });
@@ -267,19 +238,17 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     expect(onDone).toHaveBeenCalledWith(1250);
   });
 
-  it("a LATE refusal is said while the sheet is open (and empties the PIN); a late throw is 'couldn't confirm'", async () => {
+  it("a LATE refusal is said while the sheet is open ; a late throw is 'couldn't confirm'", async () => {
     vi.useFakeTimers();
     const late = deferred<RefundResult>();
     refundLine.mockReturnValueOnce(late.promise);
-    const { tap, pin } = mountSpied();
+    const { tap } = mountSpied();
     await tap();
     await advance(STAFF_HANG_MS);
-    fireEvent.change(pin(), { target: { value: "99" } });
     await act(async () => {
       late.resolve({ ok: false, reason: "not_paid" });
     });
     expect(region().textContent).toBe(STAFF["floor.refund.err.notPaid"].en);
-    expect(pin().value).toBe("");
     cleanup();
     const late2 = deferred<RefundResult>();
     refundLine.mockReturnValueOnce(late2.promise);
@@ -302,31 +271,29 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     await advance(STAFF_HANG_MS);
     cleanup(); // closed; the manager opens the next line's refund
     const next = mountSpied();
-    fireEvent.change(next.pin(), { target: { value: "42" } });
-    const reasonSelect = document.getElementById("refund-reason") as HTMLSelectElement;
-    reasonSelect.focus();
+    // Focus somewhere other than the reason: a late refusal must not move it there.
+    const held = next.refund();
+    held.focus();
     await act(async () => {
       late.resolve({ ok: false, reason: "not_paid" });
     });
     // MUTATION (p2h-sheets/refund/late-refusal-reaches-the-next-sheet): the closed sheet's refusal
-    // focuses the NEW sheet's PIN field (the id is shared) out from under the manager; red.
-    expect(document.activeElement).toBe(reasonSelect);
-    expect(next.pin().value).toBe("42");
+    // focuses the NEW sheet's reason (the id is shared) out from under the manager; red.
+    expect(document.activeElement).toBe(held);
   });
 
   it("a THROWN refund may have moved money: 'couldn't confirm — check the order', never 'couldn't refund — try again'", async () => {
     vi.useFakeTimers();
     refundLine.mockRejectedValueOnce(new Error("fetch failed"));
-    const { tap, pin, refund } = mountSpied();
+    const { tap, refund } = mountSpied();
     await tap();
     // MUTATION (p2h-sheets/refund/threw-said-as-failed): the old catch's "Couldn't refund that line —
     // try again" — and the manager refunds a second time; red.
     expect(region().textContent).toBe(STAFF["floor.refund.err.unknown"].en);
-    expect(pin().value).toBe("");
     expect(refund().getAttribute("aria-busy")).toBeNull();
   });
 
-  it("a re-tap while the refund is still out is REFUSED, never sent — even with a fresh PIN typed — in the refund's OWN words ('don't refund it again'), with the reload (owner decision)", async () => {
+  it("a re-tap while the refund is still out is REFUSED, never sent — in the refund's OWN words ('don't refund it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
     const { tap } = mountSpied();
@@ -334,7 +301,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     await advance(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
     const said = watchRegion(region());
-    await tap("5678");
+    await tap();
     // Never sent: a second refund queued behind the first.
     expect(refundLine).toHaveBeenCalledTimes(1);
     // Critic F1 — RE-SAID, not left standing: the waiting line was already in the region, and equal
@@ -370,7 +337,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     await tap();
     await advance(STAFF_HANG_MS);
     vi.setSystemTime(Date.now() - 60_000); // a wall clock set back: the own wait refuses regardless
-    await tap("5678");
+    await tap();
     // MUTATION (p2h-sheets/refund/own-wait-forgotten): a second refund queued behind the first —
     // money out twice if the stale board's refusal does not catch it; red.
     expect(refundLine).toHaveBeenCalledTimes(1);
@@ -379,7 +346,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
       late.resolve({ ok: false, reason: "stripe_error" });
     });
     refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
-    await tap("5678");
+    await tap();
     // MUTATION (p2h-sheets/refund/own-wait-never-cleared): an answered refund still refuses the retry; red.
     expect(refundLine).toHaveBeenCalledTimes(2);
   });
@@ -393,7 +360,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     await advance(STAFF_HANG_MS);
     cleanup(); // put away — the board keys the next open as a fresh mount
     const again = mountSpied();
-    await again.tap("5678");
+    await again.tap();
     expect(refundLine).toHaveBeenCalledTimes(1);
     // MUTATION (p2h-rev-a/refund/subject-unkeyed): a per-mount wait is forgotten by the remount,
     // and the re-tap says the tablet's "this did nothing" — dropping "don't refund it again"; red.
@@ -402,7 +369,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
       late.resolve({ ok: false, reason: "stripe_error" });
     });
     refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
-    await again.tap("5678");
+    await again.tap();
     // The late answer reached the subject through the CLOSED mount's closure: the re-opened sheet
     // may send again.
     expect(refundLine).toHaveBeenCalledTimes(2);
@@ -417,9 +384,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
         <RefundActionSheet open order={cash} line={line} onClose={() => {}} onDone={() => {}} />
       </StaffLangProvider>,
     );
-    const pin = () => document.getElementById("refund-pin") as HTMLInputElement;
     const tap = async () => {
-      fireEvent.change(pin(), { target: { value: "1234" } });
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /Refund \$13\.00|Refunding/ }));
       });
@@ -452,7 +417,6 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
         <RefundActionSheet open order={order} line={other} onClose={() => {}} onDone={() => {}} />
       </StaffLangProvider>,
     );
-    fireEvent.change(document.getElementById("refund-pin")!, { target: { value: "1234" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Refund \$13\.00/ }));
     });

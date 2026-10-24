@@ -8,7 +8,7 @@ import { approvalsPollVerdict, type ApprovalsPollRefusal } from "./approvals-pol
 import { pendingCountVerdict, type PendingCount } from "./approvals-count";
 import { lineNowFromRow, type CartStatus, type RequestLineNow } from "./approval-state";
 import { getStaffAuth, requireStaff } from "./staff";
-import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
+import { canApproveLoss } from "./approvers";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { loadLineNames } from "./line-names";
@@ -119,14 +119,11 @@ export type ApprovalDecision = "approve" | "deny" | "close";
 
 export type ResolveApprovalResult =
   | { ok: true; decision: ApprovalDecision }
-  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
-  | { ok: false; reason: "pin_locked"; lockedUntil: string }
   | {
       ok: false;
-      reason:
-        | "pin_no_pin"
+      reason: // No-PIN: the signed-in caller cannot decide this one — not a manager or owner, or (approve /
+        // deny) the request is their own.
         | "bad_approver"
-        | "step_up_rate_limited"
         | "already"
         | "stale"
         | "not_open"
@@ -144,8 +141,8 @@ export type ResolveApprovalResult =
 /**
  * A manager resolves a pending request (approve → apply the recorded action; deny → close it, line stays
  * live; PD8 · D2 close → `superseded`, admitted only once the table paid, was cleared, or the line
- * changed — the request's OWN asker may close it). Proven by the manager-PIN step-up so it works on a
- * shared tablet; mms_resolve_approval re-checks the approver is an active manager/owner (≠ the requester
+ * changed — the request's OWN asker may close it). No-PIN (owner, 2026-10-24): the approver is the
+ * SIGNED-IN caller, a manager or owner — one tap, no PIN; mms_resolve_approval re-checks the approver is an active manager/owner (≠ the requester
  * on approve/deny) and that the row is still pending. M184: approve refuses `changed` when the line's
  * qty or amount moved since the ask.
  */
@@ -158,7 +155,11 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   const caller = auth.caller;
   const parsed = resolveApprovalInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
-  const { approvalId, decision, approverStaffId, pin } = parsed.data;
+  const { approvalId, decision } = parsed.data;
+  // No-PIN — the caller decides on their own sign-in, and only a manager or owner may (the SQL's
+  // role check, answered before any read so a server's tap costs nothing).
+  if (!canApproveLoss(caller.role)) return { ok: false, reason: "bad_approver" };
+  const approverStaffId = caller.staffId;
 
   const db = serviceClient();
   // Read the request first (for the revalidate/touch targets + a fast not-found).
@@ -187,27 +188,10 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
     if (cart && (await paymentInFlightReason(cart))) return { ok: false, reason: "in_flight" };
   }
 
-  // Verify the manager's PIN server-side (lockout-counted) BEFORE the RPC. mms_resolve_approval re-checks
-  // the approver's role + self + that the row is still pending.
-  // W1·Q7: pre-flight first — never spend the target's lockout budget on an invalid approver or a
-  // caller who's burning the step-up rate bucket (the manager-lockout DoS vector). The self-check
-  // compares the approver to the REQUEST's INITIATOR (mirrors mms_resolve_approval's
-  // `p_approver = v_initiator` rule) — NOT the caller: a manager resolving a server's request with
-  // their own PIN is the normal case and must pass.
-  // PD8 · D2 — a CLOSE has no self rule (the asker may close their own stale request; nothing about
-  // food is decided), so the pre-flight gets `null` there and the request's initiator otherwise.
-  const pre = await approverStepUpAllowed(
-    approverStaffId,
-    caller.staffId,
-    decision === "close" ? null : appr.initiator_staff_id,
-  );
-  if (pre !== "ok") return { ok: false, reason: pre };
-  const v = await verifyStaffPin(approverStaffId, pin);
-  if (v.status === "wrong")
-    return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };
-  if (v.status === "locked") return { ok: false, reason: "pin_locked", lockedUntil: v.lockedUntil };
-  if (v.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
-  if (v.status !== "ok") return { ok: false, reason: "error" };
+  // The request's own asker decides only a CLOSE (PD8 · D2 — nothing about food is decided);
+  // mms_resolve_approval re-checks it (`self_approve`), this answers before the RPC.
+  if (decision !== "close" && appr.initiator_staff_id === approverStaffId)
+    return { ok: false, reason: "bad_approver" };
 
   const { data: status, error } = await db.rpc("mms_resolve_approval", {
     p_id: approvalId,

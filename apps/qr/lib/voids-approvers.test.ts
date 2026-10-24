@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * PD8 — `listApprovers` joins `staff_pins` for `hasPin`, the fact `eligibleApprovers` filters on.
- * A failed PIN read is an OUTAGE like a failed roster read — never "nobody has a PIN", which would
- * promote the deferred request and tell a server nobody can sign while a manager stands there.
+ * No-PIN (owner, 2026-10-24) — `listApprovers` carries the caller's own row (`self`), which the
+ * approvals decision reads to name the decider; and `voidLine` sends the SIGNED-IN caller as the
+ * approver of their own gated write when they are a manager or owner, and nobody when they are a
+ * server — mapping the SQL's `needs_approval` (and the pre-migration `self_approve`) to
+ * `needs_manager`, the sheet's request path.
  */
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -14,10 +16,6 @@ vi.mock("./staff", () => ({
   requireStaff: () => Promise.resolve(caller),
   getStaffAuth: () => Promise.resolve({ kind: "staff", caller }),
 }));
-vi.mock("./staff-pin", () => ({
-  approverStepUpAllowed: () => Promise.resolve("ok"),
-  verifyStaffPin: () => Promise.resolve({ status: "ok" }),
-}));
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
 vi.mock("./order-lines", () => ({ touchCart: () => Promise.resolve() }));
 vi.mock("./staff-open-cart", () => ({ openCartFor: () => Promise.resolve({}) }));
@@ -27,50 +25,58 @@ let staffRows = [
   { user_id: "aye", display_name: "Aye", role: "manager", active: true },
   { user_id: "nu", display_name: "Nu", role: "manager", active: true },
 ];
-let pinRows: { staff_id: string }[] = [{ staff_id: "aye" }];
-let pinsFail = false;
+let rpcAnswer: string = "ok";
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+const SESSION = "11111111-1111-4111-8111-111111111111";
+const LINE = "22222222-2222-4222-8222-222222222222";
+
+/** A chain that answers by table: the roster read, the open cart, the line. */
+function chain(table: string) {
+  const c: Record<string, unknown> = {
+    select: () => c,
+    in: () => c,
+    eq: () => c,
+    limit: () => Promise.resolve({ data: staffRows, error: null }),
+    maybeSingle: () =>
+      Promise.resolve(
+        table === "qr_carts"
+          ? { data: { id: "cart-1", locked: false, locked_at: null, settle_at: null }, error: null }
+          : { data: { id: LINE }, error: null },
+      ),
+  };
+  return c;
+}
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
-    from: (table: string) => ({
-      select: () => ({
-        in: (_c: string, ids: string[]) =>
-          table === "staff_pins"
-            ? Promise.resolve(
-                pinsFail
-                  ? { data: null, error: { message: "down" } }
-                  : { data: pinRows.filter((p) => ids.includes(p.staff_id)), error: null },
-              )
-            : {
-                eq: () => ({
-                  limit: () => Promise.resolve({ data: staffRows, error: null }),
-                }),
-              },
-      }),
-    }),
+    from: (table: string) => chain(table),
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ data: rpcAnswer, error: null });
+    },
   }),
 }));
 
-const { listApprovers } = await import("./voids");
+const { listApprovers, voidLine } = await import("./voids");
 
 beforeEach(() => {
-  pinsFail = false;
-  pinRows = [{ staff_id: "aye" }];
+  rpcAnswer = "ok";
+  rpcCalls.length = 0;
   staffRows = [
     { user_id: "aye", display_name: "Aye", role: "manager", active: true },
     { user_id: "nu", display_name: "Nu", role: "manager", active: true },
   ];
 });
 
-describe("listApprovers — the PIN join and the caller's own row (PD8)", () => {
+describe("listApprovers — the caller's own row", () => {
   beforeEach(() => {
     caller = { staffId: "thiri", displayName: "Thiri", role: "server" };
   });
-  it("marks exactly the managers with a tablet PIN, and carries the server caller as `self`", async () => {
+  it("lists the managers and carries the server caller as `self`", async () => {
     const roster = await listApprovers();
-    expect(roster.map((a) => [a.staffId, a.role, a.hasPin, a.active, a.self])).toEqual([
-      ["aye", "manager", true, true, false],
-      ["nu", "manager", false, true, false],
-      ["thiri", "server", false, true, true],
+    expect(roster.map((a) => [a.staffId, a.role, a.active, a.self])).toEqual([
+      ["aye", "manager", true, false],
+      ["nu", "manager", true, false],
+      ["thiri", "server", true, true],
     ]);
   });
   it("a manager caller is marked `self` on their own roster row — never listed twice", async () => {
@@ -82,8 +88,36 @@ describe("listApprovers — the PIN join and the caller's own row (PD8)", () => 
       ["nu", false],
     ]);
   });
-  it("a failed PIN read is an outage, never 'nobody has a PIN'", async () => {
-    pinsFail = true;
-    await expect(listApprovers()).rejects.toThrow();
+});
+
+describe("voidLine — No-PIN: the signed-in caller is the approver", () => {
+  const input = { sessionId: SESSION, cartItemId: LINE, action: "comp", reason: "quality" };
+
+  it("a manager is sent as the approver of their own comp, and it lands", async () => {
+    caller = { staffId: "aye", displayName: "Aye", role: "manager" };
+    expect(await voidLine(input)).toEqual({ ok: true, action: "comp" });
+    const call = rpcCalls.find((c) => c.fn === "mms_void_line")!;
+    expect(call.args).toMatchObject({ p_initiator: "aye", p_approver: "aye" });
+  });
+
+  it("a server is sent with NO approver, and a gated line answers needs_manager", async () => {
+    caller = { staffId: "thiri", displayName: "Thiri", role: "server" };
+    rpcAnswer = "needs_approval";
+    expect(await voidLine(input)).toEqual({ ok: false, reason: "needs_manager" });
+    const call = rpcCalls.find((c) => c.fn === "mms_void_line")!;
+    expect(call.args.p_approver).toBeUndefined();
+  });
+
+  it("the PRE-migration self_approve reads as needs_manager — the request path, never a dead refusal (`voids/self-approve-dead-end`)", async () => {
+    caller = { staffId: "aye", displayName: "Aye", role: "manager" };
+    rpcAnswer = "self_approve";
+    expect(await voidLine(input)).toEqual({ ok: false, reason: "needs_manager" });
+  });
+
+  it("a PIN an older client still sends is never read — the parse strips it", async () => {
+    caller = { staffId: "thiri", displayName: "Thiri", role: "server" };
+    rpcAnswer = "needs_approval";
+    await voidLine({ ...input, approverStaffId: "aye", pin: "1234" });
+    expect(rpcCalls.find((c) => c.fn === "mms_void_line")!.args.p_approver).toBeUndefined();
   });
 });

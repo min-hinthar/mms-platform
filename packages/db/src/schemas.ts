@@ -546,12 +546,12 @@ export const setTogoStatusInput = z.object({
 });
 
 /** refundLine (S4.3b) — a manager refunds ONE paid order line (money-OUT). Shape only; the amount + PI are
- *  SERVER-derived (mms_refund_authorize), never sent by the client. `pin` is the money-out step-up
- *  (verifyStaffPin on the manager's own identity); `reason` is an audit code. */
+ *  SERVER-derived (mms_refund_authorize), never sent by the client; `reason` is an audit code. No-PIN
+ *  (owner, 2026-10-24): the manager's own sign-in is the authority — a `pin` an older client still
+ *  sends is stripped by the parse, never read. */
 export const refundLineInput = z.object({
   orderItemId: uuid,
   reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "sold_out", "other"]),
-  pin: z.string().regex(/^\d{4,8}$/),
 });
 
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
@@ -841,12 +841,8 @@ export const voidLineInput = z.object({
     "sold_out", // 86'd mid-service — the kitchen cannot produce it (W23a)
     "other",
   ]),
-  // Present only for the manager-PIN step-up: the manager the initiating server tapped + their PIN.
-  approverStaffId: uuid.optional(),
-  pin: z
-    .string()
-    .regex(/^\d{4,8}$/)
-    .optional(),
+  // No-PIN (owner, 2026-10-24): no approver or PIN rides the request — the signed-in caller is the
+  // approver when they are a manager or owner (`approverFor`). Older clients' fields are stripped.
 });
 
 export type VoidLineInput = z.infer<typeof voidLineInput>;
@@ -854,7 +850,7 @@ export type VoidLineInput = z.infer<typeof voidLineInput>;
 /** recordCounterNoShow (Phase 2f · P2v) — write off a COUNTER order's SENT food when the guest never
  *  came (owner decision 7b). Shape only: the server re-derives the open cart, the counter predicate,
  *  the sent set, the loss gate and the approver's role (mms_counter_no_show). The client never
- *  asserts an amount or whether a manager is needed; the PIN rides only the step-up.
+ *  asserts an amount or whether a manager is needed, nor who approves (No-PIN: the signed-in caller).
  *
  *  `expectedLineIds` (Phase 2f blind review) — the SENT line ids the sheet SHOWED, i.e. what the
  *  staff member and the approving manager agreed to write off. It asserts nothing the server trusts:
@@ -865,11 +861,6 @@ export type VoidLineInput = z.infer<typeof voidLineInput>;
 export const counterNoShowInput = z.object({
   sessionId: uuid,
   expectedLineIds: z.array(uuid).max(200),
-  approverStaffId: uuid.optional(),
-  pin: z
-    .string()
-    .regex(/^\d{4,8}$/)
-    .optional(),
 });
 export type CounterNoShowInput = z.infer<typeof counterNoShowInput>;
 
@@ -913,10 +904,9 @@ export const requestApprovalInput = z.object({
 });
 
 /**
- * resolveApproval (S2.4) — a manager approves or denies a pending request from the queue. The manager is
- * proven by the PIN step-up (verified server-side, lockout-counted) so it works on a shared tablet
- * regardless of who's signed in; mms_resolve_approval re-checks the approver is an active manager/owner
- * and not the requester (D3), and resolves a row only once (D4).
+ * resolveApproval (S2.4) — a manager approves or denies a pending request from the queue. No-PIN (owner,
+ * 2026-10-24): the manager is the SIGNED-IN caller; mms_resolve_approval re-checks the approver is an
+ * active manager/owner and not the requester (D3), and resolves a row only once (D4).
  */
 export const resolveApprovalInput = z.object({
   approvalId: uuid,
@@ -924,8 +914,6 @@ export const resolveApprovalInput = z.object({
   // or whose line changed after the ask) is closed as `superseded`, never `denied`. The SQL admits
   // it only once the cart has left `open` or the line changed (`still_open` otherwise).
   decision: z.enum(["approve", "deny", "close"]),
-  approverStaffId: uuid,
-  pin: z.string().regex(/^\d{4,8}$/),
 });
 
 /**

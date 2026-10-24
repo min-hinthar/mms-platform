@@ -352,14 +352,13 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     expect(screen.getByText(/Mohinga/)).toBeTruthy();
   });
 
-  it("manager-4 · PD8 — Decide moves focus to the PIN (the one eligible signer arrives lit); Cancel hands it back to Decide; Enter in the PIN never decides", async () => {
+  it("manager-4 · PD8 · No-PIN — Decide moves focus to the decision, which names the signed-in manager; Cancel hands it back to Decide; Enter never decides", async () => {
     const approver: Approver = {
       staffId: "m1",
       displayName: "Daw Aye",
       role: "manager",
       active: true,
-      hasPin: true,
-      self: false,
+      self: true,
     };
     mount([pending("r1")], [approver]);
     const decide = screen.getByRole("button", { name: /^Decide/ });
@@ -367,18 +366,15 @@ describe("ApprovalsBoard — the poll and the jump", () => {
       decide.click();
     });
     // MUTATION: drop the effect — focus stays on <body> after the button unmounts.
-    const pin = document.getElementById("appr-r1-pin") as HTMLInputElement;
-    expect(document.activeElement).toBe(pin);
-    expect(pin.closest("form")?.getAttribute("aria-labelledby")).toBe("appr-q-r1");
-    // Exactly one eligible arrives lit, and the PIN field is labelled with the person.
-    expect(screen.getByRole("button", { name: /Daw Aye/, pressed: true })).toBeTruthy();
-    expect(screen.getByLabelText(tf("en", "pin.yourPin", { x: "Daw Aye" }))).toBe(pin);
-    // Two keys share the field: Enter asks for one, it never approves on its own.
+    const form = document.activeElement as HTMLFormElement;
+    expect(form.tagName).toBe("FORM");
+    expect(form.getAttribute("aria-labelledby")).toBe("appr-q-r1");
+    // No-PIN — the decider is the signed-in manager, named; there is no PIN field.
+    expect(form.textContent).toContain(tf("en", "table.appr.decideAs", { x: "Daw Aye" }));
+    expect(form.querySelector('input[type="password"]')).toBeNull();
+    // Two keys share the form: Enter asks for one, it never approves on its own.
     await act(async () => {
-      fireEvent.change(pin, { target: { value: "1234" } });
-    });
-    await act(async () => {
-      fireEvent.submit(pin.closest("form")!);
+      fireEvent.submit(form);
     });
     expect(resolveApproval).not.toHaveBeenCalled();
     expect(document.getElementById("appr-msg-r1")!.textContent).toBe(
@@ -388,6 +384,24 @@ describe("ApprovalsBoard — the poll and the jump", () => {
       screen.getByRole("button", { name: STAFF["table.appr.verb.cancel"].en }).click();
     });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Decide/ }));
+  });
+
+  it("No-PIN — a SERVER signed in gets the sentence that says why, and no keys (`approvals-board/server-gets-keys`)", async () => {
+    const me: Approver = {
+      staffId: "s9",
+      displayName: "Thiri",
+      role: "server",
+      active: true,
+      self: true,
+    };
+    mount([pending("r1")], [me]);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Decide/ }).click();
+    });
+    const form = document.activeElement as HTMLFormElement;
+    expect(form.textContent).toContain(STAFF["table.appr.notManager"].en);
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Deny/ })).toBeNull();
   });
 
   it("a same-page jump to the zone's fragment moves focus to its heading, not only the scroll", async () => {
@@ -491,8 +505,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     displayName: "Daw Aye",
     role: "manager",
     active: true,
-    hasPin: true,
-    self: false,
+    self: true,
   };
   const region = () => document.getElementById("appr-msg-r1")!;
   const reload = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
@@ -500,9 +513,6 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
   async function ready() {
     await act(async () => {
       screen.getByRole("button", { name: /^Decide/ }).click();
-    });
-    await act(async () => {
-      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
     });
     return approveKey();
   }
@@ -533,7 +543,6 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     expect(region().contains(reload())).toBe(false);
     // The PIN is cleared — a second decision is what the sentence says not to make.
     // MUTATION (p2h-boards/approvals/pin-kept-on-waiting): the PIN stays typed in; red.
-    expect((document.getElementById("appr-r1-pin") as HTMLInputElement).value).toBe("");
     // The LATE refusal is said (9e). MUTATION (p2h-boards/approvals/late-answer-dropped): the waiting
     // line stands for good; red.
     await act(async () => {
@@ -589,9 +598,6 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     await tick(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
     // The PIN was cleared at the bound; typed again, the form is live and the tap reaches the guard.
-    await act(async () => {
-      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
-    });
     expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
     const said = watchRegion(region());
     await act(async () => {
@@ -720,8 +726,7 @@ describe("the blind pass on #333 — the circle, the changed sentence, and a tab
     displayName: "Daw Aye",
     role: "manager",
     active: true,
-    hasPin: true,
-    self: false,
+    self: true,
   };
   function mountWithCircle(
     seed: { ok: true; count: number } | { ok: false },
@@ -801,9 +806,6 @@ describe("the blind pass on #333 — the circle, the changed sentence, and a tab
     mount([pending("r1")], [manager]);
     await act(async () => {
       screen.getByRole("button", { name: /^Decide/ }).click();
-    });
-    await act(async () => {
-      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
     });
     await act(async () => {
       screen.getByRole("button", { name: /^Approve/ }).click();

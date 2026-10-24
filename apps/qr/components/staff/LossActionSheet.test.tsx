@@ -18,9 +18,7 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 const voidLine = vi.fn(
   (): Promise<VoidLineResult> => Promise.resolve({ ok: true, action: "void" }),
 );
-const approvers = vi.fn((): Promise<unknown[]> => Promise.resolve([]));
 vi.mock("@/lib/voids", () => ({
-  listApprovers: () => approvers(),
   voidLine: (...a: unknown[]) => voidLine(...(a as [])),
 }));
 const requestApproval = vi.fn(
@@ -52,15 +50,6 @@ const line = {
   modifiers: [],
   refundedCents: 0,
 } as unknown as TableLineView;
-/** A roster of one manager who can sign — the one-eligible shape, which arrives LIT (PD8). */
-const DAW_MYA_ROW = {
-  staffId: "m1",
-  displayName: "Daw Mya",
-  role: "manager",
-  active: true,
-  hasPin: true,
-  self: false,
-};
 
 function mount(lang: "en" | "my" = "en") {
   return render(
@@ -141,7 +130,6 @@ describe("LossActionSheet — the sheet in the console's tongue", () => {
   });
 
   it("manager-7 · PD8 — ONE chip picks what AND why: two columns under their kind marks, every chip `.staff-chip` with aria-pressed, at most one lit, no inline fill", async () => {
-    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
     mount();
     await act(async () => {});
     const voidCol = screen.getByRole("group", { name: STAFF["table.loss.seg.void"].en });
@@ -166,19 +154,16 @@ describe("LossActionSheet — the sheet in the console's tongue", () => {
     // MUTATION: an inline fill on the lit chip — it beats the shared cap rule, and this reddens.
     expect((row as HTMLElement).style.background).toBe("");
     expect(document.querySelectorAll('.loss-chip[aria-pressed="true"]').length).toBe(1);
-    // A comp chip: the what moves with the why, the void chip goes out, and the slip appears (a comp
-    // is gated up-front).
+    // A comp chip: the what moves with the why and the void chip goes out — and No-PIN: no slip,
+    // no PIN field, the one confirm button (the server decides who may approve).
     await act(async () => {
       fireEvent.click(compChip());
     });
     expect(reason().getAttribute("aria-pressed")).toBe("false");
     expect(compChip().getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelectorAll('.loss-chip[aria-pressed="true"]').length).toBe(1);
-    // The one eligible signer is lit, so the chip tap lands focus on "Daw Mya, your PIN".
-    const pin = document.getElementById("loss-pin") as HTMLInputElement;
-    expect(pin).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Daw Mya/, pressed: true })).toBeTruthy();
-    expect(document.activeElement).toBe(pin);
+    expect(document.getElementById("loss-pin")).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
   });
 
   it("§17 — the confirm is aria-disabled + busy while the void runs, never native", async () => {
@@ -215,175 +200,6 @@ describe("LossActionSheet — the sheet in the console's tongue", () => {
   });
 });
 
-describe("LossActionSheet — a roster that could not be read (Codex round 2 on #308)", () => {
-  // A cooked line gates the step-up up-front, so the manager fields render on mount.
-  const cooked = { ...line, state: "served" } as unknown as TableLineView;
-  function mountCooked() {
-    return render(
-      <StaffLangProvider lang="en">
-        <LossActionSheet
-          open
-          onOpenChange={() => {}}
-          sessionId="s1"
-          line={cooked}
-          onDone={() => {}}
-        />
-      </StaffLangProvider>,
-    );
-  }
-
-  it("says the list couldn't be loaded, not that nobody is on shift — and Try again recovers", async () => {
-    approvers.mockRejectedValueOnce(new Error("503"));
-    mountCooked();
-    await act(async () => {});
-    const dialog = document.querySelector('[role="dialog"]')!;
-    expect(dialog.textContent).toContain(STAFF["pin.manager.loadFailed"].en);
-    expect(dialog.textContent).not.toContain(STAFF["pin.manager.noneNote"].en);
-    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
-    });
-    expect(approvers).toHaveBeenCalledTimes(2);
-    // PD8 — the one eligible signer arrives lit, so the Try again's answer lands focus on the PIN.
-    const pin = document.getElementById("loss-pin") as HTMLInputElement;
-    expect(pin).not.toBeNull();
-    expect(document.activeElement).toBe(pin);
-    expect(dialog.textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
-  });
-
-  it("a recovery after a failed Try again puts back “a manager needs to approve” while the step-up is pending", async () => {
-    // An uncooked void the server escalates (`needs_pin`), with the roster read failing on mount.
-    approvers.mockRejectedValueOnce(new Error("503"));
-    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    mount();
-    await act(async () => {});
-    await act(async () => {
-      fireEvent.click(reason());
-    });
-    await act(async () => {
-      fireEvent.submit(confirmVoid().closest("form")!);
-    });
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    // Try again fails: the failure takes the region.
-    approvers.mockRejectedValueOnce(new Error("503"));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
-    });
-    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
-    // Try again recovers: the step-up is still pending, so its sentence comes back — never silence.
-    approvers.mockResolvedValueOnce([DAW_MYA_ROW]);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
-    });
-    // MUTATION (p2f-sr-sheet/roster/recovery-drops-needs-manager): the region reads "" — red.
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-  });
-});
-
-/**
- * Codex r1 follow-up on #310 (V1 · V2) — the roster's LATE answer. CX1 lets a read that answers after
- * its bound load the list, but the sheet's region kept "Couldn't load the list of managers…" over the
- * picker it had just filled, and the needs-manager line the failure had displaced never came back.
- * And the Try again that held focus unmounted under it, dropping focus to the dialog. A late load
- * does exactly what an on-time recovery does: the failure sentence goes, the needs-manager line comes
- * back while the server's step-up is pending, and focus that was on the vanished Try again lands on
- * the picker — but focus the person has put anywhere else is never taken.
- */
-describe("LossActionSheet — the roster's LATE answer (Codex r1 follow-up on #310, V1 · V2)", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-  const advance = (ms: number) =>
-    act(async () => {
-      await vi.advanceTimersByTimeAsync(ms);
-    });
-  const retryBtn = () => screen.queryByRole("button", { name: STAFF["out.shell.retry"].en });
-  const DAW_MYA = [DAW_MYA_ROW];
-  /** The Try again's read: it answers only when told to — after its bound. */
-  function hungRoster() {
-    let answer!: (a: unknown[]) => void;
-    approvers.mockImplementationOnce(
-      () =>
-        new Promise<unknown[]>((res) => {
-          answer = res;
-        }),
-    );
-    return (a: unknown[]) => answer(a);
-  }
-
-  it("a list that answers AFTER a failed Try again: 'couldn't load' goes, 'a manager needs to approve' comes back, and focus moves from the vanished Try again to the picker", async () => {
-    vi.useFakeTimers();
-    approvers.mockRejectedValueOnce(new Error("503"));
-    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    mount();
-    await act(async () => {});
-    await act(async () => {
-      fireEvent.click(reason());
-    });
-    await act(async () => {
-      fireEvent.submit(confirmVoid().closest("form")!);
-    });
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    const answer = hungRoster();
-    const retry = retryBtn()!;
-    retry.focus();
-    await act(async () => {
-      fireEvent.click(retry);
-    });
-    await advance(STAFF_HANG_MS);
-    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
-    expect(document.activeElement).toBe(retry);
-    // The read answers after its bound: the list loads (CX1) and the Try again goes.
-    await act(async () => answer(DAW_MYA));
-    const pin = document.getElementById("loss-pin") as HTMLInputElement;
-    expect(pin).not.toBeNull();
-    expect(retryBtn()).toBeNull();
-    // MUTATION (p2h-cx1/roster-region/late-keeps-failure-copy · p2h-cx1/loss/region-unwired): the
-    // region still says the list couldn't load, over the picker it just filled; red.
-    // MUTATION (p2f-sr-sheet/loss-sheet/recovery-drops-needs-manager): the region reads "" — red.
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    // MUTATION (p2h-cx1/loss/late-load-no-focus): focus fell to the dialog with the Try again; red.
-    expect(document.activeElement).toBe(pin);
-  });
-
-  it("with no step-up asked by the server the late list leaves the region empty — and focus the person put on the PIN field stays there", async () => {
-    vi.useFakeTimers();
-    approvers.mockRejectedValueOnce(new Error("503"));
-    // A cooked line gates the step-up up-front: the manager fields are there, the server asked nothing.
-    const cooked = { ...line, state: "served" } as unknown as TableLineView;
-    render(
-      <StaffLangProvider lang="en">
-        <LossActionSheet
-          open
-          onOpenChange={() => {}}
-          sessionId="s1"
-          line={cooked}
-          onDone={() => {}}
-        />
-      </StaffLangProvider>,
-    );
-    await act(async () => {});
-    const answer = hungRoster();
-    await act(async () => {
-      fireEvent.click(retryBtn()!);
-    });
-    await advance(STAFF_HANG_MS);
-    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
-    const pinField = document.querySelector<HTMLInputElement>(
-      '[role="dialog"] input[type="password"]',
-    )!;
-    pinField.focus();
-    await act(async () => answer(DAW_MYA));
-    expect(retryBtn()).toBeNull();
-    // MUTATION (p2h-cx1/roster-region/late-keeps-failure-copy): red.
-    expect(region().textContent).toBe("");
-    // Never taken from where the person put it (the unit case pins the rule:
-    // p2h-cx1/fields/late-load-steals-focus in ManagerPinStepUp.test.tsx).
-    expect(document.activeElement).toBe(pinField);
-  });
-});
-
-// ── Phase 2h · p2h-sheets ──
 /** A write still in the air when the case ends — settled in `afterEach`, after the tree is gone, so
  *  a pre-fix transition left pending by a red-first run can never entangle the next case. */
 const hanging: Array<() => void> = [];
@@ -441,6 +257,16 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
   async function tapVoid() {
     await act(async () => {
       fireEvent.click(reason());
+    });
+    await act(async () => {
+      fireEvent.submit(submitBtn().closest("form")!);
+    });
+  }
+  /** No-PIN — the request is offered once the server says a manager must decide (`needs_manager`). */
+  async function toRequest() {
+    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_manager" });
+    await act(async () => {
+      fireEvent.click(compChip());
     });
     await act(async () => {
       fireEvent.submit(submitBtn().closest("form")!);
@@ -565,47 +391,12 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(reloadBtn()).not.toBeNull();
   });
 
-  it("the void still out, the person turns to the approval REQUEST instead: refused, never sent — re-saying the VOID's sentence (the write that is out), not the request's nor the tablet's", async () => {
-    vi.useFakeTimers();
-    voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
-    mountSpied();
-    await tapVoid();
-    await advance(STAFF_HANG_MS);
-    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
-    // A comp chip — the request shows (nobody on shift: it is the primary). PD8: the chip carries
-    // its reason, so the region holds the waiting line until the request is tapped.
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
-    const request = () =>
-      screen.getByRole("button", {
-        name: (n) => n.includes(STAFF["table.loss.requestApproval.comp"].en),
-      });
-    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
-    await act(async () => {
-      fireEvent.click(request());
-    });
-    // Never sent: the request would queue behind the hung void.
-    expect(requestApproval).not.toHaveBeenCalled();
-    // MUTATION (p2h-int-c/loss/request-refusal-names-itself): "the request may still reach a
-    // manager" — about a request never sent, while the void that may still land goes unsaid; red.
-    // (p2h-sheets/loss/request-own-wait-forgotten reads the ledger alone: "this did nothing"; red.)
-    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
-    expect(reloadBtn()).not.toBeNull();
-  });
-
   it("a tablet stalled on ANOTHER action refuses the void AND the approval request at the tap", async () => {
     vi.useFakeTimers();
+    mountSpied();
+    await toRequest(); // the server said a manager must decide: the one button is the request
     track(new Promise(() => {}));
     await advance(STAFF_HANG_MS);
-    mountSpied();
-    await tapVoid();
-    expect(voidLine).not.toHaveBeenCalled();
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
-    // The comp shows the step-up up-front, and with it the deferred request.
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", {
@@ -616,54 +407,18 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     // MUTATION (p2h-sheets/loss/request-stalled-dispatches): the request queued behind the hang; red.
     expect(requestApproval).not.toHaveBeenCalled();
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
-  });
-
-  it("a step-up void SENT with no answer, or thrown, keeps no PIN — voidLine spends the attempt before the RPC, so a re-send walks toward the lockout (critic F4)", async () => {
-    vi.useFakeTimers();
-    approvers.mockResolvedValue([{ ...DAW_MYA_ROW, displayName: "Aye" }]);
-    const pinField = () => document.getElementById("loss-pin") as HTMLInputElement;
-    async function tapComp() {
-      await act(async () => {
-        fireEvent.click(compChip());
-      });
-      fireEvent.change(pinField(), { target: { value: "1234" } });
-      await act(async () => {
-        fireEvent.submit(submitBtn().closest("form")!);
-      });
-    }
-    const first = deferred<VoidLineResult>();
-    voidLine.mockReturnValueOnce(first.promise);
-    mountSpied();
-    await tapComp();
-    expect(voidLine).toHaveBeenCalledTimes(1);
-    expect(voidLine.mock.calls[0]).toEqual([expect.objectContaining({ pin: "1234" })]);
-    await advance(STAFF_HANG_MS);
-    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
-    // MUTATION (p2h-sheets/loss/sent-keeps-the-pin): the masked digits stay, and the next tap
-    // re-sends a wrong PIN whose verdict was lost; red.
-    expect(pinField().value).toBe("");
     cleanup();
-    await act(async () => {
-      first.resolve({ ok: false, reason: "not_found" }); // the raw answers: the tablet is not stalled
-    });
-    voidLine.mockRejectedValueOnce(new Error("fetch failed"));
     mountSpied();
-    await tapComp();
-    expect(region().textContent).toBe(STAFF["table.loss.msg.unknown"].en);
-    expect(pinField().value).toBe("");
-    approvers.mockReset();
-    approvers.mockImplementation(() => Promise.resolve([]));
+    await tapVoid();
+    expect(voidLine).toHaveBeenCalledTimes(1); // only toRequest's — the stalled tap sent nothing
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
   });
-
   it("the approval request: no answer at the bound says so with the reload; a late ok closes through the parent; a throw is 'couldn't confirm'", async () => {
     vi.useFakeTimers();
-    approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
     const late = deferred<unknown>();
     requestApproval.mockReturnValueOnce(late.promise);
     const { onDone } = mountSpied();
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
+    await toRequest();
     const request = () =>
       screen.getByRole("button", {
         name: (n) =>
@@ -684,12 +439,9 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     });
     expect(onDone).toHaveBeenCalledWith("comp");
     cleanup();
-    approvers.mockResolvedValueOnce([]);
     requestApproval.mockRejectedValueOnce(new Error("fetch failed"));
     mountSpied();
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
+    await toRequest();
     await act(async () => {
       fireEvent.click(request());
     });
@@ -747,13 +499,10 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
 
   it("the approval request's own wait refuses a re-tap with the clock set back, too — and sends again once it answers (critic F12)", async () => {
     vi.useFakeTimers();
-    approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
     const late = deferred<unknown>();
     requestApproval.mockReturnValueOnce(late.promise);
     mountSpied();
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
+    await toRequest();
     const request = () =>
       screen.getByRole("button", {
         name: (n) =>
@@ -792,13 +541,10 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
 
   it("the approval request's LATE throw ends the wait unanswered: 'couldn't confirm' the request, never 'no answer yet' for good (critic F9)", async () => {
     vi.useFakeTimers();
-    approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
     const late = deferred<unknown>();
     requestApproval.mockReturnValueOnce(late.promise);
     mountSpied();
-    await act(async () => {
-      fireEvent.click(compChip());
-    });
+    await toRequest();
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", {
@@ -815,6 +561,56 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     // request that may have reached the queue; red.
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestUnknown"].en);
     expect(reloadBtn()).toBeNull();
+  });
+});
+
+describe("LossActionSheet — No-PIN (owner, 2026-10-24): one button, the server decides", () => {
+  it("a tap sends the line, the action and the reason ONLY — never an approver or a PIN (`loss-sheet/sends-a-pin`)", async () => {
+    mount();
+    await act(async () => {
+      fireEvent.click(compChip());
+    });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('[role="dialog"] form')!);
+    });
+    expect(voidLine).toHaveBeenCalledWith({
+      sessionId: "s1",
+      cartItemId: "l1",
+      action: "comp",
+      reason: "quality",
+    });
+  });
+
+  it("needs_manager turns the one button into the request, says why, and the request carries the chip (`loss-sheet/needs-manager-dead-end`)", async () => {
+    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_manager" });
+    requestApproval.mockResolvedValueOnce({ ok: true });
+    const onDone = vi.fn();
+    render(
+      <StaffLangProvider lang="en">
+        <LossActionSheet open onOpenChange={() => {}} sessionId="s1" line={line} onDone={onDone} />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(compChip());
+    });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('[role="dialog"] form')!);
+    });
+    expect(region().textContent).toBe(STAFF["table.loss.msg.needsManager"].en);
+    expect(document.querySelector('[role="dialog"] form button[type="submit"]')).toBeNull();
+    const request = screen.getByRole("button", {
+      name: new RegExp(STAFF["table.loss.requestApproval.comp"].en),
+    });
+    await act(async () => {
+      fireEvent.click(request);
+    });
+    expect(requestApproval).toHaveBeenCalledWith({
+      sessionId: "s1",
+      cartItemId: "l1",
+      action: "comp",
+      reason: "quality",
+    });
+    expect(onDone).toHaveBeenCalledWith("comp");
   });
 });
 

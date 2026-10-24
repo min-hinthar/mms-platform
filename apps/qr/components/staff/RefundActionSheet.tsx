@@ -11,7 +11,6 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
-import { pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { ExpoLineMy } from "./TicketText";
@@ -21,8 +20,8 @@ import { ExpoLineMy } from "./TicketText";
  * (qty × the dish, its Burmese, its modifiers, the kitchen note) so a manager knows which line
  * they are refunding; the figure the server will actually charge back (`offeredCents` — the
  * discounted goods + the line's tax share, CLAMPED to what the order can still give back), and
- * the clamp explained before the tap when it bit (M204). Reason (audit) + the manager's own PIN
- * (re-auth at action time; lockout-counted server-side). The amount shown is a display echo; the
+ * the clamp explained before the tap when it bit (M204). Reason (audit) — and No-PIN (owner,
+ * 2026-10-24): the signed-in manager's tap is the authority, with no PIN re-auth. The amount shown is a display echo; the
  * server (`mms_refund_authorize`) re-derives the authoritative amount + PI. One live region for
  * the error.
  *
@@ -55,15 +54,8 @@ export function RefundActionSheet({
   onDone: (refundedCents?: number) => void;
 }) {
   const [reason, setReason] = useState<RefundReason>("unhappy");
-  const [pin, setPin] = useState("");
   const [error, setError] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
-  // P7·2 — the same `pin.*` sentences the loss sheet, the approvals queue and the lock screen say,
-  // and the same countdown: "wrong PIN — 2 tries left" is ONE sentence on every screen that says it.
-  // manager-5 — `locked` too: without it the Refund button stayed tappable through the lockout
-  // countdown and the field neither read-only nor gated, so a locked manager kept re-sending into
-  // the lock (the approvals card and the loss sheet both gate on it).
-  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
   // BOUNDED await — never a transition's `pending`, which holds while the Server Action it dispatched
   // is unanswered (Next's per-tab action queue; LEARNINGS #149 · #200). The M82 guard parses for it.
@@ -79,7 +71,7 @@ export function RefundActionSheet({
   // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount: the board keys
   // every open as a fresh sheet, and a re-opened sheet for the same line must still say its own line.
   const ownLate = ownWaitSlot(`refund:${line.id}`, false);
-  // A LATE refusal (9e) moves focus into the PIN field — only while THIS sheet is open: the id is
+  // A LATE refusal (9e) moves focus to the reason — only while THIS sheet is open: the id is
   // shared with any refund sheet opened since. Re-armed at setup (Strict Mode runs the cleanup
   // between two setups).
   const alive = useRef(true);
@@ -95,14 +87,12 @@ export function RefundActionSheet({
   // that answer — so the cash line carries the instruction itself ({m}, the figure shown above).
   const waitingKey: StaffKey =
     order.refundPath === "cash" ? "floor.refund.waitingCash" : "floor.refund.waiting";
-  const canSubmit = !busy && !locked && pin.length >= 4;
+  const canSubmit = !busy;
 
-  // manager-5 — a refused PIN leaves the field: the masked wrong digits used to stay, so the next
-  // Refund tap re-sent them and burned another attempt toward the lockout (the approvals card and
-  // the loss sheet both clear it). Focus returns to the field so the retype starts where it ended.
-  const pinRefused = () => {
-    setPin("");
-    document.getElementById("refund-pin")?.focus();
+  // A refusal keeps the sheet; focus returns to the reason so the retry starts at the sheet's one
+  // choice (no-PIN: there is no field to clear).
+  const refused = () => {
+    document.getElementById("refund-reason")?.focus();
   };
 
   /**
@@ -131,16 +121,9 @@ export function RefundActionSheet({
       return;
     }
     if (!alive.current) return; // a late refusal is said only while this sheet is open
-    // Every other refusal keeps the sheet, and none of them may keep the PIN.
-    pinRefused();
+    // Every other refusal keeps the sheet.
+    refused();
     switch (res.reason) {
-      case "pin_wrong":
-      case "pin_locked":
-        setError(pinFailureCopy(res, setLockLeft)); // the shared PIN-failure copy (S13, P7·2)
-        break;
-      case "pin_no_pin":
-        setError({ k: "pin.noPin.profile" });
-        break;
       case "not_paid":
         setError({ k: "floor.refund.err.notPaid" });
         break;
@@ -194,13 +177,11 @@ export function RefundActionSheet({
     setError(null);
     try {
       // 9b — called OUTSIDE any transition and awaited BOUNDED, the RAW action promise handed over.
-      const out = await boundWrite(refundLine({ orderItemId: line.id, reason, pin }));
+      const out = await boundWrite(refundLine({ orderItemId: line.id, reason }));
       if (out.kind === "answer") {
         land(out.value);
         return;
       }
-      // Sent either way: the PIN must not stay to be re-sent toward the lockout.
-      setPin("");
       if (out.kind === "threw") {
         // 9e — a REJECTED action may have refunded (the response lost after Stripe answered):
         // "couldn't confirm — check the order before you refund again or hand anything back",
@@ -222,7 +203,7 @@ export function RefundActionSheet({
   };
 
   // The lockout countdown takes precedence over a transient message.
-  const shown = lockCopy ?? error;
+  const shown = error;
   // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
   const said = useResaid(error);
@@ -231,7 +212,7 @@ export function RefundActionSheet({
   return (
     // W22c — the canonical `Sheet`: Radix traps focus, binds Esc to the document, dismisses on a
     // real outside pointer-down (not a text-selection drag released on the scrim), and lifts above
-    // the keyboard (`--kb-inset`) so the Refund button beneath the PIN field stays reachable.
+    // the keyboard (`--kb-inset`) so the Refund button stays reachable.
     //
     // ⚠️ NOT WHILE THE REFUND IS IN FLIGHT. The caller unmounts this component on close, so a
     // dismissal mid-flight drops the server's answer on the floor: `setError` would no-op on an
@@ -299,23 +280,6 @@ export function RefundActionSheet({
             </option>
           ))}
         </select>
-
-        <label style={lbl} htmlFor="refund-pin">
-          <Chrome lang={lang} k="floor.refund.pin" echo="stack" />
-        </label>
-        <input
-          id="refund-pin"
-          type="password"
-          inputMode="numeric"
-          autoComplete="off"
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-          // §17 — a lockout makes the field READ-ONLY, not disabled: the refused submit just moved
-          // focus into it, and a disabled field would drop that focus to <body>.
-          readOnly={locked}
-          style={field}
-          placeholder="••••"
-        />
 
         {/* One live region for the sheet's error (polite — the failure text changes so AT announces it). */}
         <p

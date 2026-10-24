@@ -18,19 +18,22 @@ vi.mock("./line-names", () => ({
   loadLineNames: () => Promise.resolve({ nameMyByRef: new Map(), optionNameMy: new Map() }),
 }));
 let gateOk = true;
+let callerRole = "manager";
+let callerId = "aye";
 vi.mock("./staff", () => ({
   getStaffAuth: () =>
     Promise.resolve({
       kind: "staff",
-      caller: { uid: "u-aye", staffId: "aye", role: "manager", displayName: "Aye", email: null },
+      caller: {
+        uid: "u-aye",
+        staffId: callerId,
+        role: callerRole,
+        displayName: "Aye",
+        email: null,
+      },
     }),
   requireStaff: () =>
     gateOk ? Promise.resolve({ staffId: "aye" }) : Promise.reject(new Error("no")),
-}));
-const preflight = vi.fn((): Promise<string> => Promise.resolve("ok"));
-vi.mock("./staff-pin", () => ({
-  approverStepUpAllowed: (...a: unknown[]) => preflight(...(a as [])),
-  verifyStaffPin: () => Promise.resolve({ status: "ok" }),
 }));
 let payInFlight: string | null = null;
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(payInFlight) }));
@@ -84,36 +87,42 @@ const SESSION = "66666666-6666-4666-8666-666666666666";
 const { resolveApproval, countPendingApprovals, requestApproval } = await import("./approvals");
 
 beforeEach(() => {
-  preflight.mockClear();
   rpcCalls.length = 0;
   rpcStatus = "ok";
   payInFlight = null;
   gateOk = true;
+  callerRole = "manager";
+  callerId = "aye";
   countRead = { count: 0, error: null };
 });
 
-const input = (decision: string) => ({
-  approvalId: REQ,
-  decision,
-  approverStaffId: APPROVER,
-  pin: "1234",
-});
+const input = (decision: string) => ({ approvalId: REQ, decision });
 
 describe("resolveApproval — the close arm's wiring (PD8 · D2)", () => {
-  it("a CLOSE pre-flights with NO self rule, and reaches the RPC as p_decision 'close'", async () => {
+  it("No-PIN — the SIGNED-IN manager is the approver, and a CLOSE reaches the RPC as p_decision 'close' (`approvals/approver-not-caller`)", async () => {
     const res = await resolveApproval(input("close"));
-    expect(preflight).toHaveBeenCalledWith(APPROVER, "aye", null);
     expect(rpcCalls).toEqual([
       {
         fn: "mms_resolve_approval",
-        args: { p_id: REQ, p_approver: APPROVER, p_decision: "close" },
+        args: { p_id: REQ, p_approver: "aye", p_decision: "close" },
       },
     ]);
     expect(res).toEqual({ ok: true, decision: "close" });
   });
-  it("an APPROVE pre-flights against the REQUEST's initiator (the shipped rule, kept)", async () => {
-    await resolveApproval(input("approve"));
-    expect(preflight).toHaveBeenCalledWith(APPROVER, "aye", "thiri");
+  it("an approver id an older client still sends is never read — the caller decides", async () => {
+    await resolveApproval({ ...input("approve"), approverStaffId: APPROVER, pin: "1234" });
+    expect(rpcCalls.at(-1)?.args.p_approver).toBe("aye");
+  });
+  it("a SERVER is refused before any read or RPC (`approvals/server-decides`)", async () => {
+    callerRole = "server";
+    expect(await resolveApproval(input("approve"))).toEqual({ ok: false, reason: "bad_approver" });
+    expect(rpcCalls).toEqual([]);
+  });
+  it("the asker cannot approve their own request, but may close it (`approvals/own-request-approves`)", async () => {
+    callerId = "thiri"; // the request's initiator
+    expect(await resolveApproval(input("approve"))).toEqual({ ok: false, reason: "bad_approver" });
+    expect(rpcCalls).toEqual([]);
+    expect(await resolveApproval(input("close"))).toEqual({ ok: true, decision: "close" });
   });
   it("a CLOSE is never held by the pay mutex — nothing about the line is touched", async () => {
     payInFlight = "mid_payment";
@@ -130,7 +139,7 @@ describe("resolveApproval — the close arm's wiring (PD8 · D2)", () => {
   });
   it("a decision the schema does not know is refused before any read", async () => {
     expect(await resolveApproval(input("supersede"))).toEqual({ ok: false, reason: "error" });
-    expect(preflight).not.toHaveBeenCalled();
+    expect(rpcCalls).toEqual([]);
   });
 });
 

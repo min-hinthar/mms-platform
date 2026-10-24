@@ -35,8 +35,8 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import { RefundsNeededStrip } from "./RefundsNeededStrip";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
-import { PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
-import { ApprovalSlip, KindMark, litApproverId, signersFor, zeroReasonFor } from "./ApprovalSlip";
+import { KindMark } from "./KindMark";
+import { decideAs } from "@/lib/approvers";
 import { useApprovalsCountPublish } from "./ApprovalsCount";
 import { SplitAwareLink } from "./SplitAwareLink";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
@@ -102,8 +102,8 @@ export type ApprovalVerdict = {
  * snapshot kept live by a 5s POLL (mms_approvals is owner-read RLS, so it's not on the realtime
  * publication; requests/resolves are low-frequency, so a poll is the right tool). PD8 · m8: each
  * request is a ticket (the table's number as a link to its pane, the flag and the age, the kind mark
- * and the figure, the dish in both scripts) whose Decide opens THE ONE SLIP ("Thiri → Aye", "Aye,
- * your PIN") and the two keys that ARE the decision. A verdict replaces the card with a receipt row
+ * and the figure, the dish in both scripts) whose Decide opens the decision ("Deciding as Aye" — No-PIN,
+ * owner 2026-10-24: the signed-in manager, one tap) and the two keys that ARE the decision. A verdict replaces the card with a receipt row
  * (the Remove kind mark, the gift disc, or the ✕ square — never a ✓ disc, which means paid here). A
  * request whose table paid first, or was cleared, or whose line changed after the ask, offers only
  * "Close it" (→ `superseded`, never `denied`; round 3 D2). The bar's approvals circle reads this
@@ -762,13 +762,29 @@ function ChangedNoteText({
 }
 
 /**
- * PD8 — THE DECISION: the slip and the keys that ARE the decision. Shared by the request card and the
- * pane's centred sheet ("Decide it here"). `state` picks the keys: an OPEN request offers Deny and
- * Approve; a PAID / CLEARED / CHANGED one offers only "Close it" (→ `superseded`). Enter in the PIN
- * field submits the form, which REFUSES and says "Choose Approve or Deny." — two verbs share the field.
+ * PD8 — THE DECISION: who decides and the keys that ARE the decision. Shared by the request card and
+ * the pane's centred sheet ("Decide it here"). `state` picks the keys: an OPEN request offers Deny and
+ * Approve; a PAID / CLEARED / CHANGED one offers only "Close it" (→ `superseded`). No-PIN (owner,
+ * 2026-10-24): the decider is the SIGNED-IN manager (`decideAs` — the roster's `self` row), named in
+ * one line; a server, or the asker on approve / deny, gets the sentence that says why instead of keys.
+ * Enter submits the form, which REFUSES and says "Choose Approve or Deny." — two verbs share it.
  * ONE live region per decision, existing only while it is open (A4·2); a verdict says nothing in it:
  * the receipt row takes focus instead (B9, one channel).
  */
+/** The sentence for a device that cannot decide this request, or null when it can (or is loading). */
+function whyNot(who: ReturnType<typeof decideAs>): StaffKey | null {
+  switch (who.kind) {
+    case "not_manager":
+      return "table.appr.notManager";
+    case "own_request":
+      return "table.appr.ownRequest";
+    case "unknown":
+      return "table.appr.whoFailed";
+    default:
+      return null;
+  }
+}
+
 export function ApprovalDecision({
   request,
   state,
@@ -809,7 +825,7 @@ export function ApprovalDecision({
   hideCancel?: boolean;
   /** PD8 — "Decide it here": host the decision in the shipped centred Sheet (the pane's one primary
    *  stays Take cash, untouched behind the scrim — appendix B2). `busy` while the decision is out
-   *  (M82: the resolve spends a PIN attempt and takes a dish off the bill); the ✕ is the way out. */
+   *  (M82: the resolve takes a dish off the bill); the ✕ is the way out. */
   sheet?: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -823,16 +839,11 @@ export function ApprovalDecision({
   const echoes = useEchoesShown();
   const closeOnly = state !== "open";
   const formRef = useRef<HTMLFormElement>(null);
-  const pinRef = useRef<HTMLInputElement>(null);
-  const firstTileRef = useRef<HTMLButtonElement>(null);
-  // Decide → the PIN (one eligible, already lit) or else the first tile (A11Y, screen 2).
+  // Decide → the form itself (A11Y, screen 2): the keys follow it in tab order.
   useEffect(() => {
-    (pinRef.current ?? firstTileRef.current ?? formRef.current)?.focus({ preventScroll: true });
+    formRef.current?.focus({ preventScroll: true });
   }, []);
-  const [chosenApprover, setChosenApprover] = useState("");
-  const [pin, setPin] = useState("");
   const [msg, setMsg] = useState<StaffMsg | null>(null);
-  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // Phase 2h (9a · 9b) — busy is STATE cleared in `finally` around a BOUNDED await (it frees at the
   // bound), never a transition's `pending` — which held until the action ANSWERED, and with it every
   // other transition and every router commit on the tab (LEARNINGS #149 · #200). The ref is the guard
@@ -858,13 +869,10 @@ export function ApprovalDecision({
     };
   }, []);
 
-  // PD8 — the signers for THIS request: never the asker, except a close (D2: the asker may close).
-  const eligible = signersFor(approvers, request.initiatorStaffId, closeOnly);
-  const zero = zeroReasonFor(approvers, request.initiatorStaffId, closeOnly);
-  const approverStaffId = litApproverId(chosenApprover, eligible);
-  const approverName = eligible?.find((e) => e.staffId === approverStaffId)?.displayName ?? "";
-  const pinOk = pin.length >= 4 && pin.length <= 8;
-  const canConfirm = approverStaffId !== "" && pinOk && !pending && !locked;
+  // No-PIN — the decider is the signed-in caller, when they may decide THIS request.
+  const who = decideAs(approvers, rosterFailed, request.initiatorStaffId, closeOnly);
+  const approverName = who.kind === "as" ? who.name : "";
+  const canConfirm = who.kind === "as" && !pending;
 
   function cancel() {
     // §17 — the button says so with `aria-disabled`; refused here. Also while a decision's answer is
@@ -886,21 +894,11 @@ export function ApprovalDecision({
       return onResolved();
     }
     if (!alive.current) return;
-    setPin("");
     switch (res.reason) {
-      case "pin_wrong":
-      case "pin_locked":
-        setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
-        pinRef.current?.focus({ preventScroll: true }); // the emptied field takes focus
-        break;
-      case "pin_no_pin":
-        setMsg(PIN_NO_PIN_COPY);
-        break;
       case "bad_approver":
-        setMsg({ k: "pin.badApprover.requester" });
-        break;
-      case "step_up_rate_limited":
-        setMsg({ k: "pin.rateLimited" });
+        // The server's answer to a decider this device thought could decide: the asker's own
+        // request, or a role that changed since the roster read.
+        setMsg({ k: closeOnly ? "table.appr.notManager" : "table.appr.ownRequest" });
         break;
       case "already":
         setMsg({ k: "table.appr.msg.already" });
@@ -927,8 +925,8 @@ export function ApprovalDecision({
         setMsg({ k: "table.appr.msg.inFlight" });
         break;
       case "outage":
-        // W10b — nothing was recorded and the request is STILL PENDING; never imply the PIN or
-        // the request was the problem.
+        // W10b — nothing was recorded and the request is STILL PENDING; never imply the request
+        // was the problem.
         setMsg({ k: "table.appr.msg.outage" });
         break;
       default:
@@ -936,8 +934,8 @@ export function ApprovalDecision({
     }
   }
 
-  /** Enter in the PIN field submits the form — refused: two verbs share the field (one verb only
-   *  on the close-only card, where Enter is that key). */
+  /** Enter submits the form — refused: two verbs share it (one verb only on the close-only card,
+   *  where Enter is that key). */
   function submit(e: FormEvent) {
     e.preventDefault();
     if (closeOnly) {
@@ -951,8 +949,10 @@ export function ApprovalDecision({
     const decision = d;
     if (!canConfirm || pendingRef.current) {
       // §17 — refused out loud: the key is aria-disabled, never native; the region says what is missing.
-      if (!pendingRef.current && approverStaffId === "") setMsg({ k: "pin.manager.pick" });
-      else if (!pendingRef.current && !pinOk) setMsg({ k: "pin.label" });
+      if (!pendingRef.current) {
+        const why = whyNot(who);
+        if (why) setMsg({ k: why });
+      }
       return;
     }
     // 9d — an approval removes food from a bill or gives it away (a void or a comp). Refused AT THE
@@ -960,7 +960,7 @@ export function ApprovalDecision({
     // it would only queue behind the stuck one, to land minutes later. Read now, never from render.
     // Owner decision (Phase 2h · A1): KEEP this refusal — an approval authorizes a refund or void.
     // Owner decision (Phase 2h · integration): while THIS card's own decision is still out past the
-    // bound (its PIN cleared, typed again), the refusal re-says ITS line ("Don't decide again"),
+    // bound, the refusal re-says ITS line ("Don't decide again"),
     // never the tablet's "this did nothing" (`tapRefusal`).
     const refused = tapRefusal<StaffKey>(
       lateRef.current ? "table.appr.msg.waiting" : null,
@@ -979,18 +979,15 @@ export function ApprovalDecision({
     setDecision(decision);
     try {
       // 9b — called OUTSIDE any transition, awaited bounded: the RAW action promise.
-      const out = await boundWrite(
-        resolveApproval({ approvalId: request.id, decision, approverStaffId, pin }),
-      );
+      const out = await boundWrite(resolveApproval({ approvalId: request.id, decision }));
       if (out.kind === "answer") {
         // Not awaited (M82): the re-read it starts is the queue's own bounded poll, and the receipt
         // row — not a held busy — is what stands in for the card once the verdict lands.
         void answered(out.value);
         return;
       }
-      // No answer, or a lost one: the decision may be recorded. The PIN is cleared either way (a
-      // second decision is exactly what the sentence says not to make), and the queue re-reads.
-      setPin("");
+      // No answer, or a lost one: the decision may be recorded (a second decision is exactly what
+      // the sentence says not to make), and the queue re-reads.
       void onResolved();
       if (out.kind === "threw") {
         // Today's rejection reached the error boundary; a lost answer is "we couldn't confirm".
@@ -1017,8 +1014,7 @@ export function ApprovalDecision({
     }
   }
 
-  // The lockout countdown takes precedence over a transient message.
-  const shown = lockCopy ?? msg;
+  const shown = msg;
   // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
   const said = useResaid(msg);
@@ -1080,26 +1076,32 @@ export function ApprovalDecision({
           )}
         </>
       )}
-      <ApprovalSlip
-        idPrefix={`appr-${request.id}`}
-        askerName={request.initiatorName}
-        eligible={eligible}
-        zero={zero}
-        rosterFailed={rosterFailed}
-        retrying={retrying}
-        onRetry={onRetry}
-        lit={approverStaffId}
-        onPick={(id) => {
-          setChosenApprover(id);
-          pinRef.current?.focus({ preventScroll: true });
-        }}
-        pin={pin}
-        onPinChange={setPin}
-        locked={locked}
-        pinRef={pinRef}
-        firstTileRef={firstTileRef}
-      />
-      {zero === null && (
+      {/* No-PIN — WHO decides, in one line: the signed-in manager, or the sentence that says why
+          this device cannot (never a key that would only refuse). */}
+      <p className="appr-decide-as">
+        {who.kind === "as" ? (
+          <Chrome lang={lang} k="table.appr.decideAs" vars={{ x: who.name }} echo="stack" />
+        ) : who.kind === "loading" ? (
+          <Chrome lang={lang} k="pin.manager.loading" echo="inline" />
+        ) : (
+          <Chrome lang={lang} k={whyNot(who)!} echo="stack" />
+        )}
+      </p>
+      {who.kind === "unknown" && onRetry && (
+        <button
+          type="button"
+          className="staff-btn"
+          style={quietLink}
+          aria-disabled={retrying || undefined}
+          aria-busy={retrying || undefined}
+          onClick={() => {
+            if (!retrying) void onRetry();
+          }}
+        >
+          <Chrome lang={lang} k="out.shell.retry" echo="inline" />
+        </button>
+      )}
+      {who.kind === "as" && (
         <div className="appr-keys">
           {closeOnly ? (
             // ONE paper key: Close it (→ superseded). The keys follow `state` on EVERY render, so an

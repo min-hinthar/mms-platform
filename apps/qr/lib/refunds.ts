@@ -4,7 +4,6 @@ import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { refundLineInput } from "@mms/db/schemas";
 import { getStaffAuth, roleAtLeast, staffGate } from "./staff";
-import { verifyStaffPin } from "./staff-pin";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 import { STAFF_WRITE_OUTAGE } from "./staff-outage";
@@ -318,13 +317,10 @@ export async function getSettledToday(): Promise<SettledToday> {
 
 export type RefundResult =
   | { ok: true; amountCents: number }
-  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
-  | { ok: false; reason: "pin_locked"; lockedUntil: string }
   | {
       ok: false;
       reason:
         | "not_manager"
-        | "pin_no_pin"
         | "not_found"
         | "not_paid"
         | "split_unsupported"
@@ -372,16 +368,10 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
   if (!caller) return { ok: false, reason: "not_manager" };
   const parsed = refundLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
-  const { orderItemId, reason, pin } = parsed.data;
-
-  // Money-out step-up: re-confirm the manager's identity at action time (the surface is manager-gated, so
-  // this is a re-auth, not a second person). Lockout-counted; a bad/locked PIN never reaches Stripe.
-  const v = await verifyStaffPin(caller.staffId, pin);
-  if (v.status === "wrong")
-    return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };
-  if (v.status === "locked") return { ok: false, reason: "pin_locked", lockedUntil: v.lockedUntil };
-  if (v.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
-  if (v.status !== "ok") return { ok: false, reason: "error" };
+  const { orderItemId, reason } = parsed.data;
+  // No-PIN (owner, 2026-10-24: "Remove PIN for all requests") — the money-out step-up was a re-auth of
+  // the SAME signed-in manager, never a second person; the manager gate above is the authority now,
+  // and the SQL re-checks the floor.
 
   const db = serviceClient();
 

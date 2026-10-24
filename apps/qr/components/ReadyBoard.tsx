@@ -874,7 +874,7 @@ function DishRow({
             {echo.join(" · ")}
             {echo.length > 0 && guests.length > 0 ? " · " : ""}
             {guests.length > 0 && (
-              <span className="orb-dish-guests">
+              <span className="orb-dish-guests" lang={lang}>
                 {tf(lang, "kds.line.for", { x: guests.join(", ") })}
               </span>
             )}

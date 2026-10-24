@@ -394,7 +394,7 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
 /** What the no-show RPC's status means to the staff action (a CODE — the UI maps it to words). */
 export type NoShowRpcReason =
   | "ok"
-  | "needs_pin"
+  | "needs_manager"
   | "bad_approver"
   | "not_open"
   | "not_counter"
@@ -404,8 +404,8 @@ export type NoShowRpcReason =
   | "error";
 
 /**
- * `mms_counter_no_show`'s status → the action's reason. `needs_approval` asks for a manager's PIN;
- * `self_approve` and `bad_approver` are both "that approver cannot approve this"; `not_found` reads
+ * `mms_counter_no_show`'s status → the action's reason. `needs_approval` says a manager must do it
+ * (on their own sign-in — No-PIN); `bad_approver` is "that approver cannot approve this"; `not_found` reads
  * as `not_open` (the order is gone either way); `changed` — the order's sent food is not what the
  * approver saw — wrote nothing. Anything unrecognised — including a null — is an
  * `error`, never a success.
@@ -414,9 +414,11 @@ export function noShowOutcome(status: string | null): NoShowRpcReason {
   switch (status) {
     case "ok":
       return "ok";
+    // No-PIN — `self_approve` is the PRE-20261024120000 function's answer to a manager writing off
+    // their own no-show: until that migration applies it reads as "a manager must do this".
     case "needs_approval":
-      return "needs_pin";
     case "self_approve":
+      return "needs_manager";
     case "bad_approver":
       return "bad_approver";
     case "not_found":

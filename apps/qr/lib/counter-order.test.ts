@@ -584,9 +584,10 @@ describe("noShowOutcome — every RPC status, and never a silent ok", () => {
   it.each([
     ["ok", "ok"],
     // needs-approval-reads-ok
-    ["needs_approval", "needs_pin"],
+    ["needs_approval", "needs_manager"],
     // self-approve-reads-error
-    ["self_approve", "bad_approver"],
+    // No-PIN — the pre-20261024120000 answer to a manager approving their own no-show.
+    ["self_approve", "needs_manager"],
     ["bad_approver", "bad_approver"],
     ["not_found", "not_open"],
     ["not_open", "not_open"],

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Button, Sheet } from "@mms/ui";
-import { listApprovers, recordCounterNoShow } from "@/lib/voids";
+import { recordCounterNoShow } from "@/lib/voids";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
 import { dropHandoffStash } from "@/lib/floor-pane";
 import type { TableLineView } from "@/lib/floor-types";
@@ -13,14 +13,6 @@ import type { StaffKey } from "@/lib/i18n/staff";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
-import {
-  ManagerPinFields,
-  PIN_NO_PIN_COPY,
-  pinFailureCopy,
-  useApproverRoster,
-  useLockout,
-  useRosterRegion,
-} from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
@@ -49,13 +41,12 @@ import { useTableNav } from "./TableNav";
  * sheet opens, rendered from the snapshot, and the write carries the snapshot's sent set. When the
  * live sets — or the unit counts on the lines they name (Codex r4) — stop matching it, the sheet
  * does not adopt them silently: its one region says the order changed, the confirm refuses, and an
- * explicit "Show the order as it is now" adopts the new sets (focus goes to the new count). Nothing is re-snapshotted when the manager step-up opens: a
- * `needs_pin` answer means the server just matched the snapshot's sent set (`changed` is checked
- * first), so the snapshot IS what the manager is being asked to approve.
+ * explicit "Show the order as it is now" adopts the new sets (focus goes to the new count).
  *
- * The loss gate is SERVER-authoritative (the sent value against the ceiling, or anything cooked): the
- * first tap goes solo, and a `needs_pin` reveals the manager step-up (the loss sheet's two-pass
- * shape) and relabels the confirm. Every refusal is said in the sheet's ONE region; the `switch`
+ * The loss gate is SERVER-authoritative (the sent value against the ceiling, or anything cooked).
+ * No-PIN (owner, 2026-10-24): a manager or owner writes it off on their OWN sign-in, one tap; a
+ * server's tap on a gated order answers `needs_manager`, and the region says a manager must do it on
+ * their own sign-in (a no-show has no request queue — the order stays as it is). Every refusal is said in the sheet's ONE region; the `switch`
  * below is exhaustive over `RecordCounterNoShowResult` (a new server reason fails to compile here).
  * The confirm is never natively disabled (§17), refuses a second tap in the same frame through a ref,
  * and has no undo — a no-show is §22's confirmed exception, like Clear.
@@ -87,8 +78,8 @@ export function CounterNoShowButton({
       <Button variant="danger" size="xl" block onClick={() => setOpen(true)}>
         <Chrome lang={lang} k="table.noshow.btn" echo="stack" />
       </Button>
-      {/* Mounted only while open: a fresh mount re-reads the manager roster and resets every
-          transient state (the PIN, the step-up, the region) — LossActionSheet's rule. */}
+      {/* Mounted only while open: a fresh mount resets every transient state (the region, the
+          snapshot) — LossActionSheet's rule. */}
       {open && (
         <NoShowSheet
           sessionId={sessionId}
@@ -188,23 +179,12 @@ const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.waiting",
 ]);
 
-/** Every refusal → its sentence (null only for a lockout: the countdown IS that sentence). */
-export function noShowRefusalMsg(
-  res: NoShowRefusal,
-  setLockLeft: (seconds: number) => void,
-): StaffMsg | null {
+/** Every refusal → its sentence. */
+export function noShowRefusalMsg(res: NoShowRefusal): StaffMsg {
   switch (res.reason) {
-    case "needs_pin":
-      return { k: "pin.needsManager" };
-    case "pin_wrong":
-    case "pin_locked":
-      return pinFailureCopy(res, setLockLeft);
-    case "pin_no_pin":
-      return PIN_NO_PIN_COPY;
+    case "needs_manager":
     case "bad_approver":
-      return { k: "pin.badApprover.self" };
-    case "step_up_rate_limited":
-      return { k: "pin.rateLimited" };
+      return { k: "table.noshow.err.needsManager" };
     case "in_flight":
       return { k: "table.noshow.err.inFlight" };
     case "not_open":
@@ -247,24 +227,12 @@ function NoShowSheet({
 }) {
   const nav = useTableNav();
   const bodyId = useId();
-  // The roster, with a failed read kept an OUTAGE (Codex round 2 on #308): never `[]`, which the
-  // picker reads as "no managers on shift" and which blocked a manager-gated write-off outright.
-  const roster = useApproverRoster(listApprovers);
-  const [approverStaffId, setApproverStaffId] = useState("");
-  const [pin, setPin] = useState("");
-  const [stepUp, setStepUp] = useState(false);
   // M82 · Phase 2h (9a) — the Sheet's `busy` is STATE, set at the tap and cleared in the `finally`
   // around a BOUNDED await: all four exits are blocked while it is true, and it frees at
   // STAFF_HANG_MS at the latest on every path. Never a transition's `pending` — that holds while the
   // Server Action it dispatched is unanswered (Next's per-tab queue; LEARNINGS #149 · #200).
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
-  const { setLockLeft, locked, lockCopy } = useLockout(lang);
-  // Try again on the roster, and the ONE region rule for any recovery (`useRosterRegion`, shared with
-  // the loss sheet): a second failure is said in the region; a recovery — the Try again's answer, or
-  // a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
-  // sentence, putting back "a manager needs to approve" while the step-up is still pending.
-  const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
@@ -310,8 +278,7 @@ function NoShowSheet({
   const compedUnits = noShowDroppedUnits(snap.lines, snap.sets.comped);
   const name = customerName?.trim() ? customerName.trim() : null;
 
-  const pinOk = pin.length >= 4 && pin.length <= 8;
-  const canSubmit = !locked && !moved && (!stepUp || (approverStaffId !== "" && pinOk));
+  const canSubmit = !moved;
 
   // The explicit re-arm: adopt the order as it is now, and take the finger to the new count. A stale
   // server `changed` goes with it (it spoke of the old sets); any other sentence stays.
@@ -334,9 +301,7 @@ function NoShowSheet({
       if (alive.current) nav.toFloor("cleared");
       return;
     }
-    setPin("");
-    if (res.reason === "needs_pin") setStepUp(true);
-    setMsg(noShowRefusalMsg(res, setLockLeft));
+    setMsg(noShowRefusalMsg(res));
   }
 
   async function submit(e: FormEvent) {
@@ -371,14 +336,12 @@ function NoShowSheet({
         recordCounterNoShow({
           sessionId,
           expectedLineIds: [...snap.sets.sent],
-          ...(stepUp ? { approverStaffId, pin } : {}),
         }),
       );
       if (out.kind === "answer") {
         land(out.value);
         return;
       }
-      setPin(""); // sent either way — the PIN must not stay to be re-sent toward the lockout
       if (out.kind === "threw") {
         // 9e — a REJECTED transport (offline, a version skew, a response lost after the RPC) may
         // have cancelled the order: "couldn't confirm", never the write-outage "wasn't saved" it
@@ -399,7 +362,7 @@ function NoShowSheet({
     }
   }
 
-  // The lockout countdown outranks everything; a moved order outranks a transient message — but
+  // A moved order outranks a transient message — but
   // not a write-off that may still land, nor a refused tap (critic F11): the move may BE that
   // write-off landing, and "check it and try again" would invite a second one while the reload
   // beside "no answer yet" is the way to see. The re-arm still renders on `moved`.
@@ -408,7 +371,7 @@ function NoShowSheet({
     msg !== null &&
     "k" in msg &&
     (RELOAD_SAYS.has(msg.k) || msg.k === "table.noshow.err.unknown");
-  const shown = lockCopy ?? (moved && !unsettled ? CHANGED_COPY : msg);
+  const shown = moved && !unsettled ? CHANGED_COPY : msg;
   // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
   const said = useResaid(msg);
@@ -475,25 +438,6 @@ function NoShowSheet({
             />
           </p>
         )}
-        {stepUp && (
-          <fieldset style={fieldset}>
-            <legend style={legend}>
-              <Chrome lang={lang} k="table.loss.managerLegend" echo="stack" />
-            </legend>
-            <ManagerPinFields
-              idPrefix="noshow"
-              approvers={roster.approvers}
-              approverStaffId={approverStaffId}
-              onApproverChange={setApproverStaffId}
-              pin={pin}
-              onPinChange={setPin}
-              locked={locked}
-              rosterFailed={roster.failed}
-              retrying={roster.retrying}
-              onRetry={retryRoster}
-            />
-          </fieldset>
-        )}
         {moved && (
           <div style={{ marginTop: "var(--s3)" }}>
             <Button type="button" variant="secondary" block onClick={rearm}>
@@ -510,14 +454,10 @@ function NoShowSheet({
             busy={busy}
             {...(!canSubmit ? { "aria-disabled": true } : {})}
           >
-            {stepUp ? (
-              <Chrome lang={lang} k="table.loss.confirmApproval.void" echo="stack" />
-            ) : (
-              <Chrome lang={lang} k="table.noshow.confirm" echo="stack" />
-            )}
+            <Chrome lang={lang} k="table.noshow.confirm" echo="stack" />
           </Button>
         </div>
-        {/* ONE region (QA §A): the lockout countdown outranks a transient message. */}
+        {/* ONE region (QA §A). */}
         <p role="status" style={region}>
           {shown && (
             <span key={said} style={{ color: "var(--warn)" }}>
@@ -551,13 +491,6 @@ const list: CSSProperties = {
   gap: "var(--s1)",
 };
 const row: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" };
-const fieldset: CSSProperties = { border: "none", padding: 0, margin: "var(--s3) 0 0" };
-const legend: CSSProperties = {
-  padding: 0,
-  fontSize: "var(--fs-sm)",
-  fontWeight: "var(--fw-bold)",
-  marginBottom: "var(--s2)",
-};
 const region: CSSProperties = {
   margin: "var(--s3) 0 0",
   minHeight: "1.4em",

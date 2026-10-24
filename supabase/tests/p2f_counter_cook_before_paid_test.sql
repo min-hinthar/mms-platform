@@ -315,8 +315,8 @@ begin
   l := pg_temp.p2f_line(c, 800, 1, 'togo', 'served', now() - interval '5 minutes');
   v := public.mms_counter_no_show(c, srv, array[l], null);
   assert v = 'needs_approval', format('P2F.15f · a served dish needs a manager (%s)', v);
-  v := public.mms_counter_no_show(c, mgr, array[l], mgr);
-  assert v = 'self_approve', format('P2F.15g · the initiator cannot approve (%s)', v);
+  -- P2F.15g retired (No-PIN, owner 2026-10-24): a manager now approves their own no-show —
+  -- supabase/tests/nopin_manager_self_approve_test.sql (NOPIN.4) pins it.
   v := public.mms_counter_no_show(c, mgr, array[l], srv);
   assert v = 'bad_approver', format('P2F.15h · a server cannot approve (%s)', v);
   select count(*) into n1 from public.mms_approvals;

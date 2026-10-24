@@ -83,8 +83,7 @@ vi.mock("@/lib/voids", () => ({
         displayName: "Aye",
         role: "manager",
         active: true,
-        hasPin: true,
-        self: false,
+        self: true,
       },
     ]),
   voidLine: vi.fn(),
@@ -321,7 +320,6 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     resolveApproval.mockResolvedValueOnce({ ok: false, reason: "changed" });
     mountFlagged();
     await decideHere();
-    fireEvent.change(document.getElementById("appr-r-1-pin")!, { target: { value: "1234" } });
     await act(async () => {
       fireEvent.click(within(sheet()!).getByRole("button", { name: /^Approve/ }));
     });
@@ -342,7 +340,6 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     await decideHere();
     // Every read after the decision hangs: the bound, not a read, must free the trigger.
     answer = () => new Promise(() => {});
-    fireEvent.change(document.getElementById("appr-r-1-pin")!, { target: { value: "1234" } });
     await act(async () => {
       fireEvent.click(within(sheet()!).getByRole("button", { name: /^Approve/ }));
     });
@@ -360,7 +357,6 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     resolveApproval.mockResolvedValueOnce({ ok: true, decision: "deny" });
     mountFlagged();
     await decideHere();
-    fireEvent.change(document.getElementById("appr-r-1-pin")!, { target: { value: "1234" } });
     await act(async () => {
       fireEvent.click(within(sheet()!).getByRole("button", { name: /^Deny/ }));
     });
@@ -419,7 +415,6 @@ describe("PD8 — the flag at Take payment, through the pane", () => {
     answer = () => Promise.resolve({ kind: "detail", detail: FLAGGED });
     mountFlagged();
     await decideHere();
-    fireEvent.change(document.getElementById("appr-r-1-pin")!, { target: { value: "1234" } });
     await act(async () => {
       fireEvent.click(within(sheet()!).getByRole("button", { name: /^Approve/ }));
     });
