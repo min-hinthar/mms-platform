@@ -496,6 +496,15 @@ describe("PD9 — the kitchen half: every table's food, dish by dish", () => {
     expect(rows[1]!.querySelector(".orb-dish-en")).toBeNull();
   });
 
+  it("an OLDER board response whose dishes carry no guests still draws (`board/guests-undefined-crash`)", async () => {
+    const legacy = dish({ name: "Mohinga" }) as Record<string, unknown>;
+    delete legacy.guests;
+    const { container } = await renderTables("en", [
+      tableOf(4, [legacy as ReturnType<typeof dish>]),
+    ]);
+    expect(container.querySelectorAll(".orb-dish")).toHaveLength(1);
+  });
+
   it("a Preparing bag carries its guest's name beside its code", async () => {
     vi.stubGlobal(
       "fetch",

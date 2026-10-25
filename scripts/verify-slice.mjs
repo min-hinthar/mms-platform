@@ -12266,6 +12266,22 @@ const MUTANTS = [
     replace: "  const hidden = studio.dishes.filter((d) => !d.isActive);",
   },
   {
+    id: "staff-cart/custom-item-off-table",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "Codex round 5 on #373 — a custom item has no catalog row, and a counter/pickup order's manual-capture settlement voids every line without one; off a table, the item would be added and then silently dropped from the charge",
+    find: '  if (session.mode !== "dinein")\n    return { ok: false, error: "A custom item goes on a table\'s order.", code: "invalid" };\n',
+    replace: "",
+  },
+  {
+    id: "board/guests-undefined-crash",
+    file: "apps/qr/components/ReadyBoard.tsx",
+    suite: "components/ReadyBoard.test.tsx",
+    why: "Codex round 5 on #373 — a TV running this client can be answered by an older /api/board with no guests on its dishes; without the default the board crashes in render instead of keeping its nameless rows",
+    find: "((row.dish.guests as string[] | undefined) ?? [])",
+    replace: "row.dish.guests",
+  },
+  {
     id: "studio-ui/server-gets-studio",
     file: "apps/qr/components/staff/MenuStudio.tsx",
     suite: "components/staff/MenuStudio.test.tsx",

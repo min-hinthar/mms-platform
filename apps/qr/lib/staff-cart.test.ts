@@ -309,6 +309,16 @@ describe("staffAddCustomItem — a dish not on the menu (owner, 2026-10-24)", ()
     addKey: KEY,
   };
 
+  beforeEach(() => {
+    sessionMode = "dinein";
+  });
+
+  it("a counter or pickup order is refused before any write — a table's order only (`staff-cart/custom-item-off-table`)", async () => {
+    sessionMode = "pickup";
+    expect(await staffAddCustomItem(input)).toMatchObject({ ok: false, code: "invalid" });
+    expect(insertCalls).toHaveLength(0);
+  });
+
   it("is a MANAGER's write — the price authority (`staff-cart/custom-item-server-floor`)", async () => {
     await staffAddCustomItem(input);
     expect(gateRoles).toEqual(["manager"]);

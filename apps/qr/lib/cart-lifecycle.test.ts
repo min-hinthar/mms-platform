@@ -656,14 +656,7 @@ describe("getCartView — each line carries WHY its dish can't be made (#362 Cod
     expect([by("d")?.unavailable, by("d")?.soldOut]).toEqual([null, false]);
     expect([by("e")?.unavailable, by("e")?.soldOut]).toEqual([null, false]);
     const read = stmts.find((s) => s.table === "menu_items");
-    expect(
-      read &&
-        has(
-          read,
-          "select",
-          "id,is_sold_out,is_active,image_url,name_my,menu_categories(is_active)",
-        ),
-    ).toBe(true);
+    expect(read && has(read, "select", "id,is_sold_out,is_active,image_url,name_my")).toBe(true);
   });
 
   it("an UNREADABLE catalog marks nothing — never 'gone' for every line", async () => {

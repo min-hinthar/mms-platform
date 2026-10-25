@@ -839,7 +839,9 @@ function DishRow({
   const { lead, echo } = dishNameLines(row.kind === "dish" ? [row.dish] : row.dishes);
   const togo = row.kind === "dish" && row.dish.togo;
   // Guest names (owner, 2026-10-24) — who the dish is for; a folded row names dishes, not guests.
-  const guests = row.kind === "dish" ? row.dish.guests : [];
+  // `?? []`: a TV still running this client can be answered by an OLDER `/api/board` (a rollout or a
+  // rollback) whose dishes carry no `guests` — it keeps its nameless rows, never a crash (Codex r5).
+  const guests = row.kind === "dish" ? ((row.dish.guests as string[] | undefined) ?? []) : [];
   return (
     <li className={`orb-dish${row.kind === "folded" ? " orb-dish-folded" : ""}`}>
       <span className="orb-dish-names">

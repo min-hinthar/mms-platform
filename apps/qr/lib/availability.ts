@@ -38,9 +38,15 @@ export type CatalogItemish = {
   name_en: string;
   is_sold_out: boolean;
   is_active: boolean;
-  /** The dish's category, when the read embeds `menu_categories(is_active)` (OA2, Codex round 2 on
-   *  #373): every server-side availability read does, so a HIDDEN category is off the menu for a menu
-   *  open since before the Hide, a reorder and the kiosk too — not only on the pages that filter it. */
+  /**
+   * The dish's category, when the read embeds `menu_categories(is_active)` (OA2, Codex rounds 2 and 5
+   * on #373). A HIDDEN category is a menu decision about NEW orders, so exactly the ADD boundary
+   * embeds it — `priceItem` (every add path: a menu open since before the Hide, a reorder, the kiosk)
+   * and the single-dish pre-read (a line growing). The charge and Send boundaries and the cart view
+   * do NOT: a line already quoted settles, because the settlement SQL
+   * (`mms_settle_precheck_and_void`) reads only the dish's own flags, and a TS verdict it cannot act
+   * on would hold a manual-capture payment in retry forever.
+   */
   menu_categories?: { is_active: boolean } | null;
 };
 

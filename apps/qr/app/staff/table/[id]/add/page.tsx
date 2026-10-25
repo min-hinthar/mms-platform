@@ -111,7 +111,7 @@ export default async function StaffAddItems({
         hasPin={hasPin}
         focusName={focusName}
         // A custom item (owner, 2026-10-24) — a manager's, like a menu price.
-        canCustom={caller.role !== "server"}
+        canCustom={caller.role !== "server" && detail.mode === "dinein"}
       />
     </main>
   );

@@ -272,6 +272,13 @@ export async function staffAddCustomItem(raw: unknown): Promise<StaffWriteResult
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "outage" };
   if (!session) return { ok: false, error: "That table is closed.", code: "closed" };
   if (!cart) return { ok: false, error: "This table has no open order.", code: "no-cart" };
+  // A TABLE's order only (the owner's ask: "manual new item add to tables orders"). A counter or
+  // pickup order settles through paths that re-derive each line against the catalog — the manual
+  // capture's `mms_settle_precheck_and_void` voids a line with no menu row — so a custom item there
+  // would be silently dropped from the charge (Codex round 5 on #373). The pad offers the chip on a
+  // dine-in table only; this is the server's own refusal.
+  if (session.mode !== "dinein")
+    return { ok: false, error: "A custom item goes on a table's order.", code: "invalid" };
   // The shared pay mutex (cash settle / split / clear): a total a guest is paying never moves.
   const paying = await paymentInFlightReason(cart);
   if (paying) return { ok: false, error: PAYING_REFUSAL, code: "paying" };
@@ -280,7 +287,7 @@ export async function staffAddCustomItem(raw: unknown): Promise<StaffWriteResult
     addKey,
     name,
     priceCents,
-    dineIn: session.mode === "dinein",
+    dineIn: true,
     notes,
   });
   try {
