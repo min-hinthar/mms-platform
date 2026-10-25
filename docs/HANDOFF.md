@@ -19,7 +19,7 @@ etc, updates to names prices categories etc,) to menu-editor and with world-clas
 item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
 and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
 so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
-(OA1–OA9) is what is left.
+(OA1–OA13) is what is left.
 
 - **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
   instruction (G3 · G4); (2) **OA1** — apply `20261024120000_no_pin_manager_self_approve.sql`;
