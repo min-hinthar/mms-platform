@@ -53,6 +53,13 @@ const nextConfig: NextConfig = {
   // dirty the tree (`pnpm review:bundle` refuses a dirty tree), and a nested CLAUDE.md would load
   // into every agent session over the repo's own. Off.
   agentRules: false,
+  // Menu studio (owner, 2026-10-24) — a dish photo rides a Server Action as FormData. The sheet
+  // resizes it to ≤1600px JPEG first (typically 200–600 KB), but the default 1 MB would refuse a
+  // detailed shot at that size. 4 MB stays under Vercel's 4.5 MB request ceiling; the action
+  // re-checks type and size itself (`photoVerdict`), and the bucket caps an object at 5 MB.
+  experimental: {
+    serverActions: { bodySizeLimit: "4mb" },
+  },
   images: {
     // Dish photos live in Supabase Storage. W1·Q11 pins the optimizer to the two REAL hosts instead
     // of every *.supabase.co tenant: the QR project + the DELIVERY project (photos still hotlink the

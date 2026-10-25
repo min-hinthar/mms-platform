@@ -467,6 +467,9 @@ the plan state.
   - [ ] **market** — parked until G1's real UPCs (G24 · G7). G20 (Burmese names on basket lines) was
         unparked by the owner on 2026-10-07 and ships in the grocery stream.
 - [ ] **Phase 4 — production signals** (photos, live Stripe keys, RUM).
+- [x] **The owner's four asks (2026-10-24)** — the menu studio (dishes, categories, iPhone photos),
+      a custom item on a table's order, no PIN on any request, guest names on the kitchen's screens
+      (PR #373; two owner-gated migrations, OPEN-ITEMS OA1 · OA2).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
 

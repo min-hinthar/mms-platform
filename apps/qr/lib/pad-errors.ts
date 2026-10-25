@@ -50,6 +50,8 @@ const ADD_ERR = {
   failed: { key: "pad.err.add.failed", family: "pad.err.add.failed.family" },
   unconfirmed: { key: "pad.err.add.unconfirmed", family: "pad.err.add.unconfirmed.family" },
   offline: { key: "pad.err.add.offline", family: "pad.err.add.offline.family" },
+  // OA9 — only the custom item answers it; its sheet goes to the lock screen first.
+  locked: { key: "entry.lock.title", family: "entry.lock.title" },
 } as const satisfies Record<string, AddErrKey>;
 
 export type PadAddErrKey = (typeof ADD_ERR)[keyof typeof ADD_ERR]["key"];
@@ -60,6 +62,7 @@ type DefiniteCode = Exclude<StaffWriteCode, "unconfirmed">;
 /** Every definite code → its reading. A `Record` over the union, so a code added to
  *  `StaffWriteCode` without a reading here is a compile error, not a silent "try again". */
 const CODE: Record<DefiniteCode, "signin" | "sentence" | keyof typeof ADD_ERR> = {
+  locked: "locked",
   signin: "signin",
   sentence: "sentence",
   invalid: "failed",

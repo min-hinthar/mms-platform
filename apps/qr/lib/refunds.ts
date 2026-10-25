@@ -4,7 +4,6 @@ import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { refundLineInput } from "@mms/db/schemas";
 import { getStaffAuth, roleAtLeast, staffGate } from "./staff";
-import { verifyStaffPin } from "./staff-pin";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 import { STAFF_WRITE_OUTAGE } from "./staff-outage";
@@ -24,6 +23,7 @@ import {
   remainingPoolCents,
   type RefundPath,
 } from "./refund-console";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * Line-level refunds (S4.3b) — money-OUT, the captured-line counterpart to S2.3's open-cart void. The
@@ -318,13 +318,11 @@ export async function getSettledToday(): Promise<SettledToday> {
 
 export type RefundResult =
   | { ok: true; amountCents: number }
-  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
-  | { ok: false; reason: "pin_locked"; lockedUntil: string }
   | {
       ok: false;
       reason:
+        | "locked"
         | "not_manager"
-        | "pin_no_pin"
         | "not_found"
         | "not_paid"
         | "split_unsupported"
@@ -340,7 +338,7 @@ export type RefundResult =
     };
 
 /**
- * Refund ONE paid line. Manager-gated + self-PIN step-up (money-out re-auth).
+ * Refund ONE paid line. Manager-gated on the caller's own sign-in (OA1, 2026-10-24: no PIN re-auth).
  *
  * TWO paths, chosen from the order's own stored facts by `refundPathFor` — the same pure rule the
  * console used to decide what to SHOW, so the sheet and the server can never disagree about which
@@ -370,18 +368,16 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
       ? staffAuth.caller
       : null;
   if (!caller) return { ok: false, reason: "not_manager" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const parsed = refundLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
-  const { orderItemId, reason, pin } = parsed.data;
-
-  // Money-out step-up: re-confirm the manager's identity at action time (the surface is manager-gated, so
-  // this is a re-auth, not a second person). Lockout-counted; a bad/locked PIN never reaches Stripe.
-  const v = await verifyStaffPin(caller.staffId, pin);
-  if (v.status === "wrong")
-    return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };
-  if (v.status === "locked") return { ok: false, reason: "pin_locked", lockedUntil: v.lockedUntil };
-  if (v.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
-  if (v.status !== "ok") return { ok: false, reason: "error" };
+  const { orderItemId, reason } = parsed.data;
+  // No-PIN (owner, 2026-10-24: "Remove PIN for all requests") — the money-out step-up was a re-auth of
+  // the SAME signed-in manager, never a second person; the manager gate above is the authority now,
+  // and the SQL re-checks the floor.
 
   const db = serviceClient();
 

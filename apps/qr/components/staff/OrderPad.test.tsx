@@ -30,6 +30,7 @@ vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (id: string, raw: unknown) => setQty(id, raw),
   setLineNotes: vi.fn(() => Promise.resolve({ ok: true })),
   settleCash: (raw: unknown) => settleCash(raw),
+  staffAddCustomItem: vi.fn(() => Promise.resolve({ ok: true })),
 }));
 const setName =
   vi.fn<
@@ -296,6 +297,7 @@ function mount(
     catalog?: unknown;
     name?: string | null;
     focusName?: boolean;
+    canCustom?: boolean;
   } = {},
 ) {
   return render(
@@ -309,6 +311,7 @@ function mount(
           initialName={opts.name ?? null}
           hasPin={false}
           focusName={opts.focusName}
+          canCustom={opts.canCustom}
         />
       </main>
     </StaffLangProvider>,
@@ -2864,5 +2867,21 @@ describe("the lifecycle audit — a table closed under the pad is named on the f
     // lck/pad-live/closed-bounce-unnamed — the server is dropped on the floor with no word of why;
     // the floor says "Table 5 closed" only when the bounce carries it. Red.
     expect(replace).toHaveBeenCalledWith("/staff?floor=1&closed=5");
+  });
+});
+
+describe("custom item (owner, 2026-10-24) — the rail's last chip, a manager's", () => {
+  it("a server sees no Custom item chip; a manager's opens the sheet (`pad/custom-chip-for-everyone`)", async () => {
+    mount();
+    expect(screen.queryByRole("button", { name: /Custom item/ })).toBeNull();
+    cleanup();
+    mount(detail(), { canCustom: true });
+    const chip = screen.getByRole("button", { name: /Custom item/ });
+    expect(chip.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(chip.hasAttribute("aria-pressed")).toBe(false);
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+    expect(screen.getByRole("dialog").textContent).toContain(STAFF["pad.custom.title"].en);
   });
 });

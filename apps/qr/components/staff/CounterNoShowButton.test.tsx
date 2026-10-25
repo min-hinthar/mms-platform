@@ -12,7 +12,7 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
  * Phase 2f · pay at pickup — "They didn't come". The sheet's WIRING: what it claims is written off
- * (the server's SENT set, never the drafts), the loss sheet's two-pass step-up, one sentence per
+ * (the server's SENT set, never the drafts), one sentence per
  * refusal in its ONE region, the tap-time double-tap guard, and the cleared exit.
  *
  * `recordCounterNoShow` (Area B, plan §5.3) is mocked with the planned union — a Server Action has
@@ -20,10 +20,7 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
  */
 // `| NoShowRefusal` — the `changed` refusal the lib union gains (resolves at integration; a no-op then).
 const record = vi.fn<(raw: unknown) => Promise<RecordCounterNoShowResult | NoShowRefusal>>();
-const ROSTER = [{ staffId: "m1", displayName: "Daw Mya", role: "manager" as const }];
-const approvers = vi.fn<() => Promise<typeof ROSTER>>();
 vi.mock("@/lib/voids", () => ({
-  listApprovers: () => approvers(),
   recordCounterNoShow: (raw: unknown) => record(raw),
 }));
 const replace = vi.fn();
@@ -126,7 +123,6 @@ const submit = () =>
 // Braces: a beforeEach that RETURNS a function registers it as a teardown (the mock would be called).
 beforeEach(() => {
   record.mockResolvedValue({ ok: true });
-  approvers.mockResolvedValue(ROSTER);
 });
 afterEach(() => {
   cleanup();
@@ -244,34 +240,19 @@ describe("CounterNoShowButton — the write", () => {
     expect(record).toHaveBeenCalledTimes(1);
   });
 
-  it("needs_pin reveals the manager fields, relabels the confirm, and the PIN rides only then", async () => {
-    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+  it("No-PIN — the write carries the sent set ONLY (never an approver or a PIN); needs_manager says a manager must do it on their own sign-in", async () => {
+    record.mockResolvedValueOnce({ ok: false, reason: "needs_manager" });
     mount();
     open();
     await act(async () => {});
+    expect(dialog().querySelector("select")).toBeNull();
+    expect(dialog().querySelector('input[type="password"]')).toBeNull();
     await submit();
     expect(record).toHaveBeenLastCalledWith({ sessionId: "s-1", expectedLineIds: SENT });
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    expect(confirmBtn().textContent).toBe(STAFF["table.loss.confirmApproval.void"].en);
+    expect(region().textContent).toBe(STAFF["table.noshow.err.needsManager"].en);
+    expect(confirmBtn().textContent).toBe(STAFF["table.noshow.confirm"].en);
     expect(replace).not.toHaveBeenCalled();
-    // Incomplete step-up: aria-disabled, and a tap sends nothing.
-    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
-    await submit();
-    expect(record).toHaveBeenCalledTimes(1);
-    fireEvent.change(dialog().querySelector("select")!, { target: { value: "m1" } });
-    fireEvent.change(dialog().querySelector('input[type="password"], input[inputmode]')!, {
-      target: { value: "1234" },
-    });
-    await submit();
-    expect(record).toHaveBeenLastCalledWith({
-      sessionId: "s-1",
-      expectedLineIds: SENT,
-      approverStaffId: "m1",
-      pin: "1234",
-    });
-    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
-
   it("a thrown transport may have cancelled the order: 'couldn't confirm' — never the write-outage 'wasn't saved', never a crash", async () => {
     record.mockRejectedValueOnce(new Error("offline"));
     mount();
@@ -288,12 +269,8 @@ describe("CounterNoShowButton — the write", () => {
 
 describe("CounterNoShowButton — every refusal speaks, in the ONE region", () => {
   const REFUSALS: NoShowRefusal[] = [
-    { ok: false, reason: "needs_pin" },
-    { ok: false, reason: "pin_wrong", attemptsRemaining: 2 },
-    { ok: false, reason: "pin_locked", lockedUntil: new Date(Date.now() + 60_000).toISOString() },
-    { ok: false, reason: "pin_no_pin" },
+    { ok: false, reason: "needs_manager" },
     { ok: false, reason: "bad_approver" },
-    { ok: false, reason: "step_up_rate_limited" },
     { ok: false, reason: "not_open" },
     { ok: false, reason: "not_counter" },
     { ok: false, reason: "in_flight" },
@@ -306,12 +283,9 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
   // switch AND a missing row here.
   type Listed = (typeof REFUSALS)[number]["reason"];
   const exhaustive: Record<NoShowRefusal["reason"], true> = {
-    needs_pin: true,
-    pin_wrong: true,
-    pin_locked: true,
-    pin_no_pin: true,
+    needs_manager: true,
+    locked: true,
     bad_approver: true,
-    step_up_rate_limited: true,
     not_open: true,
     not_counter: true,
     in_flight: true,
@@ -351,126 +325,6 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
       expect(region().textContent).toBe(STAFF[k].en);
       cleanup();
     }
-  });
-});
-
-describe("CounterNoShowButton — a roster that could not be read (Codex round 2 on #308)", () => {
-  // The manager step-up after a `needs_pin`, with the roster read REJECTED on mount.
-  async function stepUpWithFailedRoster() {
-    approvers.mockRejectedValueOnce(new Error("503"));
-    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    mount();
-    open();
-    await act(async () => {});
-    await submit();
-  }
-  const select = () => dialog().querySelector("select")!;
-  const retryBtn = () =>
-    [...dialog().querySelectorAll("button")].find(
-      (b) => b.textContent === STAFF["out.shell.retry"].en,
-    );
-
-  it("says the list couldn't be loaded — never that no manager is on shift", async () => {
-    await stepUpWithFailedRoster();
-    const text = dialog().textContent!;
-    expect(text).toContain(STAFF["pin.manager.loadFailed"].en);
-    expect(select().options[0]!.textContent).toBe(STAFF["pin.manager.unavailable"].en);
-    expect(text).not.toContain(STAFF["pin.manager.noneNote"].en);
-    expect(text).not.toContain(STAFF["pin.manager.none"].en);
-    // The manager step stays blocked while there is no list: nothing to pick, the confirm refuses.
-    expect(select().disabled).toBe(true);
-    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
-    // Still ONE region; the static note is not a second live region.
-    expect(dialog().querySelectorAll('[role="status"],[role="alert"],[aria-live]')).toHaveLength(1);
-    expect(retryBtn()).toBeDefined();
-  });
-
-  it("Try again re-reads the roster and recovers: picker enabled, focused, note gone", async () => {
-    await stepUpWithFailedRoster();
-    expect(approvers).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      fireEvent.click(retryBtn()!);
-    });
-    expect(approvers).toHaveBeenCalledTimes(2);
-    expect(select().disabled).toBe(false);
-    expect([...select().options].map((o) => o.textContent)).toEqual([
-      STAFF["pin.manager.pick"].en,
-      "Daw Mya",
-    ]);
-    expect(dialog().textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
-    expect(retryBtn()).toBeUndefined();
-    expect(document.activeElement).toBe(select());
-    // The pending "a manager needs to approve" sentence is untouched by the recovery.
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-  });
-
-  it("a second failure is said in the ONE region, and the Try again stays", async () => {
-    await stepUpWithFailedRoster();
-    approvers.mockRejectedValueOnce(new Error("503"));
-    await act(async () => {
-      fireEvent.click(retryBtn()!);
-    });
-    expect(approvers).toHaveBeenCalledTimes(2);
-    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
-    expect(select().disabled).toBe(true);
-    expect(retryBtn()).toBeDefined();
-    // …and a later recovery clears exactly that sentence — and, with the step-up still pending,
-    // puts "a manager needs to approve" back (Phase 2f review: never a blank region under the fields).
-    await act(async () => {
-      fireEvent.click(retryBtn()!);
-    });
-    // MUTATION (p2f-sr-sheet/roster/recovery-drops-needs-manager): the region reads "" — red.
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    expect(select().disabled).toBe(false);
-  });
-
-  it("a list that answers AFTER a failed Try again: 'couldn't load' goes, 'a manager needs to approve' comes back, and focus moves from the vanished Try again to the picker (Codex r1 follow-up on #310, V1 · V2)", async () => {
-    vi.useFakeTimers();
-    try {
-      await stepUpWithFailedRoster();
-      expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-      let answer!: (a: typeof ROSTER) => void;
-      approvers.mockImplementationOnce(
-        () =>
-          new Promise<typeof ROSTER>((res) => {
-            answer = res;
-          }),
-      );
-      const retry = retryBtn()!;
-      retry.focus();
-      await act(async () => {
-        fireEvent.click(retry);
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
-      });
-      expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
-      expect(document.activeElement).toBe(retry);
-      // The read answers after its bound: the list loads (CX1) and the Try again goes.
-      await act(async () => answer(ROSTER));
-      expect(select().disabled).toBe(false);
-      expect(retryBtn()).toBeUndefined();
-      // MUTATION (p2h-cx1/no-show/late-keeps-failure-copy · p2h-cx1/no-show/region-unwired):
-      // "couldn't load the list" stands over the picker it just filled; red.
-      // MUTATION (p2f-sr-sheet/roster/no-show-step-up-unwired): the region reads "" — red.
-      expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-      // MUTATION (p2h-cx1/no-show/late-load-no-focus): focus fell to the dialog with the Try again; red.
-      expect(document.activeElement).toBe(select());
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("a genuinely EMPTY roster still says nobody is on shift (the outage copy is not a blanket)", async () => {
-    approvers.mockResolvedValueOnce([]);
-    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    mount();
-    open();
-    await act(async () => {});
-    await submit();
-    expect(dialog().textContent).toContain(STAFF["pin.manager.noneNote"].en);
-    expect(dialog().textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
-    expect(retryBtn()).toBeUndefined();
   });
 });
 
@@ -563,36 +417,6 @@ describe("CounterNoShowButton — what the manager READ is what is submitted (Ph
       expect(record).not.toHaveBeenCalled();
       cleanup();
     }
-  });
-
-  it("the needs_pin step-up keeps the snapshot: the approval rides the ids the manager read", async () => {
-    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    const view = render(props());
-    open();
-    await act(async () => {});
-    await submit();
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    // The set moves while the manager is typing their PIN.
-    view.rerender(props({ sent: ["s1"] }));
-    fireEvent.change(dialog().querySelector("select")!, { target: { value: "m1" } });
-    fireEvent.change(dialog().querySelector('input[type="password"]')!, {
-      target: { value: "1234" },
-    });
-    expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
-    await submit();
-    expect(record).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      fireEvent.click(rearmBtn()!);
-    });
-    // The pending step-up's sentence comes back with the re-arm; the approval now covers [s1].
-    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
-    await submit();
-    expect(record).toHaveBeenLastCalledWith({
-      sessionId: "s-1",
-      expectedLineIds: ["s1"],
-      approverStaffId: "m1",
-      pin: "1234",
-    });
   });
 
   // Codex round 4 on #308 — the same ids with a different unit count is a move too.
@@ -835,24 +659,6 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     // its own write-off IS the stall, but "this did nothing" drops "Don't remove it again"; red.
     expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
-  });
-
-  it("a step-up write-off with no answer keeps no PIN — it was sent, and must not be re-sent toward the lockout", async () => {
-    vi.useFakeTimers();
-    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
-    await openSheet();
-    await submit();
-    fireEvent.change(dialog().querySelector("select")!, { target: { value: "m1" } });
-    const pinField = () =>
-      dialog().querySelector<HTMLInputElement>('input[type="password"], input[inputmode]')!;
-    fireEvent.change(pinField(), { target: { value: "1234" } });
-    record.mockReturnValueOnce(hang().promise);
-    await submit();
-    expect(record).toHaveBeenCalledTimes(2);
-    await advance(STAFF_HANG_MS);
-    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
-    // MUTATION (p2h-sheets/noshow/waiting-keeps-the-pin): the masked digits stay; red.
-    expect(pinField().value).toBe("");
   });
 
   it("a tablet stalled on ANOTHER action refuses the write-off at the tap: nothing dispatched", async () => {

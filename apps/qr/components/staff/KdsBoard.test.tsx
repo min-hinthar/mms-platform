@@ -107,6 +107,7 @@ const queue = (firedAt = NOW): KitchenQueue => ({
           firedAt,
           fulfillment: "dinein",
           station: "wok",
+          guest: null,
         },
       ],
     },
@@ -1051,6 +1052,28 @@ describe("Phase 2b — a dish's note sits directly under that dish, as its descr
     const slot = container.querySelector(".kds-ticket-held .kds-slot")!;
     const note = container.querySelector(".kds-ticket-held .kds-note")!;
     expect(held.getAttribute("aria-describedby")).toBe(`${slot.id} ${note.id}`);
+  });
+});
+
+describe("guest names (owner, 2026-10-24 — K16 reversed): whose dish, and the table's call-out name", () => {
+  it("a line a guest added says “For <name>” inside its button, and its name says it too; a nameless line says nothing", () => {
+    const q = queue();
+    q.tickets[0]!.lines[0]!.guest = "Aung";
+    q.tickets[0]!.lines.push({ ...q.tickets[0]!.lines[0]!, id: "line-2", guest: null });
+    const { container } = mount("en", q);
+    const items = container.querySelectorAll(".kds-item");
+    const tag = items[0]!.querySelector(".kds-line .kds-line-guest");
+    expect(tag?.textContent).toBe("For Aung");
+    expect(items[0]!.querySelector(".kds-line")!.getAttribute("aria-label")).toMatch(/— For Aung$/);
+    expect(items[1]!.querySelector(".kds-line-guest")).toBeNull();
+    expect(items[1]!.querySelector(".kds-line")!.getAttribute("aria-label")).not.toContain("For ");
+  });
+
+  it("a dine-in ticket with a call-out name draws it under the table number", () => {
+    const q = queue();
+    q.tickets[0]!.customerName = "Birthday — Mya";
+    const { container } = mount("en", q);
+    expect(container.querySelector(".kds-id small")?.textContent).toBe("Birthday — Mya");
   });
 });
 

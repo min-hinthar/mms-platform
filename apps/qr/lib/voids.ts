@@ -5,26 +5,26 @@ import { serviceClient } from "@mms/db/server";
 import { counterNoShowInput, voidLineInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff } from "./staff";
-import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
+import { approverFor } from "./approvers";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
 import { openCartFor } from "./staff-open-cart";
 import { isCounterOrder, noShowOutcome } from "./counter-order";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * Loss-gated voids/comps (S2.3) — the ORDER-MODEL "server-initiated + manager step-up, gated by loss".
  * Server Actions are public POSTs (IDOR by default), so every export re-checks requireStaff() and acts via
  * the service-role client. The loss gate (cooked? over-ceiling? comp?) is derived SERVER-side in
- * mms_void_line from the line's state + value — the client never asserts it. The manager step-up reuses
- * mms_staff_verify_pin (lockout-counted); a `server`-role approver is rejected even with a correct PIN.
+ * mms_void_line from the line's state + value — the client never asserts it. No-PIN (owner, 2026-10-24):
+ * the approver is the SIGNED-IN caller when they are a manager or owner (`approverFor`); a server's
+ * gated ask goes to the approvals queue. The SQL re-checks the approver's role and that they are active.
  */
 
 /**
- * One roster row. PD8 — `active` and `hasPin` ride along so the pure `eligibleApprovers`
- * (`lib/approvers.ts`) can list ONLY the people who can sign: an inactive manager or one with no
- * tablet PIN is a dead end learned from a refusal, and the asker themself is refused server-side only
- * after a lockout attempt is spent.
+ * One roster row. No-PIN (owner, 2026-10-24): the decision reads the caller's OWN row (`self`) to
+ * name the decider or say why they cannot (`decideAs`, `lib/approvers.ts`).
  */
 export type Approver = {
   staffId: string;
@@ -33,20 +33,16 @@ export type Approver = {
    *  every other row is an active manager or owner. */
   role: "server" | "manager" | "owner";
   active: boolean;
-  hasPin: boolean;
   /** PD8 — this row is the signed-in caller: the asker of a loss request they open (D4: the asker is
    *  always the signed-in account), left out of the signers by `eligibleApprovers`. */
   self: boolean;
 };
 
 /**
- * The active managers/owners a server can tap to authorize a loss action (the step-up's name picker).
- * Any active staff may READ this (it's colleague display names, already visible on the floor) — the
- * authority is the PIN + role check at void time, not who can see the list. PD8: joins `staff_pins`
- * (keyed `staff_id`) for `hasPin` — a FAILED pin read is an outage like a failed roster read, never
- * "nobody has a PIN" (that would promote the deferred request and tell a server nobody can sign) —
- * and carries the CALLER's own row marked `self` (a server's too), so the slip can print "from
- * {asker}" and leave them out of the signers without a second identity read on the client.
+ * The active managers/owners, plus the CALLER's own row marked `self` (a server's too). Any active
+ * staff may READ this (colleague display names, already visible on the floor) — the authority is the
+ * role check at decision time, not who can see the list. No-PIN: the decision reads `self` to say who
+ * is deciding ("Deciding as Aye") without a second identity read on the client.
  */
 export async function listApprovers(): Promise<Approver[]> {
   const caller = await requireStaff();
@@ -62,23 +58,12 @@ export async function listApprovers(): Promise<Approver[]> {
   if (error)
     throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
   const rows = data ?? [];
-  const pinned = new Set<string>();
-  {
-    const { data: pins, error: pinError } = await db
-      .from("staff_pins")
-      .select("staff_id")
-      .in("staff_id", [...new Set([...rows.map((r) => r.user_id), caller.staffId])]);
-    if (pinError)
-      throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
-    for (const p of pins ?? []) pinned.add(p.staff_id);
-  }
   const roster: Approver[] = rows
     .map((r) => ({
       staffId: r.user_id,
       displayName: r.display_name,
       role: r.role as "manager" | "owner",
       active: r.active === true,
-      hasPin: pinned.has(r.user_id),
       self: r.user_id === caller.staffId,
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -90,7 +75,6 @@ export async function listApprovers(): Promise<Approver[]> {
       displayName: caller.displayName,
       role: caller.role === "manager" || caller.role === "owner" ? caller.role : "server",
       active: true,
-      hasPin: pinned.has(caller.staffId),
       self: true,
     });
   return roster;
@@ -98,17 +82,14 @@ export async function listApprovers(): Promise<Approver[]> {
 
 export type VoidLineResult =
   | { ok: true; action: "void" | "comp" }
-  // `needs_pin` is the SERVER deciding this line needs a manager (cooked / over-ceiling / comp) when the
-  // first attempt came in solo — the UI then shows the step-up. The PIN sub-states mirror unlockConsole.
-  | { ok: false; reason: "needs_pin" }
-  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
-  | { ok: false; reason: "pin_locked"; lockedUntil: string }
+  // `needs_manager` is the SERVER deciding this line needs a manager (cooked / over-ceiling / comp)
+  // and the caller is not one — the sheet then offers the approvals-queue request.
+  | { ok: false; reason: "needs_manager" }
   | {
       ok: false;
       reason:
-        | "pin_no_pin"
+        | "locked"
         | "bad_approver"
-        | "step_up_rate_limited"
         | "not_open"
         | "not_found"
         | "in_flight"
@@ -120,11 +101,11 @@ export type VoidLineResult =
     };
 
 /**
- * Void (cancel + remove) or comp (free, kitchen still makes it) a line on a table's open order. Two-pass
- * by design: the UI first calls SOLO (no approver); if the server says this line needs authority it
- * returns `needs_pin` and the UI collects a manager + PIN and re-submits. The PIN is verified here
- * (lockout-counted) BEFORE the RPC; mms_void_line re-checks the approver's role + self-approval in SQL and
- * writes the audit row in the same transaction as the state flip.
+ * Void (cancel + remove) or comp (free, kitchen still makes it) a line on a table's open order. One
+ * pass (No-PIN, owner 2026-10-24): a manager or owner caller is sent as the approver of their own
+ * write (`approverFor`); a server is sent with none, and a gated line answers `needs_manager` — the
+ * sheet then files the request. mms_void_line re-checks the approver's role in SQL and writes the
+ * audit row in the same transaction as the state flip.
  */
 export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   const auth = await getStaffAuth();
@@ -132,10 +113,14 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   // generic error that reads as a verdict about the line.
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const caller = auth.caller;
   const parsed = voidLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
-  const { sessionId, cartItemId, action, reason, approverStaffId, pin } = parsed.data;
+  const { sessionId, cartItemId, action, reason } = parsed.data;
 
   const db = serviceClient();
   // Resolve THIS table's open cart and refuse mid-payment (shared mutex with cash settle / split / clear)
@@ -160,25 +145,8 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   if (lineError) return { ok: false, reason: "outage" };
   if (!line) return { ok: false, reason: "not_found" };
 
-  // When the server picked a manager, verify their PIN server-side FIRST (lockout-counted). A bad/locked
-  // PIN never reaches the RPC. The approver id then goes to mms_void_line, which re-checks role + self.
-  // undefined (not null) so an omitted approver falls through to the RPC's `p_approver default null`.
-  let approver: string | undefined;
-  if (approverStaffId && pin) {
-    // W1·Q7: refuse to spend the target's lockout budget until the approver id resolves to an active
-    // manager/owner ≠ the caller AND the CALLER is within the step-up rate bucket — otherwise any
-    // staff account can serially wrong-PIN every manager and lock approvals floor-wide.
-    const pre = await approverStepUpAllowed(approverStaffId, caller.staffId);
-    if (pre !== "ok") return { ok: false, reason: pre };
-    const v = await verifyStaffPin(approverStaffId, pin);
-    if (v.status === "wrong")
-      return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };
-    if (v.status === "locked")
-      return { ok: false, reason: "pin_locked", lockedUntil: v.lockedUntil };
-    if (v.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
-    if (v.status !== "ok") return { ok: false, reason: "error" };
-    approver = approverStaffId;
-  }
+  // No-PIN — the caller approves their own gated write when their role may sign; a server sends none.
+  const approver = approverFor(caller);
 
   const { data: status, error } = await db.rpc("mms_void_line", {
     p_line: cartItemId,
@@ -195,9 +163,12 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
     });
     return { ok: false, reason: "error" };
   }
-  if (status === "needs_approval") return { ok: false, reason: "needs_pin" };
-  if (status === "self_approve" || status === "bad_approver")
-    return { ok: false, reason: "bad_approver" };
+  // `self_approve` is the PRE-No-PIN function's answer to a manager approving their own write
+  // (20261024120000 drops it): until that migration applies, the manager is offered the request —
+  // another manager decides it — never a dead refusal.
+  if (status === "needs_approval" || status === "self_approve")
+    return { ok: false, reason: "needs_manager" };
+  if (status === "bad_approver") return { ok: false, reason: "bad_approver" };
   if (status === "not_open") return { ok: false, reason: "not_open" };
   if (status === "in_flight") return { ok: false, reason: "in_flight" }; // RPC's atomic pay-lock guard (B2)
   if (status === "not_found") return { ok: false, reason: "not_found" };
@@ -237,15 +208,12 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
 /** Every answer the no-show can give — CODES; the sheet maps each one to words (never a sentence). */
 export type RecordCounterNoShowResult =
   | { ok: true }
-  | { ok: false; reason: "needs_pin" }
-  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
-  | { ok: false; reason: "pin_locked"; lockedUntil: string }
+  | { ok: false; reason: "needs_manager" }
   | {
       ok: false;
       reason:
-        | "pin_no_pin"
+        | "locked"
         | "bad_approver"
-        | "step_up_rate_limited"
         | "not_open"
         | "not_counter"
         | "in_flight"
@@ -263,9 +231,10 @@ export type RecordCounterNoShowResult =
  * one approved `no_show` row per sent line, returns in-grace lines to draft, cancels the cart and
  * closes the session. It never charges and never refunds; drafts and grocery are dropped with no row.
  *
- * Two-pass like `voidLine`: the first tap is SOLO; `needs_pin` asks for a manager + PIN, verified here
- * (lockout-counted, after the step-up's own refusals) BEFORE the RPC, which re-checks the approver's
- * role and self-approval in SQL. The client never asserts a line, an amount or whether a manager is
+ * One pass like `voidLine` (No-PIN, owner 2026-10-24): a manager or owner caller is sent as the
+ * approver of their own write-off; a server is sent with none, and a gated no-show answers
+ * `needs_manager` — a manager does it on their own sign-in (a no-show has no request queue). The SQL
+ * re-checks the approver's role. The client never asserts a line, an amount or whether a manager is
  * needed. Server Actions are public POSTs: gated on the staff session first, written through the
  * service-role RPC only.
  */
@@ -273,15 +242,19 @@ export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNo
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const initiator = auth.caller;
   const parsed = counterNoShowInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   // The cross-area decision (Phase 2f review): the SENT line ids the sheet showed the approver ride
   // the write, and `mms_counter_no_show` refuses with `changed` (writing nothing) when the sent set it
-  // derives under the cart lock is any other — so a PIN approves exactly the food it was shown.
+  // derives under the cart lock is any other — so an approval lands on exactly the food it was shown.
   // `expectedLineIds` is the db area's REQUIRED schema field (uuid[], max 200 — a missing one fails
   // the parse above); the widened type is a no-op once it lands (resolves at integration).
-  const { sessionId, approverStaffId, pin, expectedLineIds } = parsed.data as typeof parsed.data & {
+  const { sessionId, expectedLineIds } = parsed.data as typeof parsed.data & {
     expectedLineIds: string[];
   };
 
@@ -290,22 +263,11 @@ export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNo
   if (!found.session || !found.cart) return { ok: false, reason: "not_open" };
   if (!isCounterOrder({ mode: found.session.mode, qrCode: found.session.qr_code }))
     return { ok: false, reason: "not_counter" };
-  // The SQL refuses a fresh freeze too; this answers the honest reason before a PIN is spent.
+  // The SQL refuses a fresh freeze too; this answers the honest reason first.
   if (await paymentInFlightReason(found.cart)) return { ok: false, reason: "in_flight" };
 
-  let verifiedApprover: string | undefined;
-  if (approverStaffId && pin) {
-    const allowed = await approverStepUpAllowed(approverStaffId, initiator.staffId);
-    if (allowed !== "ok") return { ok: false, reason: allowed };
-    const check = await verifyStaffPin(approverStaffId, pin);
-    if (check.status === "wrong")
-      return { ok: false, reason: "pin_wrong", attemptsRemaining: check.attemptsRemaining };
-    if (check.status === "locked")
-      return { ok: false, reason: "pin_locked", lockedUntil: check.lockedUntil };
-    if (check.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
-    if (check.status !== "ok") return { ok: false, reason: "error" };
-    verifiedApprover = approverStaffId;
-  }
+  // No-PIN — the caller approves their own gated write-off when their role may sign.
+  const verifiedApprover = approverFor(initiator);
 
   const noShowArgs = {
     p_cart_id: found.cart.id,

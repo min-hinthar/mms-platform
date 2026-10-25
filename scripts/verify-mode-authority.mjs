@@ -303,6 +303,16 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261018140000_lcb_set_qty_growth_gate.sql"),
     test: path.join(ROOT, "supabase/tests/lcb_set_qty_growth_gate_test.sql"),
   },
+  // No-PIN (owner, 2026-10-24) — `mms_void_line` and `mms_counter_no_show` restated without their
+  // initiator = approver refusal. Their LAST definition moves here, so P2F's mutants of both patch
+  // THIS file now (`src: "nopin"`, still judged by p2f).
+  nopin: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261024120000_no_pin_manager_self_approve.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/nopin_manager_self_approve_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
 const CHAIN = [
@@ -322,6 +332,7 @@ const CHAIN = [
   "m182",
   "pd1n",
   "lcbq",
+  "nopin",
 ];
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -1144,7 +1155,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-counter-check-dropped",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15a ·",
     why: "the no-show writes off food without a charge — on a table or a diner pickup that is a free meal behind one button",
@@ -1154,7 +1165,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-nothing-sent-check-dropped",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15b ·",
     why: "with nothing sent there is no loss to record; the call must steer to Clear rather than cancel a live order and write zero rows",
@@ -1164,7 +1175,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-grace-line-written-off",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15c ·",
     why: "an in-grace line never reached the KDS — writing it off records a loss for food nobody made",
@@ -1174,7 +1185,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-open-check-dropped",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15d ·",
     why: "a paid cart's lines are revenue; voiding them after the fact erases a sale from the books",
@@ -1186,7 +1197,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-settle-freeze-ignored",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15e ·",
     why: "two tablets: a cashier's settle freeze is live — the no-show must refuse (in_flight) rather than void food the reader is charging for",
@@ -1196,7 +1207,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-approver-gate-dropped",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15f ·",
     why: "decision 7b — the existing loss gate: a started or served dish needs a manager, and without the null check a server writes it off alone",
@@ -1204,19 +1215,51 @@ const MUTANTS = [
     replace: "  if v_gate <> 'solo' then\n",
   },
   {
-    id: "p2f/no-show-self-approve-allowed",
+    id: "nopin/void-self-refusal-restored",
+    fn: "mms_void_line",
+    src: "nopin",
+    suite: "nopin",
+    expect: "NOPIN.1 ·",
+    why: "No-PIN (owner, 2026-10-24) — a signed-in manager approves their own cooked void; the old initiator = approver refusal back in, and the manager can no longer act without a second manager",
+    find: "    select role, active into v_approver_role, v_approver_active\n",
+    replace:
+      "    if p_approver = p_initiator then return 'self_approve'; end if;\n    select role, active into v_approver_role, v_approver_active\n",
+  },
+  {
+    id: "nopin/void-server-approves",
+    fn: "mms_void_line",
+    src: "nopin",
+    suite: "nopin",
+    expect: "NOPIN.3 ·",
+    why: "No-PIN — the role check is now the WHOLE rule: a server's own id in the approver slot must still be refused",
+    find: "v_approver_role not in ('manager','owner') then",
+    replace: "v_approver_role not in ('manager','owner','server') then",
+  },
+  {
+    id: "nopin/void-inactive-approves",
+    fn: "mms_void_line",
+    src: "nopin",
+    suite: "nopin",
+    expect: "NOPIN.3 ·",
+    why: "No-PIN — a departed manager's sign-in must not approve; the active check is half the rule",
+    find: "    if not coalesce(v_approver_active, false) or v_approver_role",
+    replace: "    if v_approver_role",
+  },
+  {
+    id: "nopin/no-show-self-refusal-restored",
     fn: "mms_counter_no_show",
-    src: "p2f",
-    suite: "p2f",
-    expect: "P2F.15g ·",
-    why: "a manager approving their own write-off is no second pair of eyes — the same rule mms_void_line enforces",
-    find: "    if p_approver = p_initiator then return 'self_approve'; end if;\n    select role, active into v_role, v_active",
-    replace: "    select role, active into v_role, v_active",
+    src: "nopin",
+    suite: "nopin",
+    expect: "NOPIN.4 ·",
+    why: "No-PIN — a manager writes off their own counter no-show; with the self refusal back there is no path at all (a no-show has no request queue)",
+    find: "    select role, active into v_role, v_active",
+    replace:
+      "    if p_approver = p_initiator then return 'self_approve'; end if;\n    select role, active into v_role, v_active",
   },
   {
     id: "p2f/no-show-server-approves",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15h ·",
     why: "the approver must be an active manager/owner; a server's id in the approver slot is the gate in name only",
@@ -1226,7 +1269,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-cooked-gate-ignored",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15f ·",
     why: "the cooked leg of the gate: a served dish under the ceiling must still need a manager, as it does for a single void",
@@ -1236,7 +1279,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-drafts-written-off",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15b ·",
     why: "drafts never reached the kitchen — writing them off as a no-show loss inflates the loss with food nobody made. Since a NULL fire_at counts as sent (Phase 2f review, M2) the state term is the ONLY thing between a plain draft and the sent set, so the drafts-only case (P2F.15b) catches it first; P2F.16's old-fire_at draft pins it too",
@@ -1246,7 +1289,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-grocery-written-off",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "a grocery line is shelf stock, not kitchen food — the no-show leaves it on the cancelled cart with no row (Clear's precedent) and never books it as a loss",
@@ -1256,7 +1299,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-comped-line-re-audited",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "a comped line is already an audited loss; auditing it again as a no-show double-counts it",
@@ -1266,7 +1309,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-pending-left-open",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "a pending S2.4 request on a cancelled cart can later be approved against a line that no longer exists — supersede it in the same statement",
@@ -1276,7 +1319,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-grace-line-left-fired",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "an in-grace fired line on a cancelled cart sits 'fired' with no audit row and no bill — return it to draft (the undo's own edge)",
@@ -1286,7 +1329,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-cart-left-open",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "the write-off must close the cart, or the voided order stays payable and the counter keeps showing it",
@@ -1296,7 +1339,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-session-left-active",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "the session must close with the cart, or the reg- code keeps a live session a diner can still join",
@@ -1306,7 +1349,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-ceiling-counts-drafts",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.17 ·",
     why: "the loss ceiling is over SENT value only; counting drafts sends a $5 no-show with a $30 unsent basket to a manager for nothing",
@@ -1377,7 +1420,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-approvals-locked-after-lines",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: null,
     why: "DOCUMENTED SURVIVOR — locking pending approvals BEFORE lines is deadlock avoidance against mms_resolve_approval (approval → line); a deadlock needs two sessions and no harness drives this one yet. Filed (OPEN-ITEMS, P2fi-row: two-session proof of the no-show's lock order)",
@@ -1450,7 +1493,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-pay-lock-ignored",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "M4 — a guest's single-pay attempt is live (fresh lock): voiding the food under it cancels a cart a card is being charged for",
@@ -1461,7 +1504,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-pay-lock-ttl-widened",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "over-block: an ABANDONED pay lock (past mms_void_line's 5-minute literal) must not strand a no-show — the TTL is what releases it",
@@ -1472,7 +1515,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-pay-lock-flag-ignored",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "over-block: a released lock leaves its stamp behind; only `locked` says a payment is live",
@@ -1483,7 +1526,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-ceiling-arm-dropped",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.21 ·",
     why: "M3 — the ceiling leg of the loss gate: a large sent order nobody started is written off by a server alone",
@@ -1493,7 +1536,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-null-fire-at-not-sent",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.22 ·",
     why: "M2 — a fired line with no deadline is on the KDS; reading it as unsent answers nothing_sent and steers staff to Clear, cancelling food the kitchen saw with no loss row",
@@ -1503,7 +1546,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-expected-set-ignored",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.20 ·",
     why: "the approval is tied to what the approver SAW: without the check a line sent after the sheet loaded is written off under a PIN that never covered it",
@@ -1513,7 +1556,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-expected-set-order-sensitive",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.20 ·",
     why: "over-block: the sheet's order and a repeated id are not a change — compared as a list, every real no-show refuses",
@@ -1523,7 +1566,7 @@ const MUTANTS = [
   {
     id: "p2f/no-show-missing-expected-set-passes",
     fn: "mms_counter_no_show",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.20 ·",
     why: "a NULL expected set compares as unknown under `<>` and falls through to the write — a caller that sends nothing approves anything",
@@ -1874,7 +1917,7 @@ const MUTANTS = [
   {
     id: "p2f/void-open-recheck-dropped",
     fn: "mms_void_line",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.29d ·",
     why: "the re-check the cart lock exists for: an approved void (a loss) recorded on a cart the no-show already cancelled",
@@ -1894,7 +1937,7 @@ const MUTANTS = [
   {
     id: "p2f/void-cart-binding-refuses-everything",
     fn: "mms_void_line",
-    src: "p2f",
+    src: "nopin",
     suite: "p2f",
     expect: "P2F.29a ·",
     why: "over-block: the line read bound to a cart it can never equal — every void answers not_found",

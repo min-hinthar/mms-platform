@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-18 · the tranche merged, production on test keys)
+# Session Handoff — MMS Platform (2026-10-24 · the owner's four asks on #373; production on test keys)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -11,6 +11,31 @@ The chat context does not carry across sessions — **this file is the durable p
 entries that cite `docs/HANDOFF.md` for history resolve there — and two of them are still BINDING despite the archive's banner: the p2f apply procedure and the `PICKUP_MANUAL_CAPTURE` flip gate (restated in [`docs/ENV.md`](ENV.md)'s row) — plus the M17 / M109 notes, the `lemon-salad` tax note, the Terminal
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
+
+## Where things stand (2026-10-24 — the owner's four asks, on PR #373)
+
+The owner asked, verbatim: "elevate full features (iOS photo upload, add new menu items categories
+etc, updates to names prices categories etc,) to menu-editor and with world-class UI UX. manual new
+item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
+and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
+so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
+(OA1–OA13; OA1 · OA3 · OA4 · OA9 closed) is what is left.
+
+- **OA1 is applied to prod (2026-10-25,** the owner's "apply OA1 migration to prod"): verified object
+  by object — OPEN-ITEMS OA1 has the hashes and the privileges.
+- **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
+  instruction (G3 · G4); (2) **OA2** — apply `20261024120100_menu_studio.sql`, one file through the
+  Supabase MCP `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header
+  says. OA2 can land before or after the merge: until it does, a photo upload says "Photo storage
+  isn't set up yet".
+- **OA3 · OA4 · OA9 decided 2026-10-25** on the owner's delegation (`docs/DECISIONS_2026-10-25.md`):
+  the asker still cannot approve their own request (its refusal now names the way through), the
+  custom item stays manager-only, and every money-out and price-authority write refuses while the
+  console is locked.
+- **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on
+  the throwaway Postgres 16 (`/var/tmp/mmspg`, rebuilt by `/var/tmp/mmspg-kit/rebuild.sh` — gone with
+  the container), and red-first for each new file; `verify-mode-authority` accounted for 349 mutants
+  (27 documented survivors, as before) with the new `nopin` suite.
 
 ## Where things stand (2026-10-18 — the tranche merged, two migrations applied, production live on test keys)
 
@@ -94,6 +119,16 @@ merged, in this order. The objects each one creates were verified one by one bef
   closed, and M160 and C2 carry the 2026-10-18 state.
 - The decisions round's record is [`docs/DECISIONS_2026-10-18.md`](DECISIONS_2026-10-18.md).
 
+### Design round 4 (2026-10-23/24, `claude/blissful-cerf-jxz37k`)
+
+The owner asked for a "creative design-thinking revamp enhance enrich refine expand improve UI UX". The
+standard loop ran on eight NEW moments (m13–m20: the to-go slip, the exit after paying, the front door,
+the account record, the money desk, Team, the bag station, the menu editor). The record is
+[`docs/PATH_DESIGN_2026-10-23.md`](PATH_DESIGN_2026-10-23.md); the specs are under
+[`docs/path-design-2026-10-23/`](path-design-2026-10-23/); the registry rows are PD14–PD21. The owner
+was asked once and the prompt was declined, so the round stands on recorded defaults (R4·0–R4·8), each
+reversible on the owner's word. Nothing was built and no migration was applied; the migrations it depends on (PD15's seat-membership authorization; PD18's two find indexes and RULING#24 A's `resolved_by` / `resolved_at` columns, each its own file) wait for the owner's go.
+
 ### Next tasks
 
 1. **#362**: land it on the owner's per-SHA line (and the bypass where its `codex-review` is red),
@@ -109,6 +144,8 @@ merged, in this order. The objects each one creates were verified one by one bef
 
 ### The owner's checklist (still open)
 
+0. **Round 4's defaults** (PATH_DESIGN_2026-10-23 R4·0–R4·8): reverse any with one word; the concept
+   screens for every direction stay on the canvas. K40's take-out word for the native round.
 1. **Finish C2.** Remove `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_SECRET_KEY_TEST` from
    Vercel Production, then redeploy production. Confirm the bundle serves `pk_live_…`, then make one
    small real-card sale and refund it.

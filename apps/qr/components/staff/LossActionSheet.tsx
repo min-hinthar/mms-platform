@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
-import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
+import { voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
 import { boundWrite, ownWaitSlot, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
@@ -11,19 +11,13 @@ import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { padDishName } from "@/lib/order-pad";
-import {
-  PIN_NO_PIN_COPY,
-  pinFailureCopy,
-  useApproverRoster,
-  useLockout,
-  useRosterRegion,
-} from "./ManagerPinStepUp";
-import { ApprovalSlip, KindMark, litApproverId, signersFor, zeroReasonFor } from "./ApprovalSlip";
+import { KindMark } from "./KindMark";
 import { Chrome } from "./Chrome";
 import { TicketNote } from "./TicketText";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
 import { useStaffLang } from "./StaffLangProvider";
+import { toLockScreen } from "./toLockScreen";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -79,10 +73,6 @@ const CONFIRM_KEY: Record<Action, StaffKey> = {
   void: "table.loss.confirm.void",
   comp: "table.loss.confirm.comp",
 };
-const CONFIRM_APPROVAL_KEY: Record<Action, StaffKey> = {
-  void: "table.loss.confirmApproval.void",
-  comp: "table.loss.confirmApproval.comp",
-};
 const REQUEST_KEY: Record<Action, StaffKey> = {
   void: "table.loss.requestApproval.void",
   comp: "table.loss.requestApproval.comp",
@@ -101,16 +91,17 @@ const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
 ]);
 
 /**
- * The loss action (S2.3): void (cancel + remove) or comp (free, kitchen still makes it) a fired line, with
- * the manager-PIN step-up when the server requires it. The loss gate is SERVER-authoritative — this sheet
- * shows the PIN step up-front for the clearly-gated cases (a comp, or a cooked line) and otherwise submits
- * solo, revealing the step-up only if the server returns `needs_pin` (e.g. an over-ceiling uncooked void).
+ * The loss action (S2.3): void (cancel + remove) or comp (free, kitchen still makes it) a fired line.
+ * The loss gate is SERVER-authoritative (`mms_void_line`).
  *
- * PD8 · m8 — the asker's sheet: one chip picks what AND why (each with its column's kind mark), the
- * consequence hint lives in the grid's reserved foot, and the step-up is THE ONE SLIP ("Thiri → Aye",
- * then "Aye, your PIN"): only people who can sign are listed, exactly one eligible arrives lit, and the
- * two true zero-eligible sentences replace the retired "none are signed in right now". The asker is the
- * signed-in account (D4): the roster's `self` row, left out of the signers.
+ * No-PIN (owner, 2026-10-24: "Remove PIN for all requests") — there is no step-up slip any more. A
+ * manager or owner acts on their OWN sign-in: one tap, and `voidLine` records them as the approver.
+ * A server's tap on a gated line (a comp, a cooked dish, an over-ceiling void) comes back
+ * `needs_manager`, and the sheet turns its one button into "Request a manager's approval" — the line
+ * stays on the bill until a manager decides it from Open requests.
+ *
+ * PD8 · m8 — the asker's sheet: one chip picks what AND why (each with its column's kind mark), and
+ * the consequence hint lives in the grid's reserved foot.
  */
 export function LossActionSheet({
   open,
@@ -128,12 +119,14 @@ export function LossActionSheet({
   const [action, setAction] = useState<Action>("void");
   const [reason, setReason] = useState<Reason | "">("");
   const [reasonInvalid, setReasonInvalid] = useState(false); // S14: inline "pick a reason" validation
-  const [approverStaffId, setApproverStaffId] = useState("");
-  const [pin, setPin] = useState("");
-  const [stepUp, setStepUp] = useState(false);
+  // No-PIN — the server said THIS action needs a manager and the caller is not one: the sheet's
+  // primary action is now the request (never a dead "Remove" that refuses again). Bound to the action
+  // that was refused, so picking another (a below-ceiling void after a refused comp) offers that
+  // action's own button again, never a request the SQL refuses as `no_approval_needed` (Codex r2).
+  const [needsManagerFor, setNeedsManagerFor] = useState<Action | null>(null);
+  const needsManager = needsManagerFor === action;
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
-  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
   // BOUNDED await — never a transition's `pending`, which does not clear while the Server Action it
   // dispatched is unanswered (Next's per-tab action queue; LEARNINGS #149 · #200). Freed at
@@ -151,73 +144,23 @@ export function LossActionSheet({
   // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount (the line editor
   // keys every open as a fresh sheet; a re-opened one must still say the write that is out).
   const ownLate = ownWaitSlot<StaffKey | null>(`loss:${line.id}`, null);
-  // PD8 — the slip's focus targets: a chip tap on a gated line lands on the PIN (one name lit) or
-  // the first tile; a wrong PIN lands back in the emptied field.
-  const slipRef = useRef<HTMLDivElement>(null);
-  const pinRef = useRef<HTMLInputElement>(null);
-  const firstTileRef = useRef<HTMLButtonElement>(null);
-
-  // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
+  // The kitchen has started/finished this line — the summary says so (the loss gate is the server's).
   const cooked = line.state === "in_progress" || line.state === "served";
-  // Show the PIN step up-front for the obviously-gated cases; an uncooked over-ceiling void escalates via
-  // the server's `needs_pin` instead (no ceiling value shipped to the client).
-  const gatedUpFront = action === "comp" || cooked;
-  const showStepUp = stepUp || gatedUpFront;
-
-  // Load the manager list once on mount. The sheet is MOUNTED only while open (StaffLineEditor gates it),
-  // so a fresh mount each open both refetches the roster (a manager added/removed mid-shift is reflected)
-  // and resets all transient state via the initial useState values — no setState-in-effect reset needed.
-  // A failed read stays an OUTAGE (`roster.failed`), never `[]` — an empty roster would promote the
-  // deferred request to primary and tell the server nobody is on shift (Codex round 2 on #308).
-  const roster = useApproverRoster(listApprovers);
-  const approvers = roster.approvers;
-  // Try again on the roster, and the ONE region rule for any recovery (`useRosterRegion`, shared with
-  // the no-show sheet): a second failure is said in the region; a recovery — the Try again's answer,
-  // or a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
-  // sentence, putting back "a manager needs to approve" while the server's step-up is pending.
-  const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
-  // PD8 — the asker is the signed-in account: the roster's `self` row (D4, no asker-by-PIN seam).
-  const self = approvers?.find((a) => a.self) ?? null;
-  const askerId = self?.staffId ?? "";
-  const eligible = signersFor(approvers, askerId);
-  const zero = zeroReasonFor(approvers, askerId);
-  // Exactly one eligible arrives lit; the person's own tap wins while it is still eligible.
-  const lit = litApproverId(approverStaffId, eligible);
 
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
   // to it simply reads as unselected (no effect / setState-in-effect needed — it forces a fresh choice).
   const effectiveReason = reason && REASONS[action].some((r) => r.value === reason) ? reason : "";
 
-  const pinOk = pin.length >= 4 && pin.length <= 8;
   // The reason is validated inline on submit (S14), not folded into the disabled gate — a silently-dimmed
-  // CTA leaves the server with no idea why. The PIN/manager completeness still gates the button visibly.
-  const canSubmit = !locked && !busy && (!showStepUp || (lit !== "" && pinOk));
-  // S11 → PD8: nobody here can sign (the two true sentences) → the deferred request is the primary.
-  const noManagers = zero !== null;
+  // CTA leaves the server with no idea why.
+  const canSubmit = !busy;
 
-  /** A chip tap: the action AND the reason in one tap; on a gated line, the slip comes into view. */
-  const slipFocusWanted = useRef(false);
+  /** A chip tap: the action AND the reason in one tap. */
   function pickChip(a: Action, r: Reason) {
     setAction(a);
     setReason(r);
     setReasonInvalid(false);
-    // The slip may MOUNT on this very tap (a comp chip after a void one), so the focus waits for the
-    // render that holds it (the effect below), never the tap's closure.
-    if (a === "comp" || cooked || stepUp) slipFocusWanted.current = true;
   }
-  useEffect(() => {
-    if (!showStepUp || !slipFocusWanted.current) return;
-    slipFocusWanted.current = false;
-    const reduce =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Optional call: jsdom has no scrollIntoView (the SettledToday precedent).
-    slipRef.current?.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
-    // The PIN once a name is lit; else the first tile; else (the list still loading) the PIN.
-    (lit !== "" ? pinRef.current : (firstTileRef.current ?? pinRef.current))?.focus({
-      preventScroll: true,
-    });
-  });
 
   /**
    * The void/comp's ANSWER — on time, or late (9e: the answer to an attempt the region already said
@@ -227,30 +170,16 @@ export function LossActionSheet({
    * value read here is the TAP's render (the closure), never the one the answer lands in.
    */
   function handleResult(res: VoidLineResult) {
+    if (!res.ok && res.reason === "locked") return toLockScreen();
     if (res.ok) {
       onDone(res.action);
       onOpenChange(false);
       return;
     }
-    setPin("");
     switch (res.reason) {
-      case "needs_pin":
-        setStepUp(true);
-        setMsg({ k: "pin.needsManager" });
-        break;
-      case "pin_wrong":
-      case "pin_locked":
-        setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
-        pinRef.current?.focus({ preventScroll: true }); // the emptied field takes focus
-        break;
-      case "pin_no_pin":
-        setMsg(PIN_NO_PIN_COPY);
-        break;
-      case "bad_approver":
-        setMsg({ k: "pin.badApprover.self" });
-        break;
-      case "step_up_rate_limited":
-        setMsg({ k: "pin.rateLimited" });
+      case "needs_manager":
+        setNeedsManagerFor(action);
+        setMsg({ k: "table.loss.msg.needsManager" });
         break;
       case "in_flight":
         setMsg({ k: "table.appr.msg.inFlight" });
@@ -321,8 +250,8 @@ export function LossActionSheet({
     }
     if (!canSubmit) return; // §17 — the button says so with `aria-disabled`; the refusal is here
     // Phase 2h (9d) — a loss is refused AT THE TAP, never dispatched, while any action on this tab
-    // has gone STAFF_HANG_MS without an answer (Next would only queue it behind that one — and the
-    // void spends a manager's PIN attempt when it finally runs). Read now, never from render state.
+    // has gone STAFF_HANG_MS without an answer (Next would only queue it behind that one). Read now,
+    // never from render state.
     // Owner decision: while THIS sheet's own write is still out past the bound, the refusal re-says
     // ITS sentence ("Don't do it again"), never the tablet's "this did nothing" (`tapRefusal`).
     const refused = tapRefusal(ownLate.current, stalledSince(), "out.stalled");
@@ -341,17 +270,12 @@ export function LossActionSheet({
           cartItemId: line.id,
           action,
           reason: effectiveReason,
-          ...(showStepUp ? { approverStaffId: lit, pin } : {}),
         }),
       );
       if (out.kind === "answer") {
         handleResult(out.value);
         return;
       }
-      // Sent either way (critic F4): `voidLine` spends the manager's attempt BEFORE the RPC, so a PIN
-      // whose verdict was lost must not stay to be re-sent toward the floor-wide lockout — the
-      // refund and no-show sheets empty theirs on the same two arms.
-      setPin("");
       if (out.kind === "threw") {
         // ⚠️ A REJECTED action — offline, a version skew after a deploy, a response lost after the
         // RPC committed — may have landed: "couldn't confirm", never "wasn't saved" (9e). It used to
@@ -373,10 +297,10 @@ export function LossActionSheet({
     }
   }
 
-  // Deferred path (S2.4): no manager at hand → request approval (no PIN). The line stays live until a
-  // manager resolves it from the queue. Needs a reason (for the audit), not a manager/PIN.
+  // Deferred path (S2.4): the line needs a manager and the caller is not one → request approval. The
+  // line stays live until a manager resolves it from the queue. Needs a reason (for the audit).
   async function submitRequest() {
-    if (inFlight.current || busy || locked) return; // §17 — the buttons say so with `aria-disabled`
+    if (inFlight.current || busy) return; // §17 — the button says so with `aria-disabled`
     if (!effectiveReason) {
       setReasonInvalid(true); // S14: same inline validation on the deferred path
       setMsg({ k: "table.loss.reasonRequired" });
@@ -424,8 +348,7 @@ export function LossActionSheet({
     }
   }
 
-  // The lockout countdown takes precedence over a transient message.
-  const shown = lockCopy ?? msg;
+  const shown = msg;
   // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
   const said = useResaid(msg);
@@ -433,12 +356,8 @@ export function LossActionSheet({
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   const dish = padDishName(lang, line.name, line.nameMy);
   return (
-    // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
-    // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
-    // runs `verifyStaffPin` BEFORE the RPC, which atomically spends one of the manager's five
-    // attempts. A dismissal mid-flight therefore loses the verdict AND the attempt — and the natural
-    // response, trying again, walks a manager toward a floor-wide lockout with nothing on screen
-    // ever having said why. Phase 2h: `busy` is state cleared in a bounded `finally` (9a), so a
+    // M82 — `busy` while a void/comp or an approval request is in flight: a dismissal mid-flight
+    // would lose the verdict. Phase 2h: `busy` is state cleared in a bounded `finally` (9a), so a
     // hung write frees every exit at STAFF_HANG_MS and the region says "no answer yet" instead.
     <Sheet
       open={open}
@@ -553,42 +472,16 @@ export function LossActionSheet({
           </p>
         )}
 
-        {/* THE ONE SLIP — shown for a comp / cooked void up-front, or after the server asks for it. */}
-        {showStepUp && (
-          <div ref={slipRef} style={{ marginTop: 12 }}>
-            <ApprovalSlip
-              idPrefix="loss"
-              askerName={self?.displayName ?? ""}
-              eligible={eligible}
-              zero={zero}
-              zeroTail={<Chrome lang={lang} k="pin.sendToQueue" echo="stack" />}
-              rosterFailed={roster.failed}
-              retrying={roster.retrying}
-              onRetry={retryRoster}
-              lit={lit}
-              onPick={(id) => {
-                setApproverStaffId(id);
-                pinRef.current?.focus({ preventScroll: true });
-              }}
-              pin={pin}
-              onPinChange={setPin}
-              locked={locked}
-              pinRef={pinRef}
-              firstTileRef={firstTileRef}
-            />
-          </div>
-        )}
-
-        {/* Nobody here can sign → the deferred request is the primary action (and the secondary is not
-            drawn); otherwise the PIN confirm leads and the request is the "no manager?" way out. */}
-        {showStepUp && noManagers ? (
+        {/* No-PIN — ONE button. A manager's tap records them as the approver; once the server has
+            said a manager must decide, the button IS the request (the line stays on the bill). */}
+        {needsManager ? (
           <button
             className="staff-btn"
             type="button"
             onClick={submitRequest}
-            aria-disabled={busy || locked || undefined}
+            aria-disabled={busy || undefined}
             aria-busy={busy || undefined}
-            style={{ ...primaryBtn, opacity: busy || locked ? 0.6 : 1 }}
+            style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }}
           >
             {busy ? (
               <Chrome lang={lang} k="table.loss.sending" echo="stack" />
@@ -597,44 +490,26 @@ export function LossActionSheet({
             )}
           </button>
         ) : (
-          <>
-            <button
-              className="staff-btn"
-              type="submit"
-              aria-disabled={!canSubmit || undefined}
-              aria-busy={busy || undefined}
-              style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
-            >
-              {busy ? (
-                <Chrome lang={lang} k="table.loss.working" echo="stack" />
-              ) : showStepUp ? (
-                <Chrome lang={lang} k={CONFIRM_APPROVAL_KEY[action]} echo="stack" />
-              ) : (
-                <Chrome lang={lang} k={CONFIRM_KEY[action]} echo="stack" />
-              )}
-            </button>
-
-            {/* Deferred path (S2.4): for gated actions — request a manager's approval without a PIN now.
-                The line stays live until a manager resolves it from the queue. */}
-            {showStepUp && (
-              <button
-                className="staff-btn"
-                type="button"
-                onClick={submitRequest}
-                aria-disabled={busy || locked || undefined}
-                style={{ ...secondaryBtn, opacity: busy || locked ? 0.6 : 1 }}
-              >
-                <Chrome lang={lang} k="table.loss.noManager" echo="stack" />
-              </button>
+          <button
+            className="staff-btn"
+            type="submit"
+            aria-disabled={!canSubmit || undefined}
+            aria-busy={busy || undefined}
+            style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
+          >
+            {busy ? (
+              <Chrome lang={lang} k="table.loss.working" echo="stack" />
+            ) : (
+              <Chrome lang={lang} k={CONFIRM_KEY[action]} echo="stack" />
             )}
-          </>
+          </button>
         )}
 
-        {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
+        {/* One live region (QA §A). */}
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {shown && (
             <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-              {/* P7·2 — a `pin.*` key renders through <Chrome>; a server sentence passes through
+              {/* P7·2 — a dictionary key renders through <Chrome>; a server sentence passes through
                   <OutageText>, which swaps in the one twin that exists (the rest is P2i). */}
               <MsgText lang={lang} msg={shown} />
             </span>
@@ -681,18 +556,6 @@ const primaryBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: "var(--fw-bold)",
-  cursor: "pointer",
-};
-const secondaryBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 54,
-  marginTop: 8,
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };

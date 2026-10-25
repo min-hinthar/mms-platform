@@ -41,6 +41,7 @@ const dish = (name: string, stage: BoardDish["stage"]): BoardDish => ({
   nameMy: null,
   stage,
   togo: false,
+  guests: [],
 });
 const table = (n: number, out: boolean, ...stages: BoardDish["stage"][]): BoardTable => ({
   table: n,

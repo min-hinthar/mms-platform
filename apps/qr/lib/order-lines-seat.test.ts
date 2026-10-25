@@ -98,7 +98,7 @@ beforeEach(() => {
 
 /**
  * A draft sibling modelling EVERY column the lookup filters on — cart_id, menu_item_id, fulfillment,
- * state, comped (T25), notes, by_seat, added_by, unit_price_cents — plus the two it selects. `by_seat`/`added_by`
+ * state, comped (T25), notes, by_seat, added_by, unit_price_cents, tax_cents (OA2) — plus the two it selects. `by_seat`/`added_by`
  * follow the path under test, since the diner arm filters them with `.eq` and the staff arm `.is`.
  *
  * Override exactly the one column a case is about, so "it did not merge" can only be attributed to
@@ -116,6 +116,7 @@ const sibling = (bySeat: string | null, over: Record<string, unknown> = {}) => (
   by_seat: bySeat,
   added_by: bySeat,
   unit_price_cents: LINE.unitPriceCents,
+  tax_cents: LINE.taxCents,
   ...over,
 });
 
@@ -228,6 +229,29 @@ describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
     // stories — the same trap M98's migration header names on the SQL side.
     return insertOrIncLine(CART, LINE, "seat-ana").then(() => {
       expect(filters.filter((f) => f.col === "unit_price_cents" && f.op === "is")).toEqual([]);
+    });
+  });
+});
+
+describe("insertOrIncLine — the merge key includes the per-unit TAX (OA2)", () => {
+  // The menu studio can recategorise a dish. A unit merged into a line quoted under the OLD category
+  // would be charged that category's tax (totals read each line's tax_cents), so the add must start
+  // a fresh line instead.
+  it("⚠️ a sibling taxed DIFFERENTLY (recategorised since) is NOT merged into — a fresh line is inserted", async () => {
+    siblingRows = [sibling("seat-ana", { id: "quoted-exempt", tax_cents: 0 })];
+    await insertOrIncLine(CART, LINE, "seat-ana");
+    expect(filters).toContainEqual({ op: "eq", col: "tax_cents", val: LINE.taxCents });
+    expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_inc_qty");
+    expect(rpcCalls.find((c) => c.fn === "mms_cart_item_insert_if_open")?.args).toMatchObject({
+      p_tax_cents: LINE.taxCents,
+    });
+  });
+
+  it("a sibling taxed the SAME way still merges — the control", async () => {
+    siblingRows = [sibling(null, { id: "same-tax" })];
+    await insertOrIncLine(CART, LINE, null);
+    expect(rpcCalls.find((c) => c.fn === "mms_cart_item_inc_qty")?.args).toMatchObject({
+      p_id: "same-tax",
     });
   });
 });

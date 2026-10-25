@@ -18,6 +18,9 @@ import type { PendingFlag } from "./settle-approvals";
  */
 
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 // The lifecycle audit — the settle doors' sold-out read, mocked by module: nothing is sold out here;
 // the gate itself is pinned in `settle-sold-out.test.ts`.
 vi.mock("./availability-read", () => ({
@@ -42,7 +45,10 @@ const insertCalls: {
   scanId: string | undefined;
   fulfillment: unknown;
   taxCents: unknown;
+  line: Record<string, unknown>;
 }[] = [];
+/** The floor each action asked the gate for (`staffGate(minRole)`). */
+const gateRoles: unknown[] = [];
 
 const { MockUnsellable, MockUnreadable, MockCartClosed } = vi.hoisted(() => {
   class MockUnsellable extends Error {
@@ -87,6 +93,7 @@ vi.mock("./order-lines", () => ({
       scanId,
       fulfillment: line.fulfillment,
       taxCents: line.taxCents,
+      line: line as Record<string, unknown>,
     });
     if (insertThrows === "closed")
       return Promise.reject(new MockCartClosed("Cart is no longer open"));
@@ -97,8 +104,10 @@ vi.mock("./order-lines", () => ({
 }));
 
 vi.mock("./staff", () => ({
-  staffGate: () =>
-    Promise.resolve({ ok: true, caller: { uid: "u-1", staffId: "s-1", role: "server" } }),
+  staffGate: (minRole?: unknown) => {
+    gateRoles.push(minRole);
+    return Promise.resolve({ ok: true, caller: { uid: "u-1", staffId: "s-1", role: "server" } });
+  },
   STAFF_WRITE_OUTAGE: "outage",
   STAFF_SIGNIN_REQUIRED: "Staff sign-in required.",
 }));
@@ -178,9 +187,11 @@ vi.mock("@mms/db/server", () => ({
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
-const { staffAddItem, settleCash, closeSecureTab } = await import("./staff-cart");
+const { staffAddItem, staffAddCustomItem, settleCash, closeSecureTab } =
+  await import("./staff-cart");
 
 beforeEach(() => {
+  gateRoles.length = 0;
   priceItemCalls.length = 0;
   insertCalls.length = 0;
   priceItemThrows = false;
@@ -288,6 +299,71 @@ describe("closeSecureTab — the acknowledged-ids compare (PD8, its OWN snapshot
     if (res.ok) throw new Error("unreachable");
     expect(res.code).not.toBe("approval_pending");
     expect(res.code).not.toBe("approval_unreadable");
+  });
+});
+
+describe("staffAddCustomItem — a dish not on the menu (owner, 2026-10-24)", () => {
+  const KEY = "44444444-4444-4444-8444-444444444444";
+  const input = {
+    sessionId: SESSION,
+    name: "  Birthday   cake ",
+    priceCents: 2400,
+    qty: 2,
+    addKey: KEY,
+  };
+
+  beforeEach(() => {
+    sessionMode = "dinein";
+  });
+
+  it("a counter or pickup order is refused before any write — a table's order only (`staff-cart/custom-item-off-table`)", async () => {
+    sessionMode = "pickup";
+    expect(await staffAddCustomItem(input)).toMatchObject({ ok: false, code: "invalid" });
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("is a MANAGER's write — the price authority (`staff-cart/custom-item-server-floor`)", async () => {
+    await staffAddCustomItem(input);
+    expect(gateRoles).toEqual(["manager"]);
+  });
+
+  it("writes the decided line: unique custom id, the typed name, the typed price, hot_prepared tax, no seat, the qty and the key", async () => {
+    sessionMode = "dinein";
+    expect(await staffAddCustomItem(input)).toEqual({ ok: true });
+    expect(priceItemCalls).toHaveLength(0); // never the catalog
+    expect(insertCalls).toHaveLength(1);
+    const c = insertCalls[0]!;
+    expect(c.line).toMatchObject({
+      menuItemId: `custom:${KEY}`,
+      name: "Birthday cake",
+      unitPriceCents: 2400,
+      fulfillment: "dinein",
+    });
+    // 10.5% of 2400, hot_prepared — computed, never transcribed: Math.round(2400 * 0.105).
+    expect(c.taxCents).toBe(Math.round(2400 * 0.105));
+    expect(c.bySeat).toBeNull();
+    expect(c.qty).toBe(2);
+    expect(c.scanId).toBe(KEY);
+  });
+
+  it("refuses a price outside the menu's bounds and a blank name before any read", async () => {
+    expect((await staffAddCustomItem({ ...input, priceCents: 24 })).ok).toBe(false);
+    expect((await staffAddCustomItem({ ...input, priceCents: 500001 })).ok).toBe(false);
+    expect((await staffAddCustomItem({ ...input, name: "   " })).ok).toBe(false);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("a payment in flight refuses with `paying` and writes nothing", async () => {
+    payInFlight = "mid_payment";
+    expect(await staffAddCustomItem(input)).toMatchObject({ ok: false, code: "paying" });
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("a thrown write is `unconfirmed` (it may have landed); a typed not-open is `closed`", async () => {
+    insertThrows = true;
+    expect(await staffAddCustomItem(input)).toMatchObject({ ok: false, code: "unconfirmed" });
+    insertThrows = "closed";
+    expect(await staffAddCustomItem(input)).toMatchObject({ ok: false, code: "closed" });
   });
 });
 
@@ -679,5 +755,21 @@ describe("staffAddItem — renews the table's session (Phase 2a · send)", () =>
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
     expect(r.ok).toBe(false);
     expect(renewal.calls).toEqual([]);
+  });
+});
+
+describe("staffAddCustomItem — OA9: a locked console adds no typed price", () => {
+  it("answers `locked` before any read or write (`staff-cart/custom-item-locked`)", async () => {
+    consoleLocked = true;
+    expect(
+      await staffAddCustomItem({
+        sessionId: SESSION,
+        name: "Cake",
+        priceCents: 2400,
+        qty: 1,
+        addKey: "44444444-4444-4444-8444-444444444444",
+      }),
+    ).toMatchObject({ ok: false, code: "locked" });
+    expect(insertCalls).toHaveLength(0);
   });
 });

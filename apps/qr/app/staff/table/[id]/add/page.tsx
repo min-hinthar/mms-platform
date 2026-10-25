@@ -7,6 +7,7 @@ import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { staffHasPin } from "@/lib/staff-pin";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { categoryShown } from "@/lib/menu-studio-rules";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -67,7 +68,7 @@ export default async function StaffAddItems({
   const { data, error } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,base_price_cents,is_sold_out,menu_categories(slug,name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
+      "id,name_en,name_my,base_price_cents,is_sold_out,menu_categories(slug,name,sort_order,is_active),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
@@ -77,19 +78,22 @@ export default async function StaffAddItems({
       ? { kind: "outage" }
       : {
           kind: "ok",
-          items: data.map((i) => ({
-            id: i.id,
-            nameEn: i.name_en,
-            nameMy: i.name_my,
-            priceCents: i.base_price_cents,
-            // Same honesty rule as the diner menu: a required choice with no active options is
-            // unaddable — show it sold out rather than a dish whose every add the server refuses.
-            soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
-            category: i.menu_categories?.name ?? "Menu",
-            categorySlug: i.menu_categories?.slug ?? "menu",
-            categorySort: i.menu_categories?.sort_order ?? 999,
-            groups: shapeModifierGroups(i.item_modifier_groups),
-          })),
+          // Menu studio — a hidden category's dishes are off the pad as they are off the menu.
+          items: data
+            .filter((i) => categoryShown(i.menu_categories))
+            .map((i) => ({
+              id: i.id,
+              nameEn: i.name_en,
+              nameMy: i.name_my,
+              priceCents: i.base_price_cents,
+              // Same honesty rule as the diner menu: a required choice with no active options is
+              // unaddable — show it sold out rather than a dish whose every add the server refuses.
+              soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
+              category: i.menu_categories?.name ?? "Menu",
+              categorySlug: i.menu_categories?.slug ?? "menu",
+              categorySort: i.menu_categories?.sort_order ?? 999,
+              groups: shapeModifierGroups(i.item_modifier_groups),
+            })),
         };
 
   return (
@@ -106,6 +110,8 @@ export default async function StaffAddItems({
         initialName={detail.customerName}
         hasPin={hasPin}
         focusName={focusName}
+        // A custom item (owner, 2026-10-24) — a manager's, like a menu price.
+        canCustom={caller.role !== "server" && detail.mode === "dinein"}
       />
     </main>
   );

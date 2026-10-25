@@ -260,8 +260,9 @@ describe("the dictionary guards", () => {
     // like an identifier. `time` is the one cross-surface VOCABULARY beside `what`/`out`: the age
     // every surface's card prints through <RelativeTime> (counter-8), one set of words, not a screen.
     // Phase 2c · pad — `pad` is the order pad's own surface (its Send strings stay `table.send.*`).
+    // Menu studio (owner, 2026-10-24) — `studio` is the menu editor's dish and category sheets.
     const SURFACES =
-      /^(shell|out|what|time|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report|pad)$/;
+      /^(shell|out|what|time|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report|pad|studio)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

@@ -592,11 +592,11 @@ function passesBusy(rel: string): boolean {
   return jsxNamed(sf, "Sheet").some((el) => !isLiteralDead(el) && !!attr(el, "busy"));
 }
 
-/** The six that perform an irreversible write, and why each one earned the prop. */
+/** The sheets that perform an irreversible write, and why each one earned the prop. */
 const GUARDED: [file: string, because: string][] = [
   [
     "staff/LossActionSheet.tsx",
-    "voidLine spends one of the manager's five PIN attempts before the RPC",
+    "the void or comp takes a dish off the bill, recorded as a loss (No-PIN: no attempt is spent)",
   ],
   ["staff/StaffModSheet.tsx", "the add's refusal renders only inside this sheet, behind the scrim"],
   [
@@ -617,9 +617,15 @@ const GUARDED: [file: string, because: string][] = [
   // (`table_number` is set ONCE under the CAS) — dismissing mid-write would hide how it ended, with
   // the same send waiting on the answer.
   ["TableBindSheet.tsx", "the chip binds the live session to a table, once, then the send runs"],
-  // PD8 — "Decide it here": the pane's centred sheet around `ApprovalDecision`, whose resolve spends
-  // one of the manager's PIN attempts and voids or comps a line on the bill.
-  ["staff/ApprovalsBoard.tsx", "the decision spends a PIN attempt and takes a dish off the bill"],
+  // PD8 — "Decide it here": the pane's centred sheet around `ApprovalDecision`, whose resolve voids
+  // or comps a line on the bill (No-PIN: as the signed-in manager).
+  ["staff/ApprovalsBoard.tsx", "the decision takes a dish off the bill"],
+  // The owner's four asks (2026-10-24) — a custom item rings a typed price onto a table's bill; the
+  // dish sheet rewrites the menu (and its price) for every guest; the categories sheet reorders,
+  // renames and hides whole sections of it. Each answer is said only inside its sheet.
+  ["staff/CustomItemSheet.tsx", "a custom item rings a typed price onto the bill"],
+  ["staff/DishSheet.tsx", "a save rewrites the dish (and its price) on every menu"],
+  ["staff/CategoriesSheet.tsx", "a save renames, reorders or hides a menu section"],
 ];
 
 /** StaffModSheet takes its busy as a PROP; the contract lives where the value is produced. */

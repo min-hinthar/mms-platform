@@ -49,6 +49,10 @@ export type KitchenLine = {
    *  running them to the table. `dinein` is the default (no badge). */
   fulfillment: "dinein" | "togo" | "grocery";
   station: KitchenStation;
+  /** The name of the guest who ADDED this dish (`session_members.display_name` by `added_by`,
+   *  shaped by `lib/guest-names.ts`), or null — a staff-added line, a seat with no name, or the
+   *  advisory read failed. Owner, 2026-10-24: guest names on kitchen tickets (K16 reversed). */
+  guest: string | null;
 };
 
 /** The order channel a ticket arrived through — the SYMBOLIC dimension on the card (SPEC-KDS §1).
@@ -93,7 +97,8 @@ export type KitchenTicket = {
   /** K2: the registered table number the cook/expo calls out, or null for an unregistered sticker
    *  or a pickup/scango ticket (those headline the customer name + short code instead). */
   tableNumber: number | null;
-  /** W3e: the optional first name captured at pickup/scango checkout, or null. */
+  /** W3e: the optional first name captured at checkout (pickup / scan-and-go / counter), or — since
+   *  the K16 reversal (owner, 2026-10-24) — a dine-in cart's own call-out name; null when none. */
   customerName: string | null;
   /** The short order code (#A1B2C3) for pickup/scango tickets — the same uuid-tail derivation the
    *  grocery exit pass shows, so the kitchen and the diner's phone always agree. Null for dine-in. */

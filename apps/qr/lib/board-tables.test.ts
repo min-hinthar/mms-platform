@@ -9,6 +9,7 @@ import {
 } from "./board-tables";
 import { PULSE_PASS_LINGER_MS, type PulseCartRow, type PulseSessionRow } from "./board-pulse";
 import { KDS_UNDO_MS } from "./kds-undo";
+import { seatKey } from "./guest-names";
 import type { KitchenRound } from "./kitchen-types";
 
 /**
@@ -36,6 +37,7 @@ const line = (over: Partial<BoardLineRow> = {}): BoardLineRow => ({
   fulfillment: "dinein",
   created_at: at(-130),
   bumped_at: null,
+  added_by: null,
   ...over,
 });
 
@@ -68,6 +70,7 @@ const input = (
   cartById: new Map(carts.map((c) => [c.id, c])),
   sessionById: new Map((over.sessions ?? sessions).map((s) => [s.id, s])),
   nameMyByItem: new Map([["m-mohinga", "မုန့်ဟင်းခါး"]]),
+  guestBySeat: new Map(),
   roundOf: () => ({ kind: "n", n: 1 }),
   nowIso: NOW,
   ...over,
@@ -85,7 +88,9 @@ describe("shapeBoardTables — which food is on the wall", () => {
           {
             n: 1,
             next: false,
-            dishes: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "sent", togo: false }],
+            dishes: [
+              { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "sent", togo: false, guests: [] },
+            ],
           },
         ],
       },
@@ -145,7 +150,7 @@ describe("shapeBoardTables — one row per dish, at its slowest bowl, never a co
       line({ state: "in_progress" }),
     ]);
     expect(t[0]!.rounds[0]!.dishes).toEqual([
-      { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "cooking", togo: false },
+      { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", stage: "cooking", togo: false, guests: [] },
     ]);
   });
 
@@ -281,12 +286,57 @@ describe("shapeBoardTables — the pass, its rounds and when it leaves", () => {
   });
 });
 
+describe("shapeBoardTables — guest names (owner, 2026-10-24: m9's no-name rule reversed)", () => {
+  const guestBySeat = new Map([
+    [seatKey("s4", "seat-a"), "Aung"],
+    [seatKey("s4", "seat-b"), "Mya"],
+    [seatKey("s7", "seat-a"), "Thida"],
+  ]);
+
+  it("a dish row names who added it — distinct, first-added first, never a count (`board-tables/guests-dropped`, `board-tables/guests-unordered`)", () => {
+    // Input out of add order: the row lists Mya (added first) before Aung, and Mya once.
+    const t = shape(
+      [
+        line({ added_by: "seat-a", created_at: at(-135) }),
+        line({ added_by: "seat-b", created_at: at(-140) }),
+        line({ added_by: "seat-b", created_at: at(-131) }),
+      ],
+      { guestBySeat },
+    );
+    expect(t[0]!.rounds[0]!.dishes[0]!.guests).toEqual(["Mya", "Aung"]);
+  });
+
+  it("the seat is read IN its Send's session — two sessions on one table keep their own guests (`board-tables/guest-wrong-session`)", () => {
+    const t = shape(
+      [
+        line({ added_by: "seat-a", fire_at: at(-200), created_at: at(-210) }),
+        line({ cart_id: "c4b", fire_batch: B2, added_by: "seat-a" }),
+      ],
+      { guestBySeat: new Map([...guestBySeat, [seatKey("s4b", "seat-a"), "Ko"]]) },
+    );
+    expect(t[0]!.rounds.map((r) => r.dishes[0]!.guests)).toEqual([["Aung"], ["Ko"]]);
+  });
+
+  it("a staff-added line, an unknown seat and an empty name map name nobody", () => {
+    expect(
+      shape([line({ added_by: null })], { guestBySeat })[0]!.rounds[0]!.dishes[0]!.guests,
+    ).toEqual([]);
+    expect(
+      shape([line({ added_by: "seat-z" })], { guestBySeat })[0]!.rounds[0]!.dishes[0]!.guests,
+    ).toEqual([]);
+    expect(shape([line({ added_by: "seat-a" })])[0]!.rounds[0]!.dishes[0]!.guests).toEqual([]);
+  });
+});
+
 describe("shapeBoardTables — the shape is the boundary", () => {
-  it("publishes a table number and dish names only: no id, quantity, time, name or note key anywhere", () => {
-    const t = shape([
-      line(),
-      line({ fire_batch: B2, fire_at: at(-30), state: "served", bumped_at: at(-20) }),
-    ]);
+  it("publishes a table number, dish names and who added them only: no id, quantity, time or note key anywhere", () => {
+    const t = shape(
+      [
+        line({ added_by: "seat-a" }),
+        line({ fire_batch: B2, fire_at: at(-30), state: "served", bumped_at: at(-20) }),
+      ],
+      { guestBySeat: new Map([[seatKey("s4", "seat-a"), "Aung"]]) },
+    );
     const keys = new Set<string>();
     const walk = (v: unknown) => {
       if (Array.isArray(v)) v.forEach(walk);
@@ -298,10 +348,23 @@ describe("shapeBoardTables — the shape is the boundary", () => {
     };
     walk(t);
     expect([...keys].sort()).toEqual(
-      ["dishes", "name", "nameMy", "n", "next", "out", "rounds", "stage", "table", "togo"].sort(),
+      [
+        "dishes",
+        "guests",
+        "name",
+        "nameMy",
+        "n",
+        "next",
+        "out",
+        "rounds",
+        "stage",
+        "table",
+        "togo",
+      ].sort(),
     );
     const flat = JSON.stringify(t);
-    for (const leak of ["c4", "s4", B1, B2, "m-mohinga", NOW.slice(0, 10)])
+    // The seat id is the key to a name, never published as is.
+    for (const leak of ["c4", "s4", "seat-a", B1, B2, "m-mohinga", NOW.slice(0, 10)])
       expect(flat).not.toContain(leak);
   });
 });

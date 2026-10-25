@@ -200,9 +200,8 @@ describe("SettledToday — the refund console, reading the receipt", () => {
   const openAndRefund = async (name = "Refund — Mohinga") => {
     fireEvent.click(screen.getByRole("button", { name }));
     const submit = screen.getByRole("button", { name: /^Refund \$/ });
-    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
     fireEvent.click(submit);
-    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+    await waitFor(() => expect(document.getElementById("refund-reason")).toBeNull());
   };
 
   it("a NO-OP clears the card confirmation — it never re-reports the last one's amount", async () => {
@@ -275,7 +274,7 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     // changed their mind, and must not be left standing in front of the previous line's imperative.
     fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
     fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
-    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+    await waitFor(() => expect(document.getElementById("refund-reason")).toBeNull());
     // ⚠️ The assertion waits for the sheet to GO. While it is open the dialog `aria-hidden`s the
     // page behind it, so the banner is out of the a11y tree entirely and a query here reads the
     // sheet's own empty error region instead — passing however the banner behaves. The first draft
@@ -470,7 +469,6 @@ describe("Phase 2h · integration b — a refund's LATE answer closes only its O
         fireEvent.click(toggle);
       // Line A's refund is sent, and has no answer at the bound: the sheet frees and says so.
       fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
-      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
       fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
       await flush(STAFF_HANG_MS);
       expect(screen.getByRole("dialog").textContent).toContain(
@@ -515,7 +513,6 @@ describe("Phase 2h · integration b — a refund's LATE answer closes only its O
       for (const toggle of screen.getAllByRole("button", { expanded: false }))
         fireEvent.click(toggle);
       fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
-      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
       fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
       await flush(STAFF_HANG_MS);
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -551,7 +548,6 @@ describe("Phase 2h · integration b — a refund's LATE answer closes only its O
       mount(snapshot([a]));
       fireEvent.click(screen.getByRole("button", { expanded: false }));
       fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
-      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
       fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
       await flush(STAFF_HANG_MS);
       expect(screen.queryByRole("dialog")).not.toBeNull();
@@ -595,7 +591,6 @@ describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE
     mount(snapshot([o]));
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
-    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
     fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
     await flush(STAFF_HANG_MS);
     cleanup(); // the manager moved to another screen — the zone is gone

@@ -81,6 +81,7 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { Chrome } from "./Chrome";
+import { CustomItemSheet } from "./CustomItemSheet";
 import { MsgText } from "./StaffMsg";
 import { PadTile } from "./PadTile";
 import { StaffTicket } from "./StaffTicket";
@@ -172,6 +173,7 @@ export function OrderPad({
   initialName,
   hasPin,
   focusName = false,
+  canCustom = false,
 }: {
   sessionId: string;
   /** A SEED: the pad owns the detail after mount (it never adopts a re-rendered prop). */
@@ -183,6 +185,9 @@ export function OrderPad({
   /** Phase 2f — `?name=1` (the table page's "Add a name →"): land on the counter order's name field
    *  once, then drop the param so a reload does not re-focus. */
   focusName?: boolean;
+  /** A custom item (owner, 2026-10-24) — offered to a manager or owner only: typing a price is the
+   *  menu price's authority (`staffAddCustomItem` re-checks it). */
+  canCustom?: boolean;
 }) {
   const lang = useStaffLang();
   const router = useRouter();
@@ -200,6 +205,8 @@ export function OrderPad({
   const phaseRef = useRef<PadSettlePhase>("idle");
 
   const { shown, leaving, notify } = usePadNotices();
+  // A custom item's sheet (owner, 2026-10-24), opened from the rail's last chip.
+  const [customOpen, setCustomOpen] = useState(false);
   // A refusal, said once through the one region — the same sentence its hint carries.
   const say = useCallback(
     (m: StaffKeyMsg) => notify(padSlotNotice("correction", m.k, m.vars)),
@@ -1479,7 +1486,31 @@ export function OrderPad({
                 <span lang="en">{c.title}</span>
               </button>
             ))}
+            {canCustom && open && (
+              // The custom item: a dish or charge not on the menu. A plain chip (it opens a sheet,
+              // it never selects), so it carries no aria-pressed.
+              <button
+                type="button"
+                className="staff-chip pad-custom-chip"
+                aria-haspopup="dialog"
+                onClick={() => setCustomOpen(true)}
+              >
+                <span aria-hidden>+ </span>
+                <Chrome lang={lang} k="pad.custom.open" />
+              </button>
+            )}
           </div>
+          {customOpen && (
+            <CustomItemSheet
+              open
+              sessionId={sessionId}
+              onClose={() => setCustomOpen(false)}
+              onAdded={(name) => {
+                notify(padSlotNotice("claim", "pad.custom.added", { x: name }));
+                refreshRef.current();
+              }}
+            />
+          )}
         </div>
 
         <div ref={tilesRef} className="pad-tiles">

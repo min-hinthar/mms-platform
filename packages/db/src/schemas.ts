@@ -546,12 +546,12 @@ export const setTogoStatusInput = z.object({
 });
 
 /** refundLine (S4.3b) — a manager refunds ONE paid order line (money-OUT). Shape only; the amount + PI are
- *  SERVER-derived (mms_refund_authorize), never sent by the client. `pin` is the money-out step-up
- *  (verifyStaffPin on the manager's own identity); `reason` is an audit code. */
+ *  SERVER-derived (mms_refund_authorize), never sent by the client; `reason` is an audit code. No-PIN
+ *  (owner, 2026-10-24): the manager's own sign-in is the authority — a `pin` an older client still
+ *  sends is stripped by the parse, never read. */
 export const refundLineInput = z.object({
   orderItemId: uuid,
   reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "sold_out", "other"]),
-  pin: z.string().regex(/^\d{4,8}$/),
 });
 
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
@@ -630,6 +630,21 @@ export const setLineNotesInput = z.object({
  *  diner addItem the client asserts only an item id + chosen modifier OPTION ids (never a price); the
  *  server resolves the session's open cart, re-derives every amount, and attributes the line to no seat
  *  (by_seat = null, "added by server"). menuItemId stays a uuid — staff order from the restaurant menu. */
+/** staffAddCustomItem (owner, 2026-10-24) — a manager adds a dish or charge that is NOT on the menu
+ *  to a table's order, with its own name and price. Shape + bounds only: the action re-checks the
+ *  manager floor, and `apps/qr/lib/custom-item.ts` decides the line (its item id, its tax). The price
+ *  rides the SAME bounds as a menu price ($0.25–$5,000, `@mms/db/bounds`). */
+export const staffAddCustomItemInput = z.object({
+  sessionId: uuid,
+  name: z.string().trim().min(1).max(60),
+  priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
+  qty: z.number().int().min(1).max(9).default(1),
+  notes: lineNotes.optional(),
+  // The add's idempotency key, as `staffAddItem`'s (the scan-event ledger): REQUIRED here, because it
+  // is also the custom line's identity (`custom:<addKey>`).
+  addKey: uuid,
+});
+
 export const staffAddItemInput = z.object({
   sessionId: uuid,
   menuItemId: uuid,
@@ -662,6 +677,69 @@ export const setKioskTipInput = z.object({
  *  fat-fingered extra zero a refusal instead of a money incident. This is the ONE place a price
  *  crosses from a human into the system — every OTHER money amount in this app is server-derived and
  *  must stay that way (see priceItem: it reads this stored price, it never accepts one). */
+// ── Menu studio (owner, 2026-10-24) — the menu editor's writes. Shape + bounds only: the actions
+// (`apps/qr/lib/menu-studio.ts`) re-check the manager floor and write through the service role; the
+// bounds mirror `apps/qr/lib/menu-studio-rules.ts` and the 20261024120100 column CHECKs.
+const menuTaxCategory = z.enum([
+  "hot_prepared",
+  "cold_food",
+  "beverage_hot",
+  "beverage_cold",
+  "grocery_food",
+  "retail_nonfood",
+]);
+const menuName = z.string().trim().min(1).max(80);
+const menuNameMy = z.string().trim().max(80).nullable();
+const menuDescription = z.string().trim().max(400).nullable();
+
+/** Edit a dish's names, descriptions, category, tax category and whether it is on the menu. The
+ *  `expectedUpdatedAt` is the row's stamp as the sheet READ it — a save over a newer edit is refused. */
+export const menuDishEditInput = z.object({
+  itemId: uuid,
+  expectedUpdatedAt: z.string().max(40).datetime({ offset: true }),
+  nameEn: menuName,
+  nameMy: menuNameMy,
+  descriptionEn: menuDescription,
+  descriptionMy: menuDescription,
+  categoryId: uuid,
+  taxCategory: menuTaxCategory,
+  isActive: z.boolean(),
+});
+export type MenuDishEditInput = z.infer<typeof menuDishEditInput>;
+
+/** Add a dish. Its price rides the menu price's bounds; its slug is server-derived. */
+export const menuDishCreateInput = z.object({
+  /** The sheet's creation key, minted on the device: a retry after an unknown outcome resends it, so
+   *  one Add can never publish two dishes (Codex round 2 on #373). */
+  itemId: uuid,
+  nameEn: menuName,
+  nameMy: menuNameMy,
+  descriptionEn: menuDescription,
+  descriptionMy: menuDescription,
+  categoryId: uuid,
+  taxCategory: menuTaxCategory,
+  priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
+});
+export type MenuDishCreateInput = z.infer<typeof menuDishCreateInput>;
+
+/** Add (no id) or rename / show / hide (an id) a category. An edit carries the name and visibility
+ *  the sheet SHOWED, and is refused when the row no longer holds them (Codex round 1 on #373). */
+export const menuCategorySaveInput = z
+  .object({
+    categoryId: uuid.optional(),
+    name: z.string().trim().min(1).max(60),
+    isActive: z.boolean(),
+    expected: z.object({ name: z.string().max(200), isActive: z.boolean() }).optional(),
+  })
+  .refine((v) => !v.categoryId || v.expected !== undefined, { message: "expected required" });
+export type MenuCategorySaveInput = z.infer<typeof menuCategorySaveInput>;
+
+/** Move a category one place up or down the menu. */
+export const menuCategoryMoveInput = z.object({
+  categoryId: uuid,
+  direction: z.enum(["up", "down"]),
+});
+
 export const setMenuPriceInput = z.object({
   menuItemId: uuid,
   priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
@@ -841,12 +919,8 @@ export const voidLineInput = z.object({
     "sold_out", // 86'd mid-service — the kitchen cannot produce it (W23a)
     "other",
   ]),
-  // Present only for the manager-PIN step-up: the manager the initiating server tapped + their PIN.
-  approverStaffId: uuid.optional(),
-  pin: z
-    .string()
-    .regex(/^\d{4,8}$/)
-    .optional(),
+  // No-PIN (owner, 2026-10-24): no approver or PIN rides the request — the signed-in caller is the
+  // approver when they are a manager or owner (`approverFor`). Older clients' fields are stripped.
 });
 
 export type VoidLineInput = z.infer<typeof voidLineInput>;
@@ -854,7 +928,7 @@ export type VoidLineInput = z.infer<typeof voidLineInput>;
 /** recordCounterNoShow (Phase 2f · P2v) — write off a COUNTER order's SENT food when the guest never
  *  came (owner decision 7b). Shape only: the server re-derives the open cart, the counter predicate,
  *  the sent set, the loss gate and the approver's role (mms_counter_no_show). The client never
- *  asserts an amount or whether a manager is needed; the PIN rides only the step-up.
+ *  asserts an amount or whether a manager is needed, nor who approves (No-PIN: the signed-in caller).
  *
  *  `expectedLineIds` (Phase 2f blind review) — the SENT line ids the sheet SHOWED, i.e. what the
  *  staff member and the approving manager agreed to write off. It asserts nothing the server trusts:
@@ -865,11 +939,6 @@ export type VoidLineInput = z.infer<typeof voidLineInput>;
 export const counterNoShowInput = z.object({
   sessionId: uuid,
   expectedLineIds: z.array(uuid).max(200),
-  approverStaffId: uuid.optional(),
-  pin: z
-    .string()
-    .regex(/^\d{4,8}$/)
-    .optional(),
 });
 export type CounterNoShowInput = z.infer<typeof counterNoShowInput>;
 
@@ -913,10 +982,9 @@ export const requestApprovalInput = z.object({
 });
 
 /**
- * resolveApproval (S2.4) — a manager approves or denies a pending request from the queue. The manager is
- * proven by the PIN step-up (verified server-side, lockout-counted) so it works on a shared tablet
- * regardless of who's signed in; mms_resolve_approval re-checks the approver is an active manager/owner
- * and not the requester (D3), and resolves a row only once (D4).
+ * resolveApproval (S2.4) — a manager approves or denies a pending request from the queue. No-PIN (owner,
+ * 2026-10-24): the manager is the SIGNED-IN caller; mms_resolve_approval re-checks the approver is an
+ * active manager/owner and not the requester (D3), and resolves a row only once (D4).
  */
 export const resolveApprovalInput = z.object({
   approvalId: uuid,
@@ -924,8 +992,6 @@ export const resolveApprovalInput = z.object({
   // or whose line changed after the ask) is closed as `superseded`, never `denied`. The SQL admits
   // it only once the cart has left `open` or the line changed (`still_open` otherwise).
   decision: z.enum(["approve", "deny", "close"]),
-  approverStaffId: uuid,
-  pin: z.string().regex(/^\d{4,8}$/),
 });
 
 /**
@@ -981,6 +1047,7 @@ export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;
 export type SetGroceryAvailableInput = z.infer<typeof setGroceryAvailableInput>;
 export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
+export type StaffAddCustomItemInput = z.infer<typeof staffAddCustomItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type TerminalPollInput = z.infer<typeof terminalPollInput>;
 export type OpenRegisterInput = z.infer<typeof openRegisterInput>;

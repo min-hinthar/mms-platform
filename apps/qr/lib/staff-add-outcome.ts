@@ -39,6 +39,7 @@ export type AddFailureCode =
  *   • `paying`   — a payment is in flight on this table.
  */
 export type StaffWriteCode =
+  | "locked"
   | "signin"
   | "sentence"
   | "invalid"

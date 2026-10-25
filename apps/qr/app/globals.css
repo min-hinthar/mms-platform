@@ -9304,6 +9304,14 @@ a .chrome-en {
   letter-spacing: var(--track-wide);
   color: var(--ac);
 }
+/* Guest names (owner, 2026-10-24) — "For Aung": who the dish is for, in --tx ink so it reads as a
+   fact about the order rather than a kitchen instruction (the accent tags are those). The name is
+   the guest's own text, so it is never case-transformed. */
+.kds-line-guest {
+  color: var(--tx);
+  text-transform: none;
+  letter-spacing: normal;
+}
 /* Phase 2b — OFF THE MENU, a fact on the line: --tx ink (warn measures 4.44:1 on the started tint,
    under 4.5 at 13px; --tx is ≥10:1) with the hue carried by a ≥3:1 warn dot, so colour is never the
    only signal. Pinned by composite-contrast.test.ts. */
@@ -10039,8 +10047,9 @@ a .chrome-en {
   font-size: clamp(18px, 1.8vw, 30px);
   font-weight: var(--fw-bold);
 }
-/* A Preparing row (PD9): the code alone, the phone pass's code face at the board's row tier — no
-   name and no wait; it becomes a pass when it turns Ready. */
+/* A Preparing row (PD9): the code, the phone pass's code face at the board's row tier, then the
+   guest's call-out name when they gave one (owner, 2026-10-24) — no wait; it becomes a pass when it
+   turns Ready. */
 .orb-card {
   display: flex;
   align-items: baseline;
@@ -10244,6 +10253,24 @@ a .chrome-en {
   color: var(--pass-ink);
   font-size: var(--tv-dish);
   font-weight: var(--fw-bold);
+}
+/* Guest names on the wall (owner, 2026-10-24): the guest's own text, quieter than the code it
+   follows; one line like every row (the fit's rule), truncating rather than wrapping. */
+.orb-guest {
+  min-width: 0;
+  color: var(--t2);
+  font-size: var(--tv-dish-en);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orb-ready .orb-guest {
+  margin: 0;
+  color: var(--pass-ink-2);
+}
+.orb-dish-guests {
+  color: var(--pass-ink);
 }
 .orb-dish-en {
   color: var(--pass-ink-2);
@@ -15287,6 +15314,13 @@ html[data-reloading] body::after {
   scroll-behavior: smooth;
   scrollbar-width: none;
 }
+/* A custom item (owner, 2026-10-24): the rail's last chip opens a sheet, it never filters — so it
+   reads as an action, with a dashed edge, never the lit cap. */
+.pad-custom-chip {
+  border-style: dashed;
+  color: var(--ac);
+  white-space: nowrap;
+}
 .pad-rail::-webkit-scrollbar {
   display: none;
 }
@@ -18270,5 +18304,166 @@ html[data-reloading] body::after {
 @media (prefers-reduced-motion: reduce) {
   .diner-guide-pic[data-motion="row"] .live-pass-dish:last-child {
     animation: none;
+  }
+}
+
+/* ── Menu studio (owner, 2026-10-24) — the manager's menu editor. Tokens only; every target ≥ 44px. */
+.studio-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s4);
+}
+.studio-bar-primary,
+.studio-bar-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 48px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-full);
+  font-weight: var(--fw-bold);
+}
+.studio-bar-primary {
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+}
+.studio-bar-secondary {
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+}
+/* The row's photo — the door to the dish sheet. */
+.menu-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 0;
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--t3);
+}
+.menu-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.menu-thumb:has(.menu-thumb-img) {
+  border-style: solid;
+}
+.studio-photo {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+}
+.studio-photo-img,
+.studio-photo-empty {
+  flex: none;
+  width: 112px;
+  height: 112px;
+  border-radius: var(--r-card);
+  object-fit: cover;
+  background: var(--sf);
+}
+.studio-photo-empty {
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+  border: 1px dashed var(--bd);
+}
+.studio-photo-actions {
+  display: grid;
+  gap: var(--s2);
+  min-width: 0;
+}
+.studio-photo-btn,
+.studio-photo-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+/* The file input is visually hidden, so its keyboard focus is drawn on the label that opens it. */
+.studio-photo-actions:has(#dish-photo:focus-visible) > .studio-photo-btn {
+  box-shadow: 0 0 0 var(--focus-w) var(--ac);
+}
+.studio-photo-remove {
+  color: var(--t2);
+}
+.studio-switch {
+  width: 48px;
+  height: 28px;
+  accent-color: var(--ac);
+}
+.studio-cat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+}
+.studio-cat[data-hidden] {
+  opacity: 0.72;
+}
+.studio-cat-main {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.studio-cat-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.studio-cat-save,
+.studio-cat-vis {
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+}
+.studio-cat-save {
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+}
+.studio-hidden {
+  margin-top: var(--s6);
+}
+.studio-hidden-h {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-body);
+}
+.studio-hidden-row {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--s2) var(--s4);
+  text-align: left;
+  color: var(--tx);
+}
+.studio-hidden-my {
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-bar-primary,
+  .studio-bar-secondary,
+  .menu-thumb {
+    transition: none;
   }
 }

@@ -13,6 +13,7 @@ const dish = (name: string, stage: BoardDish["stage"]): BoardDish => ({
   nameMy: null,
   stage,
   togo: false,
+  guests: [],
 });
 const table = (n: number, ...dishes: BoardDish[]): BoardTable => ({
   table: n,

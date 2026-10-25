@@ -93,7 +93,7 @@ export async function priceItem(
   const { data: item, error } = await db
     .from("menu_items")
     .select(
-      "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,item_modifier_groups(modifier_groups(id,min_select,max_select))",
+      "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,menu_categories(is_active),item_modifier_groups(modifier_groups(id,min_select,max_select))",
     )
     .eq("id", menuItemId)
     .maybeSingle();
@@ -269,21 +269,23 @@ export async function insertOrIncLine(
   // price after "send to kitchen" and the old one before, the new price with an allergy note and the
   // old one without. No quote-holding policy is keyed on allergy notes.
   //
-  // `tax_cents` rides along on this branch too and is NOT in the key — deliberately, and safely only
-  // because it is a pure function of three things: the price (now in the key), the fulfillment tag
-  // (already in the key), and `menu_items.tax_category`, which no app path writes. That is three
-  // conventions rather than a guarantee, so if a tax-category editor is ever added, this predicate
-  // list is the second place it has to be thought about — and since M17 there is a THIRD:
-  // `qr_cart_items.tax_category`, stamped at insert. A correction to `menu_items.tax_category` still
-  // reaches open draft lines (the toggle reads the catalog first and falls back to the stamp), but a
-  // line whose dish was pruned answers from its stamp, and `supabase/data/m17_recategorize.sql` is
-  // the companion statement for keeping the two in step.
+  // OA2 (the menu studio, 2026-10-24) — and merge only into a line taxed the SAME way. `tax_cents`
+  // used to ride along out of the key, safe only while `menu_items.tax_category` had no app writer;
+  // the studio's dish sheet is that writer now. `getCartTotals` reads each LINE's `tax_cents` as its
+  // taxable flag (`totals-math.ts`), so a unit merged into a line quoted before a recategorisation
+  // would be charged the OLD category's tax while the catalog says the new one — the same dish taxed
+  // two ways in one cart, decided by whether a merge happened. The per-unit tax is the money fact the
+  // merge would otherwise discard, so it is the key, exactly as the price is above. `.eq`: the column
+  // is `not null`. Lines already in a cart keep the tax they were quoted (as with price), and
+  // `supabase/data/m17_recategorize.sql` remains the companion for bringing open drafts into line;
+  // `qr_cart_items.tax_category` (M17, stamped at insert) is the third place a category lives.
   //
   // The already-quoted units are untouched: a mismatch inserts a FRESH line at the new price rather
   // than re-pricing anything, so `menu-price.ts`'s other promise — "lines ALREADY in a cart keep the
   // price they were quoted" — still holds exactly. The diner simply sees two lines, which the cart,
   // the split and the totals all sum per line already.
   siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);
+  siblingQuery = siblingQuery.eq("tax_cents", line.taxCents);
   const { data: siblings, error: siblingsErr } = await siblingQuery;
   // M188 — an unreadable merge target is an OUTAGE, never "no sibling". Unbound, a failed read made
   // `siblings` null and fell through to the INSERT: a second line for the same item. On /grocery the

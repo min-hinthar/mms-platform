@@ -236,6 +236,8 @@ export const STAFF = {
   "kds.line.done": { en: "Done", my: "ပြီးပြီ" },
   "kds.line.bagit": { en: "Bag it", my: "ထုပ်ရန်" },
   "kds.line.cooking": { en: "Cooking", my: "ချက်နေဆဲ" },
+  // Guest names on tickets (owner, 2026-10-24 — K16 reversed): who added the dish. {x} = the name.
+  "kds.line.for": { en: "For {x}", my: "{x} အတွက်" }, // K15 draft — Claude-authored, grounded: အတွက် "for"
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဒီဟင်း ဖြုတ်”.
   "kds.86": { en: "Mark sold out", my: "ကုန်ပြီ လို့ မှတ်မယ်" }, // K15-HIGH — a 6s undo in the bar, then /staff/menu
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “မီနူးက ဖြုတ်ထားပြီ”.
@@ -1526,6 +1528,18 @@ export const STAFF = {
     en: "Make free with approval",
     my: "ခွင့်ပြုချက်နဲ့ အခမဲ့ပေး",
   }, // K15-HIGH
+  // No-PIN (owner, 2026-10-24) — a counter no-show that needs a manager, tapped by someone who is not
+  // one: a no-show has no request queue, so the manager does it on their own sign-in.
+  "table.noshow.err.needsManager": {
+    en: "A manager needs to do this on their own sign-in. Nothing was written off — the order is still open.",
+    my: "ဒါကို မန်နေဂျာက ကိုယ့်အကောင့်နဲ့ လုပ်ဖို့ လိုပါတယ်။ ဘာမှ မဖျက်ရသေးပါ — အော်ဒါ ဖွင့်ထားဆဲပါ။",
+  }, // K15 draft — Claude-authored; "says nothing was written off" is the load-bearing half
+  // No-PIN (owner, 2026-10-24) — the region's sentence when a server's tap needs a manager: the
+  // one button below it becomes the request.
+  "table.loss.msg.needsManager": {
+    en: "A manager needs to approve this. Send it to Open requests — it stays on the bill until a manager decides.",
+    my: "ဒါကို မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ်။ ဖွင့်ထားတဲ့ တောင်းဆိုချက်များဆီ ပို့လိုက်ပါ — မန်နေဂျာ ဆုံးဖြတ်တဲ့အထိ စာရင်းထဲမှာ ရှိနေပါမယ်။",
+  }, // K15 draft — Claude-authored from table.loss.requestApproval + pin.sendToQueue's shipped words
   "table.loss.noManager": {
     en: "No manager here? Request approval",
     my: "မန်နေဂျာ မရှိဘူးလား? ခွင့်ပြုချက် တောင်းပါ",
@@ -2707,6 +2721,23 @@ export const STAFF = {
     en: "Pick a manager other than yourself to approve.",
     my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
   },
+  // No-PIN (owner, 2026-10-24) — the decision slip is one line now: who is deciding, on their own
+  // sign-in, or why this device cannot. {x} = the signed-in manager's name.
+  "table.appr.decideAs": { en: "Deciding as {x}", my: "{x} အနေနဲ့ ဆုံးဖြတ်မယ်" }, // K15 draft
+  "table.appr.notManager": {
+    en: "Only a manager or owner can decide this — ask one to open it on their own sign-in.",
+    my: "ဒါကို မန်နေဂျာ ဒါမှမဟုတ် ပိုင်ရှင်ပဲ ဆုံးဖြတ်နိုင်ပါတယ် — သူတို့ အကောင့်နဲ့ ဖွင့်ခိုင်းပါ။",
+  }, // K15 draft
+  "table.appr.ownRequest": {
+    en: "This is your own request — make the change on the line yourself, then close this one.",
+    my: "ဒါက ကိုယ့်တောင်းဆိုချက်ပါ — ပစ္စည်းကို ကိုယ်တိုင် အရင်ပြင်ပြီးမှ ဒီတောင်းဆိုချက်ကို ပိတ်ပါ။",
+  }, // K15 draft — grounded: pin.onlySelf's "ကိုယ့်တောင်းဆိုချက်" (OA3, 2026-10-25). The ORDER is
+  // the SQL's: `mms_resolve_approval` admits a close only once the line has changed (or the cart has
+  // left 'open'), and answers `still_open` to a live, unchanged request (Codex on da0be5e).
+  "table.appr.whoFailed": {
+    en: "Couldn’t check who is signed in — that doesn’t decide anything. Try again.",
+    my: "ဘယ်သူ အကောင့်ဝင်ထားလဲ မစစ်နိုင်ပါ — ဘာမှ မဆုံးဖြတ်ရသေးပါ။ ထပ်စမ်းပါ။",
+  }, // K15 draft — an outage must never read as a verdict
   "pin.badApprover.requester": {
     en: "Pick a manager other than whoever requested this.",
     my: "တောင်းဆိုသူ မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
@@ -3284,6 +3315,146 @@ export const STAFF = {
   "pad.a11y.skipToOrder": { en: "Skip to the order", my: "အော်ဒါဆီ တန်းသွား" },
   // The tile corner's sr-only name — spice, add-ons, qty and a kitchen note, one corner away.
   "pad.a11y.options": { en: "Options for {x}", my: "{x} အတွက် ရွေးချယ်စရာ" },
+  // Menu studio (owner, 2026-10-24: "elevate full features … to menu-editor") — the menu editor's
+  // words. Every Burmese string here is a K15 draft (Claude-authored), grounded where noted.
+  "studio.add": { en: "Add a dish", my: "ဟင်းအသစ် ထည့်မယ်" }, // K15 draft
+  "studio.categories": { en: "Categories", my: "အမျိုးအစားများ" }, // K15 draft
+  "studio.hidden": { en: "Hidden dishes · {n}", my: "ဖျောက်ထားတဲ့ ဟင်း · {n}" }, // K15 draft
+  "studio.hidden.lead": {
+    en: "Off every menu until you show them again.",
+    my: "ပြန်ပြတဲ့အထိ မီနူးအားလုံးကနေ ဖျောက်ထားပါတယ်။",
+  }, // K15 draft
+  "studio.dish.open": {
+    en: "Edit {x} — photo, names, category",
+    my: "{x} ကို ပြင်မယ် — ဓာတ်ပုံ၊ အမည်၊ အမျိုးအစား",
+  }, // K15 draft
+  "studio.dish.titleNew": { en: "A new dish", my: "ဟင်းအသစ်" }, // K15 draft
+  "studio.dish.titleEdit": { en: "Edit {x}", my: "{x} ကို ပြင်မယ်" }, // K15 draft
+  "studio.dish.photo": { en: "Photo", my: "ဓာတ်ပုံ" }, // K15 draft
+  "studio.dish.photo.take": { en: "Take or choose a photo", my: "ဓာတ်ပုံ ရိုက်မယ် (သို့) ရွေးမယ်" }, // K15 draft
+  "studio.dish.photo.replace": { en: "Replace the photo", my: "ဓာတ်ပုံ အသစ်လဲမယ်" }, // K15 draft
+  "studio.dish.photo.remove": { en: "Remove the photo", my: "ဓာတ်ပုံ ဖယ်မယ်" }, // K15 draft
+  "studio.dish.photo.saving": { en: "Saving the photo…", my: "ဓာတ်ပုံ သိမ်းနေပါတယ်…" }, // K15 draft
+  "studio.dish.photo.saved": {
+    en: "Photo saved — it’s on the menu now.",
+    my: "ဓာတ်ပုံ သိမ်းပြီးပါပြီ — မီနူးမှာ ပေါ်နေပါပြီ။",
+  }, // K15 draft
+  "studio.dish.photo.removed": { en: "Photo removed.", my: "ဓာတ်ပုံ ဖယ်ပြီးပါပြီ။" }, // K15 draft
+  "studio.dish.photo.afterAdd": {
+    en: "Add the dish first — then its photo.",
+    my: "ဟင်းကို အရင်ထည့်ပါ — ပြီးမှ ဓာတ်ပုံ။",
+  }, // K15 draft
+  "studio.dish.nameEn": { en: "Name (English)", my: "အမည် (အင်္ဂလိပ်)" }, // K15 draft
+  "studio.dish.nameMy": { en: "Name (Burmese)", my: "အမည် (မြန်မာ)" }, // K15 draft
+  "studio.dish.descEn": { en: "Description (English)", my: "ဖော်ပြချက် (အင်္ဂလိပ်)" }, // K15 draft
+  "studio.dish.descMy": { en: "Description (Burmese)", my: "ဖော်ပြချက် (မြန်မာ)" }, // K15 draft
+  "studio.dish.category": { en: "Category", my: "အမျိုးအစား" }, // K15 draft
+  "studio.dish.tax": { en: "Tax", my: "အခွန်" }, // K15 draft
+  "studio.dish.price": { en: "Price", my: "ဈေးနှုန်း" }, // K15 draft
+  "studio.dish.onMenu": { en: "On the menu", my: "မီနူးမှာ ပြမယ်" }, // K15 draft
+  "studio.dish.onMenu.off": {
+    en: "Hidden — guests, the kiosk and the pad don’t see it.",
+    my: "ဖျောက်ထားတယ် — ဧည့်သည်၊ ကီယော့စ်နဲ့ အော်ဒါပြားမှာ မမြင်ရပါ။",
+  }, // K15 draft
+  "studio.dish.save": { en: "Save", my: "သိမ်းမယ်" }, // K15 draft
+  "studio.dish.create": { en: "Add to the menu · {m}", my: "မီနူးထဲ ထည့်မယ် · {m}" }, // K15 draft
+  "studio.dish.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" }, // K15 draft
+  "studio.dish.saved": { en: "{x} saved.", my: "{x} ကို သိမ်းပြီးပါပြီ။" }, // K15 draft
+  "studio.dish.created": { en: "{x} is on the menu.", my: "{x} မီနူးမှာ ပေါ်နေပါပြီ။" }, // K15 draft
+  "studio.dish.nothing": { en: "Nothing changed.", my: "ဘာမှ မပြောင်းပါ။" }, // K15 draft
+  "studio.dish.unaudited": {
+    en: "Saved — but the edit history couldn’t be written yet.",
+    my: "သိမ်းပြီးပါပြီ — ဒါပေမဲ့ ပြင်ဆင်မှု မှတ်တမ်း မရေးနိုင်သေးပါ။",
+  }, // K15 draft — the edit stands; only its record is missing
+  "studio.tax.hotPrepared": { en: "Hot food", my: "ပူတဲ့ အစားအစာ" }, // K15 draft
+  "studio.tax.coldFood": {
+    en: "Cold food (exempt to go)",
+    my: "အေးတဲ့ အစားအစာ (ပါဆယ် အခွန်ကင်း)",
+  }, // K15 draft
+  "studio.tax.beverageHot": { en: "Hot drink", my: "ပူတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.beverageCold": { en: "Cold drink", my: "အေးတဲ့ အဖျော်ယမကာ" }, // K15 draft
+  "studio.tax.groceryFood": { en: "Grocery food", my: "ကုန်စုံ အစားအစာ" }, // K15 draft
+  "studio.tax.retailNonfood": { en: "Not food (retail)", my: "အစားအစာ မဟုတ် (လက်လီ)" }, // K15 draft
+  "studio.err.name": { en: "Give it an English name.", my: "အင်္ဂလိပ် အမည် ရိုက်ပါ။" }, // K15 draft
+  "studio.err.stale": {
+    en: "Someone changed this dish while you were editing — close and open it again.",
+    my: "သင် ပြင်နေတုန်း တခြားသူက ဒီဟင်းကို ပြောင်းသွားပါတယ် — ပိတ်ပြီး ပြန်ဖွင့်ပါ။",
+  }, // K15 draft
+  "studio.err.gone": {
+    en: "That dish is no longer in the menu.",
+    my: "ဒီဟင်း မီနူးထဲ မရှိတော့ပါ။",
+  }, // K15 draft
+  "studio.err.category": {
+    en: "That category is gone — pick another.",
+    my: "ဒီအမျိုးအစား မရှိတော့ပါ — တခြားတစ်ခု ရွေးပါ။",
+  }, // K15 draft
+  "studio.err.storage": {
+    en: "Photo storage isn’t set up yet — ask the owner to finish the menu update.",
+    my: "ဓာတ်ပုံ သိမ်းဖို့ နေရာ မပြင်ဆင်ရသေးပါ — မီနူး အပ်ဒိတ် ပြီးအောင် ပိုင်ရှင်ကို ပြောပါ။",
+  }, // K15 draft
+  "studio.err.type": {
+    en: "That file isn’t a photo we can use — a JPEG, PNG or WebP.",
+    my: "ဒီဖိုင်ကို သုံးလို့ မရပါ — ဓာတ်ပုံ ဖိုင် ဖြစ်ရပါမယ်။",
+  }, // K15 draft
+  "studio.err.size": {
+    en: "That photo is too large — try another.",
+    my: "ဒီဓာတ်ပုံ ကြီးလွန်းပါတယ် — တခြားတစ်ပုံ စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.read": {
+    en: "Couldn’t open that photo on this device — try another.",
+    my: "ဒီစက်ပေါ်မှာ ဒီဓာတ်ပုံကို မဖွင့်နိုင်ပါ — တခြားတစ်ပုံ စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.failed": {
+    en: "Couldn’t save that — nothing was changed. Try again.",
+    my: "မသိမ်းနိုင်ပါ — ဘာမှ မပြောင်းရသေးပါ။ ထပ်စမ်းပါ။",
+  }, // K15 draft
+  "studio.err.unknown": {
+    en: "We couldn’t confirm that save — reopen the dish to check before trying again.",
+    my: "သိမ်းပြီးမပြီး မသေချာပါ — ထပ်မစမ်းခင် ဟင်းကို ပြန်ဖွင့်ပြီး စစ်ပါ။",
+  }, // K15 draft
+  "studio.cat.title": { en: "Categories", my: "အမျိုးအစားများ" }, // K15 draft
+  "studio.cat.lead": {
+    en: "The order here is the menu’s order. A hidden category takes its dishes off the menu.",
+    my: "ဒီက အစီအစဉ်က မီနူးရဲ့ အစီအစဉ်ပါ။ ဖျောက်ထားတဲ့ အမျိုးအစားက သူ့ဟင်းတွေကို မီနူးကနေ ဖယ်ပါတယ်။",
+  }, // K15 draft
+  "studio.cat.name": { en: "Name", my: "အမည်" }, // K15 draft
+  "studio.cat.rename": { en: "Rename {x}", my: "{x} ကို အမည်ပြောင်းမယ်" }, // K15 draft
+  "studio.cat.up": { en: "Move {x} up", my: "{x} ကို အပေါ်တင်မယ်" }, // K15 draft
+  "studio.cat.down": { en: "Move {x} down", my: "{x} ကို အောက်ချမယ်" }, // K15 draft
+  "studio.cat.hide": { en: "Hide", my: "ဖျောက်မယ်" }, // K15 draft
+  "studio.cat.show": { en: "Show", my: "ပြမယ်" }, // K15 draft
+  "studio.cat.hiddenTag": { en: "Hidden", my: "ဖျောက်ထား" }, // K15 draft
+  "studio.cat.count.one": { en: "{n} dish", my: "ဟင်း {n} မျိုး" }, // K15 draft
+  "studio.cat.count.many": { en: "{n} dishes", my: "ဟင်း {n} မျိုး" }, // K15 draft
+  "studio.cat.add": { en: "Add a category", my: "အမျိုးအစား အသစ် ထည့်မယ်" }, // K15 draft
+  "studio.cat.addField": { en: "New category name", my: "အမျိုးအစား အသစ်ရဲ့ အမည်" }, // K15 draft
+  "studio.cat.saved": { en: "{x} saved.", my: "{x} ကို သိမ်းပြီးပါပြီ။" }, // K15 draft
+  "studio.cat.moved": { en: "{x} moved.", my: "{x} ကို ရွှေ့ပြီးပါပြီ။" }, // K15 draft
+  "studio.cat.err.name": { en: "Give the category a name.", my: "အမျိုးအစားကို အမည်ပေးပါ။" }, // K15 draft
+  // A CUSTOM item (owner, 2026-10-24: "manual new item add to tables orders") — a dish or charge
+  // that is not on the menu, typed by a manager. Every Burmese string here is a K15 draft.
+  "pad.custom.open": { en: "Custom item", my: "မီနူးပြင်ပ ပစ္စည်း" }, // K15 draft
+  "pad.custom.title": {
+    en: "Add an item that isn’t on the menu",
+    my: "မီနူးမှာ မပါတဲ့ ပစ္စည်း ထည့်မယ်",
+  }, // K15 draft
+  "pad.custom.lead": {
+    en: "A special, a cake brought in, a corkage — it goes on this order at the price you type.",
+    my: "အထူးဟင်း၊ ယူလာတဲ့ ကိတ်မုန့်၊ ဝိုင်ဖွင့်ခ — ရိုက်ထည့်တဲ့ ဈေးနဲ့ ဒီအော်ဒါထဲ ထည့်ပါမယ်။",
+  }, // K15 draft — says the price is the one typed
+  "pad.custom.name": { en: "Name", my: "အမည်" }, // K15 draft
+  "pad.custom.price": { en: "Price each", my: "တစ်ခုချင်း ဈေး" }, // K15 draft
+  "pad.custom.qty": { en: "How many", my: "အရေအတွက်" }, // K15 draft
+  "pad.custom.less": { en: "One fewer", my: "တစ်ခု လျှော့" }, // K15 draft
+  "pad.custom.more": { en: "One more", my: "တစ်ခု တိုး" }, // K15 draft
+  "pad.custom.note": {
+    en: "Kitchen note (optional)",
+    my: "မီးဖိုချောင် မှတ်ချက် (မဖြစ်မနေ မဟုတ်)",
+  }, // K15 draft
+  "pad.custom.add": { en: "Add {n} · {m}", my: "{n} ခု ထည့်မယ် · {m}" }, // K15 draft — the amount the bill grows by
+  "pad.custom.addBare": { en: "Add to the order", my: "အော်ဒါထဲ ထည့်မယ်" }, // K15 draft
+  "pad.custom.err.name": { en: "Give it a name first.", my: "အမည် အရင် ရိုက်ပါ။" }, // K15 draft
+  "pad.custom.added": { en: "{x} is on the order.", my: "{x} ကို အော်ဒါထဲ ထည့်ပြီးပါပြီ။" }, // K15 draft
   "pad.search.clear": { en: "Clear search", my: "ရှာတာ ရှင်း" },
   "pad.search.none": { en: "No dish matches “{x}”.", my: "“{x}” နဲ့ ကိုက်တဲ့ ဟင်း မရှိပါ။" },
   "pad.menu.outage": {
@@ -4737,6 +4908,7 @@ export type StaffKey = keyof typeof STAFF;
  * `countItem`/`countItems`.
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
+  ["studio.cat.count.one", "studio.cat.count.many"],
   ["table.detail.paidKitchen.capped.one", "table.detail.paidKitchen.capped.many"],
   ["floor.tables.count.one", "floor.tables.count.many"],
   ["floor.counter.count.one", "floor.counter.count.many"],

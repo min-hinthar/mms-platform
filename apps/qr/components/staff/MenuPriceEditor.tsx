@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "@mms/ui";
 import {
   useEffect,
   useMemo,
@@ -20,8 +21,10 @@ import { browseRows } from "@/lib/menu-browse";
 import { soldOutSinceParts } from "@/lib/sold-out-since";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 import { al, sx } from "@/lib/staff-labels";
 import { localizeCount } from "@/lib/i18n/fill";
+import { toLockScreen } from "./toLockScreen";
 
 export type PricedItem = {
   id: string;
@@ -107,8 +110,19 @@ export function MenuPriceEditor({
   items,
   canEditPrice,
   nowIso,
+  onDetails,
+  photoOf,
+  announce = null,
 }: {
   items: PricedItem[];
+  /** Menu studio (owner, 2026-10-24) — a manager's door into the dish sheet: each row leads with
+   *  its photo (or the designed placeholder) as a button. Absent — a server — no door is drawn. */
+  onDetails?: (itemId: string) => void;
+  /** The dish's photo URL (contained by `safeImageUrl` on the page), or null for the placeholder. */
+  photoOf?: (itemId: string) => string | null;
+  /** Menu studio — a sentence the studio has to say (a dish sheet's landed save), spoken through
+   *  THIS view's one region whenever the list has nothing of its own to say. */
+  announce?: StaffMsg | null;
   /** W23a (Codex P2) — a SERVER reaches this page for the 86 control alone. The price editor is
    *  manager-only and `setMenuPrice` re-checks that server-side; hiding the Edit button is what
    *  keeps the screen from offering an action the authority would refuse. It is also the ONLY door
@@ -361,6 +375,7 @@ export function MenuPriceEditor({
       setBusy(false);
     }
     setConfirming(false);
+    if (!res.ok && res.locked) return toLockScreen();
     if (!res.ok) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
       // their input.
@@ -469,7 +484,7 @@ export function MenuPriceEditor({
           announcement says everything twice, and <Chrome>/<OutageText> mark their own Burmese, so
           the region itself carries no `lang`. */}
       <p role="status" style={srOnly}>
-        {msg === null ? "" : msgNode(msg)}
+        {msg === null ? announce ? <MsgText lang={lang} msg={announce} /> : "" : msgNode(msg)}
       </p>
 
       {/* The list's name follows the PAGE's heading, which is role-conditional: a server is shown
@@ -488,7 +503,27 @@ export function MenuPriceEditor({
           const since = i.soldOutAt ? soldOutSinceParts(i.soldOutAt, nowIso) : null;
           return (
             <li key={i.id} className="card" style={row}>
-              <div style={{ minWidth: 0 }}>
+              {onDetails && (
+                // Menu studio — the dish's own photo IS the door to its sheet (names, category,
+                // photo, on-the-menu). 56px, so the tap target clears 44px with room.
+                <button
+                  type="button"
+                  className="staff-press menu-thumb"
+                  onClick={() => onDetails(i.id)}
+                  aria-haspopup="dialog"
+                >
+                  {photoOf?.(i.id) ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- a 56px staff thumb; next/image's optimizer buys nothing here
+                    <img src={photoOf(i.id)!} alt="" className="menu-thumb-img" loading="lazy" />
+                  ) : (
+                    <Icon name="camera" size={20} aria-hidden />
+                  )}
+                  <span className="sr-only">
+                    <Chrome lang={lang} k="studio.dish.open" vars={{ x: i.nameEn }} />
+                  </span>
+                </button>
+              )}
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <p style={name}>
                   {i.nameEn}
                   {i.soldOut && (

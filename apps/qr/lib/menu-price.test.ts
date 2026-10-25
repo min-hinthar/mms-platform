@@ -18,6 +18,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 let gateResult: { ok: true; caller: { staffId: string } } | { ok: false; error: string } = {
@@ -227,5 +230,15 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
     // told nothing changed, nor walk away believing the log has their name in it.
     expect(updates.map((u) => u.patch)).toEqual([{ base_price_cents: 1600 }]);
     if (!r.ok) expect(r.error).toContain("Price saved");
+  });
+});
+
+describe("setMenuPrice — OA9: a locked console sets no price", () => {
+  it("answers locked before any read or write (`menu-price/locked-sets`)", async () => {
+    consoleLocked = true;
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
+    expect(r).toMatchObject({ ok: false, locked: true });
+    expect(updates).toEqual([]);
+    expect(audits).toEqual([]);
   });
 });

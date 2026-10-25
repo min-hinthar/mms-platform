@@ -38,6 +38,16 @@ export type CatalogItemish = {
   name_en: string;
   is_sold_out: boolean;
   is_active: boolean;
+  /**
+   * The dish's category, when the read embeds `menu_categories(is_active)` (OA2, Codex rounds 2 and 5
+   * on #373). A HIDDEN category is a menu decision about NEW orders, so exactly the ADD boundary
+   * embeds it — `priceItem` (every add path: a menu open since before the Hide, a reorder, the kiosk)
+   * and the single-dish pre-read (a line growing). The charge and Send boundaries and the cart view
+   * do NOT: a line already quoted settles, because the settlement SQL
+   * (`mms_settle_precheck_and_void`) reads only the dish's own flags, and a TS verdict it cannot act
+   * on would hold a manual-capture payment in retry forever.
+   */
+  menu_categories?: { is_active: boolean } | null;
 };
 
 /** Why a dish cannot be made now: 86'd today (`sold_out`), or delisted / gone from the catalog. */
@@ -58,9 +68,14 @@ export type Unavailable = "sold_out" | "gone";
  * delisting is the fact that outlives the 86.
  */
 export function dishUnavailable(
-  i: { is_sold_out: boolean; is_active: boolean } | null | undefined,
+  i:
+    | { is_sold_out: boolean; is_active: boolean; menu_categories?: { is_active: boolean } | null }
+    | null
+    | undefined,
 ): Unavailable | null {
-  if (!i || !i.is_active) return "gone";
+  // A dish in a HIDDEN category is off the menu (`categoryShown`'s rule: only an explicit false hides;
+  // a read without the embed, or a dish with no category, is shown).
+  if (!i || !i.is_active || i.menu_categories?.is_active === false) return "gone";
   return i.is_sold_out ? "sold_out" : null;
 }
 
@@ -87,9 +102,23 @@ export function itemSellable(i: { is_sold_out: boolean; is_active: boolean }): b
  */
 function blockableLines(lines: CartLineish[]): CartLineish[] {
   return lines.filter(
-    (l) => l.state === "draft" && l.menu_item_id != null && FOOD_FULFILLMENTS.has(l.fulfillment),
+    (l) =>
+      l.state === "draft" &&
+      l.menu_item_id != null &&
+      !l.menu_item_id.startsWith(CUSTOM_ITEM_REF) &&
+      FOOD_FULFILLMENTS.has(l.fulfillment),
   );
 }
+
+/**
+ * OA4 — a manager's CUSTOM item (`custom-item.ts`, `CUSTOM_ITEM_PREFIX`; restated here because this
+ * module imports nothing — `availability.test.ts` pins the two equal) has no catalog row by design,
+ * so nothing can 86 it. Left in, its `custom:<key>` ref reached the uuid-typed `menu_items.id` read,
+ * which FAILED rather than answering, and every charge path that refuses an unreadable availability
+ * read (cash settle, the terminal, the authorised-pickup capture) could not take the payment (Codex
+ * round 1 on #373, P1); a read that did answer would call it `gone`.
+ */
+const CUSTOM_ITEM_REF = "custom:";
 
 /**
  * The names of any cart lines whose menu item is no longer sellable — sold out, delisted, or gone from
