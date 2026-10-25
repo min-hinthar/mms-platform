@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * `refund-console.test.ts`; this suite proves the read reaches them.
  */
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 /**
@@ -39,7 +42,13 @@ vi.mock("./staff", () => ({
   // M221 — `getDayCashSummary` (lib/register.ts) reads this beside the gate.
   STAFF_WRITE_OUTAGE: "outage",
   getStaffAuth: () =>
-    Promise.resolve({ kind: "staff", uid: "u-1", staffId: "s-1", role: "manager" }),
+    Promise.resolve({
+      kind: "staff",
+      uid: "u-1",
+      staffId: "s-1",
+      role: "manager",
+      caller: { uid: "u-1", staffId: "s-1", role: "manager" },
+    }),
   roleAtLeast: () => true,
   staffGate: () =>
     Promise.resolve(
@@ -127,7 +136,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { getSettledToday } = await import("./refunds");
+const { getSettledToday, refundLine } = await import("./refunds");
 const { getDayCashSummary } = await import("./register");
 
 const line = (id: string, over: Row = {}): Row => ({
@@ -453,5 +462,14 @@ describe("M221 — the settled list and the register's drawer answer from ONE le
     if (!settled.ok || !day.ok) throw new Error("expected both reads ok");
     expect(settled.orders.some((o) => o.id === OLD)).toBe(true);
     expect(day.summary.cashRefundedCents).toBe(lateRefund().amount_cents);
+  });
+});
+
+describe("refundLine — OA9: a locked console refunds nothing", () => {
+  it("answers `locked` for a manager before any read or Stripe call (`refunds/locked-refunds`)", async () => {
+    consoleLocked = true;
+    expect(
+      await refundLine({ orderItemId: "11111111-1111-4111-8111-111111111111", reason: "other" }),
+    ).toEqual({ ok: false, reason: "locked" });
   });
 });

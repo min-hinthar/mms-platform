@@ -13,6 +13,7 @@ import { useResaid } from "./useResaid";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
+import { toLockScreen } from "./toLockScreen";
 
 /** The pad's failure codes → its shipped add sentences (`pad.err.add.*`, each naming the dish). */
 const FAILURE_KEY: Partial<
@@ -117,6 +118,7 @@ export function CustomItemSheet({
         const res = out.value;
         // A definite answer retires the key; an unconfirmed one keeps it for the SAME add.
         held.current = heldAfter(intent, addKey, addAttemptOutcome(res));
+        if (!res.ok && res.code === "locked") return toLockScreen();
         if (res.ok) {
           onAdded(trimmed);
           onClose();

@@ -23,6 +23,7 @@ import {
   type FieldChange,
   type MenuTaxCategory,
 } from "./menu-studio-rules";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * The menu studio's writes (owner, 2026-10-24: "elevate full features (iOS photo upload, add new menu
@@ -48,6 +49,7 @@ import {
  */
 
 export type MenuStudioRefusal =
+  | "locked"
   | "signin"
   | "gate"
   | "invalid"
@@ -74,6 +76,9 @@ async function managerGate(): Promise<
   { ok: true; staffId: string } | { ok: false; reason: MenuStudioRefusal; message?: string }
 > {
   const gate = await staffGate("manager", STUDIO_OUTAGE);
+  // OA9 (owner, 2026-10-25) — the menu's shape and prices are price authority: a locked console
+  // answers `locked` and goes to its lock screen.
+  if (gate.ok && (await isConsoleLocked())) return { ok: false, reason: "locked" };
   if (gate.ok) return { ok: true, staffId: gate.caller.staffId };
   return gate.error === STAFF_SIGNIN_REQUIRED
     ? { ok: false, reason: "signin" }

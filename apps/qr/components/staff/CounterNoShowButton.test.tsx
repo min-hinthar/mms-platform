@@ -284,6 +284,7 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
   type Listed = (typeof REFUSALS)[number]["reason"];
   const exhaustive: Record<NoShowRefusal["reason"], true> = {
     needs_manager: true,
+    locked: true,
     bad_approver: true,
     not_open: true,
     not_counter: true,

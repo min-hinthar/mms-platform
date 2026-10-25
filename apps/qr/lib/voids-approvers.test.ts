@@ -8,6 +8,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `needs_manager`, the sheet's request path.
  */
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
@@ -119,5 +122,16 @@ describe("voidLine — No-PIN: the signed-in caller is the approver", () => {
     rpcAnswer = "needs_approval";
     await voidLine({ ...input, approverStaffId: "aye", pin: "1234" });
     expect(rpcCalls.find((c) => c.fn === "mms_void_line")!.args.p_approver).toBeUndefined();
+  });
+});
+
+describe("voidLine — OA9: a locked console voids nothing", () => {
+  it("answers `locked` before any RPC (`voids/void-locked`)", async () => {
+    caller = { staffId: "aye", displayName: "Aye", role: "manager" };
+    consoleLocked = true;
+    expect(
+      await voidLine({ sessionId: SESSION, cartItemId: LINE, action: "comp", reason: "quality" }),
+    ).toEqual({ ok: false, reason: "locked" });
+    expect(rpcCalls).toEqual([]);
   });
 });

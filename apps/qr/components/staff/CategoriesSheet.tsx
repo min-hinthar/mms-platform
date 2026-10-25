@@ -12,6 +12,7 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { STUDIO_REFUSAL_KEY, type StudioCategory } from "./DishSheet";
+import { toLockScreen } from "./toLockScreen";
 
 /**
  * Menu studio (owner, 2026-10-24) — the menu's categories, in the menu's own order: rename one in
@@ -64,6 +65,7 @@ export function CategoriesSheet({
     landed: StaffMsg,
   ) {
     if (res.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
+    if (!res.value.ok && res.value.reason === "locked") return toLockScreen();
     if (!res.value.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.value.reason] });
     setMsg(landed);
     onChanged();

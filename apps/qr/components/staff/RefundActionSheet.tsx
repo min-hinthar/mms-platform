@@ -14,6 +14,7 @@ import { ReloadButton } from "./ReloadOffer";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { ExpoLineMy } from "./TicketText";
+import { toLockScreen } from "./toLockScreen";
 
 /**
  * Refund step-up sheet (S4.3b · A4·3) — money-OUT confirmation for ONE paid line. The WHOLE line
@@ -101,6 +102,7 @@ export function RefundActionSheet({
    * manager closed this sheet; a refusal is said here only while the sheet is still open.
    */
   function land(res: RefundResult) {
+    if (!res.ok && res.reason === "locked") return toLockScreen();
     if (res.ok) {
       onDone(res.amountCents); // the SERVER-authorized amount (its clamp is the authority)
       return;

@@ -17,6 +17,7 @@ import { TicketNote } from "./TicketText";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
 import { useStaffLang } from "./StaffLangProvider";
+import { toLockScreen } from "./toLockScreen";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -169,6 +170,7 @@ export function LossActionSheet({
    * value read here is the TAP's render (the closure), never the one the answer lands in.
    */
   function handleResult(res: VoidLineResult) {
+    if (!res.ok && res.reason === "locked") return toLockScreen();
     if (res.ok) {
       onDone(res.action);
       onOpenChange(false);

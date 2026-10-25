@@ -48,6 +48,7 @@ import { useResaid } from "./useResaid";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
+import { toLockScreen } from "./toLockScreen";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 /**
@@ -884,6 +885,7 @@ export function ApprovalDecision({
   /** The server's verdict, said — on time, or LATE (9e: a late refusal is said if the card is still
    *  here; a late ok re-reads the queue, which takes the card away). */
   function answered(res: Awaited<ReturnType<typeof resolveApproval>>): void | Promise<void> {
+    if (!res.ok && res.reason === "locked") return toLockScreen();
     if (res.ok) {
       // PD8 — the receipt row (the one channel, B9), or a close: focus goes to the next Decide.
       if (res.decision === "close") onClosed();

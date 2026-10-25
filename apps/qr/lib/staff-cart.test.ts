@@ -18,6 +18,9 @@ import type { PendingFlag } from "./settle-approvals";
  */
 
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 // The lifecycle audit — the settle doors' sold-out read, mocked by module: nothing is sold out here;
 // the gate itself is pinned in `settle-sold-out.test.ts`.
 vi.mock("./availability-read", () => ({
@@ -752,5 +755,21 @@ describe("staffAddItem — renews the table's session (Phase 2a · send)", () =>
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
     expect(r.ok).toBe(false);
     expect(renewal.calls).toEqual([]);
+  });
+});
+
+describe("staffAddCustomItem — OA9: a locked console adds no typed price", () => {
+  it("answers `locked` before any read or write (`staff-cart/custom-item-locked`)", async () => {
+    consoleLocked = true;
+    expect(
+      await staffAddCustomItem({
+        sessionId: SESSION,
+        name: "Cake",
+        priceCents: 2400,
+        qty: 1,
+        addKey: "44444444-4444-4444-8444-444444444444",
+      }),
+    ).toMatchObject({ ok: false, code: "locked" });
+    expect(insertCalls).toHaveLength(0);
   });
 });

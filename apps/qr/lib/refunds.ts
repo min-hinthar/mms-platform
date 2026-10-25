@@ -23,6 +23,7 @@ import {
   remainingPoolCents,
   type RefundPath,
 } from "./refund-console";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * Line-level refunds (S4.3b) — money-OUT, the captured-line counterpart to S2.3's open-cart void. The
@@ -320,6 +321,7 @@ export type RefundResult =
   | {
       ok: false;
       reason:
+        | "locked"
         | "not_manager"
         | "not_found"
         | "not_paid"
@@ -366,6 +368,10 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
       ? staffAuth.caller
       : null;
   if (!caller) return { ok: false, reason: "not_manager" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const parsed = refundLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { orderItemId, reason } = parsed.data;

@@ -56,6 +56,7 @@ import {
   type ApprovalPendingRefusal,
   type ApprovalsUnreadableRefusal,
 } from "./settle-approvals";
+import { isConsoleLocked } from "./staff-lock";
 
 // Named once for this module's refusals (a "use server" file may export only async functions, so
 // these stay local). Plain words — never "void"/"fire"/"settle" in staff copy.
@@ -263,6 +264,9 @@ export async function staffAddCustomItem(raw: unknown): Promise<StaffWriteResult
       error: gate.error,
       code: gate.error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence",
     };
+  // OA9 (owner, 2026-10-25) — a typed price is price authority: a locked console answers `locked`.
+  if (await isConsoleLocked())
+    return { ok: false, error: "This tablet is locked.", code: "locked" };
   const caller = gate.caller;
   const parsed = staffAddCustomItemInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };

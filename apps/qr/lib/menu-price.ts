@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
 import { setMenuPriceInput } from "@mms/db/schemas";
 import { staffGate } from "./staff";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * W17b — the staff price editor (owner: "staff portal should be able to update prices?").
@@ -43,7 +44,9 @@ import { staffGate } from "./staff";
  * really does get the new price. The diner sees two lines, which every surface already sums per line.
  */
 
-export type SetMenuPriceResult = { ok: true; priceCents: number } | { ok: false; error: string };
+export type SetMenuPriceResult =
+  | { ok: true; priceCents: number }
+  | { ok: false; error: string; locked?: true };
 
 /** Latin digits, integer cents — never a locale-formatted numeral on the money path. */
 const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
@@ -63,6 +66,8 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
   // mid-outage is told the truth instead of being sent to a login screen.
   const gate = await staffGate("manager", PRICE_OUTAGE);
   if (!gate.ok) return { ok: false, error: gate.error };
+  // OA9 (owner, 2026-10-25) — a price is price authority: a locked console answers `locked`.
+  if (await isConsoleLocked()) return { ok: false, error: "This tablet is locked.", locked: true };
 
   // Service client AFTER the gate — authz is proven before elevation. `menu_items` has no staff
   // write policy (its RLS is public-read only), so the elevated client is the only way to write it;

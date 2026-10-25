@@ -36,6 +36,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({
   revalidatePath: (p: string) => {
     h.revalidated.push(p);
@@ -263,5 +266,17 @@ describe("recordCounterNoShow — the RPC", () => {
     expect(h.revalidated).toEqual(
       expect.arrayContaining(["/staff", `/staff/table/${SESSION}`, "/staff/kitchen"]),
     );
+  });
+});
+
+describe("recordCounterNoShow — OA9: a locked console writes nothing off", () => {
+  it("answers `locked` before any read or RPC (`voids/noshow-locked`)", async () => {
+    consoleLocked = true;
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.rpcArgs).toBeNull();
   });
 });

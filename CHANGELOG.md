@@ -6,6 +6,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The owner's four asks — menu studio, custom items, no PIN, guest names (2026-10-24, `claude/blissful-cerf-jxz37k`)
 
+- **OA3 · OA4 · OA9 decided (2026-10-25,** `docs/DECISIONS_2026-10-25.md`): a locked console now
+  refuses every money-out and price-authority write (void, comp, no-show, approval, refund, menu
+  price, the menu studio, the custom item) and sends the console to its lock screen — with the PIN
+  gone, the lock is the presence check. The asker of a queued request is told to close it and make the
+  change on the line. The custom item stays manager-only. OA1's migration is applied to prod.
+
 - **Guest names on the kitchen's screens** (the owner reversed K16 and m9 decision 19: "guest names
   should also be in kitchen tickets and boards"). Each KDS line says who added it ("For Aung", from
   `session_members.display_name` by `added_by`), and its name says so too; a table ticket carries a

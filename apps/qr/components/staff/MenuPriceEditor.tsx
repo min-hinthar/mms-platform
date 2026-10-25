@@ -24,6 +24,7 @@ import { Chrome, OutageText } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { al, sx } from "@/lib/staff-labels";
 import { localizeCount } from "@/lib/i18n/fill";
+import { toLockScreen } from "./toLockScreen";
 
 export type PricedItem = {
   id: string;
@@ -374,6 +375,7 @@ export function MenuPriceEditor({
       setBusy(false);
     }
     setConfirming(false);
+    if (!res.ok && res.locked) return toLockScreen();
     if (!res.ok) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
       // their input.

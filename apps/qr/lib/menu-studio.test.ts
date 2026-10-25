@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * chose). Each rule carries a `menu-studio/*` mutant.
  */
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const gateRoles: unknown[] = [];
@@ -371,5 +374,17 @@ describe("categories", () => {
     expect(u[2]!.filters).toContainEqual(["eq", "id", CAT2]);
     expect(u[2]!.filters).toContainEqual(["eq", "sort_order", 10]);
     expect(audits()).toHaveLength(0);
+  });
+});
+
+describe("OA9 — a locked console changes nothing on the menu", () => {
+  it("every studio write answers `locked` before any read (`menu-studio/locked-writes`)", async () => {
+    consoleLocked = true;
+    expect(await editDish({ ...edit, nameEn: "X" })).toEqual({ ok: false, reason: "locked" });
+    expect(await moveCategoryAction({ categoryId: CAT2, direction: "up" })).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(calls).toHaveLength(0);
   });
 });

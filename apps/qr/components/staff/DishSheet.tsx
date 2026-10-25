@@ -27,6 +27,7 @@ import { useResaid } from "./useResaid";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
+import { toLockScreen } from "./toLockScreen";
 
 /** A dish as the studio reads it (every field the sheet edits, plus the row's CAS stamp). */
 export type StudioDish = {
@@ -53,6 +54,7 @@ export type StudioCategory = {
 
 /** The studio's refusals → the sheet's sentences. */
 export const STUDIO_REFUSAL_KEY: Record<MenuStudioRefusal, StaffKey> = {
+  locked: "entry.lock.title",
   signin: "studio.err.failed",
   gate: "studio.err.failed",
   invalid: "studio.err.failed",
@@ -114,6 +116,9 @@ export function DishSheet({
   // Which write is out — the button that says "Saving…" (busy is the Sheet's lock, M82).
   const [doing, setDoing] = useState<null | "save" | "photo">(null);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
+  /** A refusal said in the one region — or, for a locked tablet, the lock screen (OA9). */
+  const refused = (reason: MenuStudioRefusal) =>
+    reason === "locked" ? toLockScreen() : setMsg({ k: STUDIO_REFUSAL_KEY[reason] });
   const [tried, setTried] = useState(false);
   const inFlight = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -188,7 +193,7 @@ export function DishSheet({
           itemId,
           res.ok ? "ok" : res.reason === "error" ? "unknown" : "definite",
         );
-        if (!res.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.reason] });
+        if (!res.ok) return refused(res.reason);
         onSaved({ k: "studio.dish.created", vars: { x: nameEn.trim() } });
         onClose();
         return;
@@ -198,7 +203,7 @@ export function DishSheet({
       );
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
       const res = out.value;
-      if (!res.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.reason] });
+      if (!res.ok) return refused(res.reason);
       setUpdatedAt(res.updatedAt);
       let changed = res.changed;
       if (cents !== basePriceCents) {
@@ -210,6 +215,7 @@ export function DishSheet({
           }),
         );
         if (p.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
+        if (!p.value.ok && p.value.locked) return toLockScreen();
         // The price action speaks its own sentence (its bounds, a newer price) — said as it is.
         if (!p.value.ok) return setMsg(p.value.error);
         changed += 1;
@@ -253,7 +259,7 @@ export function DishSheet({
       const out = await boundWrite(setDishPhoto(form));
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
       const res = out.value;
-      if (!res.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.reason] });
+      if (!res.ok) return refused(res.reason);
       setPhoto(res.imageUrl);
       setUpdatedAt(res.updatedAt);
       setMsg({ k: "studio.dish.photo.saved" });
@@ -275,7 +281,7 @@ export function DishSheet({
         clearDishPhoto({ itemId: dish.id, expectedUpdatedAt: updatedAt }),
       );
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
-      if (!out.value.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[out.value.reason] });
+      if (!out.value.ok) return refused(out.value.reason);
       setPhoto(null);
       setUpdatedAt(out.value.updatedAt);
       setMsg({ k: "studio.dish.photo.removed" });

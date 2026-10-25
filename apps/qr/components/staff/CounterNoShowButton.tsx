@@ -17,6 +17,7 @@ import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
 import { useTableNav } from "./TableNav";
+import { toLockScreen } from "./toLockScreen";
 
 /**
  * Phase 2f · pay at pickup — "They didn't come": write off a COUNTER order's SENT food when the guest
@@ -199,6 +200,8 @@ export function noShowRefusalMsg(res: NoShowRefusal): StaffMsg {
       return STAFF_WRITE_OUTAGE;
     case "error":
       return { k: "table.noshow.err.failed" };
+    case "locked":
+      return { k: "entry.lock.title" };
     default: {
       const _never: never = res;
       return _never;
@@ -301,6 +304,7 @@ function NoShowSheet({
       if (alive.current) nav.toFloor("cleared");
       return;
     }
+    if (res.reason === "locked") return toLockScreen();
     setMsg(noShowRefusalMsg(res));
   }
 

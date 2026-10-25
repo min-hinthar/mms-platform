@@ -2729,9 +2729,9 @@ export const STAFF = {
     my: "ဒါကို မန်နေဂျာ ဒါမှမဟုတ် ပိုင်ရှင်ပဲ ဆုံးဖြတ်နိုင်ပါတယ် — သူတို့ အကောင့်နဲ့ ဖွင့်ခိုင်းပါ။",
   }, // K15 draft
   "table.appr.ownRequest": {
-    en: "This is your own request — another manager decides it.",
-    my: "ဒါက ကိုယ့်တောင်းဆိုချက်ပါ — တခြား မန်နေဂျာက ဆုံးဖြတ်ပါမယ်။",
-  }, // K15 draft — grounded: pin.onlySelf's "ကိုယ့်တောင်းဆိုချက်"
+    en: "This is your own request — close it, then make the change on the line yourself.",
+    my: "ဒါက ကိုယ့်တောင်းဆိုချက်ပါ — ပိတ်လိုက်ပြီး ပစ္စည်းကို ကိုယ်တိုင် ပြင်ပါ။",
+  }, // K15 draft — grounded: pin.onlySelf's "ကိုယ့်တောင်းဆိုချက်" (OA3, 2026-10-25)
   "table.appr.whoFailed": {
     en: "Couldn’t check who is signed in — that doesn’t decide anything. Try again.",
     my: "ဘယ်သူ အကောင့်ဝင်ထားလဲ မစစ်နိုင်ပါ — ဘာမှ မဆုံးဖြတ်ရသေးပါ။ ထပ်စမ်းပါ။",

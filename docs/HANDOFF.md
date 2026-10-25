@@ -19,17 +19,19 @@ etc, updates to names prices categories etc,) to menu-editor and with world-clas
 item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
 and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
 so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
-(OA1–OA13) is what is left.
+(OA1–OA13; OA1 · OA3 · OA4 · OA9 closed) is what is left.
 
+- **OA1 is applied to prod (2026-10-25,** the owner's "apply OA1 migration to prod"): verified object
+  by object — OPEN-ITEMS OA1 has the hashes and the privileges.
 - **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
-  instruction (G3 · G4); (2) **OA1** — apply `20261024120000_no_pin_manager_self_approve.sql`;
-  (3) **OA2** — apply `20261024120100_menu_studio.sql`. Each is one file through the Supabase MCP
-  `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header says, before the
-  next. ⚠️ **OA1 must apply BEFORE the merge** (production deploys from `main`): before it, a gated
-  no-show can be written off by nobody, and a void or comp needs a second manager. OA2 can land in
-  either order: before it, a photo upload says "Photo storage isn't set up yet".
-- **Decisions waiting on the owner:** OA3 (does a manager approve their own queued request?) and
-  OA4 (a custom item for servers?). Both ship the conservative side.
+  instruction (G3 · G4); (2) **OA2** — apply `20261024120100_menu_studio.sql`, one file through the
+  Supabase MCP `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header
+  says. OA2 can land before or after the merge: until it does, a photo upload says "Photo storage
+  isn't set up yet".
+- **OA3 · OA4 · OA9 decided 2026-10-25** on the owner's delegation (`docs/DECISIONS_2026-10-25.md`):
+  the asker still cannot approve their own request (its refusal now names the way through), the
+  custom item stays manager-only, and every money-out and price-authority write refuses while the
+  console is locked.
 - **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on
   the throwaway Postgres 16 (`/var/tmp/mmspg`, rebuilt by `/var/tmp/mmspg-kit/rebuild.sh` — gone with
   the container), and red-first for each new file; `verify-mode-authority` accounted for 349 mutants

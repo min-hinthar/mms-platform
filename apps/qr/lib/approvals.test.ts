@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * Asserted as CALLS and values (the degenerate-mock lesson), each a mutant in verify:slice.
  */
 vi.mock("server-only", () => ({}));
+// OA9 — the console lock, read by every money-out and price-authority write.
+let consoleLocked = false;
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(consoleLocked) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
@@ -173,5 +176,13 @@ describe("requestApproval — the RPC's own freeze refusal (M184 · the blind pa
   it("the legitimate request still lands", async () => {
     rpcStatus = "ok";
     expect(await requestApproval(ask)).toEqual({ ok: true });
+  });
+});
+
+describe("resolveApproval — OA9: a locked console decides nothing", () => {
+  it("answers `locked` before any read or RPC (`approvals/locked-decides`)", async () => {
+    consoleLocked = true;
+    expect(await resolveApproval(input("approve"))).toEqual({ ok: false, reason: "locked" });
+    expect(rpcCalls).toEqual([]);
   });
 });

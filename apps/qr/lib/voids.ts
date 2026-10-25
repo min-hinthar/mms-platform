@@ -11,6 +11,7 @@ import { touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
 import { openCartFor } from "./staff-open-cart";
 import { isCounterOrder, noShowOutcome } from "./counter-order";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * Loss-gated voids/comps (S2.3) — the ORDER-MODEL "server-initiated + manager step-up, gated by loss".
@@ -87,6 +88,7 @@ export type VoidLineResult =
   | {
       ok: false;
       reason:
+        | "locked"
         | "bad_approver"
         | "not_open"
         | "not_found"
@@ -111,6 +113,10 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   // generic error that reads as a verdict about the line.
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const caller = auth.caller;
   const parsed = voidLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
@@ -206,6 +212,7 @@ export type RecordCounterNoShowResult =
   | {
       ok: false;
       reason:
+        | "locked"
         | "bad_approver"
         | "not_open"
         | "not_counter"
@@ -235,6 +242,10 @@ export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNo
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const initiator = auth.caller;
   const parsed = counterNoShowInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };

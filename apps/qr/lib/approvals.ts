@@ -14,6 +14,7 @@ import { touchCart } from "./order-lines";
 import { loadLineNames } from "./line-names";
 import { catalogNameMy } from "./ticket-names";
 import { getPostHogClient } from "./posthog-server";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * The approvals primitive (S2.4) — request → approve/deny → audit, the deferred (no-manager-present)
@@ -123,6 +124,7 @@ export type ResolveApprovalResult =
       ok: false;
       reason: // No-PIN: the signed-in caller cannot decide this one — not a manager or owner, or (approve /
         // deny) the request is their own.
+        | "locked"
         | "bad_approver"
         | "already"
         | "stale"
@@ -152,6 +154,10 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   // the queue as already-handled and walk away from a still-pending loss).
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  // OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on a
+  // money-out write: a locked tablet answers `locked`, as the KDS, the floor and the lane already do,
+  // and the console goes to its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const caller = auth.caller;
   const parsed = resolveApprovalInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
