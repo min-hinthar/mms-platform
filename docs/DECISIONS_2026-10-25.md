@@ -31,8 +31,10 @@ while the person was still a server and since promoted.
 - (c) Keep the rule, and have the refusal name the way through.
 
 **Decision: (c).** The SQL rule in `mms_resolve_approval` stays. The refusal no longer says "another
-manager decides it", which is a dead end with one manager on shift. It now says to close the request
-and make the change on the line, where the manager's own sign-in now approves it.
+manager decides it", which is a dead end with one manager on shift. It now says to make the change on
+the line, where the manager's own sign-in now approves it, and then close the request. The order is
+the SQL's: a close is admitted only once the line has changed, and a live, unchanged request answers
+`still_open` (Codex caught the first draft's reversed order).
 
 **Shipped:** `table.appr.ownRequest` rewritten (en + my, a K15 draft). No migration.
 
