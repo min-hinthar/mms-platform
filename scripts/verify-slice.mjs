@@ -12250,6 +12250,22 @@ const MUTANTS = [
     replace: "  const needsManager = needsManagerFor !== null;",
   },
   {
+    id: "studio-ui/price-baseline-refreshed",
+    file: "apps/qr/components/staff/DishSheet.tsx",
+    suite: "components/staff/MenuStudio.test.tsx",
+    why: "Codex round 3 on #373 — the price write's baseline is the price the sheet's draft started from; read from the refreshed prop, a re-read after another manager's price change makes the untouched draft a 'change', and Save sends it with the new price as expected — silently undoing that manager's price",
+    find: "      if (cents !== basePriceCents) {",
+    replace: "      if (cents !== dish.priceCents) {",
+  },
+  {
+    id: "studio-ui/hidden-category-dishes-lost",
+    file: "apps/qr/components/staff/MenuStudio.tsx",
+    suite: "components/staff/MenuStudio.test.tsx",
+    why: "Codex round 3 on #373 — a hidden category's dishes leave the price list; unless the hidden list carries them, they cannot be edited or moved without showing the whole category to guests again",
+    find: "  const hidden = studio.dishes.filter((d) => !d.isActive || !shownCategory.has(d.categoryId));",
+    replace: "  const hidden = studio.dishes.filter((d) => !d.isActive);",
+  },
+  {
     id: "studio-ui/server-gets-studio",
     file: "apps/qr/components/staff/MenuStudio.tsx",
     suite: "components/staff/MenuStudio.test.tsx",
@@ -12263,7 +12279,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/DishSheet.tsx",
     suite: "components/staff/MenuStudio.test.tsx",
     why: "Menu studio — a moved price goes through setMenuPrice, the audited price path; skipped, the sheet shows a price it never saved",
-    find: "      if (cents !== dish.priceCents) {",
+    find: "      if (cents !== basePriceCents) {",
     replace: "      if (false) {",
   },
   {

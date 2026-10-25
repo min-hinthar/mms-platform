@@ -103,6 +103,10 @@ export function DishSheet({
   const [tax, setTax] = useState<MenuTaxCategory>(dish?.taxCategory ?? "hot_prepared");
   const [onMenu, setOnMenu] = useState(dish?.isActive ?? true);
   const [price, setPrice] = useState(dish ? (dish.priceCents / 100).toFixed(2) : "");
+  // The price this sheet's draft started from — the price write's compare-and-swap baseline. Never the
+  // refreshed prop: the sheet's own photo write re-reads the page, and a price another manager set
+  // since would become the "expected" one, so saving the untouched draft would undo it (Codex r3).
+  const [basePriceCents] = useState(dish?.priceCents ?? 0);
   const [photo, setPhoto] = useState<string | null>(dish?.imageUrl ?? null);
   const [updatedAt, setUpdatedAt] = useState(dish?.updatedAt ?? "");
   const createKey = useRef<HeldAddKey>(null);
@@ -197,12 +201,12 @@ export function DishSheet({
       if (!res.ok) return setMsg({ k: STUDIO_REFUSAL_KEY[res.reason] });
       setUpdatedAt(res.updatedAt);
       let changed = res.changed;
-      if (cents !== dish.priceCents) {
+      if (cents !== basePriceCents) {
         const p = await boundWrite(
           setMenuPrice({
             menuItemId: dish.id,
             priceCents: cents,
-            expectedPriceCents: dish.priceCents,
+            expectedPriceCents: basePriceCents,
           }),
         );
         if (p.kind !== "answer") return setMsg({ k: "studio.err.unknown" });

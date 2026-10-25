@@ -240,6 +240,54 @@ describe("MenuStudio", () => {
     expect((document.getElementById("dish-name-my") as HTMLInputElement).value).toBe("ဒေါ်");
   });
 
+  it("a dish in a HIDDEN category is listed with the hidden ones, still openable (`studio-ui/hidden-category-dishes-lost`)", () => {
+    render(
+      <StaffLangProvider lang="en">
+        <MenuStudio
+          items={priced}
+          canEditPrice
+          nowIso="2026-10-24T12:00:00.000Z"
+          studio={{
+            dishes: [
+              ...dishes,
+              { ...dishes[0]!, id: "d3", nameEn: "Curry puff", categoryId: CAT2 },
+            ],
+            categories: categories.map((c) => (c.id === CAT2 ? { ...c, isActive: false } : c)),
+          }}
+        />
+      </StaffLangProvider>,
+    );
+    const hidden = screen.getByRole("region", { name: tf("en", "studio.hidden", { n: 2 }) });
+    expect(within(hidden).getByText("Curry puff")).toBeTruthy();
+  });
+
+  it("an untouched price is never sent, even after a re-read moved the dish's price (`studio-ui/price-baseline-refreshed`)", async () => {
+    const view = mount();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: tf("en", "studio.dish.open", { x: "Mohinga" }) }),
+      );
+    });
+    fireEvent.change(document.getElementById("dish-name-my")!, { target: { value: "ဒေါ်" } });
+    // Another manager set $12 meanwhile; this sheet's own photo write re-read the page.
+    view.rerender(
+      <StaffLangProvider lang="en">
+        <MenuStudio
+          items={priced}
+          canEditPrice
+          nowIso="2026-10-24T12:00:00.000Z"
+          studio={{
+            dishes: dishes.map((d) => (d.id === "d1" ? { ...d, priceCents: 1200 } : d)),
+            categories,
+          }}
+        />
+      </StaffLangProvider>,
+    );
+    await submit();
+    expect(editDish).toHaveBeenCalled();
+    expect(setMenuPrice).not.toHaveBeenCalled();
+  });
+
   it("categories: the top one cannot move up; Hide sends the category hidden (`studio-ui/hide-sends-shown`)", async () => {
     mount();
     await act(async () => {

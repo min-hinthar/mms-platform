@@ -44,7 +44,10 @@ export function MenuStudio({
   if (!studio) return <MenuPriceEditor items={items} canEditPrice={canEditPrice} nowIso={nowIso} />;
 
   const byId = new Map(studio.dishes.map((d) => [d.id, d]));
-  const hidden = studio.dishes.filter((d) => !d.isActive);
+  // Off the menu either way: the dish itself, or its whole category (which the price list leaves out),
+  // so a hidden category's dishes stay reachable here without republishing the category (Codex r3).
+  const shownCategory = new Set(studio.categories.filter((c) => c.isActive).map((c) => c.id));
+  const hidden = studio.dishes.filter((d) => !d.isActive || !shownCategory.has(d.categoryId));
   const open = sheet?.kind === "dish" ? byId.get(sheet.id) : undefined;
   const landed = (m: StaffMsg) => {
     setSaid(m);
