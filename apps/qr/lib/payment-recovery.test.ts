@@ -124,6 +124,7 @@ vi.mock("@mms/db/server", () => ({
 
 const {
   recoverIntent,
+  webhookChargeGate,
   sweepStrandedPayments,
   SWEEP_ID_CHUNK,
   SWEEP_MAX_EXAMINE,
@@ -573,5 +574,38 @@ describe("the stranded-payment cron is scheduled to fit its window", () => {
     expect(firesDaily("99 25 * * *")).toBe(false);
     expect(firesDaily("7 ,,, * * *")).toBe(false);
     expect(firesDaily("59 23 * * *")).toBe(true);
+  });
+});
+
+/** M331 — the webhook's charge read: Stripe's own copy, expanded, through the shared refund rule. */
+describe("webhookChargeGate (M331)", () => {
+  const PI = "pi_webhook_1";
+  const charge = { amount: 5200, amount_captured: 5200, amount_refunded: 0, refunded: false };
+  const succeeded = (latest: unknown): PI => ({
+    id: PI,
+    status: "succeeded",
+    currency: "usd",
+    metadata: { cartId: "22222222-2222-4222-8222-222222222222" },
+    latest_charge: latest,
+  });
+
+  it("retrieves the intent with the charge and its refunds expanded (`payment-recovery/webhook-gate-unexpanded`)", async () => {
+    retrieves.length = 0;
+    retrieveParams.length = 0;
+    retrieved = succeeded(charge);
+    expect(await webhookChargeGate(PI)).toBe("fulfill");
+    expect(retrieves).toEqual([PI]);
+    expect(retrieveParams).toEqual([{ expand: ["latest_charge", "latest_charge.refunds"] }]);
+  });
+
+  it("a refunded charge answers `refunded`", async () => {
+    retrieved = succeeded({ ...charge, refunded: true, amount_refunded: 5200 });
+    expect(await webhookChargeGate(PI)).toBe("refunded");
+  });
+
+  it("a failed retrieve is `unread`, never `fulfill` (`payment-recovery/webhook-gate-throw-fulfils`)", async () => {
+    retrieved = new Error("stripe down");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await webhookChargeGate(PI)).toBe("unread");
   });
 });

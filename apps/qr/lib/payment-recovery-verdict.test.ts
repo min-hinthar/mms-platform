@@ -9,6 +9,7 @@ import {
   sweepWindow,
   trackRecoveryShows,
   TRACK_RECOVERY_ASK_MS,
+  webhookChargeVerdict,
   type RecoveryAnswer,
   type RecoveryIntent,
 } from "./payment-recovery-verdict";
@@ -454,5 +455,47 @@ describe("the bounds", () => {
     expect(isCartIdShape(CART)).toBe(true);
     expect(isCartIdShape(`${CART}x`)).toBe(false);
     expect(isCartIdShape("")).toBe(false);
+  });
+});
+
+/**
+ * M331 — the webhook's own succeeded event, read through the SAME refund rule before it fulfils. A
+ * redelivered event for a charge an operator already refunded must not fire an order.
+ */
+describe("webhookChargeVerdict (M331)", () => {
+  it("an unrefunded charge is fulfilled", () => {
+    expect(webhookChargeVerdict(intent())).toBe("fulfill");
+  });
+  it("a refunded charge is skipped, never fulfilled (`recovery-verdict/webhook-refund-fulfils`)", () => {
+    expect(webhookChargeVerdict(intent({ latest_charge: { ...FULL, refunded: true } }))).toBe(
+      "refunded",
+    );
+    expect(
+      webhookChargeVerdict(intent({ latest_charge: { ...FULL, amount_refunded: 1200 } })),
+    ).toBe("refunded");
+  });
+  it("a charge that cannot be read is `unread` — retried, never fulfilled (`recovery-verdict/webhook-unread-fulfils`)", () => {
+    expect(webhookChargeVerdict(intent({ latest_charge: "ch_bare" }))).toBe("unread");
+    expect(webhookChargeVerdict(intent({ latest_charge: null }))).toBe("unread");
+    // A partial capture whose release cannot be told from a refund (the list unread) is unread too.
+    const partial = { amount: 5200, amount_captured: 4000, amount_refunded: 1200, refunded: false };
+    expect(
+      webhookChargeVerdict(
+        intent({ latest_charge: { ...partial, refunds: { data: [], has_more: true } } }),
+      ),
+    ).toBe("unread");
+  });
+  it("a partial capture's released remainder is not a refund; a real refund of the same figure is", () => {
+    const partial = { amount: 5200, amount_captured: 4000, amount_refunded: 1200, refunded: false };
+    expect(
+      webhookChargeVerdict(intent({ latest_charge: { ...partial, refunds: refundList() } })),
+    ).toBe("fulfill");
+    expect(
+      webhookChargeVerdict(
+        intent({
+          latest_charge: { ...partial, refunds: refundList({ amount: 1200, status: "succeeded" }) },
+        }),
+      ),
+    ).toBe("refunded");
   });
 });

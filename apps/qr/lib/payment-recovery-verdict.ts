@@ -234,6 +234,28 @@ function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
 }
 
 /**
+ * M331 — the webhook's own `payment_intent.succeeded`, read through the SAME refund rule as the
+ * recovery doors (`chargeRefusal`), never a second copy of it. A signed event proves Stripe charged
+ * the card; it does not prove the money stayed. If the webhook was down, an operator refunded the
+ * stranded charge in Stripe, and Stripe then redelivered the event, fulfilling it would fire an order
+ * — the kitchen cooks it — for money already back with the guest. So the webhook reads the charge,
+ * expanded (`RECOVERY_EXPAND`), before it fulfils:
+ *
+ *   • `fulfill` — nothing came back;
+ *   • `refunded` — skipped, and answered 200: a redelivery cannot un-refund it;
+ *   • `unread` — the charge could not be read, or reads unlike any charge this app makes. Never
+ *     `fulfill`: a charge nobody could read is not one known to have stayed. The webhook answers 500
+ *     and Stripe redelivers, as for every other unread step.
+ */
+export type WebhookChargeVerdict = "fulfill" | "refunded" | "unread";
+
+export function webhookChargeVerdict(intent: RecoveryIntent): WebhookChargeVerdict {
+  const refusal = chargeRefusal(intent);
+  if (refusal === null) return "fulfill";
+  return refusal === "refunded" ? "refunded" : "unread";
+}
+
+/**
  * May a recovery door fulfill this intent? The order of the checks is the order of what can be
  * known: Stripe's status first (the only proof money moved), then what the intent IS, then whom it
  * belongs to, then whether the cart still names it — or, for a secure-tab close, still holds the

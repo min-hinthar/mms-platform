@@ -39103,6 +39103,22 @@ const MUTANTS = [
     replace: "      promo_code: cartRow?.promo_code,",
   },
   {
+    id: "recovery-verdict/webhook-refund-fulfils",
+    file: "apps/qr/lib/payment-recovery-verdict.ts",
+    suite: "lib/payment-recovery-verdict.test.ts",
+    why: "M331 — the webhook's succeeded event proves a charge, not that the money stayed. Read as `fulfill`, a charge an operator refunded while the webhook was down fires an order (the kitchen cooks it) for money already back with the guest",
+    find: '  return refusal === "refunded" ? "refunded" : "unread";\n',
+    replace: '  return refusal === "refunded" ? "fulfill" : "unread";\n',
+  },
+  {
+    id: "recovery-verdict/webhook-unread-fulfils",
+    file: "apps/qr/lib/payment-recovery-verdict.ts",
+    suite: "lib/payment-recovery-verdict.test.ts",
+    why: "M331 — a charge nobody could read is not one known to have stayed; fulfilled on `charge_unread`, a refunded or unexpanded charge fires an order instead of a retry",
+    find: '  if (refusal === null) return "fulfill";\n',
+    replace: '  if (refusal !== "refunded") return "fulfill";\n',
+  },
+  {
     id: "recovery-verdict/unpaid-intent-fulfilled",
     file: "apps/qr/lib/payment-recovery-verdict.ts",
     suite: "lib/payment-recovery-verdict.test.ts",
@@ -39207,6 +39223,23 @@ const MUTANTS = [
     why: "M160(b) — the min-age keeps the sweep off a payment whose webhook is merely in flight; at zero the cron races every fresh delivery",
     find: "    lte: Math.floor((nowMs - minAgeMs) / 1000),",
     replace: "    lte: Math.floor(nowMs / 1000),",
+  },
+  {
+    id: "payment-recovery/webhook-gate-unexpanded",
+    file: "apps/qr/lib/payment-recovery.ts",
+    suite: "lib/payment-recovery.test.ts",
+    why: "M331 — the refund rule reads `latest_charge` and its refunds EXPANDED; retrieved bare, every charge reads `charge_unread` and the webhook retries every succeeded payment forever — no order is ever fired",
+    find: '    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });\n  } catch (e) {\n    console.error("[stripe webhook] charge read failed',
+    replace:
+      '    intent = await getStripe().paymentIntents.retrieve(intentId);\n  } catch (e) {\n    console.error("[stripe webhook] charge read failed',
+  },
+  {
+    id: "payment-recovery/webhook-gate-throw-fulfils",
+    file: "apps/qr/lib/payment-recovery.ts",
+    suite: "lib/payment-recovery.test.ts",
+    why: "M331 — a failed retrieve is a transport failure, not a verdict; answered `fulfill`, a Stripe outage lets a refunded charge's redelivery fire an order",
+    find: '    });\n    return "unread";\n  }\n  return webhookChargeVerdict(intent);',
+    replace: '    });\n    return "fulfill";\n  }\n  return webhookChargeVerdict(intent);',
   },
   {
     id: "payment-recovery/refusal-fulfills",
@@ -39349,8 +39382,8 @@ const MUTANTS = [
     file: "apps/qr/lib/payment-recovery.ts",
     suite: "lib/payment-recovery.test.ts",
     why: "M160(b) · Codex on #365 — the refund rule reads the EXPANDED charge; a bare retrieve refuses every recovery as charge_unread",
-    find: "    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });",
-    replace: "    intent = await getStripe().paymentIntents.retrieve(intentId);",
+    find: "    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.\n    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });",
+    replace: "    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.\n    intent = await getStripe().paymentIntents.retrieve(intentId);",
   },
   {
     id: "payment-recovery/sweep-list-unexpanded",

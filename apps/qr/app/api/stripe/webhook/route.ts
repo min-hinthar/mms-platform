@@ -14,6 +14,7 @@ import { webhookSecretDiagnostic, pickEnv, webhookCandidatesForMode } from "@/li
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
 import { fulfillSucceededIntent, type FulfillIntentOutcome } from "@/lib/fulfill-intent";
+import { webhookChargeGate } from "@/lib/payment-recovery";
 import {
   onShareAuthorized,
   onShareCaptured,
@@ -355,6 +356,20 @@ export async function POST(req: NextRequest) {
       // the status Stripe reads, exactly as the inline arm answered: 5xx to redeliver, 409 for a
       // reconcile mismatch (Stripe keeps trying; the refund-needed row is already written), and
       // 200 for everything a retry cannot change.
+      //
+      // M331 — the event says the card was charged, not that the money stayed. A charge an operator
+      // refunded while this endpoint was down, and that Stripe then redelivered, must not fire an
+      // order: the charge is read first, through the recovery doors' own refund rule.
+      const charge = await webhookChargeGate(intent.id);
+      if (charge === "unread")
+        return NextResponse.json({ error: "Charge read failed; will retry" }, { status: 500 });
+      if (charge === "refunded") {
+        console.error("[stripe webhook] succeeded charge already refunded — no order fired", {
+          paymentIntent: intent.id,
+          cartId: intent.metadata?.cartId ?? null,
+        });
+        return NextResponse.json({ received: true, skipped: "charge refunded" });
+      }
       const outcome = await fulfillSucceededIntent(intent, "webhook");
       switch (outcome.kind) {
         case "retry":
