@@ -41,6 +41,8 @@ import {
 const WEBHOOK_RETRY_BODY: Record<Extract<FulfillIntentOutcome, { kind: "retry" }>["step"], string> =
   {
     order_lookup: "Order lookup failed; will retry",
+    // M331 — the charge read before an order fires (`webhookChargeGate`, in the fulfilment).
+    charge_read: "Charge read failed; will retry",
     cart_lookup: "Cart lookup failed; will retry",
     totals: "Totals lookup failed; will retry",
     fulfill: "Fulfillment failed; will retry",
@@ -355,6 +357,10 @@ export async function POST(req: NextRequest) {
       // the status Stripe reads, exactly as the inline arm answered: 5xx to redeliver, 409 for a
       // reconcile mismatch (Stripe keeps trying; the refund-needed row is already written), and
       // 200 for everything a retry cannot change.
+      //
+      // M331 — the fulfilment reads the charge first (`webhookChargeGate`, after its order read and
+      // its cartId check): an unreadable charge is a `retry` (500, Stripe redelivers), and a fully
+      // refunded one fires no order and is answered 200 below — a redelivery cannot un-refund it.
       const outcome = await fulfillSucceededIntent(intent, "webhook");
       switch (outcome.kind) {
         case "retry":
@@ -368,6 +374,8 @@ export async function POST(req: NextRequest) {
           );
         case "settled_elsewhere":
           return NextResponse.json({ received: true, skipped: "cart already settled" });
+        case "charge_refunded":
+          return NextResponse.json({ received: true, skipped: "charge refunded" });
         case "fulfilled":
         case "already_recorded":
         case "no_cart_metadata":

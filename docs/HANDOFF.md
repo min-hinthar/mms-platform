@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-24 · the owner's four asks on #373; production on test keys)
+# Session Handoff — MMS Platform (2026-11-01 · launch hardening; #373 merged; the live publishable key is served)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -12,30 +12,37 @@ entries that cite `docs/HANDOFF.md` for history resolve there — and two of the
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
-## Where things stand (2026-10-24 — the owner's four asks, on PR #373)
+## Where things stand (2026-11-01 — launch hardening; #373 merged, OA1 and OA2 applied)
 
-The owner asked, verbatim: "elevate full features (iOS photo upload, add new menu items categories
-etc, updates to names prices categories etc,) to menu-editor and with world-class UI UX. manual new
-item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
-and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
-so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
-(OA1–OA13; OA1 · OA3 · OA4 · OA9 closed) is what is left.
+The owner, 2026-10-25: "Finalize all for Production ready for launch and live." Measure first:
+`git log origin/main --oneline -5` and the open PRs (`list_pull_requests`). The previous block (the
+four asks on #373) moved verbatim to the archive's 2026-10-24 block.
 
-- **OA1 is applied to prod (2026-10-25,** the owner's "apply OA1 migration to prod"): verified object
-  by object — OPEN-ITEMS OA1 has the hashes and the privileges.
-- **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
-  instruction (G3 · G4); (2) **OA2** — apply `20261024120100_menu_studio.sql`, one file through the
-  Supabase MCP `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header
-  says. OA2 can land before or after the merge: until it does, a photo upload says "Photo storage
-  isn't set up yet".
-- **OA3 · OA4 · OA9 decided 2026-10-25** on the owner's delegation (`docs/DECISIONS_2026-10-25.md`):
-  the asker still cannot approve their own request (its refusal now names the way through), the
-  custom item stays manager-only, and every money-out and price-authority write refuses while the
-  console is locked.
-- **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on
-  the throwaway Postgres 16 (`/var/tmp/mmspg`, rebuilt by `/var/tmp/mmspg-kit/rebuild.sh` — gone with
-  the container), and red-first for each new file; `verify-mode-authority` accounted for 349 mutants
-  (27 documented survivors, as before) with the new `nopin` suite.
+- **#373 merged 2026-10-25 as `04b40e2`** on the owner's per-SHA yes ("yes, and proceed with all");
+  its production deploy is READY. **OA1 is applied to prod** (OPEN-ITEMS OA1 has the hashes).
+- **OA2 is applied to prod (2026-11-01,** the owner's 2026-10-25 "Go and approved", then "Finalize
+  all for Production ready for launch and live"): history row `20261101010116 menu_studio`, sent
+  without the file's no-op `drop policy if exists menu_edit_audit_read …` line. The three earlier
+  tries, with the line, each timed out on the MCP's confirmation prompt, which the tool says a
+  destructive statement can raise; without it the apply needed none. Verified object by object:
+  OPEN-ITEMS OA2 has the bucket, the ledger's RLS and privileges, and the three bounds. Photo upload
+  is live; the iPhone check is OA5.
+- **The launch-hardening PR (`claude/blissful-cerf-jxz37k`, no migration):** M331 (the webhook reads
+  the expanded charge before it fires an order; a full refund fires none, a partial one still fires
+  and is logged), OA11–OA13 (the studio's late photo answer, the category creation key, the
+  long-name slug read), and K33 closed after measuring the code. The blind pass filed M338 (the
+  split-share arm has the same refund gap).
+- **C2, the live keys, measured 2026-11-01:** the production `/cart` bundle (build
+  `mvnjjy41-33ebe048`) inlines `pk_live_51LpNE…` and no `pk_test_…`. The server half cannot be
+  measured from an agent session: Vercel's env listing answered 403, and no public route reports the
+  mode. **The owner, before a real order:** open `/staff`. "Payments: Live" with no sentence means the
+  cutover is complete; then one small real-card sale and its refund (ENV step 6), whose order must
+  appear. "Payments: Check setup" means a `_TEST` variable is still set in Vercel Production; beside
+  a live publishable key, `getStripe()` refuses every charge (`modeDisagreement`), so card checkout
+  is down until `STRIPE_SECRET_KEY_TEST` and `STRIPE_WEBHOOK_SECRET_TEST` are removed from Production
+  and production is redeployed.
+- **Next:** OA10 (the tax-aware table-merge fold, a migration and the owner's go); OA5 and OA6 (the
+  iPhone check and the native Burmese check); OA7 and OA8.
 
 ## Where things stand (2026-10-18 — the tranche merged, two migrations applied, production live on test keys)
 
@@ -175,8 +182,9 @@ reversible on the owner's word. Nothing was built and no migration was applied; 
    The bypass covers a red `codex-review` only — never `verify-slice`, `build`, `docs`,
    `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass once the check is required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits — the last agent round (owner, 2026-10-08: "Yes one more"; WORKFLOW step 5 (g)).
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
-   step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10). As of 2026-10-18 the `_TEST`
-   variables still win in production (the top block's "Production"; OPEN-ITEMS C2).
+   step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10). As of 2026-11-01 production's client
+   bundle serves the live publishable key; the server half is the owner's `/staff` check (the top
+   block; OPEN-ITEMS C2).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names). The wave's
    eight files were applied under the 2026-10-09 delegation, in the order the archive's 2026-10-11 block lists. PD1's
    file is never re-applied after PD1N's: its `create or replace` would put back the nudge with no

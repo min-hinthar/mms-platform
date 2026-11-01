@@ -13,6 +13,7 @@ import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { STUDIO_REFUSAL_KEY, type StudioCategory } from "./DishSheet";
 import { toLockScreen } from "./toLockScreen";
+import { heldAfter, keyForAttempt, studioAddOutcome, type HeldAddKey } from "@/lib/staff-add-key";
 
 /**
  * Menu studio (owner, 2026-10-24) — the menu's categories, in the menu's own order: rename one in
@@ -41,6 +42,7 @@ export function CategoriesSheet({
   const [doing, setDoing] = useState<string | null>(null);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const inFlight = useRef(false);
+  const addKey = useRef<HeldAddKey>(null);
   const said = useResaid(msg);
   const sorted = [...categories].sort(
     (a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
@@ -113,10 +115,18 @@ export function CategoriesSheet({
     const name = adding.trim();
     if (name === "") return setMsg({ k: "studio.cat.err.name" });
     if (refusedAtTap()) return;
+    // OA12 — the add's creation key rides retries of the SAME name (`staff-add-key.ts`): an add whose
+    // answer was lost or late resends it, and the action answers ok for the category it made.
+    const newId = keyForAttempt(addKey.current, name, () => crypto.randomUUID());
     lock("add");
     setBusy(true);
     try {
-      const out = await boundWrite(saveCategory({ name, isActive: true }));
+      const out = await boundWrite(saveCategory({ name, isActive: true, newId }));
+      addKey.current = heldAfter(
+        name,
+        newId,
+        studioAddOutcome(out.kind === "answer" ? out.value : null),
+      );
       if (out.kind === "answer" && out.value.ok) setAdding("");
       answered(out, { k: "studio.cat.saved", vars: { x: name } });
     } finally {

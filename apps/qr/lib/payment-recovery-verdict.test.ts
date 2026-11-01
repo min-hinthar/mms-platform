@@ -9,6 +9,7 @@ import {
   sweepWindow,
   trackRecoveryShows,
   TRACK_RECOVERY_ASK_MS,
+  webhookChargeVerdict,
   type RecoveryAnswer,
   type RecoveryIntent,
 } from "./payment-recovery-verdict";
@@ -454,5 +455,65 @@ describe("the bounds", () => {
     expect(isCartIdShape(CART)).toBe(true);
     expect(isCartIdShape(`${CART}x`)).toBe(false);
     expect(isCartIdShape("")).toBe(false);
+  });
+});
+
+/**
+ * M331 — the webhook's own succeeded event, read through the SAME refund rule before it fulfils. A
+ * redelivered event for a charge an operator already refunded must not fire an order.
+ */
+describe("webhookChargeVerdict (M331)", () => {
+  it("an unrefunded charge is fulfilled", () => {
+    expect(webhookChargeVerdict(intent())).toBe("fulfill");
+  });
+  it("a FULLY refunded charge is skipped, never fulfilled (`recovery-verdict/webhook-refund-fulfils`)", () => {
+    expect(
+      webhookChargeVerdict(
+        intent({ latest_charge: { ...FULL, amount_refunded: 5200, refunded: true } }),
+      ),
+    ).toBe("refunded");
+  });
+  it("…and read by the amount when Stripe's flag is unset: every captured cent back is a full refund (`recovery-verdict/webhook-full-by-amount-missed`)", () => {
+    // A partial capture refunded in full: 4000 captured and 4000 back, the flag left false.
+    const all = { amount: 5200, amount_captured: 4000, amount_refunded: 4000, refunded: false };
+    expect(
+      webhookChargeVerdict(
+        intent({
+          latest_charge: { ...all, refunds: refundList({ amount: 4000, status: "succeeded" }) },
+        }),
+      ),
+    ).toBe("refunded");
+  });
+  it("a PARTIAL refund fires the order: the webhook has no backstop, so the money that stayed is never stranded (the blind pass on #375 · `recovery-verdict/webhook-partial-skips`)", () => {
+    // 1200 of 5200 back, 4000 stayed. A door refuses this (the webhook backs it up); the webhook's
+    // own skip would be final — no order and no ledger row for the 4000.
+    expect(
+      webhookChargeVerdict(intent({ latest_charge: { ...FULL, amount_refunded: 1200 } })),
+    ).toBe("partly_refunded");
+  });
+  it("a charge that cannot be read is `unread` — retried, never fulfilled (`recovery-verdict/webhook-unread-fulfils`)", () => {
+    expect(webhookChargeVerdict(intent({ latest_charge: "ch_bare" }))).toBe("unread");
+    expect(webhookChargeVerdict(intent({ latest_charge: null }))).toBe("unread");
+    // A partial capture whose release cannot be told from a refund (the list unread) is unread too.
+    const partial = { amount: 5200, amount_captured: 4000, amount_refunded: 1200, refunded: false };
+    expect(
+      webhookChargeVerdict(
+        intent({ latest_charge: { ...partial, refunds: { data: [], has_more: true } } }),
+      ),
+    ).toBe("unread");
+  });
+  it("a partial capture's released remainder is not a refund; a real refund of the same figure is a partial one", () => {
+    const partial = { amount: 5200, amount_captured: 4000, amount_refunded: 1200, refunded: false };
+    expect(
+      webhookChargeVerdict(intent({ latest_charge: { ...partial, refunds: refundList() } })),
+    ).toBe("fulfill");
+    // 1200 of the 4000 captured came back and 2800 stayed: the order fires.
+    expect(
+      webhookChargeVerdict(
+        intent({
+          latest_charge: { ...partial, refunds: refundList({ amount: 1200, status: "succeeded" }) },
+        }),
+      ),
+    ).toBe("partly_refunded");
   });
 });

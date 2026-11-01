@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Launch hardening — the webhook's refund check, three studio fixes, K33 closed (2026-11-01, `claude/blissful-cerf-jxz37k`)
+
+The owner, 2026-10-25: "Finalize all for Production ready for launch and live."
+
+- **M331 — the Stripe webhook reads the charge before it fires an order.** Its own
+  `payment_intent.succeeded` path now does what the three recovery doors already did (#365): read the
+  intent with its charge expanded. A charge refunded IN FULL while the webhook was down no longer
+  fires an order when Stripe redelivers (answered 200). A PARTLY refunded one still fires its order
+  and is logged for the operator: the webhook has no backstop, and skipping it would leave the money
+  that stayed with no order and no record (the blind pass on #375). A charge it cannot read answers
+  500, so Stripe tries again. The read sits inside the fulfilment, after its order lookup and its
+  cartId check (`webhookChargeGate`, `lib/fulfill-intent.ts`), so a recorded order, or an intent
+  without a `cartId`, never costs a Stripe call. The split-share arm is M338.
+- **OA11 — a slow photo upload no longer strands the dish sheet.** An upload or removal that answers
+  after the 15-second bound is adopted when it lands, so the next Save is not refused as stale.
+- **OA12 — a category add can be retried safely.** The add carries a creation key minted on the
+  tablet, as a new dish does, so a retry from the same sheet after a lost answer finds the category
+  it made instead of adding a second one. Both studio sheets keep the key on an `outage` answer too,
+  and a found creation reports its history only if it was written.
+- **OA13 — a third dish with a long name gets its slug.** The taken-slugs read now covers the cut
+  `-2` of a name near 80 characters, so the next add takes `-3` instead of failing.
+- **K33 closed** after measuring the code: the settled-table drill-down and a fired line's kitchen
+  note both shipped (the last gap in #360).
+- **OA2's migration is applied to prod** (2026-11-01; history row `20261101010116 menu_studio`): the
+  `menu-photos` bucket, the `menu_edit_audit` ledger and the three text bounds, each verified. A
+  dish photo uploads now, and every studio edit is written to the history.
+
 ### The owner's four asks — menu studio, custom items, no PIN, guest names (2026-10-24, `claude/blissful-cerf-jxz37k`)
 
 - **OA3 · OA4 · OA9 decided (2026-10-25,** `docs/DECISIONS_2026-10-25.md`): a locked console now

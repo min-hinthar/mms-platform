@@ -40,14 +40,37 @@ export function slugify(name: string, fallback = "dish"): string {
   return s === "" ? fallback : s;
 }
 
-/** The first of `base`, `base-2`, `base-3`, … not already taken — slugs are UNIQUE in the catalog. */
+/** How many slugs one taken-slugs read returns (`createDish`'s and `saveCategory`'s). */
+export const SLUG_READ_LIMIT = 500;
+
+/** `base` cut so that a suffix `width` characters wide still fits in `SLUG_MAX`, never ending in a
+ *  dash. The ONE cut: `uniqueSlug` builds with it and `slugFamilyPrefix` reads with it. */
+function cutFor(base: string, width: number): string {
+  return base.slice(0, SLUG_MAX - width).replace(/-+$/g, "");
+}
+
+/** The first of `base`, `base-2`, `base-3`, … not already taken — slugs are UNIQUE in the catalog.
+ *  A base near `SLUG_MAX` is cut to make room for its `-n`. */
 export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
   if (!taken.has(base)) return base;
   for (let n = 2; ; n++) {
     const suffix = `-${n}`;
-    const candidate = `${base.slice(0, SLUG_MAX - suffix.length).replace(/-+$/g, "")}${suffix}`;
+    const candidate = `${cutFor(base, suffix.length)}${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
+}
+
+/**
+ * What the taken-slugs read matches (`like '<prefix>%'`), so that it sees every slug `uniqueSlug`
+ * can propose for `base` (OA13). The base itself is not enough: near `SLUG_MAX` the base is CUT
+ * before its `-n`, and a read on the whole base missed the cut `-2`, so a third dish of that name
+ * proposed the taken `-2` on both tries. Against at most `SLUG_READ_LIMIT` taken slugs, `uniqueSlug`
+ * stops by `-(SLUG_READ_LIMIT + 2)` (only the base can coincide with a cut `-n`), and every candidate
+ * up to that suffix starts with the base cut for it. A slug is `[a-z0-9-]` only, so the prefix holds
+ * no LIKE wildcard.
+ */
+export function slugFamilyPrefix(base: string): string {
+  return cutFor(base, `-${SLUG_READ_LIMIT + 2}`.length);
 }
 
 /** A typed text field: whitespace collapsed and trimmed; blank is null (the column's "none"). */

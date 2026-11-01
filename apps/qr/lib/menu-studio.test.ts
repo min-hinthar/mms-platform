@@ -29,11 +29,22 @@ type Call = { table: string; op: string; payload?: unknown; filters: [string, st
 const calls: Call[] = [];
 /** Per table: what a read answers; what an update/insert answers (`null` row = no row matched). */
 let reads: Record<string, unknown> = {};
+/** Per table: single-row reads answered IN ORDER before `reads` (a row that lands between two reads). */
+let readSeq: Record<string, unknown[]> = {};
 let lists: Record<string, unknown[]> = {};
 let writes: Record<string, { data: unknown; error: unknown }[]> = {};
 let auditError: unknown = null;
 const uploads: { path: string; opts: unknown }[] = [];
 let uploadError: { message: string } | null = null;
+
+/** Postgres `LIKE`: `%` any run, `_` any one character, everything else literal. */
+function likeMatches(value: string, pattern: string): boolean {
+  const body = pattern
+    .split("")
+    .map((ch) => (ch === "%" ? ".*" : ch === "_" ? "." : ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${body}$`, "s").test(value);
+}
 
 function chain(table: string, op: string, payload?: unknown) {
   const call: Call = { table, op, payload, filters: [] };
@@ -47,9 +58,36 @@ function chain(table: string, op: string, payload?: unknown) {
   c.eq = add("eq");
   c.like = add("like");
   c.order = () => c;
-  c.limit = () => Promise.resolve({ data: lists[table] ?? [], error: null });
+  // A list honours the call's `like` and `eq` filters, as Postgres would: the read's PREDICATE is
+  // under test (OA13 — a read that misses a taken slug proposes it), never a list handed back
+  // regardless.
+  c.limit = () => {
+    const rows = (lists[table] ?? []).filter((r) =>
+      call.filters.every(([kind, col, v]) => {
+        const got = (r as Record<string, unknown>)[col];
+        if (kind === "like") return likeMatches(String(got), String(v));
+        if (kind === "eq") return got === v;
+        return true;
+      }),
+    );
+    return Promise.resolve({ data: rows, error: null });
+  };
   c.maybeSingle = () => {
-    if (op === "select") return Promise.resolve({ data: reads[table] ?? null, error: null });
+    if (op === "select") {
+      const seq = readSeq[table];
+      if (seq && seq.length > 0) return Promise.resolve({ data: seq.shift() ?? null, error: null });
+      return Promise.resolve({ data: reads[table] ?? null, error: null });
+    }
+    // An insert whose id is already a row is refused as Postgres refuses it: the primary key's 23505.
+    // Without this a creation key's retry "succeeds" twice here and never in production (the blind
+    // pass on #375).
+    const existingId = (reads[table] as { id?: unknown } | undefined)?.id;
+    if (
+      op === "insert" &&
+      existingId !== undefined &&
+      (payload as { id?: unknown }).id === existingId
+    )
+      return Promise.resolve({ data: null, error: { code: "23505", message: "duplicate key" } });
     const q = writes[`${table}:${op}`];
     return Promise.resolve(
       q?.shift() ?? { data: { id: "new-1", updated_at: "2026-10-24T10:00:00.000Z" }, error: null },
@@ -123,6 +161,7 @@ beforeEach(() => {
   uploads.length = 0;
   gateOk = true;
   reads = { menu_items: row };
+  readSeq = {};
   lists = {};
   writes = {};
   auditError = null;
@@ -221,8 +260,20 @@ describe("createDish", () => {
   });
   it("a retry of an Add that already landed answers ok for that dish and inserts nothing (`menu-studio/create-key-ignored`)", async () => {
     reads = { menu_items: { id: NEW } };
+    lists = { menu_edit_audit: [{ menu_item_id: NEW, field: "created" }] };
     expect(await createDish(add)).toEqual({ ok: true, audited: true, itemId: NEW });
     expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+  it("…and says whether its history was written, read rather than assumed (`menu-studio/created-audit-assumed`)", async () => {
+    reads = { menu_items: { id: NEW } };
+    lists = {};
+    expect(await createDish(add)).toEqual({ ok: true, audited: false, itemId: NEW });
+  });
+  it("an Add whose key lands between the lookup and the insert answers ok for that dish — the primary key's 23505, then the lookup (`menu-studio/create-race-key-ignored`)", async () => {
+    readSeq = { menu_items: [null] };
+    reads = { menu_items: { id: NEW } };
+    expect(await createDish(add)).toMatchObject({ ok: true, itemId: NEW });
+    expect(calls.filter((c) => c.table === "menu_items" && c.op === "insert")).toHaveLength(1);
   });
   it("the insert carries the creation key as the row's id", async () => {
     reads = {};
@@ -231,6 +282,25 @@ describe("createDish", () => {
       {
         id: NEW,
       },
+    );
+  });
+  it("a long name's cut `-2` is seen by the taken read, so its third dish takes `-3` (OA13 · `menu-studio/slug-read-misses-cut`)", async () => {
+    // A 79-character name slugs to 79 characters, so its `-2` CUTS the base ("…greens" →
+    // "…green-2"), and a read on the whole base never returned it: the add proposed the taken `-2`
+    // on both tries and failed.
+    lists = {
+      menu_items: [
+        { slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-greens" },
+        {
+          slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-green-2",
+        },
+      ],
+    };
+    const nameEn =
+      "Grandma Shan Rice Noodle Soup with Crispy Pork Belly and Pickled Mustard Greens";
+    expect(await createDish({ ...add, nameEn })).toMatchObject({ ok: true });
+    expect(calls.find((c) => c.table === "menu_items" && c.op === "insert")!.payload).toMatchObject(
+      { slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-green-3" },
     );
   });
   it("a slug taken between the read and the insert is retried once", async () => {
@@ -301,6 +371,54 @@ describe("categories", () => {
     expect(await saveCategory({ name: "Noodles", isActive: true })).toMatchObject({ ok: true });
     const ins = calls.find((c) => c.table === "menu_categories" && c.op === "insert")!;
     expect(ins.payload).toMatchObject({ slug: "noodles-2", name: "Noodles", sort_order: 40 });
+  });
+  it("a retry of a category add that already landed answers ok for it and inserts nothing (OA12 · `menu-studio/category-key-ignored`)", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    reads = { menu_categories: { id: NEWCAT } };
+    lists = { menu_edit_audit: [{ category_id: NEWCAT, field: "created" }] };
+    expect(await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT })).toEqual({
+      ok: true,
+      audited: true,
+      categoryId: NEWCAT,
+    });
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+    // …and its history is read, never assumed: none written, none claimed.
+    lists = {};
+    expect(await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT })).toEqual({
+      ok: true,
+      audited: false,
+      categoryId: NEWCAT,
+    });
+  });
+  it("a category add whose key lands between the lookup and the insert answers ok for it — the primary key's 23505, then the lookup (`menu-studio/category-race-key-ignored`)", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    readSeq = { menu_categories: [null] };
+    reads = { menu_categories: { id: NEWCAT } };
+    lists = { menu_categories: [] };
+    expect(await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT })).toMatchObject({
+      ok: true,
+      categoryId: NEWCAT,
+    });
+    expect(calls.filter((c) => c.table === "menu_categories" && c.op === "insert")).toHaveLength(1);
+  });
+  it("a category slug taken between the read and the insert (another manager, the same name) is tried once more", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    reads = {};
+    lists = { menu_categories: [] };
+    writes["menu_categories:insert"] = [{ data: null, error: { code: "23505", message: "dup" } }];
+    expect(await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT })).toMatchObject({
+      ok: true,
+    });
+    expect(calls.filter((c) => c.table === "menu_categories" && c.op === "insert")).toHaveLength(2);
+  });
+  it("a category add carries its creation key as the row's id", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    reads = {};
+    lists = { menu_categories: [] };
+    await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT });
+    expect(
+      calls.find((c) => c.table === "menu_categories" && c.op === "insert")!.payload,
+    ).toMatchObject({ id: NEWCAT, name: "Noodles" });
   });
   it("a rename is swapped on the name it read; no match is stale (`menu-studio/category-cas-dropped`)", async () => {
     reads = { menu_categories: { id: CAT, name: "Soups", is_active: true } };

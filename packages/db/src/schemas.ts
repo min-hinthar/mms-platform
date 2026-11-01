@@ -730,6 +730,10 @@ export const menuCategorySaveInput = z
     name: z.string().trim().min(1).max(60),
     isActive: z.boolean(),
     expected: z.object({ name: z.string().max(200), isActive: z.boolean() }).optional(),
+    /** An ADD's creation key, minted on the device and held across an unknown outcome, so a retry
+     *  of the same add is answered by the category it already made (OA12). Optional: a tab still
+     *  running an older build adds as before. */
+    newId: uuid.optional(),
   })
   .refine((v) => !v.categoryId || v.expected !== undefined, { message: "expected required" });
 export type MenuCategorySaveInput = z.infer<typeof menuCategorySaveInput>;

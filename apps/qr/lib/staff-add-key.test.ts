@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAttemptOutcome, heldAfter, keyForAttempt } from "./staff-add-key";
+import { addAttemptOutcome, heldAfter, keyForAttempt, studioAddOutcome } from "./staff-add-key";
 
 /**
  * Phase 2a (Codex round 1, P1) — the staff add surfaces send an ADD KEY, and the key's lifetime is
@@ -31,6 +31,21 @@ describe("addAttemptOutcome — definite vs unknown", () => {
     ] as const)
       expect(addAttemptOutcome({ ok: false, error: "x", code })).toBe("definite");
     expect(addAttemptOutcome({ ok: false, error: "x" })).toBe("definite");
+  });
+});
+
+describe("studioAddOutcome — a menu-studio add's answer, as its creation key reads it", () => {
+  it("no answer, an `error` and an `outage` are UNKNOWN — the earlier attempt may have landed (`staff-add-key/studio-unanswered-retires-key` · `staff-add-key/studio-error-retires-key` · `staff-add-key/studio-outage-retires-key`)", () => {
+    expect(studioAddOutcome(null)).toBe("unknown");
+    expect(studioAddOutcome({ ok: false, reason: "error" })).toBe("unknown");
+    // The blind pass on #375: a retry whose read of the earlier attempt failed answers `outage`, and
+    // retiring the key there let the next tap mint a new one — a second category if the first landed.
+    expect(studioAddOutcome({ ok: false, reason: "outage" })).toBe("unknown");
+  });
+  it("ok is ok, and every other refusal wrote nothing — definite", () => {
+    expect(studioAddOutcome({ ok: true })).toBe("ok");
+    for (const reason of ["invalid", "locked", "signin", "gate", "category", "gone", "stale"])
+      expect(studioAddOutcome({ ok: false, reason })).toBe("definite");
   });
 });
 

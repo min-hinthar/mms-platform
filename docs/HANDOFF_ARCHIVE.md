@@ -53,6 +53,37 @@ old Environment facts, The loop, Verify and Open decisions sections last. The ol
 
 ---
 
+## 2026-10-24 (the owner's four asks, on PR #373) — superseded 2026-11-01 by the launch-hardening session
+
+_Moved verbatim from `docs/HANDOFF.md` on 2026-11-01, when that session's handoff was written; its "Where things stand" section follows, one heading level down. #373 merged 2026-10-25 as `04b40e2`._
+
+### Where things stand (2026-10-24 — the owner's four asks, on PR #373)
+
+The owner asked, verbatim: "elevate full features (iOS photo upload, add new menu items categories
+etc, updates to names prices categories etc,) to menu-editor and with world-class UI UX. manual new
+item add to tables orders. Remove PIN for all requests. guest names should also be in kitchen tickets
+and boards." All four are built on `claude/blissful-cerf-jxz37k`, on top of round 4's design record,
+so PR #373 now carries code. The CHANGELOG entry is the as-built; OPEN-ITEMS "The owner's four asks"
+(OA1–OA13; OA1 · OA3 · OA4 · OA9 closed) is what is left.
+
+- **OA1 is applied to prod (2026-10-25,** the owner's "apply OA1 migration to prod"): verified object
+  by object — OPEN-ITEMS OA1 has the hashes and the privileges.
+- **The owner's next steps:** (1) the merge — a code PR, so the per-SHA line or the explicit
+  instruction (G3 · G4); (2) **OA2** — apply `20261024120100_menu_studio.sql`, one file through the
+  Supabase MCP `apply_migration` on the QR project `fasnpdhtvqtzjlvruqcu`, verified as its header
+  says. OA2 can land before or after the merge: until it does, a photo upload says "Photo storage
+  isn't set up yet".
+- **OA3 · OA4 · OA9 decided 2026-10-25** on the owner's delegation (`docs/DECISIONS_2026-10-25.md`):
+  the asker still cannot approve their own request (its refusal now names the way through), the
+  custom item stays manager-only, and every money-out and price-authority write refuses while the
+  console is locked.
+- **Measured locally, 2026-10-24:** the four SQL tests the change touches and the two new ones pass on
+  the throwaway Postgres 16 (`/var/tmp/mmspg`, rebuilt by `/var/tmp/mmspg-kit/rebuild.sh` — gone with
+  the container), and red-first for each new file; `verify-mode-authority` accounted for 349 mutants
+  (27 documented survivors, as before) with the new `nopin` suite.
+
+---
+
 ## 2026-10-13 (the open-items triage and its tranche) — superseded 2026-10-18 by the release session
 
 _Moved verbatim from `docs/HANDOFF.md` on 2026-10-18, when that session's handoff was written; its "Where things stand" section (with its merge window and "Next tasks") follows, one heading level down. Every PR it lists as open (#351–#356) merged on 2026-10-13 or 10-18; the live block says when._

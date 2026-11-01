@@ -17,7 +17,9 @@ import {
   nextSortOrder,
   photoPath,
   photoVerdict,
+  slugFamilyPrefix,
   slugify,
+  SLUG_READ_LIMIT,
   uniqueSlug,
   type DishFields,
   type FieldChange,
@@ -111,6 +113,29 @@ async function audit(
     return false;
   }
   return true;
+}
+
+/**
+ * A creation found already on record — a retry carrying its creation key: whether its `created`
+ * history row exists, READ rather than assumed (the blind pass on #375). The first attempt may have
+ * landed the row and lost its history write, and `audited: true` would claim a history nobody wrote.
+ * A failed read answers false: the history cannot be confirmed.
+ */
+async function createdAudited(
+  db: Db,
+  target: { menuItemId: string } | { categoryId: string },
+): Promise<boolean> {
+  const [col, id] =
+    "menuItemId" in target
+      ? (["menu_item_id", target.menuItemId] as const)
+      : (["category_id", target.categoryId] as const);
+  const { data, error } = await db
+    .from("menu_edit_audit")
+    .select("id")
+    .eq(col, id)
+    .eq("field", "created")
+    .limit(1);
+  return !error && (data?.length ?? 0) > 0;
 }
 
 function revalidateMenus() {
@@ -213,7 +238,12 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
   };
   const before = await landed();
   if (before === "outage") return { ok: false, reason: "outage" };
-  if (before === "yes") return { ok: true, audited: true, itemId: input.itemId };
+  if (before === "yes")
+    return {
+      ok: true,
+      audited: await createdAudited(db, { menuItemId: input.itemId }),
+      itemId: input.itemId,
+    };
 
   // Two tries: a slug taken between the read and the insert (another manager adding the same name)
   // answers 23505, and the second read sees it.
@@ -221,8 +251,8 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
     const { data: taken, error: slugErr } = await db
       .from("menu_items")
       .select("slug")
-      .like("slug", `${base}%`)
-      .limit(500);
+      .like("slug", `${slugFamilyPrefix(base)}%`)
+      .limit(SLUG_READ_LIMIT);
     if (slugErr) return { ok: false, reason: "outage" };
     const slug = uniqueSlug(base, new Set((taken ?? []).map((t) => t.slug)));
     const { data: inserted, error: insErr } = await db
@@ -244,7 +274,12 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
     if (insErr?.code === "23505") {
       // Either the slug was taken since the read, or this very Add landed meanwhile (its id).
       const now = await landed();
-      if (now === "yes") return { ok: true, audited: true, itemId: input.itemId };
+      if (now === "yes")
+        return {
+          ok: true,
+          audited: await createdAudited(db, { menuItemId: input.itemId }),
+          itemId: input.itemId,
+        };
       continue;
     }
     if (insErr?.code === "23503") return { ok: false, reason: "category" };
@@ -386,32 +421,69 @@ export async function saveCategory(
   const db = serviceClient();
 
   if (!categoryId) {
-    const { data: all, error: readErr } = await db
-      .from("menu_categories")
-      .select("id,slug,sort_order")
-      .limit(500);
-    if (readErr) return { ok: false, reason: "outage" };
-    const rows = all ?? [];
-    const slug = uniqueSlug(slugify(name, "category"), new Set(rows.map((r) => r.slug)));
-    const { data: inserted, error } = await db
-      .from("menu_categories")
-      .insert({
-        slug,
-        name,
-        sort_order: nextSortOrder(rows.map((r) => ({ id: r.id, sortOrder: r.sort_order }))),
-        is_active: isActive,
-      })
-      .select("id")
-      .maybeSingle();
-    if (error || !inserted) {
-      console.error("[menu-studio] category add failed", { message: error?.message });
-      return { ok: false, reason: "error" };
+    // OA12 (Codex round 4 on #373) — the sheet's creation key is the row's id: a retry of an add
+    // whose answer was lost or late finds the category it already made and answers ok, never a
+    // second category under the next free slug (`createDish`'s rule, applied to categories).
+    const newId = parsed.data.newId;
+    const landed = async () => {
+      if (!newId) return "no" as const;
+      const { data, error } = await db
+        .from("menu_categories")
+        .select("id")
+        .eq("id", newId)
+        .maybeSingle();
+      return error ? ("outage" as const) : data ? ("yes" as const) : ("no" as const);
+    };
+    const before = await landed();
+    if (before === "outage") return { ok: false, reason: "outage" };
+    if (before === "yes" && newId)
+      return {
+        ok: true,
+        audited: await createdAudited(db, { categoryId: newId }),
+        categoryId: newId,
+      };
+    // Two tries: a slug taken between the read and the insert (another manager adding the same
+    // name) answers 23505, and the second read sees it.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data: all, error: readErr } = await db
+        .from("menu_categories")
+        .select("id,slug,sort_order")
+        .limit(SLUG_READ_LIMIT);
+      if (readErr) return { ok: false, reason: "outage" };
+      const rows = all ?? [];
+      const slug = uniqueSlug(slugify(name, "category"), new Set(rows.map((r) => r.slug)));
+      const { data: inserted, error } = await db
+        .from("menu_categories")
+        .insert({
+          ...(newId ? { id: newId } : {}),
+          slug,
+          name,
+          sort_order: nextSortOrder(rows.map((r) => ({ id: r.id, sortOrder: r.sort_order }))),
+          is_active: isActive,
+        })
+        .select("id")
+        .maybeSingle();
+      if (error?.code === "23505") {
+        // Either the slug was taken since the read, or this very add landed meanwhile (its id).
+        if ((await landed()) === "yes" && newId)
+          return {
+            ok: true,
+            audited: await createdAudited(db, { categoryId: newId }),
+            categoryId: newId,
+          };
+        continue;
+      }
+      if (error || !inserted) {
+        console.error("[menu-studio] category add failed", { message: error?.message });
+        return { ok: false, reason: "error" };
+      }
+      const audited = await audit(db, gate.staffId, { categoryId: inserted.id }, [
+        { field: "created", oldValue: null, newValue: name },
+      ]);
+      revalidateMenus();
+      return { ok: true, audited, categoryId: inserted.id };
     }
-    const audited = await audit(db, gate.staffId, { categoryId: inserted.id }, [
-      { field: "created", oldValue: null, newValue: name },
-    ]);
-    revalidateMenus();
-    return { ok: true, audited, categoryId: inserted.id };
+    return { ok: false, reason: "error" };
   }
 
   const { data: row, error: readErr } = await db
