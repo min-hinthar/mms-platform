@@ -8,6 +8,12 @@ import { logTabEvent } from "./tab-events";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "./qbo/client";
+import { getStripe } from "./stripe";
+import {
+  RECOVERY_EXPAND,
+  webhookChargeVerdict,
+  type WebhookChargeVerdict,
+} from "./payment-recovery-verdict";
 
 /**
  * M160(b) — THE one fulfillment of a succeeded single-pay PaymentIntent.
@@ -43,10 +49,13 @@ export type FulfillIntentOutcome =
   | { kind: "amount_mismatch"; cartCents: number; capturedCents: number }
   /** A succeeded charge with no `cartId` metadata — nothing to fulfill, and a retry cannot help. */
   | { kind: "no_cart_metadata" }
+  /** M331 — the webhook read the charge and every captured cent is back with the guest: NO order,
+   *  and nothing owed, so no ledger row. Only the webhook meets it (`webhookChargeGate`). */
+  | { kind: "charge_refunded" }
   /** A read or the fulfillment itself failed — nothing written; the caller retries later. */
   | {
       kind: "retry";
-      step: "order_lookup" | "cart_lookup" | "totals" | "fulfill" | "refund_ledger";
+      step: "order_lookup" | "charge_read" | "cart_lookup" | "totals" | "fulfill" | "refund_ledger";
     };
 
 /** Who asked. `webhook` is the signed event; the rest are M160(b)'s three recovery doors. */
@@ -109,6 +118,32 @@ async function recheckBeforeLedger(
   return null;
 }
 
+/**
+ * M331 — before the webhook fires an order, read the charge the way the recovery doors do: retrieved
+ * from Stripe (the event carries the charge as a bare id), expanded with `RECOVERY_EXPAND`, through
+ * `webhookChargeVerdict`. A failed retrieve is `unread`: a transport failure is not a verdict. Every
+ * `unread` is logged with its cause, so the 500 it becomes is never silent (the blind pass on #375).
+ */
+export async function webhookChargeGate(intentId: string): Promise<WebhookChargeVerdict> {
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });
+  } catch (e) {
+    console.error("[stripe webhook] charge read failed — will retry", {
+      paymentIntent: intentId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return "unread";
+  }
+  const verdict = webhookChargeVerdict(intent);
+  if (verdict === "unread")
+    console.error("[stripe webhook] charge unreadable — will retry", {
+      paymentIntent: intentId,
+      charge: intent.latest_charge === null ? "none" : typeof intent.latest_charge,
+    });
+  return verdict;
+}
+
 export async function fulfillSucceededIntent(
   intent: Stripe.PaymentIntent,
   via: FulfillVia,
@@ -151,6 +186,31 @@ export async function fulfillSucceededIntent(
       via,
     });
     return { kind: "no_cart_metadata" };
+  }
+  // M331 — the webhook's refund check, placed AFTER the order read and the cartId check (the blind
+  // pass on #375): an order already on record answered `already_recorded` above, so a redelivery
+  // after a recorded order is refunded is never logged as "no order", and an intent that is not this
+  // app's (the shared Stripe account's other app sets no `cartId`) never costs a Stripe read. Only
+  // the webhook asks: every recovery door has read the same charge through the stricter
+  // `chargeRefusal` before it calls this function.
+  if (via === "webhook") {
+    const charge = await webhookChargeGate(intent.id);
+    if (charge === "unread") return { kind: "retry", step: "charge_read" };
+    if (charge === "refunded") {
+      console.error(`${tag} succeeded charge fully refunded, no order on record — none fired`, {
+        cartId,
+        paymentIntent: intent.id,
+      });
+      return { kind: "charge_refunded" };
+    }
+    if (charge === "partly_refunded")
+      console.warn(
+        `${tag} succeeded charge partly refunded in Stripe — order fires; reconcile it`,
+        {
+          cartId,
+          paymentIntent: intent.id,
+        },
+      );
   }
   // Cross-tender guard (S1.3): if the cart was already settled by ANOTHER tender (a cash settle
   // taken while this PI's pay-lock was stale), this card charge is a double-collection — do NOT

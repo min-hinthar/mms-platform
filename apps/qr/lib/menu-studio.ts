@@ -115,6 +115,29 @@ async function audit(
   return true;
 }
 
+/**
+ * A creation found already on record — a retry carrying its creation key: whether its `created`
+ * history row exists, READ rather than assumed (the blind pass on #375). The first attempt may have
+ * landed the row and lost its history write, and `audited: true` would claim a history nobody wrote.
+ * A failed read answers false: the history cannot be confirmed.
+ */
+async function createdAudited(
+  db: Db,
+  target: { menuItemId: string } | { categoryId: string },
+): Promise<boolean> {
+  const [col, id] =
+    "menuItemId" in target
+      ? (["menu_item_id", target.menuItemId] as const)
+      : (["category_id", target.categoryId] as const);
+  const { data, error } = await db
+    .from("menu_edit_audit")
+    .select("id")
+    .eq(col, id)
+    .eq("field", "created")
+    .limit(1);
+  return !error && (data?.length ?? 0) > 0;
+}
+
 function revalidateMenus() {
   revalidatePath("/staff/menu");
   revalidatePath("/menu");
@@ -215,7 +238,12 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
   };
   const before = await landed();
   if (before === "outage") return { ok: false, reason: "outage" };
-  if (before === "yes") return { ok: true, audited: true, itemId: input.itemId };
+  if (before === "yes")
+    return {
+      ok: true,
+      audited: await createdAudited(db, { menuItemId: input.itemId }),
+      itemId: input.itemId,
+    };
 
   // Two tries: a slug taken between the read and the insert (another manager adding the same name)
   // answers 23505, and the second read sees it.
@@ -246,7 +274,12 @@ export async function createDish(raw: unknown): Promise<MenuStudioResult<{ itemI
     if (insErr?.code === "23505") {
       // Either the slug was taken since the read, or this very Add landed meanwhile (its id).
       const now = await landed();
-      if (now === "yes") return { ok: true, audited: true, itemId: input.itemId };
+      if (now === "yes")
+        return {
+          ok: true,
+          audited: await createdAudited(db, { menuItemId: input.itemId }),
+          itemId: input.itemId,
+        };
       continue;
     }
     if (insErr?.code === "23503") return { ok: false, reason: "category" };
@@ -403,7 +436,12 @@ export async function saveCategory(
     };
     const before = await landed();
     if (before === "outage") return { ok: false, reason: "outage" };
-    if (before === "yes" && newId) return { ok: true, audited: true, categoryId: newId };
+    if (before === "yes" && newId)
+      return {
+        ok: true,
+        audited: await createdAudited(db, { categoryId: newId }),
+        categoryId: newId,
+      };
     // Two tries: a slug taken between the read and the insert (another manager adding the same
     // name) answers 23505, and the second read sees it.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -428,7 +466,11 @@ export async function saveCategory(
       if (error?.code === "23505") {
         // Either the slug was taken since the read, or this very add landed meanwhile (its id).
         if ((await landed()) === "yes" && newId)
-          return { ok: true, audited: true, categoryId: newId };
+          return {
+            ok: true,
+            audited: await createdAudited(db, { categoryId: newId }),
+            categoryId: newId,
+          };
         continue;
       }
       if (error || !inserted) {

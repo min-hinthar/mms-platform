@@ -13,7 +13,7 @@ import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { STUDIO_REFUSAL_KEY, type StudioCategory } from "./DishSheet";
 import { toLockScreen } from "./toLockScreen";
-import { heldAfter, keyForAttempt, type HeldAddKey } from "@/lib/staff-add-key";
+import { heldAfter, keyForAttempt, studioAddOutcome, type HeldAddKey } from "@/lib/staff-add-key";
 
 /**
  * Menu studio (owner, 2026-10-24) — the menu's categories, in the menu's own order: rename one in
@@ -125,11 +125,7 @@ export function CategoriesSheet({
       addKey.current = heldAfter(
         name,
         newId,
-        out.kind !== "answer" || (!out.value.ok && out.value.reason === "error")
-          ? "unknown"
-          : out.value.ok
-            ? "ok"
-            : "definite",
+        studioAddOutcome(out.kind === "answer" ? out.value : null),
       );
       if (out.kind === "answer" && out.value.ok) setAdding("");
       answered(out, { k: "studio.cat.saved", vars: { x: name } });

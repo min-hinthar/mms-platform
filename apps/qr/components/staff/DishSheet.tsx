@@ -11,7 +11,7 @@ import {
 } from "@/lib/menu-studio";
 import { setMenuPrice } from "@/lib/menu-price";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
-import { heldAfter, keyForAttempt, type HeldAddKey } from "@/lib/staff-add-key";
+import { heldAfter, keyForAttempt, studioAddOutcome, type HeldAddKey } from "@/lib/staff-add-key";
 import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
 import {
   MENU_DESCRIPTION_MAX,
@@ -183,16 +183,13 @@ export function DishSheet({
         const intent = JSON.stringify([fields, cents]);
         const itemId = keyForAttempt(createKey.current, intent, () => crypto.randomUUID());
         const out = await boundWrite(createDish({ ...fields, priceCents: cents, itemId }));
-        if (out.kind !== "answer") {
-          createKey.current = heldAfter(intent, itemId, "unknown");
-          return setMsg({ k: "studio.err.unknown" });
-        }
-        const res = out.value;
         createKey.current = heldAfter(
           intent,
           itemId,
-          res.ok ? "ok" : res.reason === "error" ? "unknown" : "definite",
+          studioAddOutcome(out.kind === "answer" ? out.value : null),
         );
+        if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
+        const res = out.value;
         if (!res.ok) return refused(res.reason);
         onSaved({ k: "studio.dish.created", vars: { x: nameEn.trim() } });
         onClose();

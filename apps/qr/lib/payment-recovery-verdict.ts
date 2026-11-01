@@ -222,9 +222,11 @@ function refundedByObjects(refunds: RecoveryCharge["refunds"]): number | null {
  * (`2026-05-27.dahlia`, `lib/stripe.ts`) a release therefore reads `amount_refunded === 0` and is
  * recoverable, and the remainder branch above is reached only by a real refund of exactly that figure.
  * Before basil, the release was a Refund with reason `partial_capture` and counted in
- * `amount_refunded`, which this rule refuses. So a `STRIPE_API_VERSION` override below basil would
- * make the webhook (M331) skip a partially captured pickup's order. `PICKUP_MANUAL_CAPTURE`'s binding
- * flip gate ③ (a partial capture after an 86, in test mode) proves the order appears.
+ * `amount_refunded`, which this rule refuses — fail closed for a door, which the webhook backs up.
+ * The webhook itself skips only a FULL refund (`webhookChargeVerdict`), so under an override below
+ * basil it would skip a partial capture only when the release is at least what was captured.
+ * `PICKUP_MANUAL_CAPTURE`'s binding flip gate ③ (a partial capture after an 86, in test mode) proves
+ * the order appears.
  */
 function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
   const charge = intent.latest_charge;
@@ -248,21 +250,40 @@ function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
  * recovery doors (`chargeRefusal`), never a second copy of it. A signed event proves Stripe charged
  * the card; it does not prove the money stayed. If the webhook was down, an operator refunded the
  * stranded charge in Stripe, and Stripe then redelivered the event, fulfilling it would fire an order
- * — the kitchen cooks it — for money already back with the guest. So the webhook reads the charge,
- * expanded (`RECOVERY_EXPAND`), before it fulfils:
+ * — the kitchen cooks it — for money already back with the guest.
+ *
+ * ⚠️ But the webhook has NO backstop. A door's refusal is cheap because the webhook is still
+ * redelivering; the webhook's own skip is final — it answers 200 and Stripe stops. Read as a door
+ * reads it, a PARTIAL refund skipped too, and the money the guest still paid was left with no order
+ * and no ledger row (the blind pass on #375, CRITICAL). So the webhook skips only when nothing the
+ * card paid stayed:
  *
  *   • `fulfill` — nothing came back;
- *   • `refunded` — skipped, and answered 200: a redelivery cannot un-refund it;
+ *   • `partly_refunded` — some came back and some stayed: the order fires, as it did before M331,
+ *     and the caller logs it so the operator reconciles the refund by hand;
+ *   • `refunded` — every captured cent came back (Stripe's `refunded`, or `amount_refunded` at or
+ *     past `amount_captured`): no order, answered 200 — a redelivery cannot un-refund it;
  *   • `unread` — the charge could not be read, or reads unlike any charge this app makes. Never
  *     `fulfill`: a charge nobody could read is not one known to have stayed. The webhook answers 500
  *     and Stripe redelivers, as for every other unread step.
+ *
+ * `amount_refunded` against `amount_captured` is exact under the SDK's pinned API version, where a
+ * partial capture's released remainder is not counted as refunded (from `2025-03-31.basil`). Under a
+ * `STRIPE_API_VERSION` override below basil the release IS counted, so a partial capture whose
+ * release is at least what was captured would read as fully refunded (ENV.md's row).
  */
-export type WebhookChargeVerdict = "fulfill" | "refunded" | "unread";
+export type WebhookChargeVerdict = "fulfill" | "partly_refunded" | "refunded" | "unread";
 
 export function webhookChargeVerdict(intent: RecoveryIntent): WebhookChargeVerdict {
   const refusal = chargeRefusal(intent);
   if (refusal === null) return "fulfill";
-  return refusal === "refunded" ? "refunded" : "unread";
+  if (refusal !== "refunded") return "unread";
+  // `refunded` is answered only for a charge that was read: an object, `refunded` set, or its cents
+  // whole and checked (`chargeRefusal`).
+  const charge = intent.latest_charge as RecoveryCharge;
+  return charge.refunded || charge.amount_refunded >= charge.amount_captured
+    ? "refunded"
+    : "partly_refunded";
 }
 
 /**
@@ -329,6 +350,11 @@ export function fulfillAnswer(outcome: FulfillIntentOutcome): RecoveryAnswer {
     case "amount_mismatch":
       return { kind: "refund_needed" };
     case "no_cart_metadata":
+      return { kind: "refused" };
+    // M331 — only the WEBHOOK reads the charge inside the fulfilment (a door has already refused a
+    // refunded charge through `chargeRefusal`), so a door never meets this; mapped for completeness,
+    // a fully refunded charge is a refusal.
+    case "charge_refunded":
       return { kind: "refused" };
     case "retry":
       return { kind: "error" };

@@ -4,15 +4,17 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 /**
- * M331 — the WIRING the Stripe webhook carries. `app/api/stripe/webhook/route.ts` is
- * `verify:slice-exempt` glue, so no mutant reaches it; the rule lives in `webhookChargeGate`
- * (`lib/payment-recovery.ts`) and its verdict, and this suite proves the route still CALLS it, in the
- * right place: in the generic succeeded arm, the charge is read — awaited, in a statement that
- * finishes before the one that fulfils — and both of its refusals (`unread`, `refunded`) return
- * before `fulfillSucceededIntent` can run.
+ * M331 — the WIRING the Stripe webhook carries. The charge gate itself lives in the fulfilment
+ * (`webhookChargeGate`, `lib/fulfill-intent.ts`, after its order read and its cartId check, where its
+ * mutants reach it). `app/api/stripe/webhook/route.ts` is `verify:slice-exempt` glue that maps the
+ * fulfilment's outcome to the status Stripe reads, so this suite pins the two answers the gate
+ * depends on (the blind pass on #375: "the route's 500 and 200 replies are not pinned by anything"):
  *
- * Proved against the AST, never the text (LEARNINGS #60): a name in a comment, or a call after the
- * fulfilment, is not the wiring.
+ *   • a `retry` — an unreadable charge among them — answers 500, so Stripe redelivers;
+ *   • `charge_refunded` answers 200, so Stripe stops: a redelivery cannot un-refund a charge.
+ *
+ * Proved against the AST, never the text (LEARNINGS #60): a status in a comment, or a reply in a dead
+ * branch, is not the wiring.
  */
 const ROUTE = join(import.meta.dirname, "..", "app", "api", "stripe", "webhook", "route.ts");
 
@@ -21,23 +23,38 @@ function load() {
   return ts.createSourceFile("route.ts", src, ts.ScriptTarget.Latest, true);
 }
 
-/** `await <name>(...)` as a call, or null. */
-function awaitedCall(e: ts.Expression | undefined, name: string): ts.CallExpression | null {
-  if (!e || !ts.isAwaitExpression(e)) return null;
-  const c = e.expression;
-  return ts.isCallExpression(c) && ts.isIdentifier(c.expression) && c.expression.text === name
-    ? c
-    : null;
-}
-
-/** The one statement `const x = await <name>(...)`, with its block and its place in it. */
-function declaredAwait(sf: ts.SourceFile, name: string) {
-  const found: { stmt: ts.VariableStatement; call: ts.CallExpression; binding: string }[] = [];
+/** Every `switch (<binding>.kind)` whose binding is `const <binding> = await fulfillSucceededIntent(…)`
+ *  declared earlier in the same block. */
+function fulfilmentSwitches(sf: ts.SourceFile): ts.SwitchStatement[] {
+  const found: ts.SwitchStatement[] = [];
   const visit = (n: ts.Node): void => {
-    if (ts.isVariableStatement(n)) {
-      for (const d of n.declarationList.declarations) {
-        const call = awaitedCall(d.initializer, name);
-        if (call && ts.isIdentifier(d.name)) found.push({ stmt: n, call, binding: d.name.text });
+    if (ts.isBlock(n)) {
+      const bindings = new Set<string>();
+      for (const st of n.statements) {
+        if (ts.isVariableStatement(st)) {
+          const isConst = (st.declarationList.flags & ts.NodeFlags.Const) !== 0;
+          for (const d of st.declarationList.declarations) {
+            const init = d.initializer;
+            if (
+              isConst &&
+              ts.isIdentifier(d.name) &&
+              init !== undefined &&
+              ts.isAwaitExpression(init) &&
+              ts.isCallExpression(init.expression) &&
+              ts.isIdentifier(init.expression.expression) &&
+              init.expression.expression.text === "fulfillSucceededIntent"
+            )
+              bindings.add(d.name.text);
+          }
+        }
+        if (
+          ts.isSwitchStatement(st) &&
+          ts.isPropertyAccessExpression(st.expression) &&
+          st.expression.name.text === "kind" &&
+          ts.isIdentifier(st.expression.expression) &&
+          bindings.has(st.expression.expression.text)
+        )
+          found.push(st);
       }
     }
     // ⚠️ `forEachChild` is a SEARCH primitive: a truthy return aborts the walk.
@@ -49,62 +66,58 @@ function declaredAwait(sf: ts.SourceFile, name: string) {
   return found;
 }
 
-/** Does this statement return on every path through its `then` branch (a return, or a block whose
- *  last statement is one)? */
-function thenReturns(s: ts.Statement): boolean {
-  if (ts.isReturnStatement(s)) return true;
-  if (ts.isBlock(s)) {
-    const last = s.statements.at(-1);
-    return last !== undefined && ts.isReturnStatement(last);
-  }
-  return false;
-}
-
-/** `if (<binding> === "<word>") <returns>` */
-function refusesOn(s: ts.Statement, binding: string, word: string): boolean {
-  if (!ts.isIfStatement(s)) return false;
-  const c = s.expression;
-  return (
-    ts.isBinaryExpression(c) &&
-    c.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
-    ts.isIdentifier(c.left) &&
-    c.left.text === binding &&
-    ts.isStringLiteral(c.right) &&
-    c.right.text === word &&
-    thenReturns(s.thenStatement)
+/** The `NextResponse.json(…)` call a case clause returns, or null when it returns anything else. */
+function returnedJson(sw: ts.SwitchStatement, label: string): ts.CallExpression | null {
+  const clause = sw.caseBlock.clauses.find(
+    (c): c is ts.CaseClause =>
+      ts.isCaseClause(c) && ts.isStringLiteral(c.expression) && c.expression.text === label,
   );
+  if (!clause) return null;
+  const ret = clause.statements.find(ts.isReturnStatement);
+  const e = ret?.expression;
+  if (!e || !ts.isCallExpression(e)) return null;
+  const callee = e.expression;
+  return ts.isPropertyAccessExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === "NextResponse" &&
+    callee.name.text === "json"
+    ? e
+    : null;
 }
 
-describe("the webhook reads the charge before it fulfils (M331)", () => {
-  it("one fulfilment, preceded in its own block by the awaited gate and both refusals", () => {
-    const sf = load();
-    const fulfils = declaredAwait(sf, "fulfillSucceededIntent");
-    expect(fulfils).toHaveLength(1);
-    const fulfil = fulfils[0]!;
-    const block = fulfil.stmt.parent;
-    expect(ts.isBlock(block)).toBe(true);
-    const stmts = (block as ts.Block).statements;
-    const at = stmts.indexOf(fulfil.stmt);
+/** The value of a literal object's `name: <literal>` property, or undefined. */
+function literalProp(e: ts.Expression | undefined, name: string): string | undefined {
+  if (!e || !ts.isObjectLiteralExpression(e)) return undefined;
+  for (const p of e.properties) {
+    if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === name) {
+      const v = p.initializer;
+      if (ts.isNumericLiteral(v)) return v.text;
+      if (v.kind === ts.SyntaxKind.TrueKeyword) return "true";
+      if (v.kind === ts.SyntaxKind.FalseKeyword) return "false";
+      if (ts.isStringLiteral(v)) return v.text;
+    }
+  }
+  return undefined;
+}
 
-    // The gate: awaited, in an EARLIER statement of the same block, on the same intent's id.
-    const gates = declaredAwait(sf, "webhookChargeGate").filter((g) => g.stmt.parent === block);
-    expect(gates).toHaveLength(1);
-    const gate = gates[0]!;
-    expect(stmts.indexOf(gate.stmt)).toBeLessThan(at);
-    const fulfilIntent = fulfil.call.arguments[0];
-    const gateArg = gate.call.arguments[0];
-    expect(fulfilIntent && ts.isIdentifier(fulfilIntent)).toBe(true);
-    expect(
-      gateArg !== undefined &&
-        ts.isPropertyAccessExpression(gateArg) &&
-        ts.isIdentifier(gateArg.expression) &&
-        gateArg.expression.text === (fulfilIntent as ts.Identifier).text &&
-        gateArg.name.text === "id",
-    ).toBe(true);
+describe("the webhook answers the charge gate's two outcomes as Stripe must read them (M331)", () => {
+  const switches = fulfilmentSwitches(load());
 
-    // Both refusals return between the gate and the fulfilment.
-    const between = stmts.slice(stmts.indexOf(gate.stmt) + 1, at);
-    expect(between.some((s) => refusesOn(s, gate.binding, "unread"))).toBe(true);
-    expect(between.some((s) => refusesOn(s, gate.binding, "refunded"))).toBe(true);
+  it("one switch maps the fulfilment's outcome", () => {
+    expect(switches).toHaveLength(1);
+  });
+
+  it("a `retry` (an unreadable charge among them) answers 500, so Stripe redelivers", () => {
+    const call = returnedJson(switches[0]!, "retry");
+    expect(call).not.toBeNull();
+    expect(literalProp(call!.arguments[1], "status")).toBe("500");
+  });
+
+  it("`charge_refunded` answers 200 with `received: true`, so Stripe stops redelivering", () => {
+    const call = returnedJson(switches[0]!, "charge_refunded");
+    expect(call).not.toBeNull();
+    // One argument: no init, so no status — 200.
+    expect(call!.arguments).toHaveLength(1);
+    expect(literalProp(call!.arguments[0], "received")).toBe("true");
   });
 });

@@ -33,6 +33,22 @@ export function addAttemptOutcome(
   return res.code === "unconfirmed" ? "unknown" : "definite";
 }
 
+/**
+ * What a menu-studio ADD answered (`createDish`, `saveCategory`), as its creation key's lifetime reads
+ * it; `null` when no answer came back. The key survives every outcome that cannot prove the add did
+ * NOT land: no answer; an `error` (the insert may have committed before the answer was lost); and an
+ * `outage` (a read failed — on a retry, the very read of whether the earlier attempt landed — so that
+ * attempt is still unknown; the blind pass on #375). Every other refusal wrote nothing. The ONE rule
+ * both studio sheets read, so the dish's and the category's keys cannot drift apart.
+ */
+export function studioAddOutcome(
+  res: { ok: true } | { ok: false; reason: string } | null,
+): AddAttemptOutcome {
+  if (res === null) return "unknown";
+  if (res.ok) return "ok";
+  return res.reason === "error" || res.reason === "outage" ? "unknown" : "definite";
+}
+
 /** The key for an attempt at `intent`: the held one when it is a retry of the same intent, else new. */
 export function keyForAttempt(held: HeldAddKey, intent: string, mint: () => string): string {
   return held !== null && held.intent === intent ? held.key : mint();

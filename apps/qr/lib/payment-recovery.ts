@@ -14,9 +14,7 @@ import {
   RECOVERY_EXPAND,
   recoveryVerdict,
   refusalAnswer,
-  webhookChargeVerdict,
   sweepWindow,
-  type WebhookChargeVerdict,
   type RecoveryAnswer,
   type RecoveryCart,
   type RecoveryExpect,
@@ -148,26 +146,6 @@ export async function recoverRetrievedIntent(
     }
   });
   return fulfillAnswer(outcome);
-}
-
-/**
- * M331 — before the webhook fulfils a signed `payment_intent.succeeded`, read the charge the way the
- * recovery doors do: retrieved from Stripe (never the event's own copy, which carries the charge as a
- * bare id), expanded with `RECOVERY_EXPAND`, through `webhookChargeVerdict`. A failed retrieve is
- * `unread`: a transport failure is not a verdict, and the webhook's 500 makes Stripe redeliver.
- */
-export async function webhookChargeGate(intentId: string): Promise<WebhookChargeVerdict> {
-  let intent: Stripe.PaymentIntent;
-  try {
-    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });
-  } catch (e) {
-    console.error("[stripe webhook] charge read failed — will retry", {
-      paymentIntent: intentId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return "unread";
-  }
-  return webhookChargeVerdict(intent);
 }
 
 /** Retrieve, then recover. A failed retrieve is `error`: a transport failure is not a verdict. */

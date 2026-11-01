@@ -124,6 +124,36 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
+// M331 — the webhook's charge read (`webhookChargeGate`). By default an unrefunded charge, so every
+// case that is not about the gate fulfils exactly as it did before the gate existed.
+const retrieves: { id: string; params: unknown }[] = [];
+/** null = the default unrefunded charge; an Error = the read throws; anything else = the intent read. */
+let retrieved: unknown = null;
+vi.mock("./stripe", () => ({
+  getStripe: () => ({
+    paymentIntents: {
+      retrieve: (id: string, params: unknown) => {
+        retrieves.push({ id, params });
+        if (retrieved instanceof Error) return Promise.reject(retrieved);
+        return Promise.resolve(
+          retrieved ?? {
+            id,
+            status: "succeeded",
+            currency: "usd",
+            metadata: {},
+            latest_charge: {
+              amount: 5200,
+              amount_captured: 5200,
+              amount_refunded: 0,
+              refunded: false,
+            },
+          },
+        );
+      },
+    },
+  }),
+}));
+
 const { fulfillSucceededIntent } = await import("./fulfill-intent");
 
 const CART = "11111111-1111-4111-8111-111111111111";
@@ -170,6 +200,97 @@ beforeEach(() => {
   cartRow = { status: "open", tab_type: "none", promo_code: null };
   cartError = null;
   fulfillAnswer = { data: "order-1", error: null };
+  retrieves.length = 0;
+  retrieved = null;
+});
+
+describe("the webhook reads the charge before it fires an order (M331)", () => {
+  const charge = (over: Record<string, unknown> = {}) => ({
+    amount: 5200,
+    amount_captured: 5200,
+    amount_refunded: 0,
+    refunded: false,
+    ...over,
+  });
+  const read = (latest: unknown) => ({
+    id: "pi_test_1",
+    status: "succeeded",
+    currency: "usd",
+    metadata: {},
+    latest_charge: latest,
+  });
+
+  it("reads the charge EXPANDED, then fires the order (`fulfill-intent/webhook-gate-unexpanded`)", async () => {
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toMatchObject({ kind: "fulfilled" });
+    expect(retrieves).toEqual([
+      { id: "pi_test_1", params: { expand: ["latest_charge", "latest_charge.refunds"] } },
+    ]);
+  });
+
+  it("a FULLY refunded charge fires no order and writes no ledger row (`fulfill-intent/webhook-refunded-fires`)", async () => {
+    retrieved = read(charge({ refunded: true, amount_refunded: 5200 }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toEqual({ kind: "charge_refunded" });
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
+    expect(upserts).toEqual([]);
+  });
+
+  it("a PARTLY refunded charge still fires the order — the money that stayed is never stranded — and says so", async () => {
+    retrieved = read(charge({ amount_refunded: 1200 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toMatchObject({ kind: "fulfilled" });
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("partly refunded"),
+      expect.objectContaining({ paymentIntent: "pi_test_1" }),
+    );
+  });
+
+  it("a charge that cannot be read is a retry, logged by its cause — never an order (`fulfill-intent/webhook-unread-fires` · `fulfill-intent/webhook-gate-throw-fulfils`)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    err.mockClear();
+    retrieved = new Error("stripe down");
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toEqual({
+      kind: "retry",
+      step: "charge_read",
+    });
+    retrieved = read("ch_bare");
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toEqual({
+      kind: "retry",
+      step: "charge_read",
+    });
+    expect(rpcsNamed("mms_fulfill_order")).toHaveLength(0);
+    expect(err.mock.calls.map((c) => c[0])).toEqual(
+      expect.arrayContaining([
+        "[stripe webhook] charge read failed — will retry",
+        "[stripe webhook] charge unreadable — will retry",
+      ]),
+    );
+  });
+
+  it("an order already on record answers WITHOUT a Stripe read, so a refund after it is never logged as no order", async () => {
+    existingOrder = { id: "order-0" };
+    retrieved = read(charge({ refunded: true, amount_refunded: 5200 }));
+    expect(await fulfillSucceededIntent(intent(), "webhook")).toEqual({
+      kind: "already_recorded",
+      orderId: "order-0",
+    });
+    expect(retrieves).toEqual([]);
+  });
+
+  it("an intent with no cartId (the shared account's other app) never costs a Stripe read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await fulfillSucceededIntent(intent({ metadata: {} }), "webhook")).toEqual({
+      kind: "no_cart_metadata",
+    });
+    expect(retrieves).toEqual([]);
+  });
+
+  it("a recovery door never reads the charge here — it refused a refunded one before calling (`fulfill-intent/doors-read-the-charge`)", async () => {
+    retrieved = read(charge({ refunded: true, amount_refunded: 5200 }));
+    expect(await fulfillSucceededIntent(intent(), "track")).toMatchObject({ kind: "fulfilled" });
+    expect(retrieves).toEqual([]);
+  });
 });
 
 describe("idempotency on the PaymentIntent id", () => {

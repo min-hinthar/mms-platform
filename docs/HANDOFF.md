@@ -12,7 +12,7 @@ entries that cite `docs/HANDOFF.md` for history resolve there — and two of the
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
-## Where things stand (2026-11-01 — launch hardening; #373 merged, OA1 applied, OA2 not yet)
+## Where things stand (2026-11-01 — launch hardening; #373 merged, OA1 and OA2 applied)
 
 The owner, 2026-10-25: "Finalize all for Production ready for launch and live." Measure first:
 `git log origin/main --oneline -5` and the open PRs (`list_pull_requests`). The previous block (the
@@ -20,16 +20,18 @@ four asks on #373) moved verbatim to the archive's 2026-10-24 block.
 
 - **#373 merged 2026-10-25 as `04b40e2`** on the owner's per-SHA yes ("yes, and proceed with all");
   its production deploy is READY. **OA1 is applied to prod** (OPEN-ITEMS OA1 has the hashes).
-- **OA2 is NOT applied.** The owner's go came 2026-10-25 ("Go and approved"), but the Supabase MCP's
-  confirmation dialog timed out three times, and after each a read-only check found nothing applied:
-  no `menu-photos` bucket row, no `menu_edit_audit` table, none of the three text bounds. Until it
-  applies, a photo upload says "Photo storage isn't set up yet" and a studio edit says its history
-  couldn't be written. To apply it: send the file without its line 66,
-  `drop policy if exists menu_edit_audit_read …`. On prod that line is a no-op, because the same file
-  creates the table just before it, so the table has no policy to drop. Then verify as OA2 says.
+- **OA2 is applied to prod (2026-11-01,** the owner's 2026-10-25 "Go and approved", then "Finalize
+  all for Production ready for launch and live"): history row `20261101010116 menu_studio`, sent
+  without the file's no-op `drop policy if exists menu_edit_audit_read …` line. The three earlier
+  tries, with the line, each timed out on the MCP's confirmation prompt, which the tool says a
+  destructive statement can raise; without it the apply needed none. Verified object by object:
+  OPEN-ITEMS OA2 has the bucket, the ledger's RLS and privileges, and the three bounds. Photo upload
+  is live; the iPhone check is OA5.
 - **The launch-hardening PR (`claude/blissful-cerf-jxz37k`, no migration):** M331 (the webhook reads
-  the expanded charge before it fires an order), OA11–OA13 (the studio's late photo answer, the
-  category creation key, the long-name slug read), and K33 closed after measuring the code.
+  the expanded charge before it fires an order; a full refund fires none, a partial one still fires
+  and is logged), OA11–OA13 (the studio's late photo answer, the category creation key, the
+  long-name slug read), and K33 closed after measuring the code. The blind pass filed M338 (the
+  split-share arm has the same refund gap).
 - **C2, the live keys, measured 2026-11-01:** the production `/cart` bundle (build
   `mvnjjy41-33ebe048`) inlines `pk_live_51LpNE…` and no `pk_test_…`. The server half cannot be
   measured from an agent session: Vercel's env listing answered 403, and no public route reports the

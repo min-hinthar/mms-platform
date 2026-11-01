@@ -19,6 +19,9 @@ const createDish = vi.fn(
 const setDishPhoto = vi.fn(
   (): Promise<unknown> => Promise.resolve({ ok: false, reason: "storage" }),
 );
+const clearDishPhoto = vi.fn(
+  (): Promise<unknown> => Promise.resolve({ ok: true, audited: true, updatedAt: "x" }),
+);
 const saveCategory = vi.fn(
   (): Promise<unknown> => Promise.resolve({ ok: true, audited: true, categoryId: "c" }),
 );
@@ -29,7 +32,7 @@ vi.mock("@/lib/menu-studio", () => ({
   editDish: (...a: unknown[]) => editDish(...(a as [])),
   createDish: (...a: unknown[]) => createDish(...(a as [])),
   setDishPhoto: (...a: unknown[]) => setDishPhoto(...(a as [])),
-  clearDishPhoto: vi.fn(() => Promise.resolve({ ok: true, audited: true, updatedAt: "x" })),
+  clearDishPhoto: (...a: unknown[]) => clearDishPhoto(...(a as [])),
   saveCategory: (...a: unknown[]) => saveCategory(...(a as [])),
   moveCategoryAction: (...a: unknown[]) => moveCategoryAction(...(a as [])),
 }));
@@ -324,6 +327,61 @@ describe("MenuStudio", () => {
       await submit();
       expect(editDish).toHaveBeenCalledWith(
         expect.objectContaining({ expectedUpdatedAt: "2026-10-24T09:10:00.000Z" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a removal that answers past the bound is adopted when it lands — the photo goes and the next Save carries its stamp (OA11 · `studio-ui/late-removal-dropped`)", async () => {
+    vi.useFakeTimers();
+    try {
+      let land!: (v: unknown) => void;
+      clearDishPhoto.mockReturnValueOnce(new Promise((res) => (land = res)));
+      render(
+        <StaffLangProvider lang="en">
+          <MenuStudio
+            items={priced}
+            canEditPrice
+            nowIso="2026-10-24T12:00:00.000Z"
+            studio={{
+              dishes: dishes.map((d) =>
+                d.id === "d1"
+                  ? {
+                      ...d,
+                      imageUrl:
+                        "https://fasnpdhtvqtzjlvruqcu.supabase.co/storage/v1/object/public/menu-photos/d1/1.jpg",
+                    }
+                  : d,
+              ),
+              categories,
+            }}
+          />
+        </StaffLangProvider>,
+      );
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: tf("en", "studio.dish.open", { x: "Mohinga" }) }),
+        );
+      });
+      const remove = () =>
+        screen.queryByRole("button", { name: new RegExp(STAFF["studio.dish.photo.remove"].en) });
+      await act(async () => {
+        fireEvent.click(remove()!);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS + 10);
+      });
+      expect(region().textContent).toBe(STAFF["studio.err.unknown"].en);
+      await act(async () => {
+        land({ ok: true, audited: true, updatedAt: "2026-10-24T09:11:00.000Z" });
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(region().textContent).toBe(STAFF["studio.dish.photo.removed"].en);
+      expect(remove()).toBeNull();
+      await submit();
+      expect(editDish).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedUpdatedAt: "2026-10-24T09:11:00.000Z" }),
       );
     } finally {
       vi.useRealTimers();
