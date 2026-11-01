@@ -15,8 +15,8 @@ The owner, 2026-10-25: "Finalize all for Production ready for launch and live."
   and is logged for the operator: the webhook has no backstop, and skipping it would leave the money
   that stayed with no order and no record (the blind pass on #375). A charge it cannot read answers
   500, so Stripe tries again. The read sits inside the fulfilment, after its order lookup and its
-  cartId check (`webhookChargeGate`, `lib/fulfill-intent.ts`), so a recorded order and the other
-  app's payments never cost a Stripe call. The split-share arm is M338.
+  cartId check (`webhookChargeGate`, `lib/fulfill-intent.ts`), so a recorded order, or an intent
+  without a `cartId`, never costs a Stripe call. The split-share arm is M338.
 - **OA11 — a slow photo upload no longer strands the dish sheet.** An upload or removal that answers
   after the 15-second bound is adopted when it lands, so the next Save is not refused as stale.
 - **OA12 — a category add can be retried safely.** The add carries a creation key minted on the

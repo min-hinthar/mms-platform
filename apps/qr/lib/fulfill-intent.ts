@@ -189,8 +189,8 @@ export async function fulfillSucceededIntent(
   }
   // M331 — the webhook's refund check, placed AFTER the order read and the cartId check (the blind
   // pass on #375): an order already on record answered `already_recorded` above, so a redelivery
-  // after a recorded order is refunded is never logged as "no order", and an intent that is not this
-  // app's (the shared Stripe account's other app sets no `cartId`) never costs a Stripe read. Only
+  // after a recorded order is refunded is never logged as "no order", and an intent without a
+  // `cartId` (not one this app's create-intent minted) never costs a Stripe read. Only
   // the webhook asks: every recovery door has read the same charge through the stricter
   // `chargeRefusal` before it calls this function.
   if (via === "webhook") {
