@@ -12105,6 +12105,14 @@ const MUTANTS = [
     replace: "    const slug = base;",
   },
   {
+    id: "menu-studio/slug-read-misses-cut",
+    file: "apps/qr/lib/menu-studio.ts",
+    suite: "lib/menu-studio.test.ts",
+    why: "Menu studio (OA13) — the taken-slugs read on the whole base misses a long name's CUT -2, so its third dish proposes the taken -2 on both tries and the add fails",
+    find: '      .like("slug", `${slugFamilyPrefix(base)}%`)',
+    replace: '      .like("slug", `${base}%`)',
+  },
+  {
     id: "menu-studio/photo-type-unchecked",
     file: "apps/qr/lib/menu-studio.ts",
     suite: "lib/menu-studio.test.ts",
@@ -12177,6 +12185,14 @@ const MUTANTS = [
     replace: "  return base;",
   },
   {
+    id: "menu-studio/slug-family-narrow",
+    file: "apps/qr/lib/menu-studio-rules.ts",
+    suite: "lib/menu-studio-rules.test.ts",
+    why: "Menu studio (OA13) — a read prefix cut for a suffix one character narrower than uniqueSlug can reach misses the -100s of a long name",
+    find: "  return cutFor(base, `-${SLUG_READ_LIMIT + 2}`.length);",
+    replace: "  return cutFor(base, `-${SLUG_READ_LIMIT + 2}`.length - 1);",
+  },
+  {
     id: "menu-studio/hidden-shown",
     file: "apps/qr/lib/menu-studio-rules.ts",
     suite: "lib/menu-studio-rules.test.ts",
@@ -12223,6 +12239,14 @@ const MUTANTS = [
     why: "Codex round 2 on #373 — Hide on a category must take its dishes off the menu server-side; without it a menu open since before the Hide, a reorder or the kiosk still adds and charges them",
     find: ' || i.menu_categories?.is_active === false) return "gone";',
     replace: ') return "gone";',
+  },
+  {
+    id: "menu-studio/category-key-ignored",
+    file: "apps/qr/lib/menu-studio.ts",
+    suite: "lib/menu-studio.test.ts",
+    why: "OA12 (Codex round 4 on #373) — a category add whose answer was lost or late is retried with the same creation key; without the lookup the retry inserts a second category under the next free slug",
+    find: '    if (before === "yes" && newId) return { ok: true, audited: true, categoryId: newId };\n',
+    replace: "",
   },
   {
     id: "menu-studio/move-no-undo",
@@ -12335,6 +12359,22 @@ const MUTANTS = [
     why: "OA9 (owner, 2026-10-25) — with the PIN step-up gone, the console lock is the presence check on this write; dropped, a locked tablet holding a manager's session still rings a custom item at a typed price",
     find: '  if (await isConsoleLocked())\n    return { ok: false, error: "This tablet is locked.", code: "locked" };\n',
     replace: "",
+  },
+  {
+    id: "studio-ui/late-photo-dropped",
+    file: "apps/qr/components/staff/DishSheet.tsx",
+    suite: "components/staff/MenuStudio.test.tsx",
+    why: "OA11 (Codex round 4 on #373) — an upload that answers past the bound moved the row's stamp; not adopting it leaves the sheet's stamp behind, and every later Save or photo is refused as stale until the sheet is closed (losing unsaved edits)",
+    find: '          setPhoto(late.value.imageUrl);\n          setUpdatedAt(late.value.updatedAt);\n          setMsg({ k: "studio.dish.photo.saved" });\n',
+    replace: "          setPhoto(late.value.imageUrl);\n",
+  },
+  {
+    id: "studio-ui/category-add-new-key",
+    file: "apps/qr/components/staff/CategoriesSheet.tsx",
+    suite: "components/staff/MenuStudio.test.tsx",
+    why: "OA12 — the sheet holds the add's creation key across an unknown outcome; a fresh key per tap makes the retry of a landed add a second category",
+    find: "    const newId = keyForAttempt(addKey.current, name, () => crypto.randomUUID());",
+    replace: "    const newId = crypto.randomUUID();",
   },
   {
     id: "studio-ui/server-gets-studio",
@@ -39383,7 +39423,8 @@ const MUTANTS = [
     suite: "lib/payment-recovery.test.ts",
     why: "M160(b) · Codex on #365 — the refund rule reads the EXPANDED charge; a bare retrieve refuses every recovery as charge_unread",
     find: "    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.\n    intent = await getStripe().paymentIntents.retrieve(intentId, { expand: [...RECOVERY_EXPAND] });",
-    replace: "    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.\n    intent = await getStripe().paymentIntents.retrieve(intentId);",
+    replace:
+      "    // The charge EXPANDED: the refund rule reads it, and a bare id refuses as `charge_unread`.\n    intent = await getStripe().paymentIntents.retrieve(intentId);",
   },
   {
     id: "payment-recovery/sweep-list-unexpanded",

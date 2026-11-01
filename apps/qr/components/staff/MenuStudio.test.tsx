@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 
 /**
  * Menu studio's screens (owner, 2026-10-24): who gets the editor, what each sheet SENDS, and that
@@ -286,6 +287,75 @@ describe("MenuStudio", () => {
     await submit();
     expect(editDish).toHaveBeenCalled();
     expect(setMenuPrice).not.toHaveBeenCalled();
+  });
+
+  it("an upload that answers past the bound is adopted when it lands — the next Save carries its stamp (OA11 · `studio-ui/late-photo-dropped`)", async () => {
+    vi.useFakeTimers();
+    try {
+      let land!: (v: unknown) => void;
+      setDishPhoto.mockReturnValueOnce(new Promise((res) => (land = res)));
+      resize.mockResolvedValueOnce(new Blob(["x"], { type: "image/jpeg" }));
+      mount();
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: tf("en", "studio.dish.open", { x: "Mohinga" }) }),
+        );
+      });
+      await act(async () => {
+        fireEvent.change(document.getElementById("dish-photo")!, {
+          target: { files: [new File(["x"], "p.jpg", { type: "image/jpeg" })] },
+        });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS + 10);
+      });
+      expect(region().textContent).toBe(STAFF["studio.err.unknown"].en);
+      await act(async () => {
+        land({
+          ok: true,
+          audited: true,
+          imageUrl:
+            "https://fasnpdhtvqtzjlvruqcu.supabase.co/storage/v1/object/public/menu-photos/d1/9.jpg",
+          updatedAt: "2026-10-24T09:10:00.000Z",
+        });
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(region().textContent).toBe(STAFF["studio.dish.photo.saved"].en);
+      await submit();
+      expect(editDish).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedUpdatedAt: "2026-10-24T09:10:00.000Z" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a category add whose answer is lost keeps its key for the same name; a landed one mints a new key (OA12 · `studio-ui/category-add-new-key`)", async () => {
+    saveCategory.mockRejectedValueOnce(new Error("lost"));
+    mount();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Categories/ }));
+    });
+    const field = document.getElementById("cat-new") as HTMLInputElement;
+    const addIt = () =>
+      act(async () => {
+        fireEvent.submit(field.closest("form")!);
+      });
+    fireEvent.change(field, { target: { value: "Salads" } });
+    await addIt();
+    await addIt();
+    const keys = saveCategory.mock.calls.map(
+      (c) => (c as unknown as [{ newId?: string }])[0].newId,
+    );
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    // The second answer landed: the next add is a new category, with a new key.
+    fireEvent.change(field, { target: { value: "Salads" } });
+    await addIt();
+    const third = (saveCategory.mock.calls[2] as unknown as [{ newId?: string }])[0].newId;
+    expect(third).toBeTruthy();
+    expect(third).not.toBe(keys[0]);
   });
 
   it("categories: the top one cannot move up; Hide sends the category hidden (`studio-ui/hide-sends-shown`)", async () => {

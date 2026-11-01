@@ -35,6 +35,15 @@ let auditError: unknown = null;
 const uploads: { path: string; opts: unknown }[] = [];
 let uploadError: { message: string } | null = null;
 
+/** Postgres `LIKE`: `%` any run, `_` any one character, everything else literal. */
+function likeMatches(value: string, pattern: string): boolean {
+  const body = pattern
+    .split("")
+    .map((ch) => (ch === "%" ? ".*" : ch === "_" ? "." : ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${body}$`, "s").test(value);
+}
+
 function chain(table: string, op: string, payload?: unknown) {
   const call: Call = { table, op, payload, filters: [] };
   calls.push(call);
@@ -47,7 +56,17 @@ function chain(table: string, op: string, payload?: unknown) {
   c.eq = add("eq");
   c.like = add("like");
   c.order = () => c;
-  c.limit = () => Promise.resolve({ data: lists[table] ?? [], error: null });
+  // A list honours the call's `like` filters, as Postgres would: the read's PREDICATE is under test
+  // (OA13 — a read that misses a taken slug proposes it), never a list we hand back regardless.
+  c.limit = () => {
+    const likes = call.filters.filter(([kind]) => kind === "like");
+    const rows = (lists[table] ?? []).filter((r) =>
+      likes.every(([, col, pattern]) =>
+        likeMatches(String((r as Record<string, unknown>)[col]), String(pattern)),
+      ),
+    );
+    return Promise.resolve({ data: rows, error: null });
+  };
   c.maybeSingle = () => {
     if (op === "select") return Promise.resolve({ data: reads[table] ?? null, error: null });
     const q = writes[`${table}:${op}`];
@@ -233,6 +252,25 @@ describe("createDish", () => {
       },
     );
   });
+  it("a long name's cut `-2` is seen by the taken read, so its third dish takes `-3` (OA13 · `menu-studio/slug-read-misses-cut`)", async () => {
+    // A 79-character name slugs to 79 characters, so its `-2` CUTS the base ("…greens" →
+    // "…green-2"), and a read on the whole base never returned it: the add proposed the taken `-2`
+    // on both tries and failed.
+    lists = {
+      menu_items: [
+        { slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-greens" },
+        {
+          slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-green-2",
+        },
+      ],
+    };
+    const nameEn =
+      "Grandma Shan Rice Noodle Soup with Crispy Pork Belly and Pickled Mustard Greens";
+    expect(await createDish({ ...add, nameEn })).toMatchObject({ ok: true });
+    expect(calls.find((c) => c.table === "menu_items" && c.op === "insert")!.payload).toMatchObject(
+      { slug: "grandma-shan-rice-noodle-soup-with-crispy-pork-belly-and-pickled-mustard-green-3" },
+    );
+  });
   it("a slug taken between the read and the insert is retried once", async () => {
     writes["menu_items:insert"] = [{ data: null, error: { code: "23505", message: "dup" } }];
     expect(await createDish(add)).toMatchObject({ ok: true });
@@ -301,6 +339,25 @@ describe("categories", () => {
     expect(await saveCategory({ name: "Noodles", isActive: true })).toMatchObject({ ok: true });
     const ins = calls.find((c) => c.table === "menu_categories" && c.op === "insert")!;
     expect(ins.payload).toMatchObject({ slug: "noodles-2", name: "Noodles", sort_order: 40 });
+  });
+  it("a retry of a category add that already landed answers ok for it and inserts nothing (OA12 · `menu-studio/category-key-ignored`)", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    reads = { menu_categories: { id: NEWCAT } };
+    expect(await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT })).toEqual({
+      ok: true,
+      audited: true,
+      categoryId: NEWCAT,
+    });
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+  it("a category add carries its creation key as the row's id", async () => {
+    const NEWCAT = "55555555-5555-4555-8555-555555555555";
+    reads = {};
+    lists = { menu_categories: [] };
+    await saveCategory({ name: "Noodles", isActive: true, newId: NEWCAT });
+    expect(
+      calls.find((c) => c.table === "menu_categories" && c.op === "insert")!.payload,
+    ).toMatchObject({ id: NEWCAT, name: "Noodles" });
   });
   it("a rename is swapped on the name it read; no match is stale (`menu-studio/category-cas-dropped`)", async () => {
     reads = { menu_categories: { id: CAT, name: "Soups", is_active: true } };

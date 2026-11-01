@@ -10,8 +10,10 @@ import {
   PHOTO_MAX_BYTES,
   photoPath,
   photoVerdict,
+  slugFamilyPrefix,
   slugify,
   SLUG_MAX,
+  SLUG_READ_LIMIT,
   uniqueSlug,
   type DishFields,
 } from "./menu-studio-rules";
@@ -36,6 +38,30 @@ describe("slugify · uniqueSlug", () => {
     expect(uniqueSlug("tea", new Set())).toBe("tea");
     expect(uniqueSlug("tea", new Set(["tea"]))).toBe("tea-2");
     expect(uniqueSlug("tea", new Set(["tea", "tea-2"]))).toBe("tea-3");
+  });
+  it("the taken read's prefix starts every slug uniqueSlug proposes against a full read (OA13 · `menu-studio/slug-family-narrow`)", () => {
+    // A short base, and bases cut at SLUG_MAX with their one dash at every place a cut can land.
+    const bases = [
+      "tea",
+      ...Array.from({ length: 22 }, (_, i) =>
+        slugify(`${"a".repeat(SLUG_MAX - 22 + i)} ${"b".repeat(30)}`),
+      ),
+    ];
+    const misses: string[] = [];
+    for (const base of bases) {
+      const prefix = slugFamilyPrefix(base);
+      const taken = new Set([base]);
+      // A read returns at most SLUG_READ_LIMIT taken slugs, so propose that many and one more.
+      for (let k = 0; k <= SLUG_READ_LIMIT; k++) {
+        const slug = uniqueSlug(base, taken);
+        if (!slug.startsWith(prefix)) misses.push(slug);
+        taken.add(slug);
+      }
+    }
+    expect(misses).toEqual([]);
+  });
+  it("the prefix is the base itself while no cut is needed", () => {
+    expect(slugFamilyPrefix("mohinga")).toBe("mohinga");
   });
 });
 

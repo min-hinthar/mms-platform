@@ -257,6 +257,17 @@ export function DishSheet({
       form.set("expectedUpdatedAt", updatedAt);
       form.set("photo", new File([small], "photo.jpg", { type: "image/jpeg" }));
       const out = await boundWrite(setDishPhoto(form));
+      // OA11 (Codex round 4 on #373) — an upload that answers AFTER the bound still moved the row's
+      // stamp. Adopted when it lands, so the next Save carries the stamp the row now has instead of
+      // being refused as stale. A late success is safe to adopt as it is: the write was compared
+      // against the stamp this sheet held, and no other write from it can land in between.
+      if (out.kind === "waiting")
+        void out.late.then((late) => {
+          if (late.kind !== "answer" || !late.value.ok) return;
+          setPhoto(late.value.imageUrl);
+          setUpdatedAt(late.value.updatedAt);
+          setMsg({ k: "studio.dish.photo.saved" });
+        });
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
       const res = out.value;
       if (!res.ok) return refused(res.reason);
@@ -280,6 +291,14 @@ export function DishSheet({
       const out = await boundWrite(
         clearDishPhoto({ itemId: dish.id, expectedUpdatedAt: updatedAt }),
       );
+      // OA11 — a removal that answers late is adopted the same way (see the upload above).
+      if (out.kind === "waiting")
+        void out.late.then((late) => {
+          if (late.kind !== "answer" || !late.value.ok) return;
+          setPhoto(null);
+          setUpdatedAt(late.value.updatedAt);
+          setMsg({ k: "studio.dish.photo.removed" });
+        });
       if (out.kind !== "answer") return setMsg({ k: "studio.err.unknown" });
       if (!out.value.ok) return refused(out.value.reason);
       setPhoto(null);
