@@ -215,6 +215,16 @@ function refundedByObjects(refunds: RecoveryCharge["refunds"]): number | null {
  *
  * Every field it compares must be a whole, non-negative number of cents, and the capture can never
  * exceed the charge (this app never over-captures); anything else is `charge_unread`.
+ *
+ * Stripe's changelog settles the release question for the pinned version (read 2026-11-01, M331):
+ * from API `2025-03-31.basil` on, a partial capture creates NO Refund and leaves `amount_refunded`
+ * alone ("remove refund from partial capture and payment cancellation flow"). Under the SDK's pin
+ * (`2026-05-27.dahlia`, `lib/stripe.ts`) a release therefore reads `amount_refunded === 0` and is
+ * recoverable, and the remainder branch above is reached only by a real refund of exactly that figure.
+ * Before basil, the release was a Refund with reason `partial_capture` and counted in
+ * `amount_refunded`, which this rule refuses. So a `STRIPE_API_VERSION` override below basil would
+ * make the webhook (M331) skip a partially captured pickup's order. `PICKUP_MANUAL_CAPTURE`'s binding
+ * flip gate ③ (a partial capture after an 86, in test mode) proves the order appears.
  */
 function chargeRefusal(intent: RecoveryIntent): RecoveryRefusal | null {
   const charge = intent.latest_charge;

@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Launch hardening — the webhook's refund check, three studio fixes, K33 closed (2026-11-01, `claude/blissful-cerf-jxz37k`)
+
+The owner, 2026-10-25: "Finalize all for Production ready for launch and live."
+
+- **M331 — the Stripe webhook reads the charge before it fires an order.** Its own
+  `payment_intent.succeeded` path now does what the three recovery doors already did (#365): read the
+  intent with its charge expanded and refuse a refunded one. A charge refunded while the webhook was
+  down no longer fires an order when Stripe redelivers. A refunded charge is answered 200 with a
+  logged skip; a charge it cannot read answers 500, so Stripe tries again (`webhookChargeGate`,
+  `lib/payment-recovery.ts`). An AST test pins the route's wiring.
+- **OA11 — a slow photo upload no longer strands the dish sheet.** An upload or removal that answers
+  after the 15-second bound is adopted when it lands, so the next Save is not refused as stale.
+- **OA12 — a category add can be retried safely.** The add carries a creation key minted on the
+  tablet, as a new dish does, so a retry after a lost answer finds the category it made instead of
+  adding a second one.
+- **OA13 — a third dish with a long name gets its slug.** The taken-slugs read now covers the cut
+  `-2` of a name near 80 characters, so the next add takes `-3` instead of failing.
+- **K33 closed** after measuring the code: the settled-table drill-down and a fired line's kitchen
+  note both shipped (the last gap in #360).
+
 ### The owner's four asks — menu studio, custom items, no PIN, guest names (2026-10-24, `claude/blissful-cerf-jxz37k`)
 
 - **OA3 · OA4 · OA9 decided (2026-10-25,** `docs/DECISIONS_2026-10-25.md`): a locked console now
